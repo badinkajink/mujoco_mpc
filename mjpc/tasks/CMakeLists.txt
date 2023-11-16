@@ -27,6 +27,9 @@ add_custom_target(
           ${menagerie_SOURCE_DIR}/unitree_a1/assets
           ${CMAKE_CURRENT_BINARY_DIR}/quadruped/assets
   COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${menagerie_SOURCE_DIR}/unitree_go1/assets
+          ${CMAKE_CURRENT_BINARY_DIR}/go1/assets
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${menagerie_SOURCE_DIR}/franka_emika_panda
           ${CMAKE_CURRENT_BINARY_DIR}/manipulation
   COMMAND ${CMAKE_COMMAND} -E copy_directory
