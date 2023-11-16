@@ -12,30 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A version of the MJPC UI that serves the AgentService API.
+// Startup code for `Filter` server.
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-#include <absl/flags/parse.h>
 #include <absl/flags/flag.h>
+#include <absl/flags/parse.h>
 #include <absl/log/log.h>
 #include <absl/strings/str_cat.h>
-#include <absl/time/clock.h>
-#include <absl/time/time.h>
+
 // DEEPMIND INTERNAL IMPORT
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
-
-#include "mjpc/app.h"
-#include "mjpc/tasks/tasks.h"
-#include "grpc/ui_agent_service.h"
+#include "mjpc/grpc/filter_service.h"
 
 ABSL_FLAG(int32_t, mjpc_port, 10000, "port to listen on");
-ABSL_FLAG(int32_t, mjpc_workers, -1,
-          "Not used. Here for compatibility with agent_server.cc");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -48,8 +42,7 @@ int main(int argc, char** argv) {
   grpc::ServerBuilder builder;
   builder.AddListeningPort(server_address, server_credentials);
 
-  mjpc::MjpcApp app(mjpc::GetTasks());
-  mjpc::agent_grpc::UiAgentService service(app.Sim());
+  filter_grpc::FilterService service;
   // builder.SetMaxReceiveMessageSize(40 * 1024 * 1024);
   builder.SetMaxReceiveMessageSize(50 * 1024 * 1024);
   // builder.SetMaxReceiveMessageSize(-1);
@@ -58,8 +51,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
   LOG(INFO) << "Server listening on " << server_address;
 
-  app.Start();
-  server->Shutdown(absl::ToChronoTime(absl::Now() + absl::Seconds(1)));
+  // Keep the program running until the server shuts down.
   server->Wait();
 
   return 0;

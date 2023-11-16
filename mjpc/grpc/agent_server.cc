@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Startup code for `Filter` server.
+// Startup code for `Agent` server.
 
 #include <cstdint>
 #include <memory>
@@ -22,14 +22,18 @@
 #include <absl/flags/parse.h>
 #include <absl/log/log.h>
 #include <absl/strings/str_cat.h>
-
 // DEEPMIND INTERNAL IMPORT
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
-#include "grpc/filter_service.h"
+
+#include "mjpc/grpc/agent_service.h"
+#include "mjpc/tasks/tasks.h"
 
 ABSL_FLAG(int32_t, mjpc_port, 10000, "port to listen on");
+ABSL_FLAG(int32_t, mjpc_workers, -1,
+          "number of worker threads for MJPC planning. -1 means use the number "
+          "of available hardware threads.");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -42,7 +46,8 @@ int main(int argc, char** argv) {
   grpc::ServerBuilder builder;
   builder.AddListeningPort(server_address, server_credentials);
 
-  filter_grpc::FilterService service;
+  mjpc::agent_grpc::AgentService service(mjpc::GetTasks(),
+                                         absl::GetFlag(FLAGS_mjpc_workers));
   // builder.SetMaxReceiveMessageSize(40 * 1024 * 1024);
   builder.SetMaxReceiveMessageSize(50 * 1024 * 1024);
   // builder.SetMaxReceiveMessageSize(-1);
