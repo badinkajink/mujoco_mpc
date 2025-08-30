@@ -149,8 +149,14 @@ class CopyTaskAssetsCommand(setuptools.Command):
     self.set_undefined_options("build_ext", ("build_lib", "build_lib"))
 
   def run(self):
-    mjpc_tasks_path = Path(__file__).parent.parent / "mjpc" / "tasks"
-    source_paths = tuple(mjpc_tasks_path.rglob("*.xml"))
+    mjpc_tasks_path = Path(__file__).parent.parent / "build" / "mjpc" / "tasks"
+    assert mjpc_tasks_path.exists(), "Build MJPC before installing Python API"
+    source_paths = (
+      tuple(mjpc_tasks_path.rglob("*.xml"))
+      + tuple(mjpc_tasks_path.rglob("*.png"))
+      + tuple(mjpc_tasks_path.rglob("*.stl"))
+      + tuple(mjpc_tasks_path.rglob("*.obj"))
+    )
     relative_source_paths = tuple(p.relative_to(mjpc_tasks_path) for p in source_paths)
     assert self.build_lib is not None
     build_lib_path = Path(self.build_lib).resolve()
@@ -202,7 +208,7 @@ class BuildCMakeExtension(build_ext.build_ext):
   def _configure_and_build_agent_server(self):
     """Check for CMake."""
     cmake_command = "cmake"
-    build_cfg = "Debug"
+    build_cfg = "Release"
     mujoco_mpc_root = Path(__file__).parent.parent
     mujoco_mpc_build_dir = mujoco_mpc_root / "build"
     cmake_configure_args = [
@@ -272,14 +278,18 @@ setuptools.setup(
         "Topic :: Scientific/Engineering",
     ],
     packages=setuptools.find_packages(),
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     setup_requires=[
         "grpcio-tools",
         "grpcio",
     ],
     install_requires=[
+        "brax",
         "grpcio",
-        "mujoco >= 2.3.3",
+        "matplotlib",
+        "mediapy",
+        "mujoco >= 3.1.1",
+        "mujoco-mjx",
         "protobuf",
     ],
     extras_require={

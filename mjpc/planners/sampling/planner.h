@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MJPC_PLANNERS_SAMPLING_OPTIMIZER_H_
-#define MJPC_PLANNERS_SAMPLING_OPTIMIZER_H_
+#ifndef MJPC_PLANNERS_SAMPLING_PLANNER_H_
+#define MJPC_PLANNERS_SAMPLING_PLANNER_H_
 
 #include <mujoco/mujoco.h>
 
 #include <atomic>
+#include <cstdint>
 #include <shared_mutex>
 #include <vector>
 
 #include "mjpc/planners/planner.h"
 #include "mjpc/planners/sampling/policy.h"
+#include "mjpc/spline/spline.h"
 #include "mjpc/states/state.h"
+#include "mjpc/task.h"
 #include "mjpc/trajectory.h"
 
 namespace mjpc {
@@ -31,8 +34,6 @@ namespace mjpc {
 // sampling planner limits
 inline constexpr int MinSamplingSplinePoints = 1;
 inline constexpr int MaxSamplingSplinePoints = 36;
-inline constexpr int MinSamplingSplinePower = 1;
-inline constexpr int MaxSamplingSplinePower = 5;
 inline constexpr double MinNoiseStdDev = 0.0;
 inline constexpr double MaxNoiseStdDev = 1.0;
 
@@ -53,7 +54,8 @@ class SamplingPlanner : public RankedPlanner {
   void Allocate() override;
 
   // reset memory to zeros
-  void Reset(int horizon) override;
+  void Reset(int horizon,
+             const double* initial_repeated_action = nullptr) override;
 
   // set state
   void SetState(const State& state) override;
@@ -72,7 +74,7 @@ class SamplingPlanner : public RankedPlanner {
   void UpdateNominalPolicy(int horizon);
 
   // add noise to nominal policy
-  void AddNoiseToPolicy(int i);
+  void AddNoiseToPolicy(double start_time, int i);
 
   // compute candidate trajectories
   void Rollouts(int num_trajectory, int horizon, ThreadPool& pool);
@@ -89,6 +91,11 @@ class SamplingPlanner : public RankedPlanner {
   // planner-specific plots
   void Plots(mjvFigure* fig_planner, mjvFigure* fig_timer, int planner_shift,
              int timer_shift, int planning, int* shift) override;
+
+  // return number of parameters optimized by planner
+  int NumParameters() override {
+    return policy.num_spline_points * model->nu;
+  };
 
   // optimizes policies, but rather than picking the best, generate up to
   // ncandidates. returns number of candidates created.
@@ -120,8 +127,7 @@ class SamplingPlanner : public RankedPlanner {
   SamplingPolicy previous_policy;
 
   // scratch
-  std::vector<double> parameters_scratch;
-  std::vector<double> times_scratch;
+  mjpc::spline::TimeSpline plan_scratch;
 
   // trajectories
   Trajectory trajectory[kMaxTrajectory];
@@ -129,16 +135,11 @@ class SamplingPlanner : public RankedPlanner {
   // order of indices of rolled out trajectories, ordered by total return
   std::vector<int> trajectory_order;
 
-  // rollout parameters
-  double timestep_power;
-
   // ----- noise ----- //
-  double noise_exploration;  // standard deviation for sampling normal: N(0,
-                             // exploration)
+  double noise_exploration[2] = {0};  // stds for sampling: N(0, exploration)
   std::vector<double> noise;
-
-  // gradient
-  std::vector<double> noise_gradient;
+mjpc::spline::SplineInterpolation interpolation_ =
+      mjpc::spline::SplineInterpolation::kZeroSpline;
 
   // best trajectory
   int winner;
@@ -154,10 +155,13 @@ class SamplingPlanner : public RankedPlanner {
   double rollouts_compute_time;
   double policy_update_compute_time;
 
+  // If true, use sliding plans (no resampling)
+  std::uint8_t sliding_plan_ = false;
+
   int num_trajectory_;
   mutable std::shared_mutex mtx_;
 };
 
 }  // namespace mjpc
 
-#endif  // MJPC_PLANNERS_SAMPLING_OPTIMIZER_H_
+#endif  // MJPC_PLANNERS_SAMPLING_PLANNER_H_

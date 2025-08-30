@@ -25,7 +25,6 @@
 
 #include <absl/functional/any_invocable.h>
 #include <mujoco/mujoco.h>
-#include "mjpc/agent_state.pb.h"
 #include "mjpc/estimators/include.h"
 #include "mjpc/planners/include.h"
 #include "mjpc/states/state.h"
@@ -66,7 +65,7 @@ class Agent {
   void Allocate();
 
   // reset data, settings, planners, states
-  void Reset();
+  void Reset(const double* initial_repeated_action = nullptr);
 
   // single planner iteration
   void PlanIteration(ThreadPool* pool);
@@ -91,9 +90,8 @@ class Agent {
   void GUI(mjUI& ui);
 
   // task-based GUI event
-  std::optional<agent_state::State> TaskEvent(mjuiItem* it, mjData* data,
-                                              std::atomic<int>& uiloadrequest,
-                                              int& run);
+  void TaskEvent(mjuiItem* it, mjData* data, std::atomic<int>& uiloadrequest,
+                 int& run);
 
   // agent-based GUI event
   void AgentEvent(mjuiItem* it, mjData* data, std::atomic<int>& uiloadrequest,
@@ -122,7 +120,6 @@ class Agent {
   std::string GetTaskNames() const { return task_names_; }
   int GetTaskIdByName(std::string_view name) const;
   std::string GetTaskXmlPath(int id) const { return tasks_[id]->XmlPath(); }
-  agent_state::State GetAgentState(mjModel* model, mjData* data);
 
   // load the latest task model, based on GUI settings
   struct LoadModelResult {
@@ -139,6 +136,7 @@ class Agent {
   mjpc::Planner& ActivePlanner() const { return *planners_[planner_]; }
   mjpc::Estimator& ActiveEstimator() const { return *estimators_[estimator_]; }
   int ActiveEstimatorIndex() const { return estimator_; }
+  double ComputeTime() const { return agent_compute_time_; }
   Task* ActiveTask() const { return tasks_[active_task_id_].get(); }
   // a residual function that can be used from trajectory rollouts. must only
   // be used from trajectory rollout threads (no locking).
@@ -148,6 +146,7 @@ class Agent {
   bool IsPlanningModel(const mjModel* model) const {
     return model == model_;
   }
+  int PlanSteps() const { return steps_; }
   int GetActionDim() const { return model_->nu; }
   mjModel* GetModel() { return model_; }
   const mjModel* GetModel() const { return model_; }
@@ -248,6 +247,12 @@ class Agent {
 
   // max threads for estimation
   int estimator_threads_;
+
+  // differentiable planning model
+  bool differentiable_;
+  std::vector<double> jnt_solimp_;
+  std::vector<double> geom_solimp_;
+  std::vector<double> pair_solimp_;
 };
 
 }  // namespace mjpc

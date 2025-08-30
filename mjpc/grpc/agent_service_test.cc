@@ -30,7 +30,7 @@
 #include "mjpc/grpc/agent_service.h"
 #include "mjpc/grpc/agent.grpc.pb.h"
 #include "mjpc/grpc/agent.pb.h"
-#include "mjpc/grpc/agent.pb.h"
+#include "mjpc/grpc/agent.proto.h"
 #include "mjpc/tasks/tasks.h"
 #include "testing/base/public/gmock.h"
 #include "testing/base/public/gunit.h"
@@ -331,6 +331,45 @@ TEST_F(AgentServiceTest, SetCostWeights_RejectsInvalidName) {
   EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   EXPECT_THAT(status.error_message(), testing::ContainsRegex("Velocity"))
       << "Error message should contain the list of cost term names.";
+}
+
+TEST_F(AgentServiceTest, GetMode_Works) {
+  RunAndCheckInit("Cartpole", nullptr);
+
+  grpc::ClientContext context;
+
+  agent::GetModeRequest request;
+  agent::GetModeResponse response;
+  grpc::Status status = stub->GetMode(&context, request, &response);
+
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(response.mode(), "default_mode");
+}
+
+TEST_F(AgentServiceTest, GetAllModes_Works) {
+  RunAndCheckInit("Cartpole", nullptr);
+
+  grpc::ClientContext context;
+
+  agent::GetAllModesRequest request;
+  agent::GetAllModesResponse response;
+  grpc::Status status = stub->GetAllModes(&context, request, &response);
+
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(response.mode_names().size(), 1);
+  EXPECT_EQ(response.mode_names()[0], "default_mode");
+}
+
+TEST_F(AgentServiceTest, GetResiduals_Works) {
+  RunAndCheckInit("Cartpole", nullptr);
+
+  grpc::ClientContext context;
+
+  agent::GetResidualsRequest request;
+  agent::GetResidualsResponse response;
+  grpc::Status status = stub->GetResiduals(&context, request, &response);
+
+  EXPECT_TRUE(status.ok());
 }
 
 }  // namespace mjpc::agent_grpc

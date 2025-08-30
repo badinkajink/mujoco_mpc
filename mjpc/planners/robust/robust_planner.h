@@ -22,9 +22,15 @@
 #define MJPC_MJPC_PLANNERS_ROBUST_ROBUST_PLANNER_H_
 
 #include <memory>
+#include <utility>
 #include <vector>
 
+#include <mujoco/mujoco.h>
 #include "mjpc/planners/planner.h"
+#include "mjpc/states/state.h"
+#include "mjpc/task.h"
+#include "mjpc/threadpool.h"
+#include "mjpc/trajectory.h"
 
 namespace mjpc {
 
@@ -36,7 +42,8 @@ class RobustPlanner : public Planner {
 
   void Initialize(mjModel* model, const Task& task) override;
   void Allocate() override;
-  void Reset(int horizon) override;
+  void Reset(int horizon,
+             const double* initial_repeated_action = nullptr) override;
   void SetState(const State& state) override;
   void OptimizePolicy(int horizon, ThreadPool& pool) override;
   void NominalTrajectory(int horizon, ThreadPool& pool) override;
@@ -47,6 +54,7 @@ class RobustPlanner : public Planner {
   void GUI(mjUI& ui) override;
   void Plots(mjvFigure* fig_planner, mjvFigure* fig_timer, int planner_shift,
              int timer_shift, int planning, int* shift) override;
+  int NumParameters() override { return delegate_->NumParameters(); };
 
  private:
   void ResizeTrajectories(int ntrajectories);

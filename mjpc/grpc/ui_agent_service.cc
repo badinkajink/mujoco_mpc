@@ -35,10 +35,16 @@ namespace mjpc::agent_grpc {
 
 using ::agent::GetActionRequest;
 using ::agent::GetActionResponse;
-using ::agent::GetModeRequest;
-using ::agent::GetModeResponse;
+using ::agent::GetAllModesRequest;
+using ::agent::GetAllModesResponse;
+using ::agent::GetBestTrajectoryRequest;
+using ::agent::GetBestTrajectoryResponse;
+using ::agent::GetResidualsRequest;
+using ::agent::GetResidualsResponse;
 using ::agent::GetCostValuesAndWeightsRequest;
 using ::agent::GetCostValuesAndWeightsResponse;
+using ::agent::GetModeRequest;
+using ::agent::GetModeResponse;
 using ::agent::GetStateRequest;
 using ::agent::GetStateResponse;
 using ::agent::GetTaskParametersRequest;
@@ -49,6 +55,8 @@ using ::agent::PlannerStepRequest;
 using ::agent::PlannerStepResponse;
 using ::agent::ResetRequest;
 using ::agent::ResetResponse;
+using ::agent::SetAnythingRequest;
+using ::agent::SetAnythingResponse;
 using ::agent::SetCostWeightsRequest;
 using ::agent::SetCostWeightsResponse;
 using ::agent::SetModeRequest;
@@ -71,7 +79,7 @@ grpc::Status UiAgentService::Init(grpc::ServerContext* context,
   // fake a UI event where the task changes
   // TODO(nimrod): get rid of this hack
   mjuiItem it = {0};
-  it.itemid = 3;
+  it.itemid = 2;
   sim_->agent->TaskEvent(&it, sim_->d, sim_->uiloadrequest, sim_->run);
 
   // set real time speed
@@ -122,6 +130,18 @@ grpc::Status UiAgentService::GetAction(grpc::ServerContext* context,
         request, agent, model, rollout_data_.get(), &rollout_state_, response);
   });
 }
+
+grpc::Status UiAgentService::GetResiduals(
+    grpc::ServerContext* context, const GetResidualsRequest* request,
+    GetResidualsResponse* response) {
+  return RunBeforeStep(
+      context, [request, response](mjpc::Agent* agent, const mjModel* model,
+                                   mjData* data) {
+        return grpc_agent_util::GetResiduals(request, agent, model,
+                                             data, response);
+      });
+}
+
 
 grpc::Status UiAgentService::GetCostValuesAndWeights(
     grpc::ServerContext* context, const GetCostValuesAndWeightsRequest* request,
@@ -204,6 +224,34 @@ grpc::Status UiAgentService::GetMode(grpc::ServerContext* context,
                                    mjData* data) {
         return grpc_agent_util::GetMode(request, agent, response);
       });
+}
+
+grpc::Status UiAgentService::GetAllModes(grpc::ServerContext* context,
+                                         const GetAllModesRequest* request,
+                                         GetAllModesResponse* response) {
+  return RunBeforeStep(
+      context, [request, response](mjpc::Agent* agent, const mjModel* model,
+                                   mjData* data) {
+        return grpc_agent_util::GetAllModes(request, agent, response);
+      });
+}
+
+grpc::Status UiAgentService::GetBestTrajectory(
+    grpc::ServerContext* context, const GetBestTrajectoryRequest* request,
+    GetBestTrajectoryResponse* response) {
+  // TODO - Implement.
+  return {grpc::StatusCode::UNIMPLEMENTED,
+          "GetBestTrajectory is not implemented."};
+}
+
+grpc::Status UiAgentService::SetAnything(grpc::ServerContext* context,
+                                         const SetAnythingRequest* request,
+                                         SetAnythingResponse* response) {
+  return RunBeforeStep(context, [request, response](mjpc::Agent* agent,
+                                                    const mjModel* model,
+                                                    mjData* data) {
+    return grpc_agent_util::SetAnything(request, agent, model, data, response);
+  });
 }
 
 namespace {

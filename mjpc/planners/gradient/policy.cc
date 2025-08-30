@@ -15,14 +15,18 @@
 #include "mjpc/planners/gradient/policy.h"
 
 #include <algorithm>
+#include <vector>
 
 #include <mujoco/mujoco.h>
-#include "mjpc/planners/gradient/spline_mapping.h"
-#include "mjpc/planners/policy.h"
+#include "mjpc/spline/spline.h"
+#include "mjpc/task.h"
 #include "mjpc/trajectory.h"
 #include "mjpc/utilities.h"
 
 namespace mjpc {
+
+using mjpc::spline::SplineInterpolation;
+
 
 // allocate memory
 void GradientPolicy::Allocate(const mjModel* model, const Task& task,
@@ -48,16 +52,24 @@ void GradientPolicy::Allocate(const mjModel* model, const Task& task,
                                          "gradient_spline_points");
 
   // representation
-  representation = GetNumberOrDefault(PolicyRepresentation::kLinearSpline,
+  representation = GetNumberOrDefault(SplineInterpolation::kLinearSpline,
                                       model, "gradient_representation");
 }
 
 // reset memory to zeros
-void GradientPolicy::Reset(int horizon) {
+void GradientPolicy::Reset(int horizon, const double* initial_repeated_action) {
   std::fill(k.begin(), k.begin() + horizon * model->nu, 0.0);
 
   // parameters
-  std::fill(parameters.begin(), parameters.begin() + model->nu * horizon, 0.0);
+  if (initial_repeated_action != nullptr) {
+    for (int i = 0; i < horizon; ++i) {
+      mju_copy(parameters.data() + i * model->nu, initial_repeated_action,
+               model->nu);
+    }
+  } else {
+    std::fill(parameters.begin(),
+              parameters.begin() + model->nu * horizon, 0.0);
+  }
   std::fill(parameter_update.begin(),
             parameter_update.begin() + model->nu * horizon, 0.0);
 
@@ -75,13 +87,13 @@ void GradientPolicy::Action(double* action, const double* state,
   // ----- get action ----- //
 
   if (bounds[0] == bounds[1] ||
-      representation == PolicyRepresentation::kZeroSpline) {
+      representation == SplineInterpolation::kZeroSpline) {
     ZeroInterpolation(action, time, times, parameters.data(), model->nu,
                       num_spline_points);
-  } else if (representation == PolicyRepresentation::kLinearSpline) {
+  } else if (representation == SplineInterpolation::kLinearSpline) {
     LinearInterpolation(action, time, times, parameters.data(), model->nu,
                         num_spline_points);
-  } else if (representation == PolicyRepresentation::kCubicSpline) {
+  } else if (representation == SplineInterpolation::kCubicSpline) {
     CubicInterpolation(action, time, times, parameters.data(), model->nu,
                        num_spline_points);
   }

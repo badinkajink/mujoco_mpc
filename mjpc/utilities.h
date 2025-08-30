@@ -33,6 +33,9 @@ namespace mjpc {
 // maximum number of traces that are visualized
 inline constexpr int kMaxTraces = 99;
 
+// make model differentiable by setting solimp[0] to zero
+void MakeDifferentiable(mjModel* model);
+
 // set mjData state
 void SetState(const mjModel* model, mjData* data, const double* state);
 
@@ -100,6 +103,9 @@ int ParameterIndex(const mjModel* model, std::string_view name);
 
 int CostTermByName(const mjModel* m, const std::string& name);
 
+// return total size of sensors of type user
+int ResidualSize(const mjModel* model);
+
 // sanity check that residual size equals total user-sensor dimension
 void CheckSensorDim(const mjModel* model, int residual_size);
 
@@ -111,21 +117,31 @@ void GetTraces(double* traces, const mjModel* m, const mjData* d,
 double* KeyQPosByName(const mjModel* m, const mjData* d,
                       const std::string& name);
 
-// get keyframe `qvel` data using string
-double* KeyQVelByName(const mjModel* m, const mjData* d,
-                      const std::string& name);
-
-// get keyframe `act` data using string
-double* KeyActByName(const mjModel* m, const mjData* d,
-                     const std::string& name);
-
-// return a power transformed sequence
-void PowerSequence(double* t, double t_step, double t1, double t2, double p,
-                   double N);
+// fills t with N numbers, starting from t0 and incrementing by t_step
+void LinearRange(double* t, double t_step, double t0, int N);
 
 // find interval in monotonic sequence containing value
-void FindInterval(int* bounds, const std::vector<double>& sequence,
-                  double value, int length);
+template <typename T>
+void FindInterval(int* bounds, const std::vector<T>& sequence, double value,
+                  int length) {
+  // get bounds
+  auto it =
+      std::upper_bound(sequence.begin(), sequence.begin() + length, value);
+  int upper_bound = it - sequence.begin();
+  int lower_bound = upper_bound - 1;
+
+  // set bounds
+  if (lower_bound < 0) {
+    bounds[0] = 0;
+    bounds[1] = 0;
+  } else if (lower_bound > length - 1) {
+    bounds[0] = length - 1;
+    bounds[1] = length - 1;
+  } else {
+    bounds[0] = mju_max(lower_bound, 0);
+    bounds[1] = mju_min(upper_bound, length - 1);
+  }
+}
 
 // zero-order interpolation
 void ZeroInterpolation(double* output, double x, const std::vector<double>& xs,

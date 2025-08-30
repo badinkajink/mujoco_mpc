@@ -20,15 +20,12 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include <absl/container/flat_hash_map.h>
-#include <absl/log/check.h>
 #include <absl/strings/match.h>
 #include <absl/strings/str_join.h>
 #include <absl/strings/str_split.h>
@@ -38,7 +35,6 @@
 #include <mujoco/mjvisualize.h>
 #include <mujoco/mujoco.h>
 #include "mjpc/array_safety.h"
-#include "mjpc/agent_state.pb.h"
 #include "mjpc/estimators/include.h"
 #include "mjpc/planners/include.h"
 #include "mjpc/task.h"
@@ -74,8 +70,21 @@ Agent::Agent(const mjModel* model, std::shared_ptr<Task> task)
 // initialize data, settings, planners, state
 void Agent::Initialize(const mjModel* model) {
   // ----- model ----- //
-  if (model_) mj_deleteModel(model_);
+  mjModel* old_model = model_;
   model_ = mj_copyModel(nullptr, model);  // agent's copy of model
+
+  // check for limits on all actuators
+  int num_missing = 0;
+  for (int i = 0; i < model_->nu; i++) {
+    if (!model_->actuator_ctrllimited[i]) {
+      num_missing++;
+      printf("%s (actuator %i) missing limits\n",
+             model_->names + model_->name_actuatoradr[i], i);
+    }
+  }
+  if (num_missing > 0) {
+    mju_error("Ctrl limits required for all actuators.\n");
+  }
 
   // planner
   planner_ = GetNumberOrDefault(0, model, "agent_planner");
@@ -109,7 +118,7 @@ void Agent::Initialize(const mjModel* model) {
   state.Initialize(model);
 
   // initialize estimator
-  if (reset_estimator) {
+  if (reset_estimator && estimator_enabled) {
     for (const auto& estimator : estimators_) {
       estimator->Initialize(model_);
       estimator->Reset();
@@ -143,6 +152,25 @@ void Agent::Initialize(const mjModel* model) {
   // planner threads
   planner_threads_ =
       std::max(1, NumAvailableHardwareThreads() - 3 - 2 * estimator_threads_);
+
+  // differentiable planning model
+  // by default gradient-based planners use a differentiable model
+  int gradient_planner = false;
+  if (planner_ == kGradientPlanner || planner_ == kILQGPlanner ||
+      planner_ == kILQSPlanner) {
+    gradient_planner = true;
+  }
+  differentiable_ =
+      GetNumberOrDefault(gradient_planner, model, "agent_differentiable");
+  jnt_solimp_.resize(model->njnt);
+  geom_solimp_.resize(model->ngeom);
+  pair_solimp_.resize(model->npair);
+
+  // delete the previous model after all the planners have been updated to use
+  // the new one.
+  if (old_model) {
+    mj_deleteModel(old_model);
+  }
 }
 
 // allocate memory
@@ -163,17 +191,17 @@ void Agent::Allocate() {
 }
 
 // reset data, settings, planners, state
-void Agent::Reset() {
+void Agent::Reset(const double* initial_repeated_action) {
   // planner
   for (const auto& planner : planners_) {
-    planner->Reset(kMaxTrajectoryHorizon);
+    planner->Reset(kMaxTrajectoryHorizon, initial_repeated_action);
   }
 
   // state
   state.Reset();
 
   // estimator
-  if (reset_estimator) {
+  if (reset_estimator && estimator_enabled) {
     for (const auto& estimator : estimators_) {
       estimator->Reset();
     }
@@ -200,67 +228,6 @@ int Agent::GetTaskIdByName(std::string_view name) const {
     }
   }
   return -1;
-}
-
-// Returns a state proto string which includes sim state, task parameters, and
-// cost weights.
-agent_state::State Agent::GetAgentState(mjModel* model, mjData* data) {
-  agent_state::State task_state;
-
-  auto* state = task_state.mutable_sim_state();
-  state->set_time(data->time);
-  for (int i = 0; i < model->nq; i++) {
-    state->add_qpos(data->qpos[i]);
-  }
-  for (int i = 0; i < model->nv; i++) {
-    state->add_qvel(data->qvel[i]);
-  }
-  for (int i = 0; i < model->na; i++) {
-    state->add_act(data->act[i]);
-  }
-  for (int i = 0; i < model->nmocap * 3; i++) {
-    state->add_mocap_pos(data->mocap_pos[i]);
-  }
-  for (int i = 0; i < model->nmocap * 4; i++) {
-    state->add_mocap_quat(data->mocap_quat[i]);
-  }
-  for (int i = 0; i < model->nuserdata; i++) {
-    state->add_userdata(data->userdata[i]);
-  }
-
-  auto* cost_weights = task_state.mutable_cost_weights();
-  const mjModel* agent_model = GetModel();
-  const mjpc::Task* task = ActiveTask();
-  std::vector<double> residuals(task->num_residual, 0);  // scratch space
-  double terms[mjpc::kMaxCostTerms];
-  task->Residual(model, data, residuals.data());
-  task->UnweightedCostTerms(terms, residuals.data());
-  for (int i = 0; i < task->num_term; i++) {
-    CHECK_EQ(agent_model->sensor_type[i], mjSENS_USER);
-    std::string_view sensor_name(agent_model->names +
-                                 agent_model->name_sensoradr[i]);
-    cost_weights->insert({sensor_name.data(), task->weight[i]});
-  }
-
-  auto* task_parameters = task_state.mutable_task_parameters();
-  int shift = 0;
-  for (int i = 0; i < agent_model->nnumeric; i++) {
-    std::string_view numeric_name(agent_model->names +
-                                  agent_model->name_numericadr[i]);
-    if (absl::StartsWith(numeric_name, "residual_select_")) {
-      std::string_view name =
-          absl::StripPrefix(numeric_name, "residual_select_");
-      (*task_parameters)[name].set_selection(mjpc::ResidualSelection(
-          agent_model, name, ActiveTask()->parameters[shift]));
-      shift++;
-    } else if (absl::StartsWith(numeric_name, "residual_")) {
-      std::string_view name = absl::StripPrefix(numeric_name, "residual_");
-      (*task_parameters)[name].set_numeric(ActiveTask()->parameters[shift]);
-      shift++;
-    }
-  }
-
-  return task_state;
 }
 
 Agent::LoadModelResult Agent::LoadModel() const {
@@ -325,6 +292,22 @@ void Agent::PlanIteration(ThreadPool* pool) {
   steps_ =
       mju_max(mju_min(horizon_ / timestep_ + 1, kMaxTrajectoryHorizon), 1);
 
+  // make model differentiable
+  int differentiable = differentiable_;
+  if (differentiable) {
+    // cache solimp defaults
+    for (int i = 0; i < model_->njnt; i++) {
+      jnt_solimp_[i] = model_->jnt_solimp[mjNIMP * i];
+    }
+    for (int i = 0; i < model_->ngeom; i++) {
+      geom_solimp_[i] = model_->geom_solimp[mjNIMP * i];
+    }
+    for (int i = 0; i < model_->npair; i++) {
+      pair_solimp_[i] = model_->pair_solimp[mjNIMP * i];
+    }
+    MakeDifferentiable(model_);
+  }
+
   // plan
   if (!allocate_enabled) {
     // set state
@@ -357,6 +340,19 @@ void Agent::PlanIteration(ThreadPool* pool) {
 
     // release the planning residual function
     residual_fn_.reset();
+  }
+
+  // restore solimp defaults
+  if (differentiable) {
+    for (int i = 0; i < model_->njnt; i++) {
+      model_->jnt_solimp[mjNIMP * i] = jnt_solimp_[i];
+    }
+    for (int i = 0; i < model_->ngeom; i++) {
+      model_->geom_solimp[mjNIMP * i] = geom_solimp_[i];
+    }
+    for (int i = 0; i < model_->npair; i++) {
+      model_->pair_solimp[mjNIMP * i] = pair_solimp_[i];
+    }
   }
 }
 
@@ -497,8 +493,8 @@ int Agent::SetModeByName(std::string_view name) {
 void Agent::ModifyScene(mjvScene* scn) {
   // if acting is off make all geom colors grayscale
   if (!action_enabled) {
-    int cube = mj_name2id(model_, mjOBJ_TEXTURE, "cube");
-    int graycube = mj_name2id(model_, mjOBJ_TEXTURE, "graycube");
+    int cube = mj_name2id(model_, mjOBJ_MATERIAL, "cube");
+    int graycube = mj_name2id(model_, mjOBJ_MATERIAL, "graycube");
     for (int i = 0; i < scn->ngeom; i++) {
       mjvGeom* g = scn->geoms + i;
       // skip static and decor geoms
@@ -509,8 +505,8 @@ void Agent::ModifyScene(mjvScene* scn) {
       double rgb_average = (g->rgba[0] + g->rgba[1] + g->rgba[2]) / 3;
       g->rgba[0] = g->rgba[1] = g->rgba[2] = rgb_average;
       // specifically for the hand task, make grayscale cube.
-      if (cube > -1 && graycube > -1 && g->texid == cube) {
-        g->texid = graycube;
+      if (cube > -1 && graycube > -1 && g->matid == cube) {
+        g->matid = graycube;
       }
     }
   }
@@ -554,14 +550,10 @@ void Agent::ModifyScene(mjvScene* scn) {
                   color);
 
       // make geometry
-      mjv_makeConnector(
+      mjv_connector(
           &scn->geoms[scn->ngeom], mjGEOM_CAPSULE, width,
-          winner->trace[3 * num_trace * i + 3 * j],
-          winner->trace[3 * num_trace * i + 1 + 3 * j],
-          winner->trace[3 * num_trace * i + 2 + 3 * j],
-          winner->trace[3 * num_trace * (i + 1) + 3 * j],
-          winner->trace[3 * num_trace * (i + 1) + 1 + 3 * j],
-          winner->trace[3 * num_trace * (i + 1) + 2 + 3 * j]);
+          winner->trace.data() + 3 * num_trace * i + 3 * j,
+          winner->trace.data() + 3 * num_trace * (i + 1) + 3 * j);
       // increment number of geometries
       scn->ngeom += 1;
     }
@@ -578,14 +570,13 @@ void Agent::GUI(mjUI& ui) {
       {mjITEM_SECTION, "Task", 1, nullptr, "AP"},
       {mjITEM_CHECKINT, "Reset", 2, &ActiveTask()->reset, " #459"},
       {mjITEM_CHECKINT, "Visualize", 2, &ActiveTask()->visualize, ""},
-      {mjITEM_BUTTON, "Copy State", 2, nullptr, ""},
       {mjITEM_SELECT, "Model", 1, &gui_task_id, ""},
       {mjITEM_SLIDERNUM, "Risk", 1, &ActiveTask()->risk, "-1 1"},
       {mjITEM_SEPARATOR, "Weights", 1},
       {mjITEM_END}};
 
   // task names
-  mju::strcpy_arr(defTask[4].other, task_names_);
+  mju::strcpy_arr(defTask[3].other, task_names_);
   mjui_add(&ui, defTask);
 
   // norm weights
@@ -695,21 +686,23 @@ void Agent::GUI(mjUI& ui) {
   }
 
   // ----- agent ----- //
-  mjuiDef defAgent[] = {{mjITEM_SECTION, "Agent", 1, nullptr, "AP"},
-                        {mjITEM_BUTTON, "Reset", 2, nullptr, " #459"},
-                        {mjITEM_SELECT, "Planner", 2, &planner_, ""},
-                        {mjITEM_SELECT, "Estimator", 2, &estimator_, ""},
-                        {mjITEM_CHECKINT, "Plan", 2, &plan_enabled, ""},
-                        {mjITEM_CHECKINT, "Action", 2, &action_enabled, ""},
-                        {mjITEM_CHECKINT, "Plots", 2, &plot_enabled, ""},
-                        {mjITEM_CHECKINT, "Traces", 2, &visualize_enabled, ""},
-                        {mjITEM_SEPARATOR, "Agent Settings", 1},
-                        {mjITEM_SLIDERNUM, "Horizon", 2, &horizon_, "0 1"},
-                        {mjITEM_SLIDERNUM, "Timestep", 2, &timestep_, "0 1"},
-                        {mjITEM_SELECT, "Integrator", 2, &integrator_,
-                         "Euler\nRK4\nImplicit\nFastImplicit"},
-                        {mjITEM_SEPARATOR, "Planner Settings", 1},
-                        {mjITEM_END}};
+  mjuiDef defAgent[] = {
+      {mjITEM_SECTION, "Agent", 1, nullptr, "AP"},
+      {mjITEM_BUTTON, "Reset", 2, nullptr, " #459"},
+      {mjITEM_SELECT, "Planner", 2, &planner_, ""},
+      {mjITEM_SELECT, "Estimator", 2, &estimator_, ""},
+      {mjITEM_CHECKINT, "Plan", 2, &plan_enabled, ""},
+      {mjITEM_CHECKINT, "Action", 2, &action_enabled, ""},
+      {mjITEM_CHECKINT, "Plots", 2, &plot_enabled, ""},
+      {mjITEM_CHECKINT, "Traces", 2, &visualize_enabled, ""},
+      {mjITEM_SEPARATOR, "Agent Settings", 1},
+      {mjITEM_SLIDERNUM, "Horizon", 2, &horizon_, "0 1"},
+      {mjITEM_SLIDERNUM, "Timestep", 2, &timestep_, "0 1"},
+      {mjITEM_SELECT, "Integrator", 2, &integrator_,
+       "Euler\nRK4\nImplicit\nImplicitFast"},
+      {mjITEM_CHECKINT, "Differentiable", 2, &differentiable_, ""},
+      {mjITEM_SEPARATOR, "Planner Settings", 1},
+      {mjITEM_END}};
 
   // planner names
   mju::strcpy_arr(defAgent[2].other, planner_names_);
@@ -741,16 +734,14 @@ void Agent::GUI(mjUI& ui) {
 }
 
 // task-based GUI event
-std::optional<agent_state::State> Agent::TaskEvent(
-    mjuiItem* it, mjData* data, std::atomic<int>& uiloadrequest, int& run) {
+void Agent::TaskEvent(mjuiItem* it, mjData* data,
+                      std::atomic<int>& uiloadrequest, int& run) {
   switch (it->itemid) {
     case 0:  // task reset
       ActiveTask()->Reset(model_);
       ActiveTask()->reset = 0;
       break;
-    case 2:  // copy state
-      return GetAgentState(model_, data);
-    case 3:  // task switch
+    case 2:  // task switch
       // the GUI changed the value of gui_task_id, but it's unsafe to switch
       // tasks now.
       // turn off agent and traces
@@ -764,7 +755,6 @@ std::optional<agent_state::State> Agent::TaskEvent(
       uiloadrequest.fetch_add(1);
       break;
   }
-  return std::nullopt;
 }
 
 // agent-based GUI event
@@ -783,6 +773,14 @@ void Agent::AgentEvent(mjuiItem* it, mjData* data,
         // reset plots
         this->PlotInitialize();
         this->PlotReset();
+
+        // by default gradient-based planners use a differentiable model
+        if (planner_ == kGradientPlanner || planner_ == kILQGPlanner ||
+            planner_ == kILQSPlanner) {
+          differentiable_ = true;
+        } else {
+          differentiable_ = false;
+        }
 
         // reset agent
         uiloadrequest.fetch_sub(1);

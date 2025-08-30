@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MJPC_PLANNERS_ILQS_OPTIMIZER_H_
-#define MJPC_PLANNERS_ILQS_OPTIMIZER_H_
+#ifndef MJPC_PLANNERS_ILQS_PLANNER_H_
+#define MJPC_PLANNERS_ILQS_PLANNER_H_
 
 #include <mujoco/mujoco.h>
 
+#include <memory>
 #include <shared_mutex>
 #include <vector>
 
@@ -52,7 +53,8 @@ class iLQSPlanner : public Planner {
   void Allocate() override;
 
   // reset memory to zeros
-  void Reset(int horizon) override;
+  void Reset(int horizon,
+             const double* initial_repeated_action = nullptr) override;
 
   // set state
   void SetState(const State& state) override;
@@ -80,6 +82,11 @@ class iLQSPlanner : public Planner {
   void Plots(mjvFigure* fig_planner, mjvFigure* fig_timer, int planner_shift,
              int timer_shift, int planning, int* shift) override;
 
+  // return number of parameters optimized by planner
+  int NumParameters() override {
+    return sampling.NumParameters() + ilqg.NumParameters();
+  };
+
   // ----- planners ----- //
   SamplingPlanner sampling;
   iLQGPlanner ilqg;
@@ -93,6 +100,9 @@ class iLQSPlanner : public Planner {
   std::vector<double> inversemappingT;
   std::vector<double> inversemapping;
 
+  std::vector<double> spline_times_cache;
+  std::vector<double> spline_parameters_cache;
+
   // mapping dimensions
   int dim_actions;
   int dim_parameters;
@@ -104,4 +114,4 @@ class iLQSPlanner : public Planner {
 
 }  // namespace mjpc
 
-#endif  // MJPC_PLANNERS_ILQS_OPTIMIZER_H_
+#endif  // MJPC_PLANNERS_ILQS_PLANNER_H_

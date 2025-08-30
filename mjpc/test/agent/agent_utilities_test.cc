@@ -201,20 +201,6 @@ TEST(AgentUtilitiesTest, ByName) {
   EXPECT_NEAR(qpos_home[0], 1.0, 1.0e-5);
   EXPECT_NEAR(qpos_home[1], 2.0, 1.0e-5);
 
-  // get invalid key qvel
-  double* qvel_invalid;
-  qvel_invalid = KeyQVelByName(model, data, "invalid");
-
-  EXPECT_EQ(qvel_invalid, nullptr);
-
-  // get "home" key qvel
-  double* qvel_home;
-  qvel_home = KeyQVelByName(model, data, "home");
-
-  EXPECT_NEAR(qvel_home[0], -1.0, 1.0e-5);
-  EXPECT_NEAR(qvel_home[1], -2.0, 1.0e-5);
-
-  // delete model + data
   mj_deleteData(data);
   mj_deleteModel(model);
 }
@@ -234,26 +220,21 @@ TEST(AgentUtilitiesTest, Clamp) {
   EXPECT_NEAR(x[2], 0.0, 1.0e-5);
 }
 
-TEST(AgentUtilitiesTest, PowerSequence) {
-  // sequence
-  double sequence[4] = {0.2, 0.3, 0.4, 0.5};
+TEST(UtilitiesTest, LinearRange) {
+  double linear_sequence[4] = {0.2, 0.0, 0.0, 0.0};
   int length = 4;
   double step = 0.1;
 
-  // power
-  double power = 2.0;
-
-  // power sequence
-  PowerSequence(sequence, step, sequence[0], sequence[3], power, length);
+  LinearRange(linear_sequence, step, linear_sequence[0], length);
 
   // test
-  EXPECT_NEAR(sequence[0], 0.2, 1.0e-5);
-  EXPECT_NEAR(sequence[1], 0.27142857, 1.0e-5);
-  EXPECT_NEAR(sequence[2], 0.37142857, 1.0e-5);
-  EXPECT_NEAR(sequence[3], 0.5, 1.0e-5);
+  EXPECT_NEAR(linear_sequence[0], 0.2, 1.0e-5);
+  EXPECT_NEAR(linear_sequence[1], 0.3, 1.0e-5);
+  EXPECT_NEAR(linear_sequence[2], 0.4, 1.0e-5);
+  EXPECT_NEAR(linear_sequence[3], 0.5, 1.0e-5);
 }
 
-TEST(AgentUtilitiesTest, FindInterval) {
+TEST(UtilitiesTest, FindInterval) {
   // sequence
   std::vector<double> sequence{-1.0, 0.0, 1.0, 2.0};
   int length = 4;

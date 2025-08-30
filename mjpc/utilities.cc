@@ -14,6 +14,7 @@
 
 #include "mjpc/utilities.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -44,6 +45,7 @@
 
 extern "C" {
 #if defined(_WIN32) || defined(__CYGWIN__)
+#define NOMINMAX
 #include <windows.h>
 #else
 #if defined(__APPLE__)
@@ -54,6 +56,24 @@ extern "C" {
 }
 
 namespace mjpc {
+// make model differentiable by setting solimp[0] to zero
+void MakeDifferentiable(mjModel* model) {
+  // joints
+  for (int i = 0; i < model->njnt; i++) {
+    model->jnt_solimp[mjNIMP * i] = 0.0;
+  }
+
+  // geoms
+  for (int i = 0; i < model->ngeom; i++) {
+    model->geom_solimp[mjNIMP * i] = 0.0;
+  }
+
+  // contact pairs
+  for (int i = 0; i < model->npair; i++) {
+    model->pair_solimp[mjNIMP * i] = 0.0;
+  }
+}
+
 // set mjData state
 void SetState(const mjModel* model, mjData* data, const double* state) {
   mju_copy(data->qpos, state, model->nq);
@@ -218,7 +238,7 @@ int CostTermByName(const mjModel* m, const std::string& name) {
   }
 }
 
-void CheckSensorDim(const mjModel* model, int residual_size) {
+int ResidualSize(const mjModel* model) {
   int user_sensor_dim = 0;
   bool encountered_nonuser_sensor = false;
   for (int i = 0; i < model->nsensor; i++) {
@@ -231,6 +251,11 @@ void CheckSensorDim(const mjModel* model, int residual_size) {
       encountered_nonuser_sensor = true;
     }
   }
+  return user_sensor_dim;
+}
+
+void CheckSensorDim(const mjModel* model, int residual_size) {
+  int user_sensor_dim = ResidualSize(model);
   if (user_sensor_dim != residual_size) {
     mju_error(
         "mismatch between total user-sensor dimension %d "
@@ -265,67 +290,13 @@ double* KeyQPosByName(const mjModel* m, const mjData* d,
   int id = mj_name2id(m, mjOBJ_KEY, name.c_str());
   if (id == -1) {
     return nullptr;
-  } else {
-    return m->key_qpos + m->nq * id;
   }
+  return m->key_qpos + m->nq * id;
 }
 
-// get keyframe `qvel` data using string
-double* KeyQVelByName(const mjModel* m, const mjData* d,
-                      const std::string& name) {
-  int id = mj_name2id(m, mjOBJ_KEY, name.c_str());
-  if (id == -1) {
-    return nullptr;
-  } else {
-    return m->key_qvel + m->nv * id;
-  }
-}
-
-// get keyframe `qvel` data using string
-double* KeyActByName(const mjModel* m, const mjData* d,
-                     const std::string& name) {
-  int id = mj_name2id(m, mjOBJ_KEY, name.c_str());
-  if (id == -1) {
-    return nullptr;
-  } else {
-    return m->key_act + m->na * id;
-  }
-}
-
-// return a power transformed sequence
-void PowerSequence(double* t, double t_step, double t1, double t2, double p,
-                   double N) {
-  // y = a * t^p + b
-  double den = (mju_pow(t1, p) - mju_pow(t2, p));
-  double a = (t1 - t2) / den;
-  double b = (-t1 * mju_pow(t2, p) + t2 * mju_pow(t1, p)) / den;
-
-  double t_running = t1;
+void LinearRange(double* t, double t_step, double t0, int N) {
   for (int i = 0; i < N; i++) {
-    t[i] = a * mju_pow(t_running, p) + b;
-    t_running += t_step;
-  }
-}
-
-// find interval in monotonic sequence containing value
-void FindInterval(int* bounds, const std::vector<double>& sequence,
-                  double value, int length) {
-  // get bounds
-  auto it =
-      std::upper_bound(sequence.begin(), sequence.begin() + length, value);
-  int upper_bound = it - sequence.begin();
-  int lower_bound = upper_bound - 1;
-
-  // set bounds
-  if (lower_bound < 0) {
-    bounds[0] = 0;
-    bounds[1] = 0;
-  } else if (lower_bound > length - 1) {
-    bounds[0] = length - 1;
-    bounds[1] = length - 1;
-  } else {
-    bounds[0] = mju_max(lower_bound, 0);
-    bounds[1] = mju_min(upper_bound, length - 1);
+    t[i] = t0 + i * t_step;
   }
 }
 
@@ -798,8 +769,7 @@ void AddConnector(mjvScene* scene, mjtGeom type, mjtNum width,
   mjv_initGeom(&scene->geoms[scene->ngeom], type,
                /*size=*/nullptr, /*pos=*/nullptr, /*mat=*/nullptr, rgba);
   scene->geoms[scene->ngeom].category = mjCAT_DECOR;
-  mjv_makeConnector(&scene->geoms[scene->ngeom], type, width, from[0], from[1],
-                    from[2], to[0], to[1], to[2]);
+  mjv_connector(&scene->geoms[scene->ngeom], type, width, from, to);
 
   // increment ngeom
   scene->ngeom += 1;
@@ -848,9 +818,9 @@ bool CheckWarnings(mjData* data) {
 // compute vector with log-based scaling between min and max values
 void LogScale(double* values, double max_value, double min_value, int steps) {
   double step =
-      mju_log(max_value) - mju_log(min_value) / mju_max((steps - 1), 1);
+      (std::log(max_value) - std::log(min_value)) / std::max((steps - 1), 1);
   for (int i = 0; i < steps; i++) {
-    values[i] = mju_exp(mju_log(min_value) + i * step);
+    values[i] = std::exp(std::log(min_value) + i * step);
   }
 }
 

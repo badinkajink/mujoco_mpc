@@ -266,6 +266,11 @@ class Agent(contextlib.AbstractContextManager):
         for name, value_weight in terms.values_weights.items()
     }
 
+  def get_residuals(self) -> dict[str, Sequence[float]]:
+    residuals = self.stub.GetResiduals(agent_pb2.GetResidualsRequest())
+    return {name: residual.values
+            for name, residual in residuals.values.items()}
+
   def planner_step(self):
     """Send a planner request."""
     planner_step_request = agent_pb2.PlannerStepRequest()
@@ -348,6 +353,9 @@ class Agent(contextlib.AbstractContextManager):
     request = agent_pb2.SetModeRequest(mode=mode)
     self.stub.SetMode(request)
 
+  def get_all_modes(self) -> Sequence[str]:
+    return self.stub.GetAllModes(agent_pb2.GetAllModesRequest()).mode_names
+
   def set_parameters(self, parameters: mjpc_parameters.MjpcParameters):
     # TODO(nimrod): Add a single RPC that does this
     if parameters.mode is not None:
@@ -356,3 +364,29 @@ class Agent(contextlib.AbstractContextManager):
       self.set_task_parameters(parameters.task_parameters)
     if parameters.cost_weights:
       self.set_cost_weights(parameters.cost_weights)
+
+  def best_trajectory(self):
+    request = agent_pb2.GetBestTrajectoryRequest()
+    response = self.stub.GetBestTrajectory(request)
+    if self.model is None:
+      raise ValueError("model is None")
+    else:
+      return {
+          "states": np.array(response.states).reshape(
+              response.steps,
+              self.model.nq + self.model.nv + self.model.na,
+          ),
+          "actions": np.array(response.actions).reshape(
+              response.steps - 1, self.model.nu
+          ),
+          "times": np.array(response.times),
+      }
+
+  def set_mocap(self, mocap_map: Mapping[str, mjpc_parameters.Pose]):
+    request = agent_pb2.SetAnythingRequest()
+    for key, value in mocap_map.items():
+      if value.pos is not None:
+        request.mocap[key].pos.extend(value.pos)
+      if value.quat is not None:
+        request.mocap[key].quat.extend(value.quat)
+    self.stub.SetAnything(request)

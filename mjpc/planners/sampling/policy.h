@@ -15,12 +15,10 @@
 #ifndef MJPC_PLANNERS_SAMPLING_POLICY_H_
 #define MJPC_PLANNERS_SAMPLING_POLICY_H_
 
-#include <vector>
-
-#include <absl/random/distributions.h>
-#include <absl/random/random.h>
 #include <mujoco/mujoco.h>
 #include "mjpc/planners/policy.h"
+#include "mjpc/spline/spline.h"
+#include "mjpc/task.h"
 
 namespace mjpc {
 
@@ -39,7 +37,8 @@ class SamplingPolicy : public Policy {
   void Allocate(const mjModel* model, const Task& task, int horizon) override;
 
   // reset memory to zeros
-  void Reset(int horizon) override;
+  void Reset(int horizon,
+             const double* initial_repeated_action = nullptr) override;
 
   // set action from policy
   void Action(double* action, const double* state, double time) const override;
@@ -48,16 +47,12 @@ class SamplingPolicy : public Policy {
   void CopyFrom(const SamplingPolicy& policy, int horizon);
 
   // copy parameters
-  void CopyParametersFrom(const std::vector<double>& src_parameters,
-                          const std::vector<double>& src_times);
+  void SetPlan(const mjpc::spline::TimeSpline& plan);
 
   // ----- members ----- //
   const mjModel* model;
-  std::vector<double> parameters;
-  std::vector<double> times;
-  int num_parameters;
+  mjpc::spline::TimeSpline plan;
   int num_spline_points;
-  PolicyRepresentation representation;
 };
 
 }  // namespace mjpc

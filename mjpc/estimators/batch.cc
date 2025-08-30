@@ -24,7 +24,6 @@
 #include "mjpc/array_safety.h"
 #include "mjpc/estimators/estimator.h"
 #include "mjpc/direct/direct.h"
-#include "mjpc/norm.h"
 #include "mjpc/threadpool.h"
 #include "mjpc/utilities.h"
 
@@ -48,6 +47,16 @@ Batch::Batch(const mjModel* model, int length, int max_history)
 void Batch::Initialize(const mjModel* model) {
   // base method
   Direct::Initialize(model);
+
+  // set batch size
+  int batch_size = std::min(
+      std::max(GetNumberOrDefault(3, model, "batch_configuration_length"),
+               kMinDirectHistory),
+      kMaxFilterHistory);
+
+  if (batch_size != configuration_length_) {
+    SetConfigurationLength(batch_size);
+  }
 
   // allocation dimension
   int nq = model->nq, nv = model->nv, na = model->na;
@@ -108,9 +117,6 @@ void Batch::Initialize(const mjModel* model) {
   acceleration_cache_.Initialize(nv, max_history_);
   act_cache_.Initialize(na, max_history_);
   times_cache_.Initialize(1, max_history_);
-
-  // ctrl
-  ctrl_cache_.Initialize(model->nu, max_history_);
 
   // prior
   configuration_previous_cache_.Initialize(nq, max_history_);
@@ -231,7 +237,6 @@ void Batch::Reset(const mjData* data) {
   acceleration_cache_.Reset();
   act_cache_.Reset();
   times_cache_.Reset();
-  ctrl_cache_.Reset();
 
   // prior
   configuration_previous_cache_.Reset();
@@ -277,7 +282,7 @@ void Batch::Reset(const mjData* data) {
 }
 
 // update
-void Batch::Update(const double* ctrl, const double* sensor) {
+void Batch::Update(const double* ctrl, const double* sensor, int mode) {
   // start timer
   auto start = std::chrono::steady_clock::now();
 
@@ -314,9 +319,6 @@ void Batch::Update(const double* ctrl, const double* sensor) {
 
   // set next time
   times.Set(&d->time, t + 1);
-
-  // set ctrl
-  this->ctrl.Set(ctrl, t);
 
   // set sensor
   sensor_measurement.Set(sensor + sensor_start_index_, t);
@@ -517,7 +519,6 @@ void Batch::Shift(int shift) {
   acceleration.Shift(shift);
   act.Shift(shift);
   times.Shift(shift);
-  ctrl.Shift(shift);
 
   configuration_previous.Shift(shift);
 
@@ -805,7 +806,6 @@ void Batch::ShiftResizeTrajectory(int new_head, int new_length) {
   acceleration_cache_.Reset();
   act_cache_.Reset();
   times_cache_.Reset();
-  ctrl_cache_.Reset();
   sensor_measurement_cache_.Reset();
   sensor_prediction_cache_.Reset();
   sensor_mask_cache_.Reset();
@@ -821,7 +821,6 @@ void Batch::ShiftResizeTrajectory(int new_head, int new_length) {
   acceleration_cache_.SetLength(length);
   act_cache_.SetLength(length);
   times_cache_.SetLength(length);
-  ctrl_cache_.SetLength(length);
   sensor_measurement_cache_.SetLength(length);
   sensor_prediction_cache_.SetLength(length);
   sensor_mask_cache_.SetLength(length);
@@ -836,7 +835,6 @@ void Batch::ShiftResizeTrajectory(int new_head, int new_length) {
     acceleration_cache_.Set(acceleration.Get(i), i);
     act_cache_.Set(act.Get(i), i);
     times_cache_.Set(times.Get(i), i);
-    ctrl_cache_.Set(ctrl.Get(i), i);
     sensor_measurement_cache_.Set(sensor_measurement.Get(i), i);
     sensor_prediction_cache_.Set(sensor_prediction.Get(i), i);
     sensor_mask_cache_.Set(sensor_mask.Get(i), i);
@@ -857,7 +855,6 @@ void Batch::ShiftResizeTrajectory(int new_head, int new_length) {
     acceleration.Set(acceleration_cache_.Get(new_head + i), i);
     act.Set(act_cache_.Get(new_head + i), i);
     times.Set(times_cache_.Get(new_head + i), i);
-    ctrl.Set(ctrl_cache_.Get(new_head + i), i);
     sensor_measurement.Set(sensor_measurement_cache_.Get(new_head + i), i);
     sensor_prediction.Set(sensor_prediction_cache_.Get(new_head + i), i);
     sensor_mask.Set(sensor_mask_cache_.Get(new_head + i), i);
@@ -955,7 +952,7 @@ void Batch::GUI(mjUI& ui) {
       {mjITEM_BUTTON, "Reset", 2, nullptr, ""},
       {mjITEM_SLIDERNUM, "Timestep", 2, &gui_timestep_, "1.0e-3 0.1"},
       {mjITEM_SELECT, "Integrator", 2, &gui_integrator_,
-       "Euler\nRK4\nImplicit\nFastImplicit"},
+       "Euler\nRK4\nImplicit\nImplicitFast"},
       {mjITEM_SLIDERINT, "Horizon", 2, &gui_horizon_, "3 3"},
       {mjITEM_SLIDERNUM, "Prior Scale", 2, &gui_scale_prior_, "1.0e-8 0.1"},
       {mjITEM_END}};

@@ -16,15 +16,20 @@
 
 #include <algorithm>
 #include <chrono>
-#include <mutex>
+#include <shared_mutex>
 
+#include <mujoco/mujoco.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/planners/cost_derivatives.h"
 #include "mjpc/planners/gradient/gradient.h"
 #include "mjpc/planners/gradient/policy.h"
 #include "mjpc/planners/gradient/settings.h"
+#include "mjpc/planners/gradient/spline_mapping.h"
 #include "mjpc/planners/model_derivatives.h"
+#include "mjpc/planners/planner.h"
 #include "mjpc/states/state.h"
+#include "mjpc/task.h"
+#include "mjpc/threadpool.h"
 #include "mjpc/trajectory.h"
 #include "mjpc/utilities.h"
 
@@ -43,9 +48,6 @@ void GradientPlanner::Initialize(mjModel* model, const Task& task) {
 
   // task
   this->task = &task;
-
-  // rollout parameters
-  timestep_power = 1.0;
 
   // dimensions
   dim_state = model->nq + model->nv + model->na;  // state dimension
@@ -103,7 +105,8 @@ void GradientPlanner::Allocate() {
 }
 
 // reset memory to zeros
-void GradientPlanner::Reset(int horizon) {
+void GradientPlanner::Reset(int horizon,
+                            const double* initial_repeated_action) {
   // state
   std::fill(state.begin(), state.end(), 0.0);
   std::fill(mocap.begin(), mocap.end(), 0.0);
@@ -122,10 +125,10 @@ void GradientPlanner::Reset(int horizon) {
 
   // policy
   for (int i = 0; i < kMaxTrajectory; i++) {
-    candidate_policy[i].Reset(horizon);
+    candidate_policy[i].Reset(horizon, initial_repeated_action);
   }
-  policy.Reset(horizon);
-  previous_policy.Reset(horizon);
+  policy.Reset(horizon, initial_repeated_action);
+  previous_policy.Reset(horizon, initial_repeated_action);
 
   // scratch
   std::fill(parameters_scratch.begin(), parameters_scratch.end(), 0.0);
@@ -141,6 +144,9 @@ void GradientPlanner::Reset(int horizon) {
   expected = 0.0;
   improvement = 0.0;
   surprise = 0.0;
+
+  // derivative skip
+  derivative_skip_ = GetNumberOrDefault(0, model, "derivative_skip");
 }
 
 // set state
@@ -188,6 +194,7 @@ void GradientPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
 
   // update policy
   double c_best = c_prev;
+  int skip = derivative_skip_;
   for (int i = 0; i < settings.max_rollout; i++) {
     // ----- model derivatives ----- //
     // start timer
@@ -197,7 +204,8 @@ void GradientPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
     model_derivative.Compute(
         model, data_, trajectory[0].states.data(), trajectory[0].actions.data(),
         trajectory[0].times.data(), dim_state, dim_state_derivative, dim_action,
-        dim_sensor, horizon, settings.fd_tolerance, settings.fd_mode, pool);
+        dim_sensor, horizon, settings.fd_tolerance, settings.fd_mode, pool,
+        skip);
 
     // stop timer
     model_derivative_time += GetDuration(model_derivative_start);
@@ -368,11 +376,8 @@ void GradientPlanner::ResamplePolicy(int horizon) {
   mju_copy(candidate_policy[0].times.data(), times_scratch.data(),
            num_spline_points);
 
-  // time step power scaling
-  PowerSequence(candidate_policy[0].times.data(), time_shift,
-                candidate_policy[0].times[0],
-                candidate_policy[0].times[num_spline_points - 1],
-                timestep_power, num_spline_points);
+  LinearRange(candidate_policy[0].times.data(), time_shift,
+              candidate_policy[0].times[0], num_spline_points);
 }
 
 // compute candidate trajectories
@@ -443,14 +448,10 @@ void GradientPlanner::Traces(mjvScene* scn) {
                      color);
 
         // make geometry
-        mjv_makeConnector(
+        mjv_connector(
             &scn->geoms[scn->ngeom], mjGEOM_LINE, width,
-            trajectory[k].trace[3 * task->num_trace * i + 3 * j],
-            trajectory[k].trace[3 * task->num_trace * i + 1 + 3 * j],
-            trajectory[k].trace[3 * task->num_trace * i + 2 + 3 * j],
-            trajectory[k].trace[3 * task->num_trace * (i + 1) + 3 * j],
-            trajectory[k].trace[3 * task->num_trace * (i + 1) + 1 + 3 * j],
-            trajectory[k].trace[3 * task->num_trace * (i + 1) + 2 + 3 * j]);
+            trajectory[k].trace.data() + 3 * task->num_trace * i + 3 * j,
+            trajectory[k].trace.data() + 3 * task->num_trace * (i + 1) + 3 * j);
 
         // increment number of geometries
         scn->ngeom += 1;
@@ -468,7 +469,7 @@ void GradientPlanner::GUI(mjUI& ui) {
       {mjITEM_SELECT, "Spline", 2, &policy.representation,
        "Zero\nLinear\nCubic"},
       {mjITEM_SLIDERINT, "Spline Pts", 2, &policy.num_spline_points, "0 1"},
-      // {mjITEM_SLIDERNUM, "Spline Pow. ", 2, &timestep_power, "0 10"},
+      {mjITEM_SLIDERINT, "Deriv. Skip", 2, &derivative_skip_, "0 16"},
       {mjITEM_END}};
 
   // set number of trajectory slider limits

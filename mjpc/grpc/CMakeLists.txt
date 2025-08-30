@@ -20,6 +20,16 @@ set(BUILD_SHARED_LIBS
   CACHE INTERNAL "Build SHARED libraries"
 )
 
+find_package(ZLIB REQUIRED)
+set(gRPC_ZLIB_PROVIDER "package" CACHE INTERNAL "")
+set(gRPC_BUILD_GRPC_CSHARP_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_NODE_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_PHP_PLUGIN OFF)
+set(gRPC_BUILD_GRPC_RUBY_PLUGIN OFF)
+set(RE2_BUILD_TESTING OFF)
+set(ZLIB_BUILD_EXAMPLES OFF)
+
 findorfetch(
   USE_SYSTEM_PACKAGE
   OFF
@@ -30,13 +40,10 @@ findorfetch(
   GIT_REPO
   https://github.com/grpc/grpc
   GIT_TAG
-  v1.53.0
+  v1.60.1
   TARGETS
   gRPC
 )
-
-find_package(ZLIB REQUIRED)
-set(gRPC_ZLIB_PROVIDER "package" CACHE INTERNAL "")
 
 set(_PROTOBUF_LIBPROTOBUF libprotobuf)
 set(_REFLECTION grpc++_reflection)
@@ -257,7 +264,6 @@ target_link_libraries(
   absl::log
   absl::status
   absl::strings
-  agent_state_proto_lib
   glfw
   libmjpc
   mujoco::mujoco

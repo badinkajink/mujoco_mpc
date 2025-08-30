@@ -158,11 +158,13 @@ class Filter:
       self,
       ctrl: Optional[npt.ArrayLike] = [],
       sensor: Optional[npt.ArrayLike] = [],
+      mode: Optional[int] = 0,
   ):
     # request
     request = filter_pb2.UpdateRequest(
         ctrl=ctrl,
         sensor=sensor,
+        mode=mode,
     )
 
     # response
@@ -186,6 +188,7 @@ class Filter:
     return {
         "state": np.array(response.state.state),
         "time": response.state.time,
+        "qfrc": np.array(response.state.qfrc),
     }
 
   def covariance(

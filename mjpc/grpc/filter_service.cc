@@ -14,7 +14,6 @@
 
 #include "mjpc/grpc/filter_service.h"
 
-#include <cstring>
 #include <memory>
 #include <sstream>
 #include <string_view>
@@ -70,9 +69,7 @@ grpc::Status FilterService::Init(grpc::ServerContext* context,
     // mjVFS structs need to be allocated on the heap, because it's ~2MB
     auto vfs = std::make_unique<mjVFS>();
     mj_defaultVFS(vfs.get());
-    mj_makeEmptyFileVFS(vfs.get(), file, mjb.size());
-    int file_idx = mj_findFileVFS(vfs.get(), file);
-    memcpy(vfs->filedata[file_idx], mjb.data(), mjb.size());
+    mj_addBufferVFS(vfs.get(), file, mjb.data(), mjb.size());
     tmp_model = {mj_loadModel(file, vfs.get()), mj_deleteModel};
     mj_deleteFileVFS(vfs.get(), file);
   } else if (request->has_model() && request->model().has_xml()) {
@@ -84,9 +81,7 @@ grpc::Status FilterService::Init(grpc::ServerContext* context,
     // mjVFS structs need to be allocated on the heap, because it's ~2MB
     auto vfs = std::make_unique<mjVFS>();
     mj_defaultVFS(vfs.get());
-    mj_makeEmptyFileVFS(vfs.get(), file, model_xml.size());
-    int file_idx = mj_findFileVFS(vfs.get(), file);
-    memcpy(vfs->filedata[file_idx], model_xml.data(), model_xml.size());
+    mj_addBufferVFS(vfs.get(), file, model_xml.data(), model_xml.size());
     tmp_model = {mj_loadXML(file, vfs.get(), load_error, sizeof(load_error)),
                  mj_deleteModel};
     mj_deleteFileVFS(vfs.get(), file);
@@ -128,8 +123,9 @@ grpc::Status FilterService::Update(grpc::ServerContext* context,
     return {grpc::StatusCode::FAILED_PRECONDITION, "Init not called."};
   }
 
-  // measurement update
-  filters_[filter_]->Update(request->ctrl().data(), request->sensor().data());
+  // update
+  filters_[filter_]->Update(request->ctrl().data(), request->sensor().data(),
+                            request->mode());
 
   return grpc::Status::OK;
 }
@@ -173,6 +169,12 @@ grpc::Status FilterService::State(grpc::ServerContext* context,
 
   // get time
   output->set_time(active_filter->Time());
+
+  // get qfrc
+  double* qfrc = active_filter->Qfrc();
+  for (int i = 0; i < model->nv; i++) {
+    output->add_qfrc(qfrc[i]);
+  }
 
   return grpc::Status::OK;
 }

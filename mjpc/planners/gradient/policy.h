@@ -17,8 +17,10 @@
 
 #include <vector>
 
+#include <mujoco/mujoco.h>
 #include "mjpc/planners/policy.h"
-#include "mjpc/trajectory.h"
+#include "mjpc/spline/spline.h"
+#include "mjpc/task.h"
 
 namespace mjpc {
 
@@ -37,7 +39,8 @@ class GradientPolicy : public Policy {
   void Allocate(const mjModel* model, const Task& task, int horizon) override;
 
   // reset memory to zeros
-  void Reset(int horizon) override;
+  void Reset(int horizon,
+             const double* initial_repeated_action = nullptr) override;
 
   // compute action from policy
   // state is not used
@@ -60,7 +63,7 @@ class GradientPolicy : public Policy {
   std::vector<double> times;
   int num_parameters;
   int num_spline_points;
-  PolicyRepresentation representation;
+  mjpc::spline::SplineInterpolation representation;
 };
 
 }  // namespace mjpc

@@ -29,6 +29,7 @@
     <numeric name="residual_select_Biped type" data="0"/>
     <text name="residual_list_Biped type" data="Foot Stand|Hand Stand"/>
     <numeric name="residual_Heading" data="0 -3.14 3.14" />
+    <numeric name="residual_Arm posture" data=".03 0 1"/>
 
     <!-- estimator -->
     <numeric name="estimator" data="0" />
@@ -79,7 +80,8 @@
     </default>
   </default>
 
-  <include file="a1.xml" />
+  <!-- modified from: https://github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_a1 -->
+  <include file="a1_modified.xml" />
 
   <actuator>
     <general class="torque" name="FR_hip" joint="FR_hip_joint"/>

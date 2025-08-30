@@ -16,15 +16,20 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstdio>
 #include <iostream>
-#include <mutex>
+#include <shared_mutex>
 
+#include <mujoco/mujoco.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/planners/ilqg/backward_pass.h"
 #include "mjpc/planners/ilqg/policy.h"
 #include "mjpc/planners/ilqg/settings.h"
 #include "mjpc/planners/planner.h"
 #include "mjpc/states/state.h"
+#include "mjpc/task.h"
+#include "mjpc/threadpool.h"
 #include "mjpc/trajectory.h"
 #include "mjpc/utilities.h"
 
@@ -97,7 +102,7 @@ void iLQGPlanner::Allocate() {
 }
 
 // reset memory to zeros
-void iLQGPlanner::Reset(int horizon) {
+void iLQGPlanner::Reset(int horizon, const double* initial_repeated_action) {
   // state
   std::fill(state.begin(), state.end(), 0.0);
   std::fill(mocap.begin(), mocap.end(), 0.0);
@@ -115,15 +120,15 @@ void iLQGPlanner::Reset(int horizon) {
   backward_pass.Reset(dim_state_derivative, dim_action, horizon);
 
   // policy
-  policy.Reset(horizon);
-  previous_policy.Reset(horizon);
+  policy.Reset(horizon, initial_repeated_action);
+  previous_policy.Reset(horizon, initial_repeated_action);
   for (int i = 0; i < kMaxTrajectory; i++) {
-    candidate_policy[i].Reset(horizon);
+    candidate_policy[i].Reset(horizon, initial_repeated_action);
   }
 
   // candidate trajectories
   for (int i = 0; i < kMaxTrajectory; i++) {
-    trajectory[i].Reset(horizon);
+    trajectory[i].Reset(horizon, initial_repeated_action);
   }
 
   // values
@@ -132,6 +137,9 @@ void iLQGPlanner::Reset(int horizon) {
   improvement = 0.0;
   expected = 0.0;
   surprise = 0.0;
+
+  // derivative skip
+  derivative_skip_ = GetNumberOrDefault(0, model, "derivative_skip");
 }
 
 // set state
@@ -160,6 +168,9 @@ void iLQGPlanner::NominalTrajectory(int horizon, ThreadPool& pool) {
   if (num_trajectory_ == 0) {
     return;
   }
+  // set policy trajectory horizon
+  policy.trajectory.horizon = horizon;
+
   // resize data for rollouts
   ResizeMjData(model, pool.NumThreads());
 
@@ -240,6 +251,7 @@ void iLQGPlanner::GUI(mjUI& ui) {
        "Zero\nLinear\nCubic"},
       {mjITEM_SELECT, "Reg. Type", 2, &settings.regularization_type,
        "Control\nFeedback\nValue\nNone"},
+      {mjITEM_SLIDERINT, "Deriv. Skip", 2, &derivative_skip_, "0 16"},
       {mjITEM_CHECKINT, "Terminal Print", 2, &settings.verbose, ""},
       {mjITEM_END}};
 
@@ -385,7 +397,7 @@ void iLQGPlanner::Iteration(int horizon, ThreadPool& pool) {
       candidate_policy[0].trajectory.actions.data(),
       candidate_policy[0].trajectory.times.data(), dim_state,
       dim_state_derivative, dim_action, dim_sensor, horizon,
-      settings.fd_tolerance, settings.fd_mode, pool);
+      settings.fd_tolerance, settings.fd_mode, pool, derivative_skip_);
 
   // stop timer
   double model_derivative_time = GetDuration(model_derivative_start);
@@ -572,7 +584,19 @@ void iLQGPlanner::Iteration(int horizon, ThreadPool& pool) {
     std::cout << "  dV: " << expected << '\n';
     std::cout << "  dV[0]: " << backward_pass.dV[0] << '\n';
     std::cout << "  dV[1]: " << backward_pass.dV[1] << '\n';
-    std::cout << std::endl;
+
+    std::cout << "\niLQG Timing (ms)\n" << '\n';
+    std::cout << "  nominal: " << nominal_compute_time * 1.0e-3 << '\n';
+    std::cout << "  model derivative: "
+              << model_derivative_compute_time * 1.0e-3 << '\n';
+    std::cout << "  cost derivative: " << cost_derivative_compute_time * 1.0e-3
+              << '\n';
+    std::cout << "  backward pass: " << backward_pass_compute_time * 1.0e-3
+              << '\n';
+    std::cout << "  rollouts: " << rollouts_compute_time * 1.0e-3 << '\n';
+    std::cout << "  policy update: " << policy_update_compute_time * 1.0e-3
+              << '\n';
+    std::cout << "\n\n";
   }
 
   // stop timer

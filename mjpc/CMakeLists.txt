@@ -24,37 +24,6 @@ target_link_libraries(
 )
 target_include_directories(threadpool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-set(_PROTOBUF_LIBPROTOBUF libprotobuf)
-set(_PROTOBUF_PROTOC $<TARGET_FILE:protoc>)
-
-get_filename_component(agent_state_proto "./agent_state.proto" ABSOLUTE)
-get_filename_component(agent_state_proto_path "${agent_state_proto}" PATH)
-set(agent_state_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/agent_state.pb.cc")
-set(agent_state_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/agent_state.pb.h")
-
-add_custom_command(
-  OUTPUT
-  "${agent_state_proto_srcs}"
-  "${agent_state_proto_hdrs}"
-  COMMAND ${_PROTOBUF_PROTOC}
-  ARGS
-  --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
-  -I "${agent_state_proto_path}"
-  "${agent_state_proto}"
-  DEPENDS
-  "${agent_state_proto}"
-)
-
-add_library(agent_state_proto_lib STATIC
-  "${agent_state_proto_srcs}"
-  "${agent_state_proto_hdrs}"
-)
-
-target_link_libraries(
-  agent_state_proto_lib
-  ${_PROTOBUF_LIBPROTOBUF}
-)
-
 add_library(
   libmjpc STATIC
   states/state.cc
@@ -69,12 +38,24 @@ add_library(
   tasks/tasks.h
   tasks/acrobot/acrobot.cc
   tasks/acrobot/acrobot.h
+  tasks/allegro/allegro.cc
+  tasks/allegro/allegro.h
+  tasks/bimanual/insert/insert.cc
+  tasks/bimanual/insert/insert.h
+  tasks/bimanual/handover/handover.cc
+  tasks/bimanual/handover/handover.h
+  tasks/bimanual/reorient/reorient.cc
+  tasks/bimanual/reorient/reorient.h
   tasks/cartpole/cartpole.cc
   tasks/cartpole/cartpole.h
   tasks/fingers/fingers.cc
   tasks/fingers/fingers.h
-  tasks/hand/hand.cc
-  tasks/hand/hand.h
+  tasks/humanoid/interact/interact.cc
+  tasks/humanoid/interact/interact.h
+  tasks/humanoid/interact/contact_keyframe.cc
+  tasks/humanoid/interact/contact_keyframe.h
+  tasks/humanoid/interact/motion_strategy.cc
+  tasks/humanoid/interact/motion_strategy.h
   tasks/humanoid/stand/stand.cc
   tasks/humanoid/stand/stand.h
   tasks/humanoid/tracking/tracking.cc
@@ -85,10 +66,16 @@ add_library(
   tasks/manipulation/common.h
   tasks/manipulation/manipulation.cc
   tasks/manipulation/manipulation.h
+  tasks/op3/stand.cc
+  tasks/op3/stand.h
   tasks/panda/panda.cc
   tasks/panda/panda.h
   tasks/particle/particle.cc
   tasks/particle/particle.h
+  tasks/rubik/solve.cc
+  tasks/rubik/solve.h
+  tasks/shadow_reorient/hand.cc
+  tasks/shadow_reorient/hand.h
   tasks/quadrotor/quadrotor.cc
   tasks/quadrotor/quadrotor.h
   tasks/quadruped/quadruped.cc
@@ -108,8 +95,12 @@ add_library(
   planners/cost_derivatives.h
   planners/model_derivatives.cc
   planners/model_derivatives.h
+  planners/cross_entropy/planner.cc
+  planners/cross_entropy/planner.h
   planners/robust/robust_planner.cc
   planners/robust/robust_planner.h
+  planners/sample_gradient/planner.cc
+  planners/sample_gradient/planner.h
   planners/sampling/planner.cc
   planners/sampling/planner.h
   planners/sampling/policy.cc
@@ -147,6 +138,8 @@ add_library(
   direct/trajectory.h
   direct/model_parameters.cc
   direct/model_parameters.h
+  spline/spline.cc
+  spline/spline.h
   app.cc
   app.h
   norm.cc
@@ -165,15 +158,16 @@ target_link_libraries(
   absl::any_invocable
   absl::check
   absl::flat_hash_map
+  absl::log
   absl::random_random
-  agent_state_proto_lib
+  absl::span
   glfw
   lodepng
   mujoco::mujoco
   mujoco::platform_ui_adapter
-  ${_PROTOBUF_LIBPROTOBUF}
   threadpool
   Threads::Threads
+  nlohmann_json::nlohmann_json
 )
 target_include_directories(libmjpc
   PUBLIC
@@ -191,10 +185,8 @@ target_link_libraries(
   absl::flags_parse
   absl::random_random
   absl::strings
-  agent_state_proto_lib
   libmjpc
   mujoco::mujoco
-  ${_PROTOBUF_LIBPROTOBUF}
   threadpool
   Threads::Threads
 )
@@ -207,6 +199,38 @@ if(APPLE)
   target_link_libraries(mjpc "-framework Cocoa")
 endif()
 
+add_library(
+  libtestspeed STATIC
+  testspeed_app.cc
+  testspeed.h
+  testspeed.cc
+)
+target_link_libraries(
+  libtestspeed
+  absl::random_random
+  absl::strings
+  libmjpc
+  mujoco::mujoco
+  threadpool
+  Threads::Threads
+)
+target_include_directories(libtestspeed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+add_executable(
+  testspeed
+  testspeed_app.cc
+)
+target_link_libraries(
+  testspeed
+  libtestspeed
+  absl::flags
+  absl::flags_parse
+)
+target_include_directories(testspeed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_options(testspeed PUBLIC ${MJPC_COMPILE_OPTIONS})
+target_link_options(testspeed PRIVATE ${MJPC_LINK_OPTIONS})
+target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
+
 add_subdirectory(tasks)
 
 if(BUILD_TESTING AND MJPC_BUILD_TESTS)
@@ -217,3 +241,7 @@ endif()
 if(MJPC_BUILD_GRPC_SERVICE)
   add_subdirectory(grpc)
 endif()
+
+include(FetchContent)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+FetchContent_MakeAvailable(json)

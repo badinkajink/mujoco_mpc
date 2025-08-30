@@ -15,13 +15,16 @@
 #ifndef MJPC_MJPC_GRPC_UI_AGENT_SERVICE_H_
 #define MJPC_MJPC_GRPC_UI_AGENT_SERVICE_H_
 
+#include <absl/functional/any_invocable.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/status.h>
 #include <mujoco/mujoco.h>
 
+#include <mjpc/agent.h>
 #include <mjpc/grpc/agent.grpc.pb.h>
 #include <mjpc/grpc/agent.pb.h>
 #include <mjpc/simulate.h>  // mjpc fork
+#include <mjpc/states/state.h>
 #include <mjpc/utilities.h>
 
 namespace mjpc::agent_grpc {
@@ -48,6 +51,11 @@ class UiAgentService final : public agent::Agent::Service {
   grpc::Status GetAction(grpc::ServerContext* context,
                          const agent::GetActionRequest* request,
                          agent::GetActionResponse* response) override;
+
+  grpc::Status GetResiduals(
+      grpc::ServerContext* context,
+      const agent::GetResidualsRequest* request,
+      agent::GetResidualsResponse* response) override;
 
   grpc::Status GetCostValuesAndWeights(
       grpc::ServerContext* context,
@@ -89,6 +97,19 @@ class UiAgentService final : public agent::Agent::Service {
       grpc::ServerContext* context,
       const agent::GetModeRequest* request,
       agent::GetModeResponse* response) override;
+
+  grpc::Status GetAllModes(grpc::ServerContext* context,
+                           const agent::GetAllModesRequest* request,
+                           agent::GetAllModesResponse* response) override;
+
+  grpc::Status GetBestTrajectory(
+      grpc::ServerContext* context,
+      const agent::GetBestTrajectoryRequest* request,
+      agent::GetBestTrajectoryResponse* response) override;
+
+  grpc::Status SetAnything(grpc::ServerContext* context,
+                           const agent::SetAnythingRequest* request,
+                           agent::SetAnythingResponse* response) override;
 
  private:
   using StatusStepJob =

@@ -49,6 +49,8 @@ message ResetResponse {}
 message UpdateRequest {
   repeated double ctrl = 1 [packed = true];
   repeated double sensor = 2 [packed = true];
+  optional int32 mode = 3;
+
 }
 
 message UpdateResponse {}
@@ -56,6 +58,7 @@ message UpdateResponse {}
 message State {
   repeated double state = 1 [packed = true];
   optional double time = 2;
+  repeated double qfrc = 3 [packed = true];
 }
 
 message StateRequest {

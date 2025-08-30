@@ -61,7 +61,7 @@ class Unscented : public Estimator {
   void SigmaCovariances();
 
   // update
-  void Update(const double* ctrl, const double* sensor) override;
+  void Update(const double* ctrl, const double* sensor, int mode = 0) override;
 
   // quaternion means
   void QuaternionMeans();
@@ -80,6 +80,9 @@ class Unscented : public Estimator {
 
   // get data
   mjData* Data() override { return data_; };
+
+  // get qfrc
+  double* Qfrc() override { return data_->qfrc_actuator; };
 
   // get process noise
   double* ProcessNoise() override { return noise_process.data(); };

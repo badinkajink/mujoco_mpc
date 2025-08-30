@@ -16,8 +16,8 @@ real-time predictive control with [MuJoCo](https://mujoco.org/), developed by
 Google DeepMind.
 
 MJPC allows the user to easily author and solve complex robotics tasks, and
-currently supports three shooting-based planners: derivative-based iLQG and
-Gradient Descent, and a simple yet very competitive derivative-free method
+currently supports multiple shooting-based planners. Derivative-based methods include iLQG and
+Gradient Descent, while derivative-free methods include a simple yet very competitive planner
 called Predictive Sampling.
 
 - [Overview](#overview)
@@ -42,10 +42,35 @@ For a quick video overview of MJPC, click below.
 
 [![Video](http://img.youtube.com/vi/Bdx7DuAMB6o/hqdefault.jpg)](https://dpmd.ai/mjpc)
 
-For a longer talk at the MIT Robotics Seminar describing our results, click
+For a longer talk at the MIT Robotics Seminar in December 2022 describing our results, click
 below.
 
-[![Talk](http://img.youtube.com/vi/2xVN-qY78P4/hqdefault.jpg)](https://www.youtube.com/watch?v=2xVN-qY78P4)
+[![2022Talk](http://img.youtube.com/vi/2xVN-qY78P4/hqdefault.jpg)](https://www.youtube.com/watch?v=2xVN-qY78P4)
+
+A more recent, December 2023 talk at the IEEE Technical Committee on Model-Based Optimization
+is available here:
+
+[![2023Talk](https://img.youtube.com/vi/J-JO-lgaKtw/hqdefault.jpg)](https://www.youtube.com/watch?v=J-JO-lgaKtw&t=0s)
+
+### Example tasks
+
+Quadruped task:
+
+[![Quadruped](http://img.youtube.com/vi/esLuwaWz4oE/hqdefault.jpg)](https://www.youtube.com/watch?v=esLuwaWz4oE)
+
+
+Bimanual manipulation:
+
+[![Bimanual](http://img.youtube.com/vi/aCNCKVThKIE/hqdefault.jpg)](https://www.youtube.com/watch?v=aCNCKVThKIE)
+
+
+Rubik's cube 10-move unscramble:
+
+[![Unscramble](http://img.youtube.com/vi/ZRRvVWV-Muk/hqdefault.jpg)](https://www.youtube.com/watch?v=ZRRvVWV-Muk)
+
+Humanoid motion-capture tracking:
+
+[![Tracking](http://img.youtube.com/vi/tEBVK-MO1Sw/hqdefault.jpg)](https://www.youtube.com/watch?v=tEBVK-MO1Sw)
 
 ## Graphical User Interface
 
@@ -53,65 +78,127 @@ For a detailed dive of the graphical user interface, see the
 [MJPC GUI](docs/GUI.md) documentation.
 
 ## Installation
+MJPC is tested with [Ubuntu 20.04](https://releases.ubuntu.com/focal/) and [macOS-12](https://www.apple.com/by/macos/monterey/). In principle, other versions and Windows operating system should work with MJPC, but these are not tested.
 
-You will need [CMake](https://cmake.org/) and a working C++20 compiler to build
-MJPC. We recommend using [VSCode](https://code.visualstudio.com/) and 2 of its
+### Prerequisites
+Operating system specific dependencies:
+
+#### macOS
+Install [Xcode](https://developer.apple.com/xcode/).
+
+Install `ninja` and `zlib`:
+```sh
+brew install ninja zlib
+```
+
+#### Ubuntu 20.04
+```sh
+sudo apt-get update && sudo apt-get install cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-12
+```
+
+### Clone MuJoCo MPC
+```sh
+git clone https://github.com/google-deepmind/mujoco_mpc
+```
+
+### Build and Run MJPC GUI application
+1. Change directory:
+```sh
+cd mujoco_mpc
+```
+
+2. Create and change to build directory:
+```sh
+mkdir build
+cd build
+```
+
+3. Configure:
+
+#### macOS-12
+```sh
+cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
+```
+
+#### Ubuntu 20.04
+```sh
+cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DCMAKE_C_COMPILER:STRING=clang-12 -DCMAKE_CXX_COMPILER:STRING=clang++-12 -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
+```
+**Note: gRPC is a large dependency and can take 10-20 minutes to initially download.**
+
+4. Build
+```sh
+cmake --build . --config=Release
+```
+
+6. Run GUI application
+```sh
+cd bin
+./mjpc
+```
+
+### Build and Run MJPC GUI application using VSCode
+We recommend using [VSCode](https://code.visualstudio.com/) and 2 of its
 extensions ([CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools)
 and [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools))
 to simplify the build process.
 
-1. Clone the repository: `git clone https://github.com/google-deepmind/mujoco_mpc.git`
+1. Open the cloned directory `mujoco_mpc`.
 2. Configure the project with CMake (a pop-up should appear in VSCode)
-3. Build and run the `mjpc` target in "release" mode (VSCode defaults to
+3. Set compiler to `clang-12`.
+4. Build and run the `mjpc` target in "release" mode (VSCode defaults to
    "debug"). This will open and run the graphical user interface.
-
-### macOS
-Additionally, install [Xcode](https://developer.apple.com/xcode/).
-
-### Ubuntu
-Additionally, install:
-```shell
-sudo apt-get install libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build
-```
 
 ### Build Issues
 If you encounter build issues, please see the
 [Github Actions configuration](https://github.com/google-deepmind/mujoco_mpc/blob/main/.github/workflows/build.yml).
-Note, we are using `clang-14`.
+This provides the exact setup we use for building MJPC for testing with Ubuntu 20.04 and macOS-12.
 
 # Python API
+We provide a simple Python API for MJPC. This API is still experimental and expects some more experience from its users. For example, the correct usage requires that the model (defined in Python) and the MJPC task (i.e., the residual and transition functions defined in C++) are compatible with each other. Currently, the Python API does not provide any particular error handling for verifying this compatibility and may be difficult to debug without more in-depth knowledge about MuJoCo and MJPC.
 
-We provide a simple Python API for MJPC. This API is still experimental and expects some more experience from its users. For example, the correct usage requires that the model (defined in Python) and the MJPC task (i.e., the residual and transition functions defined in C++) are compatible with each other. Currently, the Python API does not provide any particular error handling for verifying this compatibilty and may be difficult to debug without more in-depth knowedge about mujoco and MJPC.
+## Installation
 
-- [agent.py](../python/mujoco_mpc/agent.py) for available methods for planning.
+### Prerequisites
+1. Build MJPC (see instructions above).
 
-- [filter.py](../python/mujoco_mpc/filter.py) for available methods for state estimation.
+2. Python 3.10
 
-- [direct.py](../python/mujoco_mpc/direct.py) for available methods for direct optimization.
-
-## Installing via Pip
-The MJPC Python module can be installed with:
+3. (Optionally) Create a conda environment with **Python 3.10**:
 ```sh
-pip install "${MUJOCO_MPC_ROOT}/python"
+conda create -n mjpc python=3.10
+conda activate mjpc
 ```
 
-Alternatively:
+4. Install MuJoCo
 ```sh
-python "${MUJOCO_MPC_ROOT}/python/${API}.py" install
+pip install mujoco
+```
+
+### Install API
+Next, change to the python directory:
+```sh
+cd python
+```
+
+Install the Python module:
+```sh
+python setup.py install
 ```
 
 Test that installation was successful:
 ```sh
-python "${MUJOCO_MPC_ROOT}/python/mujoco_mpc/${API_TEST}.py"
+python "mujoco_mpc/agent_test.py"
 ```
 
-where API(_TEST) can be: agent(_test), filter(_test), or direct(_test).
+Example scripts are found in `python/mujoco_mpc/demos`. For example from `python/`:
+```sh
+python mujoco_mpc/demos/agent/cartpole_gui.py
+```
+will run the MJPC GUI application using MuJoCo's passive viewer via Python.
 
-
-## Example Usage
-See [cartpole.py](../python/mujoco_mpc/demos/agent/cartpole.py) for example usage for planning.
-
-See [cartpole_trajopt.py](../python/mujoco_mpc/demos/direct/cartpole_trajopt.py) for usage for direct optimization.
+### Python API Installation Issues
+If your installation fails or is terminated prematurely, we recommend deleting the MJPC build directory and starting from scratch as the build will likely be corrupted. Additionally, delete the files generated during the installation process from the `python/` directory.
 
 ## Predictive Control
 

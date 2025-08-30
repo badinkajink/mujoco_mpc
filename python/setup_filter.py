@@ -59,7 +59,9 @@ class GenerateProtoGrpcCommand(setuptools.Command):
     from grpc_tools import protoc  # pylint: disable=import-outside-toplevel
 
     filter_proto_filename = "filter.proto"
-    filter_proto_source_path = Path("..", "grpc", filter_proto_filename).resolve()
+    filter_proto_source_path = Path(
+        "..", "mjpc", "grpc", filter_proto_filename
+    ).resolve()
     assert self.build_lib is not None
     build_lib_path = Path(self.build_lib).resolve()
     proto_module_relative_path = Path(
@@ -290,7 +292,8 @@ setuptools.setup(
     extras_require={
         "test": [
             "absl-py",
-            "mujoco >= 2.3.3",
+            "mujoco >= 3.1.1",
+            "mujoco-mjx",
         ],
     },
     ext_modules=[CMakeExtension("filter_server")],

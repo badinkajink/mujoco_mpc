@@ -21,7 +21,6 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <ratio>
 #include <string>
 
@@ -33,9 +32,7 @@
 #include <platform_ui_adapter.h>
 #include "mjpc/array_safety.h"
 #include "mjpc/agent.h"
-#include "mjpc/agent_state.pb.h"
 #include "mjpc/utilities.h"
-#include <google/protobuf/text_format.h>
 
 // When launched via an App Bundle on macOS, the working directory is the path
 // to the App Bundle's resource directory. This causes files to be saved into
@@ -529,13 +526,14 @@ void UpdateInfoText(mj::Simulate* sim,
   solerr = mju_log10(mju_max(mjMINVAL, solerr));
 
   // prepare info text
-  mju::strcpy_arr(title, "Objective\nDoFs\nControls\nTime\nMemory");
+  mju::strcpy_arr(title, "Objective\nDoFs\nControls\nParameters\nTime\nMemory");
   const mjpc::Trajectory* best_trajectory =
       sim->agent->ActivePlanner().BestTrajectory();
   if (best_trajectory) {
-    mju::sprintf_arr(content, "%.3f\n%d\n%d\n%-9.3f\n%.2g of %s",
-                     best_trajectory->total_return, m->nv, m->nu, d->time,
-                     d->maxuse_arena / (double)(d->narena),
+    int nparam = sim->agent->ActivePlanner().NumParameters();
+    mju::sprintf_arr(content, "%.3f\n%d\n%d\n%d\n%-9.3f\n%.2g of %s",
+                     best_trajectory->total_return, m->nv, m->nu, nparam,
+                     d->time, d->maxuse_arena / (double)(d->narena),
                      mju_writeNumBytes(d->narena));
   }
 
@@ -619,8 +617,8 @@ void MakePhysicsSection(mj::Simulate* sim, int oldstate) {
     {mjITEM_EDITNUM,   "LS Tol",        2, &(opt->ls_tolerance),      "1 0 0.1"},
     {mjITEM_EDITINT,   "Noslip Iter",   2, &(opt->noslip_iterations), "1 0 1000"},
     {mjITEM_EDITNUM,   "Noslip Tol",    2, &(opt->noslip_tolerance),  "1 0 1"},
-    {mjITEM_EDITINT,   "MPR Iter",      2, &(opt->mpr_iterations),    "1 0 1000"},
-    {mjITEM_EDITNUM,   "MPR Tol",       2, &(opt->mpr_tolerance),     "1 0 1"},
+    {mjITEM_EDITINT,   "CCD Iter",      2, &(opt->ccd_iterations),    "1 0 1000"},
+    {mjITEM_EDITNUM,   "CCD Tol",       2, &(opt->ccd_tolerance),     "1 0 1"},
     {mjITEM_EDITNUM,   "API Rate",      2, &(opt->apirate),           "1 0 1000"},
     {mjITEM_EDITINT,   "SDF Iter",      2, &(opt->sdf_iterations),    "1 1 20"},
     {mjITEM_EDITINT,   "SDF Init",      2, &(opt->sdf_initpoints),    "1 1 100"},
@@ -1165,10 +1163,7 @@ void UiEvent(mjuiState* state) {
         sim->screenshotrequest.store(true);
         break;
       }
-    }
-
-    // option section
-    else if (it && it->sectionid==SECT_OPTION) {
+    } else if (it && it->sectionid == SECT_OPTION) {
       if (it->pdata == &sim->spacing) {
         sim->ui0.spacing = mjui_themeSpacing(sim->spacing);
         sim->ui1.spacing = mjui_themeSpacing(sim->spacing);
@@ -1186,37 +1181,16 @@ void UiEvent(mjuiState* state) {
       // modify UI
       UiModify(&sim->ui0, state, &sim->platform_ui->mjr_context());
       UiModify(&sim->ui1, state, &sim->platform_ui->mjr_context());
-    }
 
-    // simulation section
-    else if (it && it->sectionid==SECT_SIMULATION) {
+    } else if (it && it->sectionid == SECT_SIMULATION) {
       switch (it->itemid) {
       case 1:             // Reset
         if (m) {
-          mj_resetData(m, d);
+          mj_resetDataKeyframe(m, d, mj_name2id(m, mjOBJ_KEY, "home"));
           mj_forward(m, d);
           UpdateProfiler(sim);
           UpdateSensor(sim);
           UpdateSettings(sim);
-          // set initial qpos via keyframe
-          double* key_qpos = mjpc::KeyQPosByName(sim->mnew, sim->dnew,
-                                                 "home");
-          if (key_qpos) {
-            mju_copy(sim->dnew->qpos, key_qpos, sim->mnew->nq);
-          }
-          // set initial qvel via keyframe
-          double* key_qvel = mjpc::KeyQVelByName(sim->mnew, sim->dnew,
-                                                 "home");
-          if (key_qvel) {
-            mju_copy(sim->dnew->qvel, key_qvel, sim->mnew->nv);
-          }
-          // set initial act via keyframe
-          double* act = mjpc::KeyActByName(sim->mnew, sim->dnew,
-                                           "home");
-          if (act) {
-            mju_copy(sim->dnew->act, act, sim->mnew->na);
-          }
-
           sim->agent->PlotReset();
         }
         break;
@@ -1265,13 +1239,7 @@ void UiEvent(mjuiState* state) {
 
     // task section
     else if (it && it->sectionid == SECT_TASK) {
-      std::optional<agent_state::State> state =
-          sim->agent->TaskEvent(it, sim->d, sim->uiloadrequest, sim->run);
-      if (state.has_value()) {
-      std::string clipboard;
-      google::protobuf::TextFormat::PrintToString(state.value(), &clipboard);
-      sim->platform_ui->SetClipboardString(clipboard.c_str());
-      }
+      sim->agent->TaskEvent(it, sim->d, sim->uiloadrequest, sim->run);
     }
 
     // agent section
@@ -1737,6 +1705,18 @@ void Simulate::LoadOnRenderThread() {
   // clear request
   this->loadrequest = 0;
   cond_loadrequest.notify_all();
+
+  // set real time index
+  int numclicks = sizeof(this->percentRealTime) / sizeof(this->percentRealTime[0]);
+  float min_error = 1e6;
+  float desired = mju_log(100*this->m->vis.global.realtime);
+  for (int click=0; click < numclicks; click++) {
+    float error = mju_abs(mju_log(this->percentRealTime[click]) - desired);
+    if (error < min_error) {
+      min_error = error;
+      this->real_time_index = click;
+    }
+  }
 }
 
 //------------------------------------------- rendering --------------------------------------------
