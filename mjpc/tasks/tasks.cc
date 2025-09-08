@@ -40,11 +40,24 @@
 #include "mjpc/tasks/shadow_reorient/hand.h"
 #include "mjpc/tasks/swimmer/swimmer.h"
 #include "mjpc/tasks/walker/walker.h"
+// Humanoid Bench Tasks
+#include "mjpc/tasks/humanoid_bench/push/push.h"
+#include "mjpc/tasks/humanoid_bench/stand/stand.h"
+#include "mjpc/tasks/humanoid_bench/walk/walk.h"
 
 namespace mjpc {
 
 std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
+          // Humanoid Bench Walk Task
+      std::make_shared<Walk_H1>(),
+
+      // Humanoid Bench Stand Task
+      std::make_shared<Stand_H1>(),
+
+      // Humanoid Bench Push Task
+      std::make_shared<Push_H1>(),
+
       std::make_shared<Acrobot>(),
       std::make_shared<Allegro>(),
       std::make_shared<aloha::Handover>(),
