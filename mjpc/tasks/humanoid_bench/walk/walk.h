@@ -59,6 +59,15 @@ class Walk_H1 : public Walk {
   }
 };
 
+class Walk_H12 : public Walk {
+ public:
+  std::string Name() const override { return "Walk H12"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/walk/Walk_H12.xml");
+  }
+};
+
 class Walk_G1 : public Walk {
  public:
   std::string Name() const override { return "Walk G1"; }
