@@ -214,6 +214,24 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1/h1.xml
         <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1.xml.patch
 
+#   # Unitree H1-2, source dir from env variable H12_ASSET_FOLDER
+        # # Check if environment variable H12_ASSET_FOLDER is set
+        # if (NOT DEFINED ENV{H12_ASSET_FOLDER})
+        # message(FATAL_ERROR "Environment variable H12_ASSET_FOLDER not set")
+        # endif()
+
+        # # Optionally mirror it into a normal CMake variable
+        # set(H12_ASSET_FOLDER $ENV{H12_ASSET_FOLDER})
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        /home/wxie/workspace/h1_mujoco/unitree_robots/h1_2/
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
+  COMMAND ${CMAKE_COMMAND} -E copy
+        /home/wxie/workspace/h1_mujoco/unitree_robots/h1_2/h1_2_handless.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
+  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
+        <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2.xml.patch
+
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
 
 add_custom_target(copy_resources ALL
