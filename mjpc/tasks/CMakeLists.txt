@@ -223,7 +223,7 @@ add_custom_target(
         # # Optionally mirror it into a normal CMake variable
         # set(H12_ASSET_FOLDER $ENV{H12_ASSET_FOLDER})
   COMMAND ${CMAKE_COMMAND} -E copy_directory
-        /home/wxie/workspace/h1_mujoco/unitree_robots/h1_2/
+        /home/wxie/workspace/h1_mujoco/unitree_robots/h1_2/meshes
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
         /home/wxie/workspace/h1_mujoco/unitree_robots/h1_2/h1_2_handless.xml
