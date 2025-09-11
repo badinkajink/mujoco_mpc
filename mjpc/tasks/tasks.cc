@@ -58,6 +58,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
 
       // Humanoid Bench Push Task
       std::make_shared<Push_H1>(),
+      std::make_shared<Push_H12>(),
 
       std::make_shared<Acrobot>(),
       std::make_shared<Allegro>(),

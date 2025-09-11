@@ -82,6 +82,15 @@ class Push_H1 : public push {
   }
 };
 
+class Push_H12 : public push {
+ public:
+  std::string Name() const override { return "Push H12"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/push/Push_H12.xml");
+  }
+};
+
 class G1_push : public push {
  public:
   std::string Name() const override { return "Push G1"; }
