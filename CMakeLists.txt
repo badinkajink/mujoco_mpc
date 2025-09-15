@@ -168,6 +168,16 @@ set(BUILD_SHARED_LIBS
 unset(BUILD_SHARED_LIBS_OLD)
 
 FetchContent_Declare(
+  h12
+  GIT_REPOSITORY https://github.com/correlllab/h1_mujoco.git
+  GIT_TAG main   # <-- specify main instead of default master
+)
+FetchContent_GetProperties(h12)
+if(NOT h12_POPULATED)
+  FetchContent_Populate(h12)
+endif()
+
+FetchContent_Declare(
   menagerie
   GIT_REPOSITORY https://github.com/google-deepmind/mujoco_menagerie.git
   GIT_TAG ${MUJOCO_MPC_MENAGERIE_GIT_TAG}
