@@ -44,12 +44,16 @@
 #include "mjpc/tasks/humanoid_bench/push/push.h"
 #include "mjpc/tasks/humanoid_bench/stand/stand.h"
 #include "mjpc/tasks/humanoid_bench/walk/walk.h"
+#include "mjpc/tasks/humanoid_bench/lean/lean.h"
 
 namespace mjpc {
 
 std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
-          // Humanoid Bench Walk Task
+      // H1_2 Lean Task
+      std::make_shared<Lean_H12>(),
+
+      // Humanoid Bench Walk Task
       std::make_shared<Walk_H1>(),
       std::make_shared<Walk_H12>(),
 

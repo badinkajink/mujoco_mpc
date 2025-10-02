@@ -95,6 +95,8 @@ add_library(
   tasks/humanoid_bench/stand/stand.h
   tasks/humanoid_bench/push/push.cc
   tasks/humanoid_bench/push/push.h
+  tasks/humanoid_bench/lean/lean.cc
+  tasks/humanoid_bench/lean/lean.h
   planners/planner.cc
   planners/planner.h
   planners/policy.h
