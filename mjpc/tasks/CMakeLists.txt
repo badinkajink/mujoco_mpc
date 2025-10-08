@@ -14,6 +14,8 @@
 
 # Copy the model files to the binary directory to make them available to the
 # built binary.
+message(STATUS "h12_SOURCE_DIR = ${h12_SOURCE_DIR}")
+message(STATUS "CMAKE_CURRENT_BINARY_DIR = ${CMAKE_CURRENT_BINARY_DIR}")
 
 add_custom_target(
   copy_model_resources ALL
@@ -214,23 +216,16 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1/h1.xml
         <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1.xml.patch
 
-#   # Unitree H1-2, source dir from env variable H12_ASSET_FOLDER
-        # # Check if environment variable H12_ASSET_FOLDER is set
-        # if (NOT DEFINED ENV{H12_ASSET_FOLDER})
-        # message(FATAL_ERROR "Environment variable H12_ASSET_FOLDER not set")
-        # endif()
-
-        # # Optionally mirror it into a normal CMake variable
-        # set(H12_ASSET_FOLDER $ENV{H12_ASSET_FOLDER})
+#   # Unitree H1-2
   COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/meshes
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
-  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
-        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
-        <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2.xml.patch
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
 
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
 
