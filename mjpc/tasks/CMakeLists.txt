@@ -224,7 +224,7 @@ add_custom_target(
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
   COMMAND ${CMAKE_COMMAND} -E copy
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_simple_gripper.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
 
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
