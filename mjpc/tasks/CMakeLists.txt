@@ -204,7 +204,7 @@ add_custom_target(
   COMMAND ${Python_EXECUTABLE}
           ${CMAKE_CURRENT_BINARY_DIR}/manipulation/merge_panda_robotiq.py
           ${CMAKE_CURRENT_BINARY_DIR}/manipulation/panda_robotiq.xml
-          
+
   # Unitree H1
   COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${menagerie_SOURCE_DIR}/unitree_h1/assets
@@ -224,9 +224,11 @@ add_custom_target(
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
   COMMAND ${CMAKE_COMMAND} -E copy
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_simple_gripper.xml
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
-
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos_hands_skin.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
 
 add_custom_target(copy_resources ALL
