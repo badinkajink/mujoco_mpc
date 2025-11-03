@@ -52,6 +52,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),
+      std::make_shared<Lean_H12_Hands>(),
 
       // Humanoid Bench Walk Task
       std::make_shared<Walk_H1>(),
