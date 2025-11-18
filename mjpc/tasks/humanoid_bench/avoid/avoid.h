@@ -10,7 +10,7 @@
 #include "mujoco/mujoco.h"
 
 namespace mjpc {
-class avoid : public Task {
+class Avoid : public Task {
  public:
   std::string Name() const override = 0;
 
@@ -18,25 +18,19 @@ class avoid : public Task {
 
   class ResidualFn : public mjpc::BaseResidualFn {
    public:
-    explicit ResidualFn(const avoid *task)
-        : mjpc::BaseResidualFn(task), task_(const_cast<avoid *>(task)) {}
+    explicit ResidualFn(const Avoid *task)
+        : mjpc::BaseResidualFn(task), task_(const_cast<Avoid *>(task)) {}
 
     void Residual(const mjModel *model, const mjData *data,
                   double *residual) const override;
 
     private:
-      avoid *task_;
+      Avoid *task_;
       friend class avoid;
 
   };
 
-  avoid() : residual_(this) {
-    target_position_ = {1.2, 0.0, 0.95};
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis_x(1.1, 1.3);
-    std::uniform_real_distribution<> dis_y(-0.3, 0.3);
-    target_position_ = {dis_x(gen), dis_y(gen), 0.95};
+  Avoid() : residual_(this) {
   }
 
 //   void TransitionLocked(mjModel *model, mjData *data) override;
@@ -60,7 +54,7 @@ private:
   ResidualFn residual_;
 };
 
-class Avoid_H12 : public avoid {
+class Avoid_H12 : public Avoid {
  public:
   std::string Name() const override { return "Avoid H12"; }
 

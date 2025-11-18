@@ -22,60 +22,15 @@ namespace mjpc {
 //   Number of parameters:
 //      Parameter(0): head height goal
 // ----------------------------------------------------------------
-void avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
+void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
   double const height_goal = parameters_[0];
   int counter = 0;
 
-  // ----- object position ----- //
-  double const *object_pos = SensorByName(model, data, "object_pos");
-
-  // ----- Determine which hand reaches and which braces ----- //
-  double const *left_hand_pos = SensorByName(model, data, "left_hand_pos");
-  double const *right_hand_pos = SensorByName(model, data, "right_hand_pos");
-
-  double left_obj_dist = mju_dist3(left_hand_pos, object_pos);
-  double right_obj_dist = mju_dist3(right_hand_pos, object_pos);
-
-  // Closer hand reaches, farther hand braces
-  bool left_reaches = left_obj_dist < right_obj_dist;
-  double const *reaching_hand = left_reaches ? left_hand_pos : right_hand_pos;
-  double const *bracing_hand = left_reaches ? right_hand_pos : left_hand_pos;
-
-  //------------- Reward calculation --------------//
-  double const hand_dist_penalty = 1.0;
-  double const brace_reward = 0.5;
   double const success = 1000;
   // double const retrieve_reward = 1000;
 
-  // ----- reaching hand position ----- //
-  double hand_dist = mju_dist3(reaching_hand, object_pos);
-
-  // ----- Contact forces ----- //
-  double *left_contact = SensorByName(model, data, "left_hand_contact");
-  double *right_contact = SensorByName(model, data, "right_hand_contact");
-  double brace_contact_force = left_reaches ? right_contact[0] : left_contact[0];
-  double reach_contact_force = left_reaches ? left_contact[0] : right_contact[0];
-
   double reward = 0;
-
-  // Bracing position calculation; Position brace closer to robot and slightly lower to encourage weight transfer
-  double const *table_pos = SensorByName(model, data, "table_surface_pos");
-  double *torso_pos = SensorByName(model, data, "torso_position");
-  double torso_to_table_x = table_pos[0] - torso_pos[0];
-  double ideal_brace[3] = {
-      torso_pos[0] + 0.4 * torso_to_table_x,  // Partway between torso and far edge
-      bracing_hand[1],  // Keep y close to current
-      table_pos[2] - 0.02  // Lower - encourage pressing into table
-  };
-
-  double penalty_hand = hand_dist_penalty * hand_dist;
-  double brace_dist = mju_dist3(bracing_hand, ideal_brace);
-  double reward_brace = brace_reward * mju_exp(-2.0 * brace_dist);
-  double reward_success = (hand_dist < kHandDistThreshold && reach_contact_force > kContactForceThreshold) ? success : 0;
-
-  reward = -penalty_hand + reward_brace + reward_success;
-
   //--------------- End of reward calculation -----------------//
 
   residual[counter++] = success - reward;
@@ -141,34 +96,37 @@ void avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   mju_add3(pcp, vec, center);
   pcp[2] = 1.0e-3;
 
-  // is avoiding - modified to be less strict than standing
-  double avoiding =
-      torso_height / mju_sqrt(torso_height * torso_height + 0.65 * 0.65) - 0.2;
+  // is standing
+  double standing =
+      torso_height / mju_sqrt(torso_height * torso_height + 0.45 * 0.45) - 0.4;
 
   mju_sub(&residual[counter], capture_point, pcp, 2);
-  mju_scl(&residual[counter], &residual[counter], avoiding, 2);
+  mju_scl(&residual[counter], &residual[counter], standing, 2);
 
   counter += 2;
 
-  // ----- torso forward tilt (direction-based) ----- //
-  // Encourage forward avoid to reach object
-  double *torso_forward = SensorByName(model, data, "torso_forward");
-
-  // Vector from torso to object (desired avoid direction)
-  double reach_dir[3];
-  mju_sub3(reach_dir, object_pos, torso_pos);
-  // double reach_dist = mju_normalize3(reach_dir);
-
-  // Want torso forward axis to align with reach direction
-  // dot product should be close to 1
-  double alignment = mju_dot3(torso_forward, reach_dir);
-  residual[counter++] = 1.0 - alignment;
-
-  // ----- pelvis tilt (NEW) ----- //
-  // Allow pelvis to tilt slightly forward for stability during avoid
+  // ----- upright ----- //
+  double *torso_up = SensorByName(model, data, "torso_up");
   double *pelvis_up = SensorByName(model, data, "pelvis_up");
-  double target_pelvis_tilt = 0.85;  // Slight forward tilt allowed
-  residual[counter++] = pelvis_up[2] - target_pelvis_tilt;
+  double *foot_right_up = SensorByName(model, data, "foot_right_up");
+  double *foot_left_up = SensorByName(model, data, "foot_left_up");
+
+  double z_ref[3] = {0.0, 0.0, 1.0};
+
+  // torso
+  residual[counter++] = torso_up[2] - 1.0;
+
+  // pelvis
+  residual[counter++] = 0.3 * (pelvis_up[2] - 1.0);
+
+  // right foot
+  mju_sub3(&residual[counter], foot_right_up, z_ref);
+  mju_scl3(&residual[counter], &residual[counter], 0.1 * standing);
+  counter += 3;
+
+  mju_sub3(&residual[counter], foot_left_up, z_ref);
+  mju_scl3(&residual[counter], &residual[counter], 0.1 * standing);
+  counter += 3;
 
   // ----- posture ----- //
   // Reduced weight vs push task to allow more deviation for avoiding
@@ -192,32 +150,13 @@ void avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   mju_addToScl(move_feet, foot_left_vel, -0.5, 2);
 
   mju_copy(&residual[counter], move_feet, 2);
-  mju_scl(&residual[counter], &residual[counter], avoiding, 2);
+  mju_scl(&residual[counter], &residual[counter], standing, 2);
   counter += 2;
 
   // ----- control ----- //
   mju_sub(&residual[counter], data->ctrl, model->key_qpos + 7,
           model->nu);  // because of pos control
   counter += model->nu;
-
-  // ----- bracing hand position on table ----- //
-  mju_sub3(&residual[counter], bracing_hand, ideal_brace);
-  counter += 3;
-
-  // Want significant downward force (tune desired force via weight in XML)
-  double desired_brace_force = 15.0;  // N
-  residual[counter++] = desired_brace_force - brace_contact_force;
-
-  // ------ object distance (reaching hand) ------ //
-  mju_sub3(&residual[counter], reaching_hand, object_pos);
-  mju_scl3(&residual[counter], &residual[counter], avoiding);
-  counter += 3;
-
-  // ----- reaching hand distance to object ----- //
-  mju_sub3(&residual[counter], reaching_hand, object_pos);
-  counter += 3;
-
-  task_->target_position_[0] = 0.0;  // DEBUG
 
   // sensor dim sanity check
   int user_sensor_dim = 0;
@@ -240,7 +179,7 @@ void avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
 // }
 
-void avoid::ResetLocked(const mjModel *model) {
+void Avoid::ResetLocked(const mjModel *model) {
   // DEBUG: Print joint order
   printf("\nJoint order for qpos:\n");
   for (int i = 0; i < model->njnt; i++) {
