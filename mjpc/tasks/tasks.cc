@@ -45,11 +45,15 @@
 #include "mjpc/tasks/humanoid_bench/stand/stand.h"
 #include "mjpc/tasks/humanoid_bench/walk/walk.h"
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
+#include "mjpc/tasks/humanoid_bench/avoid/avoid.h"
 
 namespace mjpc {
 
 std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
+      // H1_2 Avoid Task
+      std::make_shared<Avoid_H12>(),
+
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Hands>(),
