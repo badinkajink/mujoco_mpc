@@ -50,20 +50,20 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double const success = 1000;
 
   // ============ OBSTACLE AVOIDANCE REWARD ============
-  
+
   // Compute weighted centroid of obstacles (where danger is)
   double obstacle_centroid[3] = {0, 0, 0};
   double total_weight = 0.0;
   int num_detections = 0;
-  
+
   for (auto &p : readings) {
     int sid = p.first;
     double capacitance = p.second;
-    
+
     if (capacitance > 0) {  // Obstacle detected
       num_detections++;
       const mjtNum *sensor_pos = &data->site_xpos[3 * sid];
-      
+
       // Weight by inverse distance (closer = higher weight)
       double weight = capacitance;  // Already 1/distance
       obstacle_centroid[0] += weight * sensor_pos[0];
@@ -72,13 +72,13 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
       total_weight += weight;
     }
   }
-  
+
   if (total_weight > 0) {
     obstacle_centroid[0] /= total_weight;
     obstacle_centroid[1] /= total_weight;
     obstacle_centroid[2] /= total_weight;
   }
-  
+
   // Reward: negative of average proximity danger
   double avg_danger = (num_detections > 0) ? total_weight / num_detections : 0.0;
   double reward = -50.0 * avg_danger;  // Penalty for proximity
@@ -216,7 +216,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   for (size_t i = 0; i < sensor_ids.size(); ++i) {
     int sid = sensor_ids[i];
     auto it = readings.find(sid);
-    
+
     if (it != readings.end() && it->second > 0) {
       // Penalty: inverse distance squared (stronger when close)
       double capacitance = it->second;
@@ -231,21 +231,21 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // Encourage CoM to shift away from obstacle centroid (xy plane only)
   if (total_weight > 0) {
     double *com_pos = SensorByName(model, data, "torso_subcom");
-    
+
     // Direction from obstacle to CoM (desired direction)
     double away_dir[2];
     away_dir[0] = com_pos[0] - obstacle_centroid[0];
     away_dir[1] = com_pos[1] - obstacle_centroid[1];
     double away_dist = mju_sqrt(away_dir[0]*away_dir[0] + away_dir[1]*away_dir[1]);
-    
+
     if (away_dist > 1e-6) {
       away_dir[0] /= away_dist;
       away_dir[1] /= away_dist;
-      
+
       // Target: CoM should be 0.2m away from obstacle centroid in xy
       double desired_offset = 0.2;
       double current_offset = away_dist;
-      
+
       residual[counter++] = (current_offset - desired_offset) * away_dir[0];
       residual[counter++] = (current_offset - desired_offset) * away_dir[1];
     } else {
@@ -275,12 +275,54 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
 // -------- Transition for humanoid_bench avoid task -------- //
 // ------------------------------------------------------------ //
-// void avoid::TransitionLocked(mjModel *model, mjData *data) {
+void Avoid::TransitionLocked(mjModel *model, mjData *data) {
+  int obstacle_id = mj_name2id(model, mjOBJ_BODY, "obstacle");
+  if (obstacle_id < 0) return;
 
-// }
+  int jnt_id = model->body_jntadr[obstacle_id];
+  if (jnt_id < 0) return;
+  int qpos_adr = model->jnt_qposadr[jnt_id];
+
+  double* pos = data->qpos + qpos_adr;
+
+// log keypress states
+  std::cout << "Keyboard states: "
+            << "F:" << keyboard_forward_ << " "
+            << "B:" << keyboard_backward_ << " "
+            << "L:" << keyboard_left_ << " "
+            << "R:" << keyboard_right_ << " "
+            << "U:" << keyboard_up_ << " "
+            << "D:" << keyboard_down_ << std::endl;
+
+  const double move_speed = 0.02;    // meters per timestep for xy
+  const double height_speed = 0.01;  // meters per timestep for z
+
+  // Apply keyboard control
+  // Home/End: forward/backward (x-axis)
+  if (keyboard_forward_)  pos[0] += move_speed;
+  if (keyboard_backward_) pos[0] -= move_speed;
+
+  // Delete/PageDown: left/right (y-axis)
+  if (keyboard_left_)  pos[1] -= move_speed;
+  if (keyboard_right_) pos[1] += move_speed;
+
+  // Insert/PageUp: up/down (z-axis)
+  if (keyboard_up_)   pos[2] += height_speed;
+  if (keyboard_down_) pos[2] -= height_speed;
+
+  // Clamp to reasonable bounds
+  pos[0] = mju_clip(pos[0], 0.3, 2.5);
+  pos[1] = mju_clip(pos[1], -1.5, 1.5);
+  pos[2] = mju_clip(pos[2], 0.3, 2.0);
+}
 
 void Avoid::ResetLocked(const mjModel *model) {
-  // DEBUG: Print joint order
+  // Reset keyboard flags
+  keyboard_forward_ = keyboard_backward_ = false;
+  keyboard_left_ = keyboard_right_ = false;
+  keyboard_up_ = keyboard_down_ = false;
+
+  // DEBUG
   printf("\nJoint order for qpos:\n");
   for (int i = 0; i < model->njnt; i++) {
     const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
