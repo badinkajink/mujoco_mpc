@@ -24,6 +24,25 @@ namespace mjpc {
 // ----------------------------------------------------------------
 void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
+  // Capacitive skin readings
+//   static CapacitiveSkin cap(model, data);
+  static CapacitiveSkin cap(model);
+  static bool initialized = false;
+  if (!initialized) {
+    cap.RegisterAllSkinSites();
+    initialized = true;
+  }
+
+  auto readings = cap.ComputeAllCapacitances(model, data);
+
+  for (auto &p : readings) {
+    int sid = p.first;
+    double val = p.second;
+    std::cout << "Sensor " << sid << ": " << val << std::endl;
+    // example residual: inverse distance
+    residual[sid] = (val == std::numeric_limits<double>::infinity()) ? 0.0 : 1.0 / val;
+  }
+
   double const height_goal = parameters_[0];
   int counter = 0;
 
