@@ -34,21 +34,54 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
   auto readings = cap.ComputeAllCapacitances(model, data);
 
-  for (auto &p : readings) {
-    int sid = p.first;
-    double val = p.second;
-    std::cout << "Sensor " << sid << ": " << val << std::endl;
-    // example residual: inverse distance
-    residual[sid] = (val == std::numeric_limits<double>::infinity()) ? 0.0 : 1.0 / val;
-  }
+  // for (auto &p : readings) {
+  //   int sid = p.first;
+  //   double val = p.second;
+  //   std::cout << "Sensor " << sid << ": " << val << std::endl;
+  //   // example residual: inverse distance
+  //   // residual[sid] = (val == std::numeric_limits<double>::infinity()) ? 0.0 : 1.0 / val;
+  // }
+
+  //--------------- Beginning of reward calculation -----------------//
 
   double const height_goal = parameters_[0];
   int counter = 0;
 
   double const success = 1000;
-  // double const retrieve_reward = 1000;
 
-  double reward = 0;
+  // ============ OBSTACLE AVOIDANCE REWARD ============
+  
+  // Compute weighted centroid of obstacles (where danger is)
+  double obstacle_centroid[3] = {0, 0, 0};
+  double total_weight = 0.0;
+  int num_detections = 0;
+  
+  for (auto &p : readings) {
+    int sid = p.first;
+    double capacitance = p.second;
+    
+    if (capacitance > 0) {  // Obstacle detected
+      num_detections++;
+      const mjtNum *sensor_pos = &data->site_xpos[3 * sid];
+      
+      // Weight by inverse distance (closer = higher weight)
+      double weight = capacitance;  // Already 1/distance
+      obstacle_centroid[0] += weight * sensor_pos[0];
+      obstacle_centroid[1] += weight * sensor_pos[1];
+      obstacle_centroid[2] += weight * sensor_pos[2];
+      total_weight += weight;
+    }
+  }
+  
+  if (total_weight > 0) {
+    obstacle_centroid[0] /= total_weight;
+    obstacle_centroid[1] /= total_weight;
+    obstacle_centroid[2] /= total_weight;
+  }
+  
+  // Reward: negative of average proximity danger
+  double avg_danger = (num_detections > 0) ? total_weight / num_detections : 0.0;
+  double reward = -50.0 * avg_danger;  // Penalty for proximity
   //--------------- End of reward calculation -----------------//
 
   residual[counter++] = success - reward;
@@ -175,6 +208,55 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   mju_sub(&residual[counter], data->ctrl, model->key_qpos + 7,
           model->nu);  // because of pos control
   counter += model->nu;
+
+  // ============ NEW OBSTACLE AVOIDANCE RESIDUALS ============
+
+  // ----- Obstacle Proximity (per-sensor penalty) ----- //
+  const auto& sensor_ids = cap.SensorIds();
+  for (size_t i = 0; i < sensor_ids.size(); ++i) {
+    int sid = sensor_ids[i];
+    auto it = readings.find(sid);
+    
+    if (it != readings.end() && it->second > 0) {
+      // Penalty: inverse distance squared (stronger when close)
+      double capacitance = it->second;
+      residual[counter] = capacitance * capacitance;  // (1/d)^2
+    } else {
+      residual[counter] = 0.0;  // No obstacle detected
+    }
+    counter++;
+  }
+
+  // ----- CoM Away From Obstacle ----- //
+  // Encourage CoM to shift away from obstacle centroid (xy plane only)
+  if (total_weight > 0) {
+    double *com_pos = SensorByName(model, data, "torso_subcom");
+    
+    // Direction from obstacle to CoM (desired direction)
+    double away_dir[2];
+    away_dir[0] = com_pos[0] - obstacle_centroid[0];
+    away_dir[1] = com_pos[1] - obstacle_centroid[1];
+    double away_dist = mju_sqrt(away_dir[0]*away_dir[0] + away_dir[1]*away_dir[1]);
+    
+    if (away_dist > 1e-6) {
+      away_dir[0] /= away_dist;
+      away_dir[1] /= away_dist;
+      
+      // Target: CoM should be 0.2m away from obstacle centroid in xy
+      double desired_offset = 0.2;
+      double current_offset = away_dist;
+      
+      residual[counter++] = (current_offset - desired_offset) * away_dir[0];
+      residual[counter++] = (current_offset - desired_offset) * away_dir[1];
+    } else {
+      residual[counter++] = 0.0;
+      residual[counter++] = 0.0;
+    }
+  } else {
+    // No obstacle detected, no preference
+    residual[counter++] = 0.0;
+    residual[counter++] = 0.0;
+  }
 
   // sensor dim sanity check
   int user_sensor_dim = 0;
