@@ -65,9 +65,6 @@
         <subtreelinvel name="foot_right_vel" body="right_ankle_roll_link"/>
         <subtreelinvel name="foot_left_vel" body="left_ankle_roll_link"/>
 
-        <framepos name="object_pos" objtype="body" objname="object"/>
-        <framepos name="table_surface_pos" objtype="geom" objname="table_top"/>
-
         <framepos name="left_hand_pos" objtype="site" objname="left_hand"/>
         <framepos name="right_hand_pos" objtype="site" objname="right_hand"/>
         <framelinvel name="left_hand_vel" objtype="site" objname="left_hand"/>
