@@ -7,18 +7,17 @@
 #include "mujoco/mujoco.h"
 
 namespace mjpc {
-// ------------------ Residuals for humanoid avoid task ------------
+// ------------------ Residuals for humanoid stand task ------------
 //   Number of residuals:
-//      Residual(0): humanoid_bench reward
+//      Residual(0): 1 - humanoid_bench reward
 //      Residual(1): Height: head feet vertical error
-//      Residual(2): CoM Velocity
+//      Residual(2): Balance: CoM Velocity
 //      Residual(3): joint velocity
 //      Residual(4): balance
-//      Residual(5): torso forward tilt (NEW - encourages avoiding)
-//      Residual(6): pelvis tilt (NEW - allows forward avoid)
-//      Residual(7): posture
-//      Residual(8): velocity
-//      Residual(9): control
+//      Residual(5): upright
+//      Residual(6): posture
+//      Residual(7): velocity
+//      Residual(8): control
 //   Number of parameters:
 //      Parameter(0): head height goal
 // ----------------------------------------------------------------

@@ -97,7 +97,7 @@ class CapacitiveSkin {
     double dz = sensor_pos[2] - obstacle_pos[2];
     double d = std::sqrt(dx*dx + dy*dy + dz*dz);
 
-    if (d > sensing_radius_ + obstacle_radius) return std::numeric_limits<double>::infinity();
+    if (d > sensing_radius_ + obstacle_radius) return -1;
 
     double effective_d = std::max(0.01, d - obstacle_radius);
     return eps_ / effective_d;
@@ -109,7 +109,7 @@ class CapacitiveSkin {
     double dy = sensor_pos[1] - obstacle_pos[1];
     double dz = sensor_pos[2] - obstacle_pos[2];
     double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-    return (dist > sensing_radius_) ? std::numeric_limits<double>::infinity() : dist;
+    return (dist > sensing_radius_) ? -1 : dist;
   }
 
   // Compute all sensor readings (distance or capacitance)
