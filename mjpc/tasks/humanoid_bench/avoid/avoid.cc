@@ -18,6 +18,8 @@ namespace mjpc {
 //      Residual(6): posture
 //      Residual(7): velocity
 //      Residual(8): control
+//      Residual(9): obstacle proximity
+//      Residual(10): COM distance to obstacle
 //   Number of parameters:
 //      Parameter(0): head height goal
 // ----------------------------------------------------------------

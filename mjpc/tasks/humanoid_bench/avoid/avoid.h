@@ -77,10 +77,6 @@ class Avoid_H12 : public Avoid {
 
 class CapacitiveSkin {
  public:
-  // CapacitiveSkin(const mjModel *model, const mjData *data,
-  //                double eps = 1.0, double sensing_radius = 0.15)
-  //     : model_(model), data_(data), eps_(eps), sensing_radius_(sensing_radius) {}
-
   CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 0.15)
       : model_(model), eps_(eps), sensing_radius_(sensing_radius) {}
 
