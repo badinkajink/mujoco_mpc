@@ -1390,8 +1390,8 @@ void UiEvent(mjuiState* state) {
           const double height_speed = 0.01;
 
           switch (state->key) {
-            case mjKEY_HOME:      avoid_task->MoveObstacle(move_speed, 0, 0); break;
-            case mjKEY_END:       avoid_task->MoveObstacle(-move_speed, 0, 0); break;
+            case mjKEY_HOME:      avoid_task->MoveObstacle(-move_speed, 0, 0); break;
+            case mjKEY_END:       avoid_task->MoveObstacle(move_speed, 0, 0); break;
             case mjKEY_DELETE:    avoid_task->MoveObstacle(0, -move_speed, 0); break;
             case mjKEY_PAGE_DOWN: avoid_task->MoveObstacle(0, move_speed, 0); break;
             case mjKEY_INSERT:    avoid_task->MoveObstacle(0, 0, height_speed); break;
