@@ -34,24 +34,15 @@ class Avoid : public Task {
 
   };
 
-  Avoid() : residual_(this),
-            keyboard_forward_(false), keyboard_backward_(false),
-            keyboard_left_(false), keyboard_right_(false),
-            keyboard_up_(false), keyboard_down_(false) {}
+  Avoid() : residual_(this) {}
 
   void TransitionLocked(mjModel *model, mjData *data) override;
   void ResetLocked(const mjModel *model) override;
 
-  // Keyboard control interface - PUBLIC for simulate.cc to call
-  void SetKeyboardState(char key, bool pressed) {
-    switch(key) {
-      case 'f': keyboard_forward_ = pressed; break;   // Home key -> forward
-      case 'b': keyboard_backward_ = pressed; break;  // End key -> backward
-      case 'l': keyboard_left_ = pressed; break;      // Delete key -> left
-      case 'r': keyboard_right_ = pressed; break;     // PageDown key -> right
-      case 'u': keyboard_up_ = pressed; break;        // Insert key -> up
-      case 'd': keyboard_down_ = pressed; break;      // PageUp key -> down
-    }
+  void MoveObstacle(double dx, double dy, double dz) {
+    obstacle_move_x_ += dx;
+    obstacle_move_y_ += dy;
+    obstacle_move_z_ += dz;
   }
 
  protected:
@@ -69,11 +60,9 @@ class Avoid : public Task {
 
 private:
   ResidualFn residual_;
-  // Keyboard state for obstacle control
-  // forward/backward = x, left/right = y, up/down = z
-  bool keyboard_forward_, keyboard_backward_;
-  bool keyboard_left_, keyboard_right_;
-  bool keyboard_up_, keyboard_down_;
+  double obstacle_move_x_ = 0.0;
+  double obstacle_move_y_ = 0.0;
+  double obstacle_move_z_ = 0.0;
 };
 
 class Avoid_H12 : public Avoid {

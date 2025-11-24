@@ -1377,29 +1377,29 @@ void UiEvent(mjuiState* state) {
 
     //   break;
 
-    case mjKEY_HOME:        // Forward
-    case mjKEY_END:         // Backward
-    case mjKEY_DELETE:      // Left
-    case mjKEY_PAGE_DOWN:   // Right
-    case mjKEY_INSERT:      // Up
-    case mjKEY_PAGE_UP:     // Down
-      // Pass to active task if it's an Avoid task
+    case mjKEY_HOME:
+    case mjKEY_END:
+    case mjKEY_DELETE:
+    case mjKEY_PAGE_DOWN:
+    case mjKEY_INSERT:
+    case mjKEY_PAGE_UP:
       if (sim->agent && sim->agent->ActiveTask()) {
         auto* avoid_task = dynamic_cast<mjpc::Avoid*>(sim->agent->ActiveTask());
         if (avoid_task) {
-          bool pressed = true;  // Key pressed
+          const double move_speed = 0.02;
+          const double height_speed = 0.01;
+
           switch (state->key) {
-            case mjKEY_HOME:      avoid_task->SetKeyboardState('f', pressed); break;
-            case mjKEY_END:       avoid_task->SetKeyboardState('b', pressed); break;
-            case mjKEY_DELETE:    avoid_task->SetKeyboardState('l', pressed); break;
-            case mjKEY_PAGE_DOWN: avoid_task->SetKeyboardState('r', pressed); break;
-            case mjKEY_INSERT:    avoid_task->SetKeyboardState('u', pressed); break;
-            case mjKEY_PAGE_UP:   avoid_task->SetKeyboardState('d', pressed); break;
+            case mjKEY_HOME:      avoid_task->MoveObstacle(move_speed, 0, 0); break;
+            case mjKEY_END:       avoid_task->MoveObstacle(-move_speed, 0, 0); break;
+            case mjKEY_DELETE:    avoid_task->MoveObstacle(0, -move_speed, 0); break;
+            case mjKEY_PAGE_DOWN: avoid_task->MoveObstacle(0, move_speed, 0); break;
+            case mjKEY_INSERT:    avoid_task->MoveObstacle(0, 0, height_speed); break;
+            case mjKEY_PAGE_UP:   avoid_task->MoveObstacle(0, 0, -height_speed); break;
           }
         }
       }
       break;
-
 
     case ']':                   // cycle up fixed cameras
       if (m && m->ncam) {

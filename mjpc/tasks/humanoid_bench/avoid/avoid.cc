@@ -285,43 +285,18 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
 
   double* pos = data->qpos + qpos_adr;
 
-// log keypress states
-  std::cout << "Keyboard states: "
-            << "F:" << keyboard_forward_ << " "
-            << "B:" << keyboard_backward_ << " "
-            << "L:" << keyboard_left_ << " "
-            << "R:" << keyboard_right_ << " "
-            << "U:" << keyboard_up_ << " "
-            << "D:" << keyboard_down_ << std::endl;
+  // Apply accumulated movement
+  pos[0] += obstacle_move_x_;
+  pos[1] += obstacle_move_y_;
+  pos[2] += obstacle_move_z_;
 
-  const double move_speed = 0.02;    // meters per timestep for xy
-  const double height_speed = 0.01;  // meters per timestep for z
-
-  // Apply keyboard control
-  // Home/End: forward/backward (x-axis)
-  if (keyboard_forward_)  pos[0] += move_speed;
-  if (keyboard_backward_) pos[0] -= move_speed;
-
-  // Delete/PageDown: left/right (y-axis)
-  if (keyboard_left_)  pos[1] -= move_speed;
-  if (keyboard_right_) pos[1] += move_speed;
-
-  // Insert/PageUp: up/down (z-axis)
-  if (keyboard_up_)   pos[2] += height_speed;
-  if (keyboard_down_) pos[2] -= height_speed;
-
-  // Clamp to reasonable bounds
-  pos[0] = mju_clip(pos[0], 0.3, 2.5);
-  pos[1] = mju_clip(pos[1], -1.5, 1.5);
-  pos[2] = mju_clip(pos[2], 0.3, 2.0);
+  // Clear movement commands
+  obstacle_move_x_ = 0.0;
+  obstacle_move_y_ = 0.0;
+  obstacle_move_z_ = 0.0;
 }
 
 void Avoid::ResetLocked(const mjModel *model) {
-  // Reset keyboard flags
-  keyboard_forward_ = keyboard_backward_ = false;
-  keyboard_left_ = keyboard_right_ = false;
-  keyboard_up_ = keyboard_down_ = false;
-
   // DEBUG
   printf("\nJoint order for qpos:\n");
   for (int i = 0; i < model->njnt; i++) {
