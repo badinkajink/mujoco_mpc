@@ -63,6 +63,13 @@ private:
   double obstacle_move_x_ = 0.0;
   double obstacle_move_y_ = 0.0;
   double obstacle_move_z_ = 0.0;
+
+  // Obstacle trajectory state
+  bool obstacle_launched_ = false;
+  double obstacle_start_pos_[3] = {0};
+  double obstacle_target_pos_[3] = {0};
+  double obstacle_velocity_[3] = {0};
+  double min_obstacle_dist_ = 1.0e6;
 };
 
 class Avoid_H12 : public Avoid {

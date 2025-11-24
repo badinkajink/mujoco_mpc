@@ -7,6 +7,13 @@
 #include "mujoco/mujoco.h"
 
 namespace mjpc {
+
+namespace {
+// thread-safe random number generator
+thread_local std::mt19937 generator(std::random_device{}());
+}  // namespace
+
+
 // ------------------ Residuals for humanoid stand task ------------
 //   Number of residuals:
 //      Residual(0): 1 - humanoid_bench reward
@@ -284,21 +291,140 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int jnt_id = model->body_jntadr[obstacle_id];
   if (jnt_id < 0) return;
   int qpos_adr = model->jnt_qposadr[jnt_id];
+  int qvel_adr = model->jnt_dofadr[jnt_id];
 
+  if (!obstacle_launched_) {     // --- Set up a new trajectory ---
+    // 1. Target a point on the upper torso (sample in a small bounding box around torso)
+    double *torso_pos = nullptr;
+    torso_pos = SensorByName(model, data, "torso_position");
+    // std::cout << "torso pos: " << torso_pos[0] << ", " << torso_pos[1] << ", " << torso_pos[2] << std::endl;
+    // Sampling extents for "upper torso" relative to torso_pos (tweakable)
+    const double x_extent = 0.25;   // forward/backwards
+    const double y_extent = 0.20;   // left/right
+    const double z_min = 0.05;      // slightly above torso base
+    const double z_max = 0.40;      // up to shoulders/head area
+
+    std::uniform_real_distribution<double> ux(-x_extent, x_extent);
+    std::uniform_real_distribution<double> uy(-y_extent, y_extent);
+    std::uniform_real_distribution<double> uz(z_min, z_max);
+
+    // Build a target in torso frame. This is approximate in world frame (we assume torso frame ~ world orientation here).
+    obstacle_target_pos_[0] = torso_pos[0] + ux(generator);
+    obstacle_target_pos_[1] = torso_pos[1] + uy(generator);
+    obstacle_target_pos_[2] = torso_pos[2] + uz(generator);
+
+    // 2. Initialize obstacle position in a bounded spherical shell around the robot (outside)
+    std::uniform_real_distribution<double> sphere_u(0.0, 1.0);
+    std::normal_distribution<double> normal(0.0, 1.0);
+
+    double dir[3] = { normal(generator), normal(generator), normal(generator) };
+    mju_normalize3(dir); // unit vector
+
+    double min_dist = 1.25; // minimum distance from torso (tweakable)
+    double max_dist = 1.75; // maximum distance from torso (tweakable)
+    std::uniform_real_distribution<double> dist_dist(min_dist, max_dist);
+    double dist = dist_dist(generator);
+
+    obstacle_start_pos_[0] = torso_pos[0] + dir[0] * dist;
+    obstacle_start_pos_[1] = torso_pos[1] + dir[1] * dist;
+    obstacle_start_pos_[2] = torso_pos[2] + dir[2] * dist;
+    // ensure start above ground
+    obstacle_start_pos_[2] = mju_max(1.0, obstacle_start_pos_[2]);
+    // ensure not dropped from too high
+    obstacle_start_pos_[2] = mju_min(obstacle_start_pos_[2], 3.0);
+
+    // Place obstacle qpos (assumes free joint/body qpos maps directly)
+    mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
+
+    // 3. Sample random speed (user suggested reasonable upper bound 10 m/s)
+    std::uniform_real_distribution<double> speed_dist(1.0, 10.0);
+    double speed = speed_dist(generator);
+
+    // 4. Compute travel time and initial ballistic velocity (simple constant-accel model)
+    // horizontal distance used to estimate travel time; avoid zero division
+    double dx = obstacle_target_pos_[0] - obstacle_start_pos_[0];
+    double dy = obstacle_target_pos_[1] - obstacle_start_pos_[1];
+    double dz = obstacle_target_pos_[2] - obstacle_start_pos_[2];
+    double straight_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+    double travel_time = (straight_dist > 1e-6) ? (straight_dist / speed) : 0.5;
+
+    // Ensure travel_time is not vanishingly small
+    if (travel_time < 0.05) travel_time = 0.05;
+
+    // Solve for initial velocity v so that:
+    // target = start + v * t + 0.5 * g * t^2  =>  v = (target - start - 0.5*g*t^2) / t
+    double g[3] = { model->opt.gravity[0], model->opt.gravity[1], model->opt.gravity[2] };
+    obstacle_velocity_[0] = (dx - 0.5 * g[0] * travel_time * travel_time) / travel_time;
+    obstacle_velocity_[1] = (dy - 0.5 * g[1] * travel_time * travel_time) / travel_time;
+    obstacle_velocity_[2] = (dz - 0.5 * g[2] * travel_time * travel_time) / travel_time;
+
+    // Cap velocity magnitude to a safe maximum (in case of tiny travel_time)
+    double vmax = 10.0;
+    double vmagsq = obstacle_velocity_[0]*obstacle_velocity_[0] +
+                    obstacle_velocity_[1]*obstacle_velocity_[1] +
+                    obstacle_velocity_[2]*obstacle_velocity_[2];
+    if (vmagsq > vmax*vmax) {
+      double scale = vmax / std::sqrt(vmagsq);
+      obstacle_velocity_[0] *= scale;
+      obstacle_velocity_[1] *= scale;
+      obstacle_velocity_[2] *= scale;
+    }
+
+    // Apply qvel
+    mju_copy3(data->qvel + qvel_adr, obstacle_velocity_);
+
+    obstacle_launched_ = true;
+
+    min_obstacle_dist_ = 1.0e6;
+  } else {
+    // --- Monitor existing trajectory ---
+    double* obstacle_pos = data->qpos + qpos_adr;
+    double* torso_pos = SensorByName(model, data, "torso_position");
+    double dist_to_torso = mju_dist3(obstacle_pos, torso_pos);
+
+    // Check if we've passed the closest point -- tweakable
+    if (dist_to_torso > min_obstacle_dist_ + 0.3) { // Passed and moving away
+      obstacle_launched_ = false; // Trigger reset on next step
+    } else {
+      min_obstacle_dist_ = mju_min(min_obstacle_dist_, dist_to_torso);
+    }
+
+    // Also reset if obstacle goes too far away or falls through the floor
+    if (mju_dist3(obstacle_pos, torso_pos) > 5.0 || obstacle_pos[2] < -0.5) {
+        obstacle_launched_ = false;
+    }
+  }
+
+  // ** Apply keyboard movement commands **
   double* pos = data->qpos + qpos_adr;
-
-  // Apply accumulated movement
   pos[0] += obstacle_move_x_;
   pos[1] += obstacle_move_y_;
   pos[2] += obstacle_move_z_;
-
   // Clear movement commands
   obstacle_move_x_ = 0.0;
   obstacle_move_y_ = 0.0;
   obstacle_move_z_ = 0.0;
 }
 
+// Replace ResetLocked with this version (keeps your radius randomization)
 void Avoid::ResetLocked(const mjModel *model) {
+  // Reset obstacle state
+  obstacle_launched_ = false;
+  min_obstacle_dist_ = 1.0e6;
+
+  // Randomize obstacle size
+  int obstacle_geom_id = mj_name2id(model, mjOBJ_GEOM, "obstacle_geom");
+  if (obstacle_geom_id >= 0) {
+    // Accessing mutable model is risky but necessary for this effect.
+    // This is safe during reset.
+    mjModel* mutable_model = const_cast<mjModel*>(model);
+    double min_radius = 0.03;
+    double max_radius = 0.15;
+    std::uniform_real_distribution<double> radius_dist(min_radius, max_radius);
+    mutable_model->geom_size[3 * obstacle_geom_id] =
+        radius_dist(generator);
+  }
+
   // DEBUG
   printf("\nJoint order for qpos:\n");
   for (int i = 0; i < model->njnt; i++) {
