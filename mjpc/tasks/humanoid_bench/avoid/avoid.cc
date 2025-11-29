@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <fstream>
+#include <iomanip>
+#include <nlohmann/json.hpp>
 
 #include "mujoco/mujoco.h"
 

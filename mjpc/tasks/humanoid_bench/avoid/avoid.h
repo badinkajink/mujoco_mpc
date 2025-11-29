@@ -8,10 +8,36 @@
 #include <vector>
 #include <string>
 #include <cmath>
+#include <fstream>
+#include <string>
+#include <vector>
 
 #include "mjpc/task.h"
 #include "mjpc/utilities.h"
 #include "mujoco/mujoco.h"
+
+struct EpisodeLogger {
+  std::string out_dir = ".";         // output directory
+  int episode_idx = 0;
+  std::ofstream csv;                 // open CSV
+  std::string csv_path;
+  bool open_episode() {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s/episode_%04d.csv", out_dir.c_str(), episode_idx);
+    csv_path = buf;
+    csv.open(csv_path, std::ios::out);
+    if (!csv.is_open()) return false;
+    // header (customize as needed)
+    csv << "step, time";
+    // we'll append dynamic headers later from code using model sizes
+    csv << "\n";
+    return true;
+  }
+  void close_episode() {
+    if (csv.is_open()) csv.close();
+    episode_idx++;
+  }
+};
 
 namespace mjpc {
 class Avoid : public Task {
@@ -58,6 +84,8 @@ class Avoid : public Task {
     return &residual_;
   }
 
+  EpisodeLogger logger_;
+
 private:
   ResidualFn residual_;
   double obstacle_move_x_ = 0.0;
@@ -80,8 +108,6 @@ class Avoid_H12 : public Avoid {
     return GetModelPath("humanoid_bench/avoid/Avoid_H12.xml");
   }
 };
-
-
 class CapacitiveSkin {
  public:
   CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 0.15)
