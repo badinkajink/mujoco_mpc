@@ -388,6 +388,10 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     // Check if we've passed the closest point -- tweakable
     if (dist_to_torso > min_obstacle_dist_ + 0.3) { // Passed and moving away
       obstacle_launched_ = false; // Trigger reset on next step
+      if (logger_.csv.is_open()) {
+        logger_.csv.close();
+        logger_.episode_idx++;
+      }
     } else {
       min_obstacle_dist_ = mju_min(min_obstacle_dist_, dist_to_torso);
     }
@@ -395,6 +399,10 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     // Also reset if obstacle goes too far away or falls through the floor
     if (mju_dist3(obstacle_pos, torso_pos) > 5.0 || obstacle_pos[2] < -0.5) {
         obstacle_launched_ = false;
+        if (logger_.csv.is_open()) {
+          logger_.csv.close();
+          logger_.episode_idx++;
+        }
     }
   }
 
@@ -407,6 +415,47 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   obstacle_move_x_ = 0.0;
   obstacle_move_y_ = 0.0;
   obstacle_move_z_ = 0.0;
+
+  // Logging
+  // after obstacle launch / monitor logic and just before returning from TransitionLocked:
+  if (logger_.csv.is_open()) {
+    int step = data->time / sim_time_per_step_; // approximate step index
+    double time = data->time;
+    // obstacle qpos/qvel addresses retrieved earlier as qpos_adr/qvel_adr
+    double* obst_pos = data->qpos + qpos_adr;
+    double* obst_vel = data->qvel + qvel_adr;
+
+    // obstacle radius: read geom size if available
+    int obstacle_geom_id = mj_name2id(model, mjOBJ_GEOM, "obstacle_geom");
+    double obst_radius = 0.0;
+    if (obstacle_geom_id >= 0) obst_radius = model->geom_size[3*obstacle_geom_id];
+
+    // write base columns
+    logger_.csv << step << "," << time << "," 
+                << obst_pos[0] << "," << obst_pos[1] << "," << obst_pos[2] << ","
+                << obst_vel[0] << "," << obst_vel[1] << "," << obst_vel[2] << ","
+                << obst_radius;
+
+    // qpos
+    for (int i = 0; i < model->nq; ++i) {
+      logger_.csv << "," << data->qpos[i];
+    }
+    for (int i = 0; i < model->nv; ++i) {
+      logger_.csv << "," << data->qvel[i];
+    }
+    // sensors (write raw sensordata; sensordata is flattened length model->nsensor*dim? For simplicity use data->sensordata contiguous array with sensor dims stacked)
+    // We'll fetch sensor values using model->sensor_adr and model->sensor_dim
+    for (int i = 0; i < model->nsensor; ++i) {
+      int adr = model->sensor_adr[i];
+      int dim = model->sensor_dim[i];
+      for (int d = 0; d < dim; ++d) {
+        logger_.csv << "," << data->sensordata[adr + d];
+      }
+    }
+    // commanded velocity (we stored the command in obstacle_velocity_ at launch)
+    logger_.csv << "," << obstacle_velocity_[0] << "," << obstacle_velocity_[1] << "," << obstacle_velocity_[2] << "\n";
+  }
+
 }
 
 // Replace ResetLocked with this version (keeps your radius randomization)
@@ -434,6 +483,40 @@ void Avoid::ResetLocked(const mjModel *model) {
     const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
     int qpos_adr = model->jnt_qposadr[i];
     printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
+  }
+
+  // ** Logging **
+  sim_time_per_step_ = model->opt.timestep;
+  logger_.out_dir = "./traj_logs"; // choose/create directory
+  // ensure directory exists (posix)
+  system("mkdir -p ./traj_logs");
+
+  // open and write header
+  char buf[256];
+  std::snprintf(buf, sizeof(buf), "%s/episode_%04d.csv", logger_.out_dir.c_str(), logger_.episode_idx);
+  logger_.csv_path = buf;
+  logger_.csv.open(logger_.csv_path, std::ios::out);
+  if (!logger_.csv.is_open()) {
+    printf("[Avoid] Failed to open logger file %s\n", logger_.csv_path.c_str());
+  } else {
+    // Build header dynamically based on model sizes (nq,nv,nsensor)
+    logger_.csv << "step,time,obst_px,obst_py,obst_pz,obst_vx,obst_vy,obst_vz,obst_radius";
+    // robot qpos
+    for (int i = 0; i < model->nq; ++i) {
+      logger_.csv << ",qpos_" << i;
+    }
+    for (int i = 0; i < model->nv; ++i) {
+      logger_.csv << ",qvel_" << i;
+    }
+    // sensors
+    for (int i = 0; i < model->nsensor; ++i) {
+      const char* sname = mj_id2name(model, mjOBJ_SENSOR, i);
+      if (sname) logger_.csv << ",sensor_" << i << "_" << sname;
+      else logger_.csv << ",sensor_" << i;
+    }
+    // commanded velocity (log what you commanded at launch)
+    logger_.csv << ",cmd_vx,cmd_vy,cmd_vz\n";
+    logger_.csv << std::fixed << std::setprecision(4);
   }
 }
 }  // namespace mjpc

@@ -85,6 +85,7 @@ class Avoid : public Task {
   }
 
   EpisodeLogger logger_;
+  double sim_time_per_step_ = 0.0;
 
 private:
   ResidualFn residual_;
