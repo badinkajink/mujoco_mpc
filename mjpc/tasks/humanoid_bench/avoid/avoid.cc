@@ -445,14 +445,16 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     for (int i = 0; i < model->nv; ++i) {
       logger_.csv << "," << data->qvel[i];
     }
-    // sensors (write raw sensordata; sensordata is flattened length model->nsensor*dim? For simplicity use data->sensordata contiguous array with sensor dims stacked)
-    // We'll fetch sensor values using model->sensor_adr and model->sensor_dim
-    for (int i = 0; i < model->nsensor; ++i) {
-      int adr = model->sensor_adr[i];
-      int dim = model->sensor_dim[i];
-      for (int d = 0; d < dim; ++d) {
-        logger_.csv << "," << data->sensordata[adr + d];
-      }
+    // Capacitance
+    static CapacitiveSkin cap(model);
+    auto caps = cap.ComputeAllCapacitances(model, data);
+    auto sensor_ids = cap.SensorIds();
+    // deterministic ordering (unordered_map is not ordered)
+    for (int sid : sensor_ids) {
+        double reading = 0.0;
+        auto it = caps.find(sid);
+        if (it != caps.end()) reading = it->second;
+        logger_.csv << "," << reading;
     }
     // commanded velocity (we stored the command in obstacle_velocity_ at launch)
     logger_.csv << "," << obstacle_velocity_[0] << "," << obstacle_velocity_[1] << "," << obstacle_velocity_[2] << "\n";
