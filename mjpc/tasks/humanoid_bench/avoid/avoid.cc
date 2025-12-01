@@ -465,10 +465,12 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       initialized = true;
     }
     auto readings = cap.ComputeAllCapacitances(model, data);
-    for (auto &p : readings) {
-      int sid = p.first;
-      double val = p.second;
-      logger_.csv << "," << val;
+    auto sensor_ids = cap.SensorIds();   // deterministic ordering captured at init
+    for (int sid : sensor_ids) {
+        double reading = 0.0;
+        auto it = readings.find(sid);
+        if (it != readings.end()) reading = it->second;
+        logger_.csv << "," << reading;
     }
 
     // commanded velocity (we stored the command in obstacle_velocity_ at launch)
