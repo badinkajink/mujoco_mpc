@@ -324,7 +324,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     mju_normalize3(dir); // unit vector
 
     double min_dist = 1.25; // minimum distance from torso (tweakable)
-    double max_dist = 1.75; // maximum distance from torso (tweakable)
+    double max_dist = 2.00; // maximum distance from torso (tweakable)
     std::uniform_real_distribution<double> dist_dist(min_dist, max_dist);
     double dist = dist_dist(generator);
 
