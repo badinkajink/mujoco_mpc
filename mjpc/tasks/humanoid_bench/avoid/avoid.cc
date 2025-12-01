@@ -391,6 +391,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       if (logger_.csv.is_open()) {
         logger_.csv.close();
         logger_.episode_idx++;
+        ResetLocked(model);
       }
     } else {
       min_obstacle_dist_ = mju_min(min_obstacle_dist_, dist_to_torso);
@@ -402,6 +403,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
         if (logger_.csv.is_open()) {
           logger_.csv.close();
           logger_.episode_idx++;
+          ResetLocked(model);
         }
     }
   }
@@ -478,12 +480,12 @@ void Avoid::ResetLocked(const mjModel *model) {
   }
 
   // DEBUG
-  printf("\nJoint order for qpos:\n");
-  for (int i = 0; i < model->njnt; i++) {
-    const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
-    int qpos_adr = model->jnt_qposadr[i];
-    printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
-  }
+  // printf("\nJoint order for qpos:\n");
+  // for (int i = 0; i < model->njnt; i++) {
+  //   const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
+  //   int qpos_adr = model->jnt_qposadr[i];
+  //   printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
+  // }
 
   // ** Logging **
   sim_time_per_step_ = model->opt.timestep;
@@ -493,7 +495,9 @@ void Avoid::ResetLocked(const mjModel *model) {
 
   // open and write header
   char buf[256];
-  std::snprintf(buf, sizeof(buf), "%s/episode_%04d.csv", logger_.out_dir.c_str(), logger_.episode_idx);
+  // append epoch time to name
+  time_t now = time(nullptr);
+  std::snprintf(buf, sizeof(buf), "%s/episode_%04d_%ld.csv", logger_.out_dir.c_str(), logger_.episode_idx, now);
   logger_.csv_path = buf;
   logger_.csv.open(logger_.csv_path, std::ios::out);
   if (!logger_.csv.is_open()) {
