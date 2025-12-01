@@ -41,7 +41,7 @@
 
 ABSL_FLAG(bool, planner_enabled, false,
           "If true, the planner will run on startup");
-ABSL_FLAG(float, sim_percent_realtime, 5,
+ABSL_FLAG(float, sim_percent_realtime, 100,
           "The realtime percentage at which the simulation will be launched.");
 ABSL_FLAG(bool, estimator_enabled, false,
           "If true, estimator loop will run on startup");
