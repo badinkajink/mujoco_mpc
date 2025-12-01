@@ -386,25 +386,20 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     double dist_to_torso = mju_dist3(obstacle_pos, torso_pos);
 
     // Check if we've passed the closest point -- tweakable
-    if (dist_to_torso > min_obstacle_dist_ + 0.3) { // Passed and moving away
+    if (dist_to_torso > min_obstacle_dist_ + 0.7 || 
+        mju_dist3(obstacle_pos, torso_pos) > 5.0 || 
+        obstacle_pos[2] < -0.5) { // Passed and moving away, or obstacle goes too far away, or falls through the floor
       obstacle_launched_ = false; // Trigger reset on next step
       if (logger_.csv.is_open()) {
         logger_.csv.close();
         logger_.episode_idx++;
         ResetLocked(model);
+        // set home keyframe
+        int home_id = mj_name2id(model, mjOBJ_KEY, "home");
+        if (home_id >= 0) mj_resetDataKeyframe(model, data, home_id);
       }
     } else {
       min_obstacle_dist_ = mju_min(min_obstacle_dist_, dist_to_torso);
-    }
-
-    // Also reset if obstacle goes too far away or falls through the floor
-    if (mju_dist3(obstacle_pos, torso_pos) > 5.0 || obstacle_pos[2] < -0.5) {
-        obstacle_launched_ = false;
-        if (logger_.csv.is_open()) {
-          logger_.csv.close();
-          logger_.episode_idx++;
-          ResetLocked(model);
-        }
     }
   }
 
@@ -496,7 +491,7 @@ void Avoid::ResetLocked(const mjModel *model) {
     std::uniform_real_distribution<double> radius_dist(min_radius, max_radius);
     mutable_model->geom_size[3 * obstacle_geom_id] =
         radius_dist(generator);
-  }
+  }  
 
   // DEBUG
   // printf("\nJoint order for qpos:\n");
