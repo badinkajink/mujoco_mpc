@@ -438,24 +438,39 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
                 << obst_vel[0] << "," << obst_vel[1] << "," << obst_vel[2] << ","
                 << obst_radius;
 
+    int obstacle_body = mj_name2id(model, mjOBJ_BODY, "obstacle");
+    int obstacle_jnt = model->body_jntadr[obstacle_body];
+    int obstacle_qpos0 = model->jnt_qposadr[obstacle_jnt];
+    int obstacle_qvel0 = model->jnt_dofadr[obstacle_jnt];
+
+    static const int OBST_QPOS_DOF = 7;
+    static const int OBST_QVEL_DOF = 6;
+
     // qpos
-    for (int i = 0; i < model->nq; ++i) {
-      logger_.csv << "," << data->qpos[i];
+    for (int i = 0; i < model->nq; i++) {
+        if (i >= obstacle_qpos0 && i < obstacle_qpos0 + OBST_QPOS_DOF)
+            continue;
+        logger_.csv << "," << data->qpos[i];
     }
-    for (int i = 0; i < model->nv; ++i) {
-      logger_.csv << "," << data->qvel[i];
+    for (int i = 0; i < model->nv; i++) {
+        if (i >= obstacle_qvel0 && i < obstacle_qvel0 + OBST_QVEL_DOF)
+            continue;
+        logger_.csv << "," << data->qvel[i];
     }
     // Capacitance
     static CapacitiveSkin cap(model);
-    auto caps = cap.ComputeAllCapacitances(model, data);
-    auto sensor_ids = cap.SensorIds();
-    // deterministic ordering (unordered_map is not ordered)
-    for (int sid : sensor_ids) {
-        double reading = 0.0;
-        auto it = caps.find(sid);
-        if (it != caps.end()) reading = it->second;
-        logger_.csv << "," << reading;
+    static bool initialized = false;
+    if (!initialized) {
+      cap.RegisterAllSkinSites();
+      initialized = true;
     }
+    auto readings = cap.ComputeAllCapacitances(model, data);
+    for (auto &p : readings) {
+      int sid = p.first;
+      double val = p.second;
+      logger_.csv << "," << val;
+    }
+
     // commanded velocity (we stored the command in obstacle_velocity_ at launch)
     logger_.csv << "," << obstacle_velocity_[0] << "," << obstacle_velocity_[1] << "," << obstacle_velocity_[2] << "\n";
   }
@@ -490,8 +505,16 @@ void Avoid::ResetLocked(const mjModel *model) {
   // }
 
   // ** Logging **
+  int obstacle_body = mj_name2id(model, mjOBJ_BODY, "obstacle");
+  int obstacle_jnt = model->body_jntadr[obstacle_body];
+  int obstacle_qpos0 = model->jnt_qposadr[obstacle_jnt];
+  int obstacle_qvel0 = model->jnt_dofadr[obstacle_jnt];
+
+  static const int OBST_QPOS_DOF = 7;
+  static const int OBST_QVEL_DOF = 6;
+
   sim_time_per_step_ = model->opt.timestep;
-  logger_.out_dir = "./traj_logs"; // choose/create directory
+  logger_.out_dir = "./traj_logs";
   // ensure directory exists (posix)
   system("mkdir -p ./traj_logs");
 
@@ -508,18 +531,34 @@ void Avoid::ResetLocked(const mjModel *model) {
     // Build header dynamically based on model sizes (nq,nv,nsensor)
     logger_.csv << "step,time,obst_px,obst_py,obst_pz,obst_vx,obst_vy,obst_vz,obst_radius";
     // robot qpos
-    for (int i = 0; i < model->nq; ++i) {
-      logger_.csv << ",qpos_" << i;
+    for (int i = 0; i < model->nq; i++) {
+        if (i >= obstacle_qpos0 && i < obstacle_qpos0 + OBST_QPOS_DOF)
+            continue;   // skip freejoint qpos
+        logger_.csv << ",qpos_" << i;
     }
-    for (int i = 0; i < model->nv; ++i) {
-      logger_.csv << ",qvel_" << i;
-    }
+    for (int i = 0; i < model->nv; i++) {
+        if (i >= obstacle_qvel0 && i < obstacle_qvel0 + OBST_QVEL_DOF)
+            continue;   // skip freejoint qvel
+        logger_.csv << ",qvel_" << i;
+    }    
     // sensors
-    for (int i = 0; i < model->nsensor; ++i) {
-      const char* sname = mj_id2name(model, mjOBJ_SENSOR, i);
-      if (sname) logger_.csv << ",sensor_" << i << "_" << sname;
-      else logger_.csv << ",sensor_" << i;
+    static CapacitiveSkin cap(model);
+    static bool initialized = false;
+    if (!initialized) {
+      cap.RegisterAllSkinSites();
+      initialized = true;
     }
+    auto site_ids = cap.SensorIds();
+    // Write header columns for capacitance sites
+    for (int sid : site_ids) {
+        const char* name = mj_id2name(model, mjOBJ_SITE, sid); 
+        if (name) {
+            logger_.csv << ",cap_site_" << sid << "_" << name;
+        } else {
+            logger_.csv << ",cap_site_" << sid;
+        }
+    }
+
     // commanded velocity (log what you commanded at launch)
     logger_.csv << ",cmd_vx,cmd_vy,cmd_vz\n";
     logger_.csv << std::fixed << std::setprecision(4);
