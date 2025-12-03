@@ -297,87 +297,125 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int qvel_adr = model->jnt_dofadr[jnt_id];
 
   if (!obstacle_launched_) {     // --- Set up a new trajectory ---
-    // 1. Target a point on the upper torso (sample in a small bounding box around torso)
-    double *torso_pos = nullptr;
-    torso_pos = SensorByName(model, data, "torso_position");
-    // std::cout << "torso pos: " << torso_pos[0] << ", " << torso_pos[1] << ", " << torso_pos[2] << std::endl;
-    // Sampling extents for "upper torso" relative to torso_pos (tweakable)
-    const double x_extent = 0.25;   // forward/backwards
-    const double y_extent = 0.20;   // left/right
-    const double z_min = 0.05;      // slightly above torso base
-    const double z_max = 0.40;      // up to shoulders/head area
+    if (use_offline_obstacles_) {
+      // Get next configuration (wrap around if we've exhausted all configs)
+      int idx = current_obstacle_index_ % num_all_obstacles_;
+      const auto& config = all_obstacles_[idx].config;
+      
+      // Set obstacle position, vel directly from recorded config
+      mju_copy3(obstacle_start_pos_, config.position);
+      mju_copy3(obstacle_velocity_, config.velocity);
+      
+      // Set obstacle radius from recorded config
+      int obstacle_geom_id = mj_name2id(model, mjOBJ_GEOM, "obstacle_geom");
+      if (obstacle_geom_id >= 0) {
+        mjModel* mutable_model = const_cast<mjModel*>(model);
+        mutable_model->geom_size[3 * obstacle_geom_id] = config.radius;
+      }
+      
+      // Set target position (assume it hits torso, we don't record this)
+      double *torso_pos = SensorByName(model, data, "torso_position");
+      mju_copy3(obstacle_target_pos_, torso_pos);
+      
+      // Apply initial position and velocity to obstacle
+      mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
+      data->qpos[qpos_adr + 3] = 1.0;  // qw
+      data->qpos[qpos_adr + 4] = 0.0;  // qx
+      data->qpos[qpos_adr + 5] = 0.0;  // qy
+      data->qpos[qpos_adr + 6] = 0.0;  // qz
+      mju_copy3(data->qvel + qvel_adr, obstacle_velocity_);
+      
+      current_obstacle_index_++;
+      
+      // Debug output
+      std::printf("Offline obstacle %d/%d: pos=[%.2f,%.2f,%.2f], vel=[%.2f,%.2f,%.2f], r=%.3f, source=%s\n",
+                  idx + 1, num_all_obstacles_,
+                  config.position[0], config.position[1], config.position[2],
+                  config.velocity[0], config.velocity[1], config.velocity[2],
+                  config.radius,
+                  all_obstacles_[idx].from_good ? "GOOD" : "BAD");
+      
+    } else {
+      // 1. Target a point on the upper torso (sample in a small bounding box around torso)
+      double *torso_pos = nullptr;
+      torso_pos = SensorByName(model, data, "torso_position");
+      // std::cout << "torso pos: " << torso_pos[0] << ", " << torso_pos[1] << ", " << torso_pos[2] << std::endl;
+      // Sampling extents for "upper torso" relative to torso_pos (tweakable)
+      const double x_extent = 0.25;   // forward/backwards
+      const double y_extent = 0.20;   // left/right
+      const double z_min = 0.05;      // slightly above torso base
+      const double z_max = 0.40;      // up to shoulders/head area
 
-    std::uniform_real_distribution<double> ux(-x_extent, x_extent);
-    std::uniform_real_distribution<double> uy(-y_extent, y_extent);
-    std::uniform_real_distribution<double> uz(z_min, z_max);
+      std::uniform_real_distribution<double> ux(-x_extent, x_extent);
+      std::uniform_real_distribution<double> uy(-y_extent, y_extent);
+      std::uniform_real_distribution<double> uz(z_min, z_max);
 
-    // Build a target in torso frame. This is approximate in world frame (we assume torso frame ~ world orientation here).
-    obstacle_target_pos_[0] = torso_pos[0] + ux(generator);
-    obstacle_target_pos_[1] = torso_pos[1] + uy(generator);
-    obstacle_target_pos_[2] = torso_pos[2] + uz(generator);
+      // Build a target in torso frame. This is approximate in world frame (we assume torso frame ~ world orientation here).
+      obstacle_target_pos_[0] = torso_pos[0] + ux(generator);
+      obstacle_target_pos_[1] = torso_pos[1] + uy(generator);
+      obstacle_target_pos_[2] = torso_pos[2] + uz(generator);
 
-    // 2. Initialize obstacle position in a bounded spherical shell around the robot (outside)
-    std::uniform_real_distribution<double> sphere_u(0.0, 1.0);
-    std::normal_distribution<double> normal(0.0, 1.0);
+      // 2. Initialize obstacle position in a bounded spherical shell around the robot (outside)
+      std::uniform_real_distribution<double> sphere_u(0.0, 1.0);
+      std::normal_distribution<double> normal(0.0, 1.0);
 
-    double dir[3] = { normal(generator), normal(generator), normal(generator) };
-    mju_normalize3(dir); // unit vector
+      double dir[3] = { normal(generator), normal(generator), normal(generator) };
+      mju_normalize3(dir); // unit vector
 
-    double min_dist = 1.25; // minimum distance from torso (tweakable)
-    double max_dist = 2.00; // maximum distance from torso (tweakable)
-    std::uniform_real_distribution<double> dist_dist(min_dist, max_dist);
-    double dist = dist_dist(generator);
+      double min_dist = 1.25; // minimum distance from torso (tweakable)
+      double max_dist = 2.00; // maximum distance from torso (tweakable)
+      std::uniform_real_distribution<double> dist_dist(min_dist, max_dist);
+      double dist = dist_dist(generator);
 
-    obstacle_start_pos_[0] = torso_pos[0] + dir[0] * dist;
-    obstacle_start_pos_[1] = torso_pos[1] + dir[1] * dist;
-    obstacle_start_pos_[2] = torso_pos[2] + dir[2] * dist;
-    // ensure start above ground
-    obstacle_start_pos_[2] = mju_max(1.0, obstacle_start_pos_[2]);
-    // ensure not dropped from too high
-    obstacle_start_pos_[2] = mju_min(obstacle_start_pos_[2], 3.0);
+      obstacle_start_pos_[0] = torso_pos[0] + dir[0] * dist;
+      obstacle_start_pos_[1] = torso_pos[1] + dir[1] * dist;
+      obstacle_start_pos_[2] = torso_pos[2] + dir[2] * dist;
+      // ensure start above ground
+      obstacle_start_pos_[2] = mju_max(1.0, obstacle_start_pos_[2]);
+      // ensure not dropped from too high
+      obstacle_start_pos_[2] = mju_min(obstacle_start_pos_[2], 3.0);
 
-    // Place obstacle qpos (assumes free joint/body qpos maps directly)
-    mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
+      // Place obstacle qpos (assumes free joint/body qpos maps directly)
+      mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
 
-    // 3. Sample random speed (user suggested reasonable upper bound 10 m/s)
-    std::uniform_real_distribution<double> speed_dist(1.0, 10.0);
-    double speed = speed_dist(generator);
+      // 3. Sample random speed (user suggested reasonable upper bound 10 m/s)
+      std::uniform_real_distribution<double> speed_dist(1.0, 10.0);
+      double speed = speed_dist(generator);
 
-    // 4. Compute travel time and initial ballistic velocity (simple constant-accel model)
-    // horizontal distance used to estimate travel time; avoid zero division
-    double dx = obstacle_target_pos_[0] - obstacle_start_pos_[0];
-    double dy = obstacle_target_pos_[1] - obstacle_start_pos_[1];
-    double dz = obstacle_target_pos_[2] - obstacle_start_pos_[2];
-    double straight_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-    double travel_time = (straight_dist > 1e-6) ? (straight_dist / speed) : 0.5;
+      // 4. Compute travel time and initial ballistic velocity (simple constant-accel model)
+      // horizontal distance used to estimate travel time; avoid zero division
+      double dx = obstacle_target_pos_[0] - obstacle_start_pos_[0];
+      double dy = obstacle_target_pos_[1] - obstacle_start_pos_[1];
+      double dz = obstacle_target_pos_[2] - obstacle_start_pos_[2];
+      double straight_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+      double travel_time = (straight_dist > 1e-6) ? (straight_dist / speed) : 0.5;
 
-    // Ensure travel_time is not vanishingly small
-    if (travel_time < 0.05) travel_time = 0.05;
+      // Ensure travel_time is not vanishingly small
+      if (travel_time < 0.05) travel_time = 0.05;
 
-    // Solve for initial velocity v so that:
-    // target = start + v * t + 0.5 * g * t^2  =>  v = (target - start - 0.5*g*t^2) / t
-    double g[3] = { model->opt.gravity[0], model->opt.gravity[1], model->opt.gravity[2] };
-    obstacle_velocity_[0] = (dx - 0.5 * g[0] * travel_time * travel_time) / travel_time;
-    obstacle_velocity_[1] = (dy - 0.5 * g[1] * travel_time * travel_time) / travel_time;
-    obstacle_velocity_[2] = (dz - 0.5 * g[2] * travel_time * travel_time) / travel_time;
+      // Solve for initial velocity v so that:
+      // target = start + v * t + 0.5 * g * t^2  =>  v = (target - start - 0.5*g*t^2) / t
+      double g[3] = { model->opt.gravity[0], model->opt.gravity[1], model->opt.gravity[2] };
+      obstacle_velocity_[0] = (dx - 0.5 * g[0] * travel_time * travel_time) / travel_time;
+      obstacle_velocity_[1] = (dy - 0.5 * g[1] * travel_time * travel_time) / travel_time;
+      obstacle_velocity_[2] = (dz - 0.5 * g[2] * travel_time * travel_time) / travel_time;
 
-    // Cap velocity magnitude to a safe maximum (in case of tiny travel_time)
-    double vmax = 10.0;
-    double vmagsq = obstacle_velocity_[0]*obstacle_velocity_[0] +
-                    obstacle_velocity_[1]*obstacle_velocity_[1] +
-                    obstacle_velocity_[2]*obstacle_velocity_[2];
-    if (vmagsq > vmax*vmax) {
-      double scale = vmax / std::sqrt(vmagsq);
-      obstacle_velocity_[0] *= scale;
-      obstacle_velocity_[1] *= scale;
-      obstacle_velocity_[2] *= scale;
+      // Cap velocity magnitude to a safe maximum (in case of tiny travel_time)
+      double vmax = 10.0;
+      double vmagsq = obstacle_velocity_[0]*obstacle_velocity_[0] +
+                      obstacle_velocity_[1]*obstacle_velocity_[1] +
+                      obstacle_velocity_[2]*obstacle_velocity_[2];
+      if (vmagsq > vmax*vmax) {
+        double scale = vmax / std::sqrt(vmagsq);
+        obstacle_velocity_[0] *= scale;
+        obstacle_velocity_[1] *= scale;
+        obstacle_velocity_[2] *= scale;
+      }
+      // Apply qvel
+      mju_copy3(data->qvel + qvel_adr, obstacle_velocity_);
     }
 
-    // Apply qvel
-    mju_copy3(data->qvel + qvel_adr, obstacle_velocity_);
-
     obstacle_launched_ = true;
-
     min_obstacle_dist_ = 1.0e6;
   } else {
     // --- Monitor existing trajectory ---
