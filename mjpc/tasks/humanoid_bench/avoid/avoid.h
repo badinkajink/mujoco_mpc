@@ -15,12 +15,7 @@
 #include "mjpc/task.h"
 #include "mjpc/utilities.h"
 #include "mujoco/mujoco.h"
-
-struct ObstacleConfig {
-  double position[3];  // Initial position (x, y, z)
-  double velocity[3];  // Commanded velocity (vx, vy, vz)
-  double radius;       // Obstacle radius
-};
+#include "mjpc/tasks/humanoid_bench/avoid/offline_obstacles.h"
 
 struct EpisodeLogger {
   std::string out_dir = ".";         // output directory
@@ -107,7 +102,7 @@ private:
   double min_obstacle_dist_ = 1.0e6;
 
   // offline replay (forgive me)
-  bool use_offline_obstacles_ = true;  // Set to true for ablation
+  bool use_offline_obstacles_ = false;  // Set to true for ablation
   int current_obstacle_index_ = 0;
 
   // Configurations from GOOD trajectories (successful avoidance)
@@ -636,7 +631,7 @@ class Avoid_H12 : public Avoid {
 };
 class CapacitiveSkin {
  public:
-  CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 1.0)
+  CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 0.15)
       : model_(model), eps_(eps), sensing_radius_(sensing_radius) {}
 
 
