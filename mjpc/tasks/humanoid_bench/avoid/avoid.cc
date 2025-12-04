@@ -296,6 +296,14 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int qpos_adr = model->jnt_qposadr[jnt_id];
   int qvel_adr = model->jnt_dofadr[jnt_id];
 
+  // Capacitance
+  static CapacitiveSkin cap(model);
+  static bool initialized = false;
+  if (!initialized) {
+    cap.RegisterAllSkinSites();
+    initialized = true;
+  }
+
   if (!obstacle_launched_) {     // --- Set up a new trajectory ---
     if (use_offline_obstacles_) {
       // Get next configuration (wrap around if we've exhausted all configs)
@@ -336,24 +344,19 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
                   all_obstacles_[idx].from_good ? "GOOD" : "BAD");
       
     } else {
-      // 1. Target a point on the upper torso (sample in a small bounding box around torso)
-      double *torso_pos = nullptr;
-      torso_pos = SensorByName(model, data, "torso_position");
-      // std::cout << "torso pos: " << torso_pos[0] << ", " << torso_pos[1] << ", " << torso_pos[2] << std::endl;
-      // Sampling extents for "upper torso" relative to torso_pos (tweakable)
-      const double x_extent = 0.25;   // forward/backwards
-      const double y_extent = 0.20;   // left/right
-      const double z_min = 0.05;      // slightly above torso base
-      const double z_max = 0.40;      // up to shoulders/head area
-
-      std::uniform_real_distribution<double> ux(-x_extent, x_extent);
-      std::uniform_real_distribution<double> uy(-y_extent, y_extent);
-      std::uniform_real_distribution<double> uz(z_min, z_max);
-
-      // Build a target in torso frame. This is approximate in world frame (we assume torso frame ~ world orientation here).
-      obstacle_target_pos_[0] = torso_pos[0] + ux(generator);
-      obstacle_target_pos_[1] = torso_pos[1] + uy(generator);
-      obstacle_target_pos_[2] = torso_pos[2] + uz(generator);
+      // 1. Select a random sensor site as the target
+      double *torso_pos = SensorByName(model, data, "torso_position");
+      const auto& sensor_ids = cap.SensorIds();
+      
+      // Randomly select a sensor site as target
+      std::uniform_int_distribution<int> site_dist(0, sensor_ids.size() - 1);
+      int target_site_id = sensor_ids[site_dist(generator)];
+      
+      // Get target sensor position
+      const mjtNum *target_site_pos = &data->site_xpos[3 * target_site_id];
+      obstacle_target_pos_[0] = target_site_pos[0];
+      obstacle_target_pos_[1] = target_site_pos[1];
+      obstacle_target_pos_[2] = target_site_pos[2];
 
       // 2. Initialize obstacle position in a bounded spherical shell around the robot (outside)
       std::uniform_real_distribution<double> sphere_u(0.0, 1.0);
@@ -378,8 +381,8 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       // Place obstacle qpos (assumes free joint/body qpos maps directly)
       mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
 
-      // 3. Sample random speed (user suggested reasonable upper bound 10 m/s)
-      std::uniform_real_distribution<double> speed_dist(1.0, 10.0);
+      // 3. Sample random speed
+      std::uniform_real_distribution<double> speed_dist(2.0, 10.0);
       double speed = speed_dist(generator);
 
       // 4. Compute travel time and initial ballistic velocity (simple constant-accel model)
@@ -489,13 +492,6 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
         if (i >= obstacle_qvel0 && i < obstacle_qvel0 + OBST_QVEL_DOF)
             continue;
         logger_.csv << "," << data->qvel[i];
-    }
-    // Capacitance
-    static CapacitiveSkin cap(model);
-    static bool initialized = false;
-    if (!initialized) {
-      cap.RegisterAllSkinSites();
-      initialized = true;
     }
     auto readings = cap.ComputeAllCapacitances(model, data);
     auto sensor_ids = cap.SensorIds();   // deterministic ordering captured at init
