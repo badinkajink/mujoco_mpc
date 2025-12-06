@@ -53,6 +53,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
       // H1_2 Avoid Task
       std::make_shared<Avoid_H12>(),
+      std::make_shared<Avoid_H12_ToF>(),
 
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),

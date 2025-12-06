@@ -232,6 +232,10 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_torso_skin.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_torso_skin.xml
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h12_tof.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_skin_tof.xml
+
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
 
 add_custom_target(copy_resources ALL
