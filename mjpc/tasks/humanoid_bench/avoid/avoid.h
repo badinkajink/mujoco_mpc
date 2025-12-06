@@ -90,7 +90,12 @@ class Avoid : public Task {
 
 private:
   ResidualFn residual_;
-  bool logging_enabled_ = true;
+  bool logging_enabled_ = false;
+  bool use_offline_obstacles_ = false;
+  bool use_tof_sensors_ = true;
+  bool use_cap_sensors_ = true;
+  double tof_sensor_range_ = 4.0;     // default range
+  double cap_sensor_range_ = 0.15;    // default range
 
   double obstacle_move_x_ = 0.0;
   double obstacle_move_y_ = 0.0;
@@ -104,7 +109,6 @@ private:
   double min_obstacle_dist_ = 1.0e6;
 
   // offline replay (forgive me)
-  bool use_offline_obstacles_ = true;  // Set to true for ablation
   int current_obstacle_index_ = 0;
 
   // Configurations from GOOD trajectories (successful avoidance)
@@ -157,6 +161,28 @@ class CapacitiveSkin {
         sensor_site_ids_.push_back(i);
       }
     }
+  }
+
+  void RegisterAllToFSensors() {
+    tof_sensor_ids_.clear();
+    for (int i = 0; i < model_->nsensor; ++i) {
+      if (model_->sensor_type[i] == mjSENS_RANGEFINDER) {
+        const char *name = mj_id2name(model_, mjOBJ_SENSOR, i);
+        if (name && std::string(name).find("sensor") != std::string::npos) {
+          tof_sensor_ids_.push_back(i);
+        }
+      }
+    }
+  }
+
+  std::unordered_map<int, double> ReadToFSensors(const mjData *data) const {
+    std::unordered_map<int, double> readings;
+    for (int sensor_id : tof_sensor_ids_) {
+      int adr = model_->sensor_adr[sensor_id];
+      double range = data->sensordata[adr];
+      readings[sensor_id] = range;
+    }
+    return readings;
   }
 
   // Distance-based capacitance to a single obstacle
@@ -212,6 +238,7 @@ class CapacitiveSkin {
   }
 
   const std::vector<int>& SensorIds() const { return sensor_site_ids_; }
+  const std::vector<int>& ToFSensorIds() const { return tof_sensor_ids_; }
 
  private:
   const mjModel *model_;
@@ -219,6 +246,7 @@ class CapacitiveSkin {
   double eps_;
   double sensing_radius_;
   std::vector<int> sensor_site_ids_;
+  std::vector<int> tof_sensor_ids_;
 };
 
 }  // namespace mjpc

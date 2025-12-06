@@ -26,9 +26,10 @@
         <numeric name="residual_Height Goal" data="1.65 0.0 1.5"/>
         <numeric name="use_tof_sensors" data="1"/>
         <numeric name="tof_sensor_range" data="4.0"/>
+        <numeric name="cap_sensor_range" data="0.15"/>
         <numeric name="use_cap_sensors" data="1"/>
-        <numeric name="logging" data="0"/>
-        <numeric name="offline" data="0"/>
+        <numeric name="logging_enabled" data="0"/>
+        <numeric name="use_offline_obstacles" data="0"/>
     </custom>
 
     <sensor>

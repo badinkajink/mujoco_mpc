@@ -296,6 +296,28 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int qpos_adr = model->jnt_qposadr[jnt_id];
   int qvel_adr = model->jnt_dofadr[jnt_id];
 
+  if (use_tof_sensors_) {
+    static int print_counter = 0;
+    if (print_counter % 100 == 0) {  // Print every 100 steps to avoid spam
+      std::printf("\n=== ToF Sensor Readings (step %d) ===\n", print_counter);
+      
+      for (int i = 0; i < model->nsensor; i++) {
+        if (model->sensor_type[i] == mjSENS_RANGEFINDER) {
+          const char* name = mj_id2name(model, mjOBJ_SENSOR, i);
+          int adr = model->sensor_adr[i];
+          double range = data->sensordata[adr];
+          
+          // Only print if detecting something (range < max)
+          if (range < tof_sensor_range_) {
+            std::printf("  %s: %.4f m\n", name ? name : "unnamed", range);
+          }
+        }
+      }
+      std::printf("===================================\n\n");
+    }
+    print_counter++;
+  }
+
   // Capacitance
   static CapacitiveSkin cap(model);
   static bool initialized = false;
@@ -309,22 +331,22 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       // Get next configuration (wrap around if we've exhausted all configs)
       int idx = current_obstacle_index_ % num_all_obstacles_;
       const auto& config = all_obstacles_[idx].config;
-      
+
       // Set obstacle position, vel directly from recorded config
       mju_copy3(obstacle_start_pos_, config.position);
       mju_copy3(obstacle_velocity_, config.velocity);
-      
+
       // Set obstacle radius from recorded config
       int obstacle_geom_id = mj_name2id(model, mjOBJ_GEOM, "obstacle_geom");
       if (obstacle_geom_id >= 0) {
         mjModel* mutable_model = const_cast<mjModel*>(model);
         mutable_model->geom_size[3 * obstacle_geom_id] = config.radius;
       }
-      
+
       // Set target position (assume it hits torso, we don't record this)
       double *torso_pos = SensorByName(model, data, "torso_position");
       mju_copy3(obstacle_target_pos_, torso_pos);
-      
+
       // Apply initial position and velocity to obstacle
       mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
       data->qpos[qpos_adr + 3] = 1.0;  // qw
@@ -332,9 +354,9 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       data->qpos[qpos_adr + 5] = 0.0;  // qy
       data->qpos[qpos_adr + 6] = 0.0;  // qz
       mju_copy3(data->qvel + qvel_adr, obstacle_velocity_);
-      
+
       current_obstacle_index_++;
-      
+
       // Debug output
       std::printf("Offline obstacle %d/%d: pos=[%.2f,%.2f,%.2f], vel=[%.2f,%.2f,%.2f], r=%.3f, source=%s\n",
                   idx + 1, num_all_obstacles_,
@@ -342,16 +364,16 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
                   config.velocity[0], config.velocity[1], config.velocity[2],
                   config.radius,
                   all_obstacles_[idx].from_good ? "GOOD" : "BAD");
-      
+
     } else {
       // 1. Select a random sensor site as the target
       double *torso_pos = SensorByName(model, data, "torso_position");
       const auto& sensor_ids = cap.SensorIds();
-      
+
       // Randomly select a sensor site as target
       std::uniform_int_distribution<int> site_dist(0, sensor_ids.size() - 1);
       int target_site_id = sensor_ids[site_dist(generator)];
-      
+
       // Get target sensor position
       const mjtNum *target_site_pos = &data->site_xpos[3 * target_site_id];
       obstacle_target_pos_[0] = target_site_pos[0];
@@ -427,8 +449,8 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     double dist_to_torso = mju_dist3(obstacle_pos, torso_pos);
 
     // Check if we've passed the closest point -- tweakable
-    if (dist_to_torso > min_obstacle_dist_ + 0.7 || 
-        mju_dist3(obstacle_pos, torso_pos) > 5.0 || 
+    if (dist_to_torso > min_obstacle_dist_ + 0.7 ||
+        mju_dist3(obstacle_pos, torso_pos) > 5.0 ||
         obstacle_pos[2] < -0.5) { // Passed and moving away, or obstacle goes too far away, or falls through the floor
       obstacle_launched_ = false; // Trigger reset on next step
       if (logger_.csv.is_open()) {
@@ -469,7 +491,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     if (obstacle_geom_id >= 0) obst_radius = model->geom_size[3*obstacle_geom_id];
 
     // write base columns
-    logger_.csv << step << "," << time << "," 
+    logger_.csv << step << "," << time << ","
                 << obst_pos[0] << "," << obst_pos[1] << "," << obst_pos[2] << ","
                 << obst_vel[0] << "," << obst_vel[1] << "," << obst_vel[2] << ","
                 << obst_radius;
@@ -510,6 +532,32 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
 
 // Replace ResetLocked with this version (keeps your radius randomization)
 void Avoid::ResetLocked(const mjModel *model) {
+  // Read configuration numeric parameters
+  for (int i = 0; i < model->nnumeric; i++) {
+    const char* name = mj_id2name(model, mjOBJ_NUMERIC, i);
+    if (!name) continue;
+    
+    int adr = model->numeric_adr[i];  // GET THE ADDRESS!
+    
+    if (strcmp(name, "logging_enabled") == 0) {
+      logging_enabled_ = (bool)model->numeric_data[adr];
+    } else if (strcmp(name, "use_offline_obstacles") == 0) {
+      use_offline_obstacles_ = (bool)model->numeric_data[adr];
+    } else if (strcmp(name, "use_tof_sensors") == 0) {
+      use_tof_sensors_ = (bool)model->numeric_data[adr];
+    } else if (strcmp(name, "use_cap_sensors") == 0) {
+      use_cap_sensors_ = (bool)model->numeric_data[adr];
+    } else if (strcmp(name, "tof_sensor_range") == 0) {
+      tof_sensor_range_ = model->numeric_data[adr];
+    } else if (strcmp(name, "cap_sensor_range") == 0) {
+      cap_sensor_range_ = model->numeric_data[adr];
+    }
+  }
+
+  std::printf("Avoid config: logging=%d, offline=%d, tof=%d, cap=%d, tof_range=%.2f, cap_range=%.2f\n",
+              logging_enabled_, use_offline_obstacles_, use_tof_sensors_,
+              use_cap_sensors_, tof_sensor_range_, cap_sensor_range_);
+
   // Reset obstacle state
   obstacle_launched_ = false;
   min_obstacle_dist_ = 1.0e6;
@@ -525,7 +573,7 @@ void Avoid::ResetLocked(const mjModel *model) {
     std::uniform_real_distribution<double> radius_dist(min_radius, max_radius);
     mutable_model->geom_size[3 * obstacle_geom_id] =
         radius_dist(generator);
-  }  
+  }
 
   // DEBUG
   // printf("\nJoint order for qpos:\n");
@@ -571,7 +619,7 @@ void Avoid::ResetLocked(const mjModel *model) {
         if (i >= obstacle_qvel0 && i < obstacle_qvel0 + OBST_QVEL_DOF)
             continue;   // skip freejoint qvel
         logger_.csv << ",qvel_" << i;
-    }    
+    }
     // sensors
     static CapacitiveSkin cap(model);
     static bool initialized = false;
@@ -582,7 +630,7 @@ void Avoid::ResetLocked(const mjModel *model) {
     auto site_ids = cap.SensorIds();
     // Write header columns for capacitance sites
     for (int sid : site_ids) {
-        const char* name = mj_id2name(model, mjOBJ_SITE, sid); 
+        const char* name = mj_id2name(model, mjOBJ_SITE, sid);
         if (name) {
             logger_.csv << ",cap_site_" << sid << "_" << name;
         } else {
