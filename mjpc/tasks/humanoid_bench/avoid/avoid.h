@@ -134,6 +134,15 @@ class Avoid_H12_ToF : public Avoid {
   }
 };
 
+class Avoid_H12_ToF_Cap : public Avoid {
+ public:
+  std::string Name() const override { return "Avoid H12 ToF Cap"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/avoid/Avoid_H12_ToF_Cap.xml");
+  }
+};
+
 class CapacitiveSkin {
  public:
   CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 0.15)
