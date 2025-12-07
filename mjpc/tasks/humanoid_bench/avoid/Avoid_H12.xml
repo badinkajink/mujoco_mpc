@@ -1,4 +1,4 @@
-<mujoco model="Avoid H12">
+<mujoco model="Avoid H12 Cap">
     <include file="../h1_2/h1_2_modified_torso_skin.xml"/>
     <include file="avoid.xml"/>
     <include file="../../common.xml" />
@@ -35,14 +35,14 @@
     <sensor>
         <!-- cost terms for lean task-->
         <user name="humanoid_bench" dim="1" user="6 0.0 0.0 1.0 0.01" />
-        <user name="Height" dim="1" user="6 100.0 0.0 100.0 0.1" />
+        <user name="Height" dim="1" user="6 30.0 0.0 100.0 0.1" />
         <user name="CoM Vel." dim="2" user="0 10.0 0.0 100.0" />
-        <user name="Joint Vel." dim="27" user="0 0.01 0.0 0.1" />
+        <user name="Joint Vel." dim="21" user="0 0.01 0.0 0.1" />
         <user name="Balance" dim="2" user="1 10.0 0.0 25.0 0.02 4.0" />
-        <user name="Upright" dim="8" user="2 10.0 0.0 25.0 0.01" />
-        <user name="Posture" dim="27" user="0 0.03 0 1.0" />
+        <user name="Upright" dim="8" user="2 5.0 0.0 25.0 0.01" />
+        <user name="Posture" dim="21" user="0 0.03 0 1.0" />
         <user name="Velocity" dim="2" user="7 0.625 0 25.0 0.2 4.0" />
-        <user name="Control" dim="27" user="3 0.1 0 1.0 0.3" />
+        <user name="Control" dim="21" user="3 0.1 0 1.0 0.3" />
 
         <!-- obstacle avoidance cost terms -->
         <user name="Obstacle Proximity" dim="63" user="0 2.0 0.0 100.0" />  <!-- Capacitive sensor readings -->
@@ -83,5 +83,69 @@
         <framelinvel name="right_hand_vel" objtype="site" objname="right_hand"/>
         <touch name="left_hand_contact" site="left_hand"/>
         <touch name="right_hand_contact" site="right_hand"/>
+ 
+        <rangefinder name="head_sensor_0_range" site="head_sensor_0" cutoff="4.0" />
+        <rangefinder name="head_sensor_1_range" site="head_sensor_1" cutoff="4.0" />
+        <rangefinder name="head_sensor_2_range" site="head_sensor_2" cutoff="4.0" />
+        <rangefinder name="head_sensor_3_range" site="head_sensor_3" cutoff="4.0" />
+        <rangefinder name="head_sensor_4_range" site="head_sensor_4" cutoff="4.0" />
+        <rangefinder name="head_sensor_5_range" site="head_sensor_5" cutoff="4.0" />
+        <rangefinder name="torso_sensor_0_range" site="torso_sensor_0" cutoff="4.0" />
+        <rangefinder name="torso_sensor_1_range" site="torso_sensor_1" cutoff="4.0" />
+        <rangefinder name="torso_sensor_2_range" site="torso_sensor_2" cutoff="4.0" />
+        <rangefinder name="torso_sensor_3_range" site="torso_sensor_3" cutoff="4.0" />
+        <rangefinder name="torso_sensor_4_range" site="torso_sensor_4" cutoff="4.0" />
+        <!-- <rangefinder name="torso_sensor_5_range" site="torso_sensor_5" cutoff="4.0" /> -->
+        <rangefinder name="torso_sensor_6_range" site="torso_sensor_6" cutoff="4.0" />
+        <rangefinder name="torso_sensor_7_range" site="torso_sensor_7" cutoff="4.0" />
+        <rangefinder name="torso_sensor_8_range" site="torso_sensor_8" cutoff="4.0" />
+        <rangefinder name="torso_sensor_9_range" site="torso_sensor_9" cutoff="4.0" />
+        <rangefinder name="torso_sensor_10_range" site="torso_sensor_10" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_0_range" site="left_shoulder_roll_sensor_0" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_1_range" site="left_shoulder_roll_sensor_1" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_2_range" site="left_shoulder_roll_sensor_2" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_3_range" site="left_shoulder_roll_sensor_3" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_4_range" site="left_shoulder_roll_sensor_4" cutoff="4.0" />
+        <rangefinder name="left_shoulder_roll_sensor_5_range" site="left_shoulder_roll_sensor_5" cutoff="4.0" />
+        <!-- <rangefinder name="left_shoulder_roll_sensor_6_range" site="left_shoulder_roll_sensor_6" cutoff="4.0" /> -->
+        <rangefinder name="left_shoulder_roll_sensor_7_range" site="left_shoulder_roll_sensor_7" cutoff="4.0" />
+        <rangefinder name="left_shoulder_yaw_sensor_0_range" site="left_shoulder_yaw_sensor_0" cutoff="4.0" />
+        <rangefinder name="left_shoulder_yaw_sensor_1_range" site="left_shoulder_yaw_sensor_1" cutoff="4.0" />
+        <rangefinder name="left_shoulder_yaw_sensor_2_range" site="left_shoulder_yaw_sensor_2" cutoff="4.0" />
+        <rangefinder name="left_shoulder_yaw_sensor_3_range" site="left_shoulder_yaw_sensor_3" cutoff="4.0" />
+        <!-- <rangefinder name="left_shoulder_yaw_sensor_4_range" site="left_shoulder_yaw_sensor_4" cutoff="4.0" /> -->
+        <rangefinder name="left_shoulder_yaw_sensor_5_range" site="left_shoulder_yaw_sensor_5" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_0_range" site="left_elbow_sensor_0" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_1_range" site="left_elbow_sensor_1" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_2_range" site="left_elbow_sensor_2" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_3_range" site="left_elbow_sensor_3" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_4_range" site="left_elbow_sensor_4" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_5_range" site="left_elbow_sensor_5" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_6_range" site="left_elbow_sensor_6" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_7_range" site="left_elbow_sensor_7" cutoff="4.0" />
+        <rangefinder name="left_elbow_sensor_8_range" site="left_elbow_sensor_8" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_0_range" site="right_shoulder_roll_sensor_0" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_1_range" site="right_shoulder_roll_sensor_1" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_2_range" site="right_shoulder_roll_sensor_2" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_3_range" site="right_shoulder_roll_sensor_3" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_4_range" site="right_shoulder_roll_sensor_4" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_5_range" site="right_shoulder_roll_sensor_5" cutoff="4.0" />
+        <rangefinder name="right_shoulder_roll_sensor_6_range" site="right_shoulder_roll_sensor_6" cutoff="4.0" />
+        <!-- <rangefinder name="right_shoulder_roll_sensor_7_range" site="right_shoulder_roll_sensor_7" cutoff="4.0" /> -->
+        <rangefinder name="right_shoulder_yaw_sensor_0_range" site="right_shoulder_yaw_sensor_0" cutoff="4.0" />
+        <rangefinder name="right_shoulder_yaw_sensor_1_range" site="right_shoulder_yaw_sensor_1" cutoff="4.0" />
+        <rangefinder name="right_shoulder_yaw_sensor_2_range" site="right_shoulder_yaw_sensor_2" cutoff="4.0" />
+        <rangefinder name="right_shoulder_yaw_sensor_3_range" site="right_shoulder_yaw_sensor_3" cutoff="4.0" />
+        <!-- <rangefinder name="right_shoulder_yaw_sensor_4_range" site="right_shoulder_yaw_sensor_4" cutoff="4.0" /> -->
+        <rangefinder name="right_shoulder_yaw_sensor_5_range" site="right_shoulder_yaw_sensor_5" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_0_range" site="right_elbow_sensor_0" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_1_range" site="right_elbow_sensor_1" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_2_range" site="right_elbow_sensor_2" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_3_range" site="right_elbow_sensor_3" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_4_range" site="right_elbow_sensor_4" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_5_range" site="right_elbow_sensor_5" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_6_range" site="right_elbow_sensor_6" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_7_range" site="right_elbow_sensor_7" cutoff="4.0" />
+        <rangefinder name="right_elbow_sensor_8_range" site="right_elbow_sensor_8" cutoff="4.0" />
     </sensor>
 </mujoco>

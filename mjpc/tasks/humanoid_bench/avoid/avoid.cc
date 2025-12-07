@@ -216,7 +216,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
           model->nu);  // because of pos control
   counter += model->nu;
 
-  // ============ NEW OBSTACLE AVOIDANCE RESIDUALS ============
+  // ============ OBSTACLE AVOIDANCE RESIDUALS ============
 
   // ----- Obstacle Proximity (per-sensor penalty) ----- //
   if (task_->use_cap_sensors_) {
@@ -275,9 +275,10 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
   // --------------------- ToF Obstacle Proximity ---------------------
   if (task_->use_tof_sensors_) {
-    auto tof_readings = skin.ReadToFSensors(data);
+    // auto tof_readings = skin.ReadToFSensors(data);
+    auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
-    
+
     int tof_idx = 0;
     for (int sensor_id : tof_ids) {
       double range = tof_readings[sensor_id];
@@ -301,7 +302,8 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   
   // --------------------- CoM Away From ToF Obstacle ---------------------
   if (task_->use_tof_sensors_) {
-    auto tof_readings = skin.ReadToFSensors(data);
+    // auto tof_readings = skin.ReadToFSensors(data);
+    auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
     
     // Compute weighted obstacle direction from all sensor detections
@@ -610,6 +612,12 @@ void Avoid::ResetLocked(const mjModel *model) {
       cap_sensor_range_ = model->numeric_data[adr];
     }
   }
+  static CapacitiveSkin cap(model);
+  static bool initialized = false;
+  if (!initialized) {
+    cap.RegisterAllSkinSites();
+    initialized = true;
+  }
 
   std::printf("Avoid config: logging=%d, offline=%d, tof=%d, cap=%d, tof_range=%.2f, cap_range=%.2f\n",
               logging_enabled_, use_offline_obstacles_, use_tof_sensors_,
@@ -678,12 +686,6 @@ void Avoid::ResetLocked(const mjModel *model) {
         logger_.csv << ",qvel_" << i;
     }
     // sensors
-    static CapacitiveSkin cap(model);
-    static bool initialized = false;
-    if (!initialized) {
-      cap.RegisterAllSkinSites();
-      initialized = true;
-    }
     auto site_ids = cap.SensorIds();
     // Write header columns for capacitance sites
     for (int sid : site_ids) {

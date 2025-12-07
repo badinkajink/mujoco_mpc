@@ -122,7 +122,7 @@ private:
 
 class Avoid_H12 : public Avoid {
  public:
-  std::string Name() const override { return "Avoid H12"; }
+  std::string Name() const override { return "Avoid H12 Cap"; }
 
   std::string XmlPath() const override {
     return GetModelPath("humanoid_bench/avoid/Avoid_H12.xml");
@@ -140,7 +140,7 @@ class Avoid_H12_ToF : public Avoid {
 
 class Avoid_H12_ToF_Cap : public Avoid {
  public:
-  std::string Name() const override { return "Avoid H12 ToF Cap"; }
+  std::string Name() const override { return "Avoid H12 Cap ToF"; }
 
   std::string XmlPath() const override {
     return GetModelPath("humanoid_bench/avoid/Avoid_H12_ToF_Cap.xml");
@@ -186,14 +186,10 @@ class CapacitiveSkin {
   }
 
   // Distance-based capacitance to a single obstacle
-  double ComputeCapacitancePair(const mjtNum *sensor_pos,
+  double ComputeCapacitancePair(const double d,
+                                const mjtNum *sensor_pos,
                                 const mjtNum *obstacle_pos,
-                                double obstacle_radius) const {
-    double dx = sensor_pos[0] - obstacle_pos[0];
-    double dy = sensor_pos[1] - obstacle_pos[1];
-    double dz = sensor_pos[2] - obstacle_pos[2];
-    double d = std::sqrt(dx*dx + dy*dy + dz*dz);
-
+                                double obstacle_radius) const {    
     if (d > sensing_radius_ + obstacle_radius) return -1;
 
     double effective_d = std::max(0.01, d - obstacle_radius);
@@ -212,7 +208,27 @@ class CapacitiveSkin {
     double dy = sensor_pos[1] - obstacle_pos[1];
     double dz = sensor_pos[2] - obstacle_pos[2];
     double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
-    return (dist > sensing_radius_) ? -1 : dist;
+    return dist;
+  }
+
+  std::unordered_map<int,double> ComputeAllDistances(const mjModel *model,
+                                                     const mjData *data
+                                                  ) const {
+    std::unordered_map<int,double> distances;
+
+    // assume one dynamic obstacle named "obstacle"
+    int obstacle_id = mj_name2id(model_, mjOBJ_BODY, "obstacle");
+    if (obstacle_id < 0) return distances; // no obstacle
+
+    const mjtNum *opos = &data->xpos[3 * obstacle_id];
+
+    for (int sid : tof_sensor_ids_) {
+      const mjtNum *spos = &data->site_xpos[3 * sid];
+      double dist = ComputeDistance(spos, opos);
+      distances[sid] = dist;
+    }
+
+    return distances;
   }
 
   // Compute all sensor readings (distance or capacitance)
@@ -230,8 +246,8 @@ class CapacitiveSkin {
 
     for (int sid : sensor_site_ids_) {
       const mjtNum *spos = &data->site_xpos[3 * sid];
-      readings[sid] = ComputeCapacitancePair(spos, opos, radius);
-      // readings[sid] = ComputeDistance(spos, opos);  // Python test version
+      double dist = ComputeDistance(spos, opos);
+      readings[sid] = ComputeCapacitancePair(dist, spos, opos, radius);
     }
 
     return readings;
