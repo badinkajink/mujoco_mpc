@@ -19,7 +19,7 @@ thread_local std::mt19937 generator(std::random_device{}());
 
 // ------------------ Residuals for humanoid stand task ------------
 //   Number of residuals:
-//      Residual(0): 1 - humanoid_bench reward
+//      Residual(0): 0
 //      Residual(1): Height: head feet vertical error
 //      Residual(2): Balance: CoM Velocity
 //      Residual(3): joint velocity
@@ -37,22 +37,15 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
   // Capacitive skin readings
 //   static CapacitiveSkin cap(model, data);
-  static CapacitiveSkin cap(model);
+  static CapacitiveSkin skin(model, 1.0, task_->cap_sensor_range_, task_->tof_sensor_range_);
+
   static bool initialized = false;
   if (!initialized) {
-    cap.RegisterAllSkinSites();
+    skin.RegisterAllSkinSites();
+    skin.RegisterAllToFSensors();
     initialized = true;
   }
-
-  auto readings = cap.ComputeAllCapacitances(model, data);
-
-  // for (auto &p : readings) {
-  //   int sid = p.first;
-  //   double val = p.second;
-  //   std::cout << "Sensor " << sid << ": " << val << std::endl;
-  //   // example residual: inverse distance
-  //   // residual[sid] = (val == std::numeric_limits<double>::infinity()) ? 0.0 : 1.0 / val;
-  // }
+  auto readings = skin.ComputeAllCapacitances(model, data);
 
   //--------------- Beginning of reward calculation -----------------//
 
@@ -93,10 +86,12 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
   // Reward: negative of average proximity danger
   double avg_danger = (num_detections > 0) ? total_weight / num_detections : 0.0;
-  double reward = -50.0 * avg_danger;  // Penalty for proximity
+  // double reward = 0.0 * avg_danger ;  // Penalty for proximity
+  double reward = 0.0 * avg_danger * success ;  // Penalty for proximity
   //--------------- End of reward calculation -----------------//
 
-  residual[counter++] = success - reward;
+  // residual[counter++] = success - reward;
+  residual[counter++] = reward;
 
   // -------------- Below are additional residuals -------------- //
 
@@ -224,24 +219,32 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // ============ NEW OBSTACLE AVOIDANCE RESIDUALS ============
 
   // ----- Obstacle Proximity (per-sensor penalty) ----- //
-  const auto& sensor_ids = cap.SensorIds();
-  for (size_t i = 0; i < sensor_ids.size(); ++i) {
-    int sid = sensor_ids[i];
-    auto it = readings.find(sid);
+  if (task_->use_cap_sensors_) {
+    const auto& sensor_ids = skin.SensorIds();
+    for (size_t i = 0; i < sensor_ids.size(); ++i) {
+      int sid = sensor_ids[i];
+      auto it = readings.find(sid);
 
-    if (it != readings.end() && it->second > 0) {
-      // Penalty: inverse distance squared (stronger when close)
-      double capacitance = it->second;
-      residual[counter] = capacitance * capacitance;  // (1/d)^2
-    } else {
-      residual[counter] = 0.0;  // No obstacle detected
+      if (it != readings.end() && it->second > 0) {
+        // Penalty: inverse distance squared (stronger when close)
+        double capacitance = it->second; // (1/d)
+        double normalized_range = capacitance / (1.0 / skin.CapSensingRadius()); 
+        residual[counter] = 1 - normalized_range;  // 0 when far, 1 when very very close
+      } else {
+        residual[counter] = 0.0;  // No obstacle detected
+      }
+      counter++;
+  }
+  } else {
+    // Zero out capacitive residuals if disabled
+    for (int i = 0; i < static_cast<int>(skin.NumCapSensors()); i++) {  // 63 capacitive sensors
+      residual[counter++] = 0.0;
     }
-    counter++;
   }
 
   // ----- CoM Away From Obstacle ----- //
   // Encourage CoM to shift away from obstacle centroid (xy plane only)
-  if (total_weight > 0) {
+  if (total_weight > 0 && task_->use_cap_sensors_) {
     double *com_pos = SensorByName(model, data, "torso_subcom");
 
     // Direction from obstacle to CoM (desired direction)
@@ -266,6 +269,82 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
     }
   } else {
     // No obstacle detected, no preference
+    residual[counter++] = 0.0;
+    residual[counter++] = 0.0;
+  }
+
+  // --------------------- ToF Obstacle Proximity ---------------------
+  if (task_->use_tof_sensors_) {
+    auto tof_readings = skin.ReadToFSensors(data);
+    const auto& tof_ids = skin.ToFSensorIds();
+    
+    int tof_idx = 0;
+    for (int sensor_id : tof_ids) {
+      double range = tof_readings[sensor_id];
+      
+      if (range > 0 && range < task_->tof_sensor_range_) {
+        // Penalize proximity: closer = higher cost
+        // Use inverse distance, capped at some max
+        double normalized_range = range / task_->tof_sensor_range_;
+        residual[counter++] = 1.0 - normalized_range;  // 0 when far, 1 when very close
+      } else {
+        residual[counter++] = 0.0;  // No detection = no cost
+      }
+      tof_idx++;
+    }
+  } else {
+    // Zero out ToF residuals if disabled
+    for (int i = 0; i < skin.NumToFSensors(); i++) {
+      residual[counter++] = 0.0;
+    }
+  }
+  
+  // --------------------- CoM Away From ToF Obstacle ---------------------
+  if (task_->use_tof_sensors_) {
+    auto tof_readings = skin.ReadToFSensors(data);
+    const auto& tof_ids = skin.ToFSensorIds();
+    
+    // Compute weighted obstacle direction from all sensor detections
+    double weighted_dir[3] = {0, 0, 0};
+    double total_weight = 0.0;
+    
+    for (int sensor_id : tof_ids) {
+      double range = tof_readings[sensor_id];
+      
+      if (range > 0 && range < skin.ToFSensorRange()) {
+        int site_id = model->sensor_objid[sensor_id];
+        const mjtNum* sensor_dir = &data->site_xmat[9 * site_id + 6]; // z-axis
+        
+        // Weight by inverse distance (closer sensors matter more)
+        double weight = 1.0 / std::max(0.1, range);
+        
+        weighted_dir[0] += weight * sensor_dir[0];
+        weighted_dir[1] += weight * sensor_dir[1];
+        weighted_dir[2] += weight * sensor_dir[2];
+        total_weight += weight;
+      }
+    }
+    if (total_weight > 0) {
+      // Normalize weighted direction
+      weighted_dir[0] /= total_weight;
+      weighted_dir[1] /= total_weight;
+      weighted_dir[2] /= total_weight;
+      mju_normalize3(weighted_dir);
+      
+      double *com_pos = SensorByName(model, data, "torso_subcom");
+      // Project CoM position onto weighted direction
+      double com_offset = com_pos[0]*weighted_dir[0] + com_pos[1]*weighted_dir[1] + com_pos[2]*weighted_dir[2];
+      // Desired offset away from obstacle direction
+      double desired_offset = 0.2;
+      
+      residual[counter++] = (com_offset - desired_offset) * weighted_dir[0];
+      residual[counter++] = (com_offset - desired_offset) * weighted_dir[1];
+    }
+    else {
+      residual[counter++] = 0.0;
+      residual[counter++] = 0.0;
+    }
+  } else {
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
   }
@@ -296,33 +375,11 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int qpos_adr = model->jnt_qposadr[jnt_id];
   int qvel_adr = model->jnt_dofadr[jnt_id];
 
-  if (use_tof_sensors_) {
-    static int print_counter = 0;
-    if (print_counter % 100 == 0) {  // Print every 100 steps to avoid spam
-      std::printf("\n=== ToF Sensor Readings (step %d) ===\n", print_counter);
-      
-      for (int i = 0; i < model->nsensor; i++) {
-        if (model->sensor_type[i] == mjSENS_RANGEFINDER) {
-          const char* name = mj_id2name(model, mjOBJ_SENSOR, i);
-          int adr = model->sensor_adr[i];
-          double range = data->sensordata[adr];
-          
-          // Only print if detecting something (range < max)
-          if (range < tof_sensor_range_) {
-            std::printf("  %s: %.4f m\n", name ? name : "unnamed", range);
-          }
-        }
-      }
-      std::printf("===================================\n\n");
-    }
-    print_counter++;
-  }
-
   // Capacitance
-  static CapacitiveSkin cap(model);
+  static CapacitiveSkin skin(model);
   static bool initialized = false;
   if (!initialized) {
-    cap.RegisterAllSkinSites();
+    skin.RegisterAllSkinSites();
     initialized = true;
   }
 
@@ -368,7 +425,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
     } else {
       // 1. Select a random sensor site as the target
       double *torso_pos = SensorByName(model, data, "torso_position");
-      const auto& sensor_ids = cap.SensorIds();
+      const auto& sensor_ids = skin.SensorIds();
 
       // Randomly select a sensor site as target
       std::uniform_int_distribution<int> site_dist(0, sensor_ids.size() - 1);
@@ -515,8 +572,8 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
             continue;
         logger_.csv << "," << data->qvel[i];
     }
-    auto readings = cap.ComputeAllCapacitances(model, data);
-    auto sensor_ids = cap.SensorIds();   // deterministic ordering captured at init
+    auto readings = skin.ComputeAllCapacitances(model, data);
+    auto sensor_ids = skin.SensorIds();   // deterministic ordering captured at init
     for (int sid : sensor_ids) {
         double reading = 0.0;
         auto it = readings.find(sid);

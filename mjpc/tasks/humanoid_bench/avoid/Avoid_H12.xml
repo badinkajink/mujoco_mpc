@@ -24,7 +24,7 @@
         <numeric name="sampling_exploration" data="0.05"/>
         <numeric name="gradient_spline_points" data="5"/>
         <numeric name="residual_Height Goal" data="1.65 0.0 1.5"/>
-        <numeric name="use_tof_sensors" data="1"/>
+        <numeric name="use_tof_sensors" data="0"/>
         <numeric name="tof_sensor_range" data="4.0"/>
         <numeric name="cap_sensor_range" data="0.15"/>
         <numeric name="use_cap_sensors" data="1"/>
@@ -47,6 +47,8 @@
         <!-- obstacle avoidance cost terms -->
         <user name="Obstacle Proximity" dim="63" user="0 2.0 0.0 100.0" />  <!-- Capacitive sensor readings -->
         <user name="CoM Away From Obstacle" dim="2" user="6 1.0 0.0 100.0 0.1" />  <!-- Encourage CoM shift away -->
+        <user name="ToF Obstacle Proximity" dim="58" user="0 2.0 0.0 100.0" />
+        <user name="CoM Away From ToF Obstacle" dim="2" user="6 1.0 0.0 100.0 0.1" />
 
         <!-- traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

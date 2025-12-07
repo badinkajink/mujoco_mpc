@@ -149,8 +149,8 @@ class Avoid_H12_ToF_Cap : public Avoid {
 
 class CapacitiveSkin {
  public:
-  CapacitiveSkin(const mjModel *model, double eps = 1.0, double sensing_radius = 0.15)
-      : model_(model), eps_(eps), sensing_radius_(sensing_radius) {}
+  CapacitiveSkin(const mjModel *model, double eps = 1.0, double cap_sensing_radius = 0.15, double tof_range = 4.0)
+      : model_(model), eps_(eps), sensing_radius_(cap_sensing_radius), tof_range_(tof_range) {}
 
 
   void RegisterAllSkinSites() {
@@ -239,12 +239,17 @@ class CapacitiveSkin {
 
   const std::vector<int>& SensorIds() const { return sensor_site_ids_; }
   const std::vector<int>& ToFSensorIds() const { return tof_sensor_ids_; }
+  double CapSensingRadius() const { return sensing_radius_; }
+  double ToFSensorRange() const { return tof_range_; }
+  double NumToFSensors() const { return static_cast<double>(tof_sensor_ids_.size()); }
+  double NumCapSensors() const { return static_cast<double>(sensor_site_ids_.size()); }
 
  private:
   const mjModel *model_;
   // const mjData *data_;
   double eps_;
   double sensing_radius_;
+  double tof_range_;
   std::vector<int> sensor_site_ids_;
   std::vector<int> tof_sensor_ids_;
 };
