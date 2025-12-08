@@ -20,57 +20,26 @@ currently supports multiple shooting-based planners. Derivative-based methods in
 Gradient Descent, while derivative-free methods include a simple yet very competitive planner
 called Predictive Sampling.
 
-- [Overview](#overview)
-- [Graphical User Interface](#graphical-user-interface)
-- [Installation](#installation)
-  - [macOS](#macos)
-  - [Ubuntu](#ubuntu)
-  - [Build Issues](#build-issues)
-- [Predictive Control](#predictive-control)
-- [Contributing](#contributing)
-- [Known Issues](#known-issues)
-- [Citation](#citation)
-- [Acknowledgments](#acknowledgments)
-- [License and Disclaimer](#license-and-disclaimer)
+- [Python API](#python-api)
+  - [Installation](#installation-1)
+    - [Prerequisites](#prerequisites-1)
+    - [Install API](#install-api)
+    - [Python API Installation Issues](#python-api-installation-issues)
+  - [Contributing](#contributing)
+  - [Known Issues](#known-issues)
+  - [Citation](#citation)
+  - [Acknowledgments](#acknowledgments)
+  - [License and Disclaimer](#license-and-disclaimer)
 
 ## Overview
 
 To read the paper describing this software package, please see our
 [preprint](https://arxiv.org/abs/2212.00541).
 
-For a quick video overview of MJPC, click below.
+## Authoring Predictive Control Tasks
 
-[![Video](http://img.youtube.com/vi/Bdx7DuAMB6o/hqdefault.jpg)](https://dpmd.ai/mjpc)
-
-For a longer talk at the MIT Robotics Seminar in December 2022 describing our results, click
-below.
-
-[![2022Talk](http://img.youtube.com/vi/2xVN-qY78P4/hqdefault.jpg)](https://www.youtube.com/watch?v=2xVN-qY78P4)
-
-A more recent, December 2023 talk at the IEEE Technical Committee on Model-Based Optimization
-is available here:
-
-[![2023Talk](https://img.youtube.com/vi/J-JO-lgaKtw/hqdefault.jpg)](https://www.youtube.com/watch?v=J-JO-lgaKtw&t=0s)
-
-### Example tasks
-
-Quadruped task:
-
-[![Quadruped](http://img.youtube.com/vi/esLuwaWz4oE/hqdefault.jpg)](https://www.youtube.com/watch?v=esLuwaWz4oE)
-
-
-Bimanual manipulation:
-
-[![Bimanual](http://img.youtube.com/vi/aCNCKVThKIE/hqdefault.jpg)](https://www.youtube.com/watch?v=aCNCKVThKIE)
-
-
-Rubik's cube 10-move unscramble:
-
-[![Unscramble](http://img.youtube.com/vi/ZRRvVWV-Muk/hqdefault.jpg)](https://www.youtube.com/watch?v=ZRRvVWV-Muk)
-
-Humanoid motion-capture tracking:
-
-[![Tracking](http://img.youtube.com/vi/tEBVK-MO1Sw/hqdefault.jpg)](https://www.youtube.com/watch?v=tEBVK-MO1Sw)
+See the [Predictive Control](docs/OVERVIEW.md) documentation for more
+information.
 
 ## Graphical User Interface
 
@@ -78,7 +47,7 @@ For a detailed dive of the graphical user interface, see the
 [MJPC GUI](docs/GUI.md) documentation.
 
 ## Installation
-MJPC is tested with [Ubuntu 20.04](https://releases.ubuntu.com/focal/) and [macOS-12](https://www.apple.com/by/macos/monterey/). In principle, other versions and Windows operating system should work with MJPC, but these are not tested.
+MJPC is tested with [Ubuntu 22.04](https://releases.ubuntu.com/focal/) and [macOS-12](https://www.apple.com/by/macos/monterey/). In principle, other versions and Windows operating system should work with MJPC, but these are not tested.
 
 ### Prerequisites
 Operating system specific dependencies:
@@ -91,14 +60,15 @@ Install `ninja` and `zlib`:
 brew install ninja zlib
 ```
 
-#### Ubuntu 20.04
+#### Ubuntu 22.04 and Clang 13
 ```sh
-sudo apt-get update && sudo apt-get install cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-12
+sudo apt-get update && sudo apt-get install cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-13 libc++-13-dev libc++abi-13-dev
 ```
 
 ### Clone MuJoCo MPC
 ```sh
-git clone https://github.com/google-deepmind/mujoco_mpc
+git clone https://github.com/badinkajink/mujoco_mpc
+git checkout humanoidbench
 ```
 
 ### Build and Run MJPC GUI application
@@ -107,22 +77,20 @@ git clone https://github.com/google-deepmind/mujoco_mpc
 cd mujoco_mpc
 ```
 
-2. Create and change to build directory:
-```sh
-mkdir build
-cd build
-```
-
-3. Configure:
+1. Configure:
 
 #### macOS-12
 ```sh
 cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
 ```
 
-#### Ubuntu 20.04
+#### Ubuntu 22.04
 ```sh
-cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DCMAKE_C_COMPILER:STRING=clang-12 -DCMAKE_CXX_COMPILER:STRING=clang++-12 -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
+cmake -S . -B build \
+  -G Ninja \
+  -DCMAKE_C_COMPILER=clang-13 \
+  -DCMAKE_CXX_COMPILER=clang++-13 \
+  -DCMAKE_BUILD_TYPE=Release
 ```
 **Note: gRPC is a large dependency and can take 10-20 minutes to initially download.**
 
@@ -136,6 +104,10 @@ cmake --build . --config=Release
 cd bin
 ./mjpc
 ```
+
+7. Run Avoid tasks.
+   
+**By default, the Avoid H12 task will run with both capacitance and ToF sensing. In lieu of proper configurability, set the task weights for the respective sensing modality to 0 to toggle a modality. Make sure to run the simulation at 5% speed, use the iLQR planner, and to reset the Agent planner each time the obstacle resets. To run new obstacles, go to mjpc/tasks/humanoidbench/avoid/Avoid_H12_ToF_Cap.xml and set "use_offline_obstacles" to 0.**
 
 ### Build and Run MJPC GUI application using VSCode
 We recommend using [VSCode](https://code.visualstudio.com/) and 2 of its
@@ -199,11 +171,6 @@ will run the MJPC GUI application using MuJoCo's passive viewer via Python.
 
 ### Python API Installation Issues
 If your installation fails or is terminated prematurely, we recommend deleting the MJPC build directory and starting from scratch as the build will likely be corrupted. Additionally, delete the files generated during the installation process from the `python/` directory.
-
-## Predictive Control
-
-See the [Predictive Control](docs/OVERVIEW.md) documentation for more
-information.
 
 ## Contributing
 
