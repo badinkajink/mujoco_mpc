@@ -275,8 +275,8 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
   // --------------------- ToF Obstacle Proximity ---------------------
   if (task_->use_tof_sensors_) {
-    // auto tof_readings = skin.ReadToFSensors(data);
-    auto tof_readings = skin.ComputeAllDistances(model, data);
+    auto tof_readings = skin.ReadToFSensors(data);
+    // auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
 
     int tof_idx = 0;
@@ -287,6 +287,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
         // Penalize proximity: closer = higher cost
         // Use inverse distance, capped at some max
         double normalized_range = range / task_->tof_sensor_range_;
+        // std::cout << "ToF Sensor " << sensor_id << " range: " << range << ", normalized: " << normalized_range << std::endl;
         residual[counter++] = 1.0 - normalized_range;  // 0 when far, 1 when very close
       } else {
         residual[counter++] = 0.0;  // No detection = no cost
@@ -302,8 +303,8 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   
   // --------------------- CoM Away From ToF Obstacle ---------------------
   if (task_->use_tof_sensors_) {
-    // auto tof_readings = skin.ReadToFSensors(data);
-    auto tof_readings = skin.ComputeAllDistances(model, data);
+    auto tof_readings = skin.ReadToFSensors(data);
+    // auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
     
     // Compute weighted obstacle direction from all sensor detections
@@ -382,8 +383,29 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   static bool initialized = false;
   if (!initialized) {
     skin.RegisterAllSkinSites();
+    skin.RegisterAllToFSensors();
     initialized = true;
   }
+  // auto readings = skin.ComputeAllCapacitances(model, data);
+  // auto tof_readings = skin.ComputeAllDistances(model, data, false);
+  auto sensor_ids = skin.SensorIds();   // deterministic ordering captured at init
+  auto tof_sensor_ids = skin.ToFSensorIds();
+
+  std::unordered_map<int,double> tof_readings;
+  std::unordered_map<int,double> readings;
+
+  const mjtNum *opos = &data->xpos[3 * obstacle_id];
+                                            
+  for (int sid : sensor_ids) {
+    const mjtNum *spos = &data->site_xpos[3 * sid];
+    double dist = skin.ComputeDistance(spos, opos);
+    int geom_id = model->body_geomadr[obstacle_id];
+    double radius = model->geom_size[geom_id];  // first size component
+    double reading = skin.ComputeCapacitancePair(dist, spos, opos, radius);
+    readings[sid] = reading;
+    tof_readings[sid] = dist;
+  }
+
 
   if (!obstacle_launched_) {     // --- Set up a new trajectory ---
     if (use_offline_obstacles_) {
@@ -463,7 +485,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
       mju_copy3(data->qpos + qpos_adr, obstacle_start_pos_);
 
       // 3. Sample random speed
-      std::uniform_real_distribution<double> speed_dist(2.0, 10.0);
+      std::uniform_real_distribution<double> speed_dist(2.0, 6.0);
       double speed = speed_dist(generator);
 
       // 4. Compute travel time and initial ballistic velocity (simple constant-accel model)
@@ -574,14 +596,34 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
             continue;
         logger_.csv << "," << data->qvel[i];
     }
-    auto readings = skin.ComputeAllCapacitances(model, data);
-    auto sensor_ids = skin.SensorIds();   // deterministic ordering captured at init
     for (int sid : sensor_ids) {
         double reading = 0.0;
         auto it = readings.find(sid);
         if (it != readings.end()) reading = it->second;
         logger_.csv << "," << reading;
     }
+
+    for (int sid : tof_sensor_ids) {
+        double reading = -1.0;  // -1 = no detection
+        auto it = tof_readings.find(sid);
+        if (it != tof_readings.end()) reading = it->second;
+        if (reading < 0 || reading > skin.ToFSensorRange()) reading = -1.0;
+        logger_.csv << "," << reading;
+    }
+
+    // sensor dist to obstacle readings
+    bool collision = false;
+    double min_dist = skin.ToFSensorRange();
+    for (int sid : sensor_ids) {
+        auto it = tof_readings.find(sid);
+        double dist = it->second;
+        if (dist < 0.07) { collision = true; }
+        if (dist < min_dist) { min_dist = dist; }
+        logger_.csv << "," << dist;
+    }
+
+    logger_.csv << "," << (collision ? 1 : 0);
+    logger_.csv << "," << min_dist;
 
     // commanded velocity (we stored the command in obstacle_velocity_ at launch)
     logger_.csv << "," << obstacle_velocity_[0] << "," << obstacle_velocity_[1] << "," << obstacle_velocity_[2] << "\n";
@@ -616,6 +658,7 @@ void Avoid::ResetLocked(const mjModel *model) {
   static bool initialized = false;
   if (!initialized) {
     cap.RegisterAllSkinSites();
+    cap.RegisterAllToFSensors();
     initialized = true;
   }
 
@@ -696,6 +739,22 @@ void Avoid::ResetLocked(const mjModel *model) {
             logger_.csv << ",cap_site_" << sid;
         }
     }
+
+    // write header columns for ToF readings
+    for (int i = 0; i < cap.NumToFSensors(); i++) {
+        logger_.csv << ",tof_reading_" << i;
+    }
+
+    // write header columns for ground truth distance from sensor to obstacle
+    for (int i = 0; i < cap.NumCapSensors(); i++) {
+        logger_.csv << ",dist_to_obst_" << i;
+    }
+
+    // write collision column (0/1)
+    logger_.csv << ",collision";
+
+    // write closest approach column
+    logger_.csv << ",min_obst_dist";
 
     // commanded velocity (log what you commanded at launch)
     logger_.csv << ",cmd_vx,cmd_vy,cmd_vz\n";

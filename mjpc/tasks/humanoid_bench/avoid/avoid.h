@@ -149,7 +149,7 @@ class Avoid_H12_ToF_Cap : public Avoid {
 
 class CapacitiveSkin {
  public:
-  CapacitiveSkin(const mjModel *model, double eps = 1.0, double cap_sensing_radius = 0.15, double tof_range = 4.0)
+  CapacitiveSkin(const mjModel *model, double eps = 1.0, double cap_sensing_radius = 0.25, double tof_range = 1.0)
       : model_(model), eps_(eps), sensing_radius_(cap_sensing_radius), tof_range_(tof_range) {}
 
 
@@ -212,7 +212,8 @@ class CapacitiveSkin {
   }
 
   std::unordered_map<int,double> ComputeAllDistances(const mjModel *model,
-                                                     const mjData *data
+                                                     const mjData *data,
+                                                     bool is_tof = true
                                                   ) const {
     std::unordered_map<int,double> distances;
 
@@ -221,8 +222,9 @@ class CapacitiveSkin {
     if (obstacle_id < 0) return distances; // no obstacle
 
     const mjtNum *opos = &data->xpos[3 * obstacle_id];
-
-    for (int sid : tof_sensor_ids_) {
+    auto ids = is_tof ? tof_sensor_ids_ : sensor_site_ids_;
+                                              
+    for (int sid : ids) {
       const mjtNum *spos = &data->site_xpos[3 * sid];
       double dist = ComputeDistance(spos, opos);
       distances[sid] = dist;
