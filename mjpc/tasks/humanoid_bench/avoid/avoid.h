@@ -57,7 +57,19 @@ class Avoid : public Task {
 
     private:
       Avoid *task_;
-      friend class avoid;
+      friend class Avoid;
+
+      // task state variables, managed by Transition
+      // bool use_cap = false;
+      // bool use_tof = false;
+      // double range_cap = 0;
+      // double range_tof = 0;
+
+      // constants, computed in Reset()
+      int use_cap_id_ = -1;
+      int use_tof_id_ = -1;
+      int range_cap_id_ = -1;
+      int range_tof_id_ = -1;
 
   };
 
@@ -73,22 +85,16 @@ class Avoid : public Task {
   }
 
  protected:
-  std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const
-
-      override {
+  std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {
     return std::make_unique<ResidualFn>(this);
   }
-
-  ResidualFn *InternalResidual()
-
-      override {
-    return &residual_;
-  }
+  ResidualFn *InternalResidual() override { return &residual_; }
 
   EpisodeLogger logger_;
   double sim_time_per_step_ = 0.0;
 
 private:
+  friend class ResidualFn;
   ResidualFn residual_;
   bool logging_enabled_ = false;
   bool use_offline_obstacles_ = false;
@@ -189,7 +195,7 @@ class CapacitiveSkin {
   double ComputeCapacitancePair(const double d,
                                 const mjtNum *sensor_pos,
                                 const mjtNum *obstacle_pos,
-                                double obstacle_radius) const {    
+                                double obstacle_radius) const {
     if (d > sensing_radius_ + obstacle_radius) return -1;
 
     double effective_d = std::max(0.01, d - obstacle_radius);
@@ -223,7 +229,7 @@ class CapacitiveSkin {
 
     const mjtNum *opos = &data->xpos[3 * obstacle_id];
     auto ids = is_tof ? tof_sensor_ids_ : sensor_site_ids_;
-                                              
+
     for (int sid : ids) {
       const mjtNum *spos = &data->site_xpos[3 * sid];
       double dist = ComputeDistance(spos, opos);

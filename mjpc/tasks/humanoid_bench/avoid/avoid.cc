@@ -35,8 +35,18 @@ thread_local std::mt19937 generator(std::random_device{}());
 // ----------------------------------------------------------------
 void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
+
+  bool logging = (bool) parameters_[ParameterIndex(model, "select_Logging")];
+  bool offline = (bool) parameters_[ParameterIndex(model, "select_Offline")];
+  bool use_cap = (bool) parameters_[ParameterIndex(model, "select_Use Cap")];
+  bool use_tof = (bool) parameters_[ParameterIndex(model, "select_Use ToF")];
+  double range_cap = parameters_[ParameterIndex(model, "Cap Range")];
+  double range_tof = parameters_[ParameterIndex(model, "ToF Range")];
+
+  // std::printf("Avoid config: logging=%d, offline=%d, tof=%d, cap=%d, tof_range=%.2f, cap_range=%.2f\n",
+  //           logging, offline, use_tof, use_cap, range_tof, range_cap);
+
   // Capacitive skin readings
-//   static CapacitiveSkin cap(model, data);
   static CapacitiveSkin skin(model, 1.0, task_->cap_sensor_range_, task_->tof_sensor_range_);
 
   static bool initialized = false;
@@ -228,7 +238,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
       if (it != readings.end() && it->second > 0) {
         // Penalty: inverse distance squared (stronger when close)
         double capacitance = it->second; // (1/d)
-        double normalized_range = capacitance / (1.0 / skin.CapSensingRadius()); 
+        double normalized_range = capacitance / (1.0 / skin.CapSensingRadius());
         residual[counter] = 1 - normalized_range;  // 0 when far, 1 when very very close
       } else {
         residual[counter] = 0.0;  // No obstacle detected
@@ -282,7 +292,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int tof_idx = 0;
     for (int sensor_id : tof_ids) {
       double range = tof_readings[sensor_id];
-      
+
       if (range > 0 && range < task_->tof_sensor_range_) {
         // Penalize proximity: closer = higher cost
         // Use inverse distance, capped at some max
@@ -300,27 +310,27 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
       residual[counter++] = 0.0;
     }
   }
-  
+
   // --------------------- CoM Away From ToF Obstacle ---------------------
   if (task_->use_tof_sensors_) {
     auto tof_readings = skin.ReadToFSensors(data);
     // auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
-    
+
     // Compute weighted obstacle direction from all sensor detections
     double weighted_dir[3] = {0, 0, 0};
     double total_weight = 0.0;
-    
+
     for (int sensor_id : tof_ids) {
       double range = tof_readings[sensor_id];
-      
+
       if (range > 0 && range < skin.ToFSensorRange()) {
         int site_id = model->sensor_objid[sensor_id];
         const mjtNum* sensor_dir = &data->site_xmat[9 * site_id + 6]; // z-axis
-        
+
         // Weight by inverse distance (closer sensors matter more)
         double weight = 1.0 / std::max(0.1, range);
-        
+
         weighted_dir[0] += weight * sensor_dir[0];
         weighted_dir[1] += weight * sensor_dir[1];
         weighted_dir[2] += weight * sensor_dir[2];
@@ -333,13 +343,13 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
       weighted_dir[1] /= total_weight;
       weighted_dir[2] /= total_weight;
       mju_normalize3(weighted_dir);
-      
+
       double *com_pos = SensorByName(model, data, "torso_subcom");
       // Project CoM position onto weighted direction
       double com_offset = com_pos[0]*weighted_dir[0] + com_pos[1]*weighted_dir[1] + com_pos[2]*weighted_dir[2];
       // Desired offset away from obstacle direction
       double desired_offset = 0.2;
-      
+
       residual[counter++] = (com_offset - desired_offset) * weighted_dir[0];
       residual[counter++] = (com_offset - desired_offset) * weighted_dir[1];
     }
@@ -395,7 +405,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   std::unordered_map<int,double> readings;
 
   const mjtNum *opos = &data->xpos[3 * obstacle_id];
-                                            
+
   for (int sid : sensor_ids) {
     const mjtNum *spos = &data->site_xpos[3 * sid];
     double dist = skin.ComputeDistance(spos, opos);
@@ -633,13 +643,19 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
 
 // Replace ResetLocked with this version (keeps your radius randomization)
 void Avoid::ResetLocked(const mjModel *model) {
+  // task identifiers
+  residual_.use_cap_id_ = ParameterIndex(model, "select_Use Cap");
+  residual_.use_tof_id_ = ParameterIndex(model, "select_Use ToF");
+  residual_.range_cap_id_ = ParameterIndex(model, "Cap Range");
+  residual_.range_tof_id_ = ParameterIndex(model, "ToF Range");
+
   // Read configuration numeric parameters
   for (int i = 0; i < model->nnumeric; i++) {
     const char* name = mj_id2name(model, mjOBJ_NUMERIC, i);
     if (!name) continue;
-    
+
     int adr = model->numeric_adr[i];  // GET THE ADDRESS!
-    
+
     if (strcmp(name, "logging_enabled") == 0) {
       logging_enabled_ = (bool)model->numeric_data[adr];
     } else if (strcmp(name, "use_offline_obstacles") == 0) {
