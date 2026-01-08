@@ -35,16 +35,12 @@ thread_local std::mt19937 generator(std::random_device{}());
 // ----------------------------------------------------------------
 void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
-
-  bool logging = (bool) parameters_[ParameterIndex(model, "select_Logging")];
-  bool offline = (bool) parameters_[ParameterIndex(model, "select_Offline")];
-  bool use_cap = (bool) parameters_[ParameterIndex(model, "select_Use Cap")];
-  bool use_tof = (bool) parameters_[ParameterIndex(model, "select_Use ToF")];
-  double range_cap = parameters_[ParameterIndex(model, "Cap Range")];
-  double range_tof = parameters_[ParameterIndex(model, "ToF Range")];
-
-  // std::printf("Avoid config: logging=%d, offline=%d, tof=%d, cap=%d, tof_range=%.2f, cap_range=%.2f\n",
-  //           logging, offline, use_tof, use_cap, range_tof, range_cap);
+  task_->logging_enabled_ = (bool) parameters_[ParameterIndex(model, "select_Logging")];
+  task_->use_offline_obstacles_ = (bool) parameters_[ParameterIndex(model, "select_Offline")];
+  task_->use_cap_sensors_ = (bool) parameters_[ParameterIndex(model, "select_Use Cap")];
+  task_->use_tof_sensors_ = (bool) parameters_[ParameterIndex(model, "select_Use ToF")];
+  task_->cap_sensor_range_ = parameters_[ParameterIndex(model, "Cap Range")];
+  task_->tof_sensor_range_ = parameters_[ParameterIndex(model, "ToF Range")];
 
   // Capacitive skin readings
   static CapacitiveSkin skin(model, 1.0, task_->cap_sensor_range_, task_->tof_sensor_range_);
@@ -378,7 +374,6 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
 }
 
 // -------- Transition for humanoid_bench avoid task -------- //
-// ------------------------------------------------------------ //
 void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   int obstacle_id = mj_name2id(model, mjOBJ_BODY, "obstacle");
   if (obstacle_id < 0) return;
@@ -567,7 +562,7 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
   obstacle_move_y_ = 0.0;
   obstacle_move_z_ = 0.0;
 
-  // Logging
+  // ----- Logging -----
   // after obstacle launch / monitor logic and just before returning from TransitionLocked:
   if (logger_.csv.is_open()) {
     int step = data->time / sim_time_per_step_; // approximate step index
@@ -644,32 +639,20 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
 // Replace ResetLocked with this version (keeps your radius randomization)
 void Avoid::ResetLocked(const mjModel *model) {
   // task identifiers
-  residual_.use_cap_id_ = ParameterIndex(model, "select_Use Cap");
-  residual_.use_tof_id_ = ParameterIndex(model, "select_Use ToF");
+  residual_.use_cap_id_   = ParameterIndex(model, "select_Use Cap");
+  residual_.use_tof_id_   = ParameterIndex(model, "select_Use ToF");
   residual_.range_cap_id_ = ParameterIndex(model, "Cap Range");
   residual_.range_tof_id_ = ParameterIndex(model, "ToF Range");
+  residual_.offline_id_   = ParameterIndex(model, "select_Offline");
+  residual_.logging_id_   = ParameterIndex(model, "select_Logging");
+  logging_enabled_        = (bool) parameters[ParameterIndex(model, "select_Logging")];
+  use_offline_obstacles_  = (bool) parameters[ParameterIndex(model, "select_Offline")];
+  use_cap_sensors_        = (bool) parameters[ParameterIndex(model, "select_Use Cap")];
+  use_tof_sensors_        = (bool) parameters[ParameterIndex(model, "select_Use ToF")];
+  cap_sensor_range_       = parameters[ParameterIndex(model, "Cap Range")];
+  tof_sensor_range_       = parameters[ParameterIndex(model, "ToF Range")];
 
-  // Read configuration numeric parameters
-  for (int i = 0; i < model->nnumeric; i++) {
-    const char* name = mj_id2name(model, mjOBJ_NUMERIC, i);
-    if (!name) continue;
 
-    int adr = model->numeric_adr[i];  // GET THE ADDRESS!
-
-    if (strcmp(name, "logging_enabled") == 0) {
-      logging_enabled_ = (bool)model->numeric_data[adr];
-    } else if (strcmp(name, "use_offline_obstacles") == 0) {
-      use_offline_obstacles_ = (bool)model->numeric_data[adr];
-    } else if (strcmp(name, "use_tof_sensors") == 0) {
-      use_tof_sensors_ = (bool)model->numeric_data[adr];
-    } else if (strcmp(name, "use_cap_sensors") == 0) {
-      use_cap_sensors_ = (bool)model->numeric_data[adr];
-    } else if (strcmp(name, "tof_sensor_range") == 0) {
-      tof_sensor_range_ = model->numeric_data[adr];
-    } else if (strcmp(name, "cap_sensor_range") == 0) {
-      cap_sensor_range_ = model->numeric_data[adr];
-    }
-  }
   static CapacitiveSkin cap(model);
   static bool initialized = false;
   if (!initialized) {
@@ -678,10 +661,7 @@ void Avoid::ResetLocked(const mjModel *model) {
     initialized = true;
   }
 
-  std::printf("Avoid config: logging=%d, offline=%d, tof=%d, cap=%d, tof_range=%.2f, cap_range=%.2f\n",
-              logging_enabled_, use_offline_obstacles_, use_tof_sensors_,
-              use_cap_sensors_, tof_sensor_range_, cap_sensor_range_);
-
+  // ------ Obstacle reset and launch ------
   // Reset obstacle state
   obstacle_launched_ = false;
   min_obstacle_dist_ = 1.0e6;
@@ -707,7 +687,7 @@ void Avoid::ResetLocked(const mjModel *model) {
   //   printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
   // }
 
-  // ** Logging **
+  // ----- Logging -------
   int obstacle_body = mj_name2id(model, mjOBJ_BODY, "obstacle");
   int obstacle_jnt = model->body_jntadr[obstacle_body];
   int obstacle_qpos0 = model->jnt_qposadr[obstacle_jnt];

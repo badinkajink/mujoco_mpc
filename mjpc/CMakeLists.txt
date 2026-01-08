@@ -100,6 +100,7 @@ add_library(
   tasks/humanoid_bench/avoid/avoid.cc
   tasks/humanoid_bench/avoid/avoid.h
   tasks/humanoid_bench/avoid/offline_obstacles.h
+  tasks/humanoid_bench/avoid/utils.h
   planners/planner.cc
   planners/planner.h
   planners/policy.h

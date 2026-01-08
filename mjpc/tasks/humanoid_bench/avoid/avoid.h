@@ -16,6 +16,7 @@
 #include "mjpc/utilities.h"
 #include "mujoco/mujoco.h"
 #include "mjpc/tasks/humanoid_bench/avoid/offline_obstacles.h"
+#include "mjpc/tasks/humanoid_bench/avoid/utils.h"
 
 struct EpisodeLogger {
   std::string out_dir = ".";         // output directory
@@ -70,6 +71,8 @@ class Avoid : public Task {
       int use_tof_id_ = -1;
       int range_cap_id_ = -1;
       int range_tof_id_ = -1;
+      int logging_id_ = -1;
+      int offline_id_ = -1;
 
   };
 
