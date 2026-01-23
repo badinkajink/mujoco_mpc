@@ -39,6 +39,7 @@
 #include "mjpc/tasks/rubik/solve.h"
 #include "mjpc/tasks/shadow_reorient/hand.h"
 #include "mjpc/tasks/swimmer/swimmer.h"
+#include "mjpc/tasks/ur5/ur5.h"
 #include "mjpc/tasks/walker/walker.h"
 // Humanoid Bench Tasks
 #include "mjpc/tasks/humanoid_bench/push/push.h"
@@ -85,6 +86,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<manipulation::Bring>(),
       // DEEPMIND INTERNAL TASKS
       std::make_shared<OP3>(),
+      std::make_shared<UR5>(),
       std::make_shared<Panda>(),
       std::make_shared<Particle>(),
       std::make_shared<ParticleFixed>(),

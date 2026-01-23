@@ -121,6 +121,17 @@ add_custom_target(
           ${CMAKE_CURRENT_BINARY_DIR}/quadrotor/quadrotor.xml
           <${CMAKE_CURRENT_SOURCE_DIR}/quadrotor/quadrotor.xml.patch
 
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${menagerie_SOURCE_DIR}/universal_robots_ur5e/assets
+          ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${menagerie_SOURCE_DIR}/universal_robots_ur5e/ur5e.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
+# ur5e --> ur5 patch WIP
+#   COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_modified.xml
+#           ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
+#           <${CMAKE_CURRENT_SOURCE_DIR}/ur5/ur5e.xml.patch
+
   ## Cube reorientation
   # patch cube from common assets
   COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/common_assets/cube_modified_shadow_reorient.xml

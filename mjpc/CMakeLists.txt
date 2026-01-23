@@ -84,6 +84,8 @@ add_library(
   tasks/go1/quadruped.h
   tasks/swimmer/swimmer.cc
   tasks/swimmer/swimmer.h
+  tasks/ur5/ur5.cc
+  tasks/ur5/ur5.h
   tasks/walker/walker.cc
   tasks/walker/walker.h
   tasks/humanoid_bench/utility/dm_control_utils_rewards.cpp
