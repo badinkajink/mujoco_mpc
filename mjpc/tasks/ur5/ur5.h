@@ -36,7 +36,7 @@ class UR5 : public Task {
   UR5() : residual_(this) {}
 
   // // Reset the cube into the hand if it's on the floor
-  // void TransitionLocked(mjModel *model, mjData *data) override;
+  void TransitionLocked(mjModel *model, mjData *data) override;
 
  protected:
   std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {

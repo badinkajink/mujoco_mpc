@@ -51,9 +51,9 @@
   </worldbody>
 
   <contact>
-    <exclude body1="world" body2="left_finger"/>
-    <exclude body1="world" body2="right_finger"/>
-    <exclude body1="left_finger" body2="right_finger"/>
+    <exclude body1="world" body2="left_finger_combined"/>
+    <exclude body1="world" body2="right_finger_combined"/>
+    <exclude body1="left_finger_combined" body2="right_finger_combined"/>
   </contact>
 
   <sensor>
@@ -71,8 +71,13 @@
   </sensor>
 
   <keyframe>
-    <!-- <key name="home"
-      qpos="0 -0.96 1.16 0 -0.3 0 0.02"
-    /> -->
+    <key name="home"
+      qpos="
+      -1.5708 -1.5708 1.5708 -1.5708 -1.5708 0
+      0 0 0 0 0 0
+      -0.026895
+      .391451 0.0199961 0.959693 0 0 -0.281049
+      "
+    />
   </keyframe>
 </mujoco>

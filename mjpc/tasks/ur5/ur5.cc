@@ -16,7 +16,9 @@
 
 #include <string>
 
+#include <absl/random/random.h>
 #include <mujoco/mujoco.h>
+#include "mjpc/task.h"
 #include "mjpc/utilities.h"
 
 namespace mjpc {
@@ -38,80 +40,65 @@ void UR5::ResidualFn::Residual(const mjModel *model, const mjData *data,
   int counter = 0;
 
   // -- null residual test only
-  double *null = SensorByName(model, data, "null");
-  mju_copy(residual+counter, null, 0);
-  counter += 1;
+  // double *null = SensorByName(model, data, "null");
+  // mju_copy(residual+counter, null, 0);
+  // counter += 1;
 
-  // // ---------- Cube position ----------
-  // double *cube_position = SensorByName(model, data, "cube_position");
-  // double *cube_goal_position = SensorByName(model, data, "cube_goal_position");
+  // reach
+  double* hand = SensorByName(model, data, "hand");
+  double* box = SensorByName(model, data, "box");
+  mju_sub3(residual + counter, hand, box);
+  counter += 3;
 
-  // mju_sub3(residual + counter, cube_position, cube_goal_position);
-  // counter += 3;
-
-  // // ---------- Cube orientation ----------
-  // double *cube_orientation = SensorByName(model, data, "cube_orientation");
-  // double *goal_cube_orientation =
-  //     SensorByName(model, data, "cube_goal_orientation");
-  // mju_normalize4(goal_cube_orientation);
-
-  // mju_subQuat(residual + counter, goal_cube_orientation, cube_orientation);
-  // counter += 3;
-
-  // // ---------- Cube linear velocity ----------
-  // double *cube_linear_velocity =
-  //     SensorByName(model, data, "cube_linear_velocity");
-
-  // mju_copy(residual + counter, cube_linear_velocity, 3);
-  // counter += 3;
-
-  // // ---------- Control ----------
-  // mju_copy(residual + counter, data->actuator_force, model->nu);
-  // counter += model->nu;
-
-  // // ---------- Nominal Pose ----------
-  // mju_sub(residual + counter, data->qpos + 7, model->key_qpos + 7, 16);
-  // counter += 16;
-
-  // // ---------- Joint Velocity ----------
-  // mju_copy(residual + counter, data->qvel + 6, 16);
-  // counter += 16;
+  // bring
+  double* box1 = SensorByName(model, data, "box1");
+  double* target1 = SensorByName(model, data, "target1");
+  mju_sub3(residual + counter, box1, target1);
+  counter += 3;
+  double* box2 = SensorByName(model, data, "box2");
+  double* target2 = SensorByName(model, data, "target2");
+  mju_sub3(residual + counter, box2, target2);
+  counter += 3;
 
   // Sanity check
   CheckSensorDim(model, counter);
 }
 
-// void UR5::TransitionLocked(mjModel *model, mjData *data) {
-//   // Check for contact between the cube and the floor
-//   int cube = mj_name2id(model, mjOBJ_GEOM, "cube");
-//   int floor = mj_name2id(model, mjOBJ_GEOM, "floor");
+void UR5::TransitionLocked(mjModel *model, mjData *data) {
+  double residuals[100];
+  residual_.Residual(model, data, residuals);
+  double bring_dist = (mju_norm3(residuals+3) + mju_norm3(residuals+6)) / 2;
 
-//   bool on_floor = false;
-//   for (int i = 0; i < data->ncon; i++) {
-//     mjContact *g = data->contact + i;
-//     if ((g->geom1 == cube && g->geom2 == floor) ||
-//         (g->geom2 == cube && g->geom1 == floor)) {
-//       on_floor = true;
-//       break;
-//     }
-//   }
+  // reset:
+  if (data->time > 0 && bring_dist < .015) {
+    // box:
+    absl::BitGen gen_;
+    data->qpos[12] = absl::Uniform<double>(gen_, -.5, .5);
+    data->qpos[13] = absl::Uniform<double>(gen_, -.5, .5);
+    data->qpos[14] = .05;
 
-//   // If the cube is on the floor and not moving, reset it
-//   double *cube_lin_vel = SensorByName(model, data, "cube_linear_velocity");
-//   if (on_floor && mju_norm3(cube_lin_vel) < 0.001) {
-//     int cube_body = mj_name2id(model, mjOBJ_BODY, "cube");
-//     if (cube_body != -1) {
-//       int jnt_qposadr = model->jnt_qposadr[model->body_jntadr[cube_body]];
-//       int jnt_veladr = model->jnt_dofadr[model->body_jntadr[cube_body]];
-//       mju_copy(data->qpos + jnt_qposadr, model->qpos0 + jnt_qposadr, 7);
-//       mju_zero(data->qvel + jnt_veladr, 6);
-//     }
+    // target:
+    data->mocap_pos[0] = absl::Uniform<double>(gen_, -.5, .5);
+    data->mocap_pos[1] = absl::Uniform<double>(gen_, -.5, .5);
+    data->mocap_pos[2] = absl::Uniform<double>(gen_, .03, 1);
+    data->mocap_quat[0] = absl::Uniform<double>(gen_, -1, 1);
+    data->mocap_quat[1] = absl::Uniform<double>(gen_, -1, 1);
+    data->mocap_quat[2] = absl::Uniform<double>(gen_, -1, 1);
+    data->mocap_quat[3] = absl::Uniform<double>(gen_, -1, 1);
+    mju_normalize4(data->mocap_quat);
 
-//     // Step the simulation forward
-//     mutex_.unlock();
-//     mj_forward(model, data);
-//     mutex_.lock();
-//   }
-// }
+    // open gripper
+    data->qpos[6] = 0.0;
+    data->qpos[9] = 0.0;
+  }
+    // DEBUG
+  printf("\nJoint order for qpos:\n");
+  for (int i = 0; i < model->njnt; i++) {
+    const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
+    int qpos_adr = model->jnt_qposadr[i];
+    printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
+  }
+
+}
 
 }  // namespace mjpc
