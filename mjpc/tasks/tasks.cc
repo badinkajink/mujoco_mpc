@@ -61,17 +61,6 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Hands>(),
 
-      // Humanoid Bench Walk Task
-      std::make_shared<Walk_H1>(),
-      std::make_shared<Walk_H12>(),
-
-      // Humanoid Bench Stand Task
-      std::make_shared<Stand_H1>(),
-
-      // Humanoid Bench Push Task
-      std::make_shared<Push_H1>(),
-      std::make_shared<Push_H12>(),
-
       std::make_shared<Acrobot>(),
       std::make_shared<Allegro>(),
       std::make_shared<aloha::Handover>(),
@@ -97,6 +86,17 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<QuadrupedHill>(),
       std::make_shared<Swimmer>(),
       std::make_shared<Walker>(),
+
+      // Humanoid Bench Walk Task
+      std::make_shared<Walk_H12>(),
+      std::make_shared<Walk_H1>(),
+
+      // Humanoid Bench Stand Task
+      std::make_shared<Stand_H1>(),
+
+      // Humanoid Bench Push Task
+      std::make_shared<Push_H1>(),
+      std::make_shared<Push_H12>(),
   };
 }
 }  // namespace mjpc
