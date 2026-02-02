@@ -1,4 +1,4 @@
-// Copyright 2022 DeepMind Technologies Limited
+// Copyright 2024 DeepMind Technologies Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,34 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MJPC_PLANNERS_INCLUDE_H_
-#define MJPC_PLANNERS_INCLUDE_H_
+#include "mjpc/planners/idto/policy.h"
 
-#include <memory>
-#include <vector>
+#include <algorithm>
 
-#include "mjpc/planners/planner.h"
+#include "mjpc/trajectory.h"
 
 namespace mjpc {
 
-// planner types
-enum PlannerType : int {
-  kSamplingPlanner = 0,
-  kGradientPlanner,
-  kILQGPlanner,
-  kILQSPlanner,
-  kRobustPlanner,
-  kCrossEntropyPlanner,
-  kSampleGradientPlanner,
-  kIDTOPlanner,
-};
+// Copy from trajectory
+void IDTOPolicy::CopyFrom(const Trajectory& traj) {
+  // Copy trajectory object
+  trajectory = traj;
 
-// Planner names, separated by '\n'.
-extern const char kPlannerNames[];
-
-// Loads all available planners
-std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners();
+  // TODO(vincekurtz): implement proper copying of configuration, velocity, force
+}
 
 }  // namespace mjpc
-
-#endif  // MJPC_PLANNERS_INCLUDE_H_

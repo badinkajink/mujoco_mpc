@@ -141,6 +141,11 @@ add_library(
   planners/ilqg/settings.h
   planners/ilqs/planner.cc
   planners/ilqs/planner.h
+  planners/idto/planner.cc
+  planners/idto/planner.h
+  planners/idto/policy.cc
+  planners/idto/policy.h
+  planners/idto/settings.h
   estimators/batch.cc
   estimators/batch.h
   estimators/estimator.h
