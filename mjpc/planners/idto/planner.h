@@ -105,6 +105,9 @@ class IDTOPlanner : public Planner {
   // Warm start from previous solution
   void WarmStart();
 
+  // Update policy from optimized trajectory
+  void UpdatePolicy();
+
   // ----- Members ----- //
 
   // Model and task

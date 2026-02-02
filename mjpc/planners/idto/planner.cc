@@ -201,7 +201,45 @@ void IDTOPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
   }
 
   // Update policy from optimized trajectory
-  // TODO(vincekurtz): implement UpdatePolicy
+  UpdatePolicy();
+}
+
+// Update policy from current optimized trajectory
+void IDTOPlanner::UpdatePolicy() {
+  // Copy configuration trajectory
+  policy_.configuration = configuration_;
+  policy_.velocity = velocity_;
+  policy_.force = force_;
+
+  // Set timestep
+  policy_.timestep = model_->opt.timestep;
+
+  // Set times
+  policy_.times.resize(horizon_ + 1);
+  for (int t = 0; t <= horizon_; t++) {
+    policy_.times[t] = time_ + t * policy_.timestep;
+  }
+
+  // Copy to trajectory object for visualization
+  for (int t = 0; t <= horizon_; t++) {
+    // State: [qpos, qvel]
+    mju_copy(trajectory_.states.data() + t * (dim_state_ + dim_state_derivative_),
+             configuration_.data() + t * dim_state_, dim_state_);
+    mju_copy(trajectory_.states.data() + t * (dim_state_ + dim_state_derivative_) + dim_state_,
+             velocity_.data() + t * dim_state_derivative_, dim_state_derivative_);
+
+    // Time
+    trajectory_.times[t] = policy_.times[t];
+
+    // Action (force)
+    if (t < horizon_) {
+      mju_copy(trajectory_.actions.data() + t * dim_action_,
+               force_.data() + t * dim_state_derivative_,
+               std::min(dim_action_, dim_state_derivative_));
+    }
+  }
+
+  trajectory_.total_return = cost_;
 }
 
 // Compute trajectory using nominal policy
@@ -330,13 +368,26 @@ void IDTOPlanner::Iteration(int horizon, ThreadPool& pool) {
 
   // 7. Compute reduction ratio and update trust region
   double actual_reduction = cost_ - cost_new;
-  double predicted_reduction = 0.0;  // TODO: compute from gradient and Hessian
 
-  if (actual_reduction > 0) {
+  // Predicted reduction from linear model: -g' * dq
+  double predicted_reduction = 0.0;
+  for (int i = 0; i < dim_state_ * (horizon_ + 1); i++) {
+    predicted_reduction -= gradient_[i] * search_direction_[i];
+  }
+
+  // Compute reduction ratio
+  double reduction_ratio = 0.0;
+  if (std::abs(predicted_reduction) > 1e-12) {
+    reduction_ratio = actual_reduction / predicted_reduction;
+  }
+
+  if (actual_reduction > 0.0 &&
+      reduction_ratio > settings_.trust_region_shrink_threshold) {
     // Accept step
     configuration_ = configuration_new;
     cost_improvement_ = actual_reduction;
   } else {
+    // Reject step
     cost_improvement_ = 0.0;
   }
 
@@ -417,15 +468,94 @@ void IDTOPlanner::EvaluateTrajectory() {
 
 // Compute cost
 double IDTOPlanner::ComputeCost() {
-  // TODO(vincekurtz): implement quadratic cost from task residuals
-  return 0.0;
+  // IDTO cost: sum of stage costs along the trajectory
+  // For each timestep, evaluate task residual and compute cost
+
+  double total_cost = 0.0;
+  mjData* d = data_[0].get();
+
+  // Allocate residual storage
+  std::vector<double> residual(task_->num_residual);
+
+  for (int t = 0; t <= horizon_; t++) {
+    // Set configuration and velocity
+    mju_copy(d->qpos, configuration_.data() + t * dim_state_, dim_state_);
+    mju_copy(d->qvel, velocity_.data() + t * dim_state_derivative_,
+             dim_state_derivative_);
+
+    // Set mocap and userdata
+    if (!mocap_.empty()) {
+      for (int i = 0; i < model_->nmocap; i++) {
+        mju_copy(d->mocap_pos + 3 * i, mocap_.data() + 7 * i, 3);
+        mju_copy(d->mocap_quat + 4 * i, mocap_.data() + 7 * i + 3, 4);
+      }
+    }
+    if (!userdata_.empty()) {
+      mju_copy(d->userdata, userdata_.data(), model_->nuserdata);
+    }
+
+    // Compute forward kinematics and sensors
+    mj_forward(model_, d);
+
+    // Compute task residual
+    task_->Residual(model_, d, residual.data());
+
+    // Compute stage cost
+    double stage_cost = task_->CostValue(residual.data());
+    total_cost += stage_cost;
+
+    // Optional: add control cost (R * ||tau||^2)
+    if (t < horizon_ && settings_.weight_control > 0.0) {
+      double control_cost = 0.0;
+      for (int i = 0; i < dim_state_derivative_; i++) {
+        double tau = force_[t * dim_state_derivative_ + i];
+        control_cost += tau * tau;
+      }
+      total_cost += settings_.weight_control * control_cost;
+    }
+  }
+
+  // Normalize by horizon (following mjpc convention)
+  if (horizon_ > 0) {
+    total_cost /= (horizon_ + 1);
+  }
+
+  return total_cost;
 }
 
 // Compute gradient
 void IDTOPlanner::ComputeGradient() {
-  // TODO(vincekurtz): implement gradient computation
+  // Compute ∂L/∂q via finite differences
+  // gradient_[t * dim_state + i] = ∂L/∂q[t][i]
+
   std::fill(gradient_.begin(),
             gradient_.begin() + dim_state_ * (horizon_ + 1), 0.0);
+
+  const double eps = settings_.finite_difference_epsilon;
+  const double baseline_cost = cost_;
+
+  // Finite difference for each configuration variable
+  for (int t = 0; t <= horizon_; t++) {
+    for (int i = 0; i < dim_state_; i++) {
+      int idx = t * dim_state_ + i;
+
+      // Perturb configuration
+      configuration_[idx] += eps;
+
+      // Recompute trajectory and cost
+      EvaluateTrajectory();
+      double perturbed_cost = ComputeCost();
+
+      // Finite difference gradient
+      gradient_[idx] = (perturbed_cost - baseline_cost) / eps;
+
+      // Restore configuration
+      configuration_[idx] -= eps;
+    }
+  }
+
+  // Restore trajectory
+  EvaluateTrajectory();
 }
 
 // Compute Hessian
@@ -435,9 +565,29 @@ void IDTOPlanner::ComputeHessian() {
 
 // Solve trust-region subproblem
 void IDTOPlanner::SolveTrustRegionSubproblem(std::vector<double>& dq) {
-  // TODO(vincekurtz): implement trust-region QP solver
-  // For now, simple gradient descent step
-  double step_size = std::min(trust_region_radius_, 0.1);
+  // Solve: min_dq  g'*dq + 0.5*dq'*H*dq
+  //        s.t.    ||dq|| <= trust_region_radius
+  //
+  // For now: simple gradient descent with trust region constraint
+  // Future: implement full Newton step with Hessian
+
+  // Compute gradient norm
+  double grad_norm = 0.0;
+  for (double g : gradient_) {
+    grad_norm += g * g;
+  }
+  grad_norm = std::sqrt(grad_norm);
+
+  if (grad_norm < settings_.gradient_tolerance) {
+    // Already at optimum, no step needed
+    std::fill(dq.begin(), dq.end(), 0.0);
+    return;
+  }
+
+  // Gradient descent direction
+  double step_size = trust_region_radius_ / grad_norm;
+
+  // Scale to stay within trust region
   for (int i = 0; i < dim_state_ * (horizon_ + 1); i++) {
     dq[i] = -step_size * gradient_[i];
   }
