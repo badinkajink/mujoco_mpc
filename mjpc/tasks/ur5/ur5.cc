@@ -22,11 +22,6 @@
 #include "mjpc/utilities.h"
 
 namespace mjpc {
-std::string UR5::XmlPath() const {
-  return GetModelPath("ur5/task.xml");
-}
-std::string UR5::Name() const { return "UR5"; }
-
 // ------- Residuals for cube manipulation task ------
 //     Cube position: (3)
 //     Cube orientation: (3)

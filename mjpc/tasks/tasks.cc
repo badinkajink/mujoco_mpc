@@ -73,9 +73,10 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<humanoid::Tracking>(),
       std::make_shared<humanoid::Walk>(),
       std::make_shared<manipulation::Bring>(),
+      std::make_shared<UR5_Magpie>(),
+      std::make_shared<UR5_Inspire>(),
       // DEEPMIND INTERNAL TASKS
       std::make_shared<OP3>(),
-      std::make_shared<UR5>(),
       std::make_shared<Panda>(),
       std::make_shared<Particle>(),
       std::make_shared<ParticleFixed>(),

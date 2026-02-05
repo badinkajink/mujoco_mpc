@@ -1,9 +1,9 @@
-<mujoco model="ur5">
+<mujoco model="UR5 Magpie">
   <include file="../common.xml"/>
 
   <size memory="1M"/>
 
-  <include file="ur5_magpie.xml"/>
+  <include file="ur5_inspire.xml"/>
 
   <custom>
     <numeric name="agent_planner" data="0" />
@@ -51,9 +51,20 @@
   </worldbody>
 
   <contact>
-    <exclude body1="world" body2="left_finger_combined"/>
+    <!-- <exclude body1="world" body2="left_finger_combined"/>
     <exclude body1="world" body2="right_finger_combined"/>
-    <exclude body1="left_finger_combined" body2="right_finger_combined"/>
+    <exclude body1="left_finger_combined" body2="right_finger_combined"/> -->
+    <pair geom1="box" geom2="collision_hand_right_palm_0"/>
+    <pair geom1="box" geom2="collision_hand_right_thumb_1"/>
+    <pair geom1="box" geom2="collision_hand_right_thumb_0"/>
+    <pair geom1="box" geom2="collision_hand_right_index_1"/>
+    <pair geom1="box" geom2="collision_hand_right_index_0"/>
+    <pair geom1="box" geom2="collision_hand_right_middle_1"/>
+    <pair geom1="box" geom2="collision_hand_right_middle_0"/>
+    <pair geom1="box" geom2="collision_hand_right_ring_1"/>
+    <pair geom1="box" geom2="collision_hand_right_ring_0"/>
+    <pair geom1="box" geom2="collision_hand_right_pinky_1"/>
+    <pair geom1="box" geom2="collision_hand_right_pinky_0"/>
   </contact>
 
   <sensor>
@@ -66,14 +77,18 @@
     <framepos name="target" objtype="geom" objname="target"/>
     <framepos name="target1" objtype="site" objname="target1"/>
     <framepos name="target2" objtype="site" objname="target2"/>
-    <framepos name="trace0" objtype="site" objname="touch_left"/>
-    <framepos name="trace1" objtype="site" objname="touch_right"/>
+    <framepos name="trace0" objtype="site" objname="trace_hand_right_thumb_tip"/>
+    <framepos name="trace1" objtype="site" objname="trace_hand_right_index_tip"/>
+    <framepos name="trace2" objtype="site" objname="trace_hand_right_middle_tip"/>
+    <framepos name="trace3" objtype="site" objname="trace_hand_right_ring_tip"/>
+    <framepos name="trace4" objtype="site" objname="trace_hand_right_pinky_tip"/>
   </sensor>
 
   <keyframe>
     <key name="home"
       qpos="
       -1.5708 -1.5708 1.5708 -1.5708 -1.5708 0
+      0 0 0 0 0 0
       0 0 0 0 0 0
       -0.026895
       .391451 0.0199961 0.959693 0 0 -0.281049

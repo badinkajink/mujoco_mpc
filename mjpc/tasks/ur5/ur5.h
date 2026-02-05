@@ -20,12 +20,13 @@
 
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
+#include "mjpc/utilities.h"
 
 namespace mjpc {
 class UR5 : public Task {
  public:
-  std::string Name() const override;
-  std::string XmlPath() const override;
+  std::string Name() const override = 0;
+  std::string XmlPath() const override = 0;
 
   class ResidualFn : public BaseResidualFn {
    public:
@@ -47,6 +48,22 @@ class UR5 : public Task {
  private:
   ResidualFn residual_;
 };
-}  // namespace mjpc
 
+class UR5_Magpie : public UR5 {
+ public:
+  std::string XmlPath() const override{
+    return GetModelPath("ur5/task_magpie.xml");
+  }
+  std::string Name() const override{ return "UR5 Magpie"; }
+};
+
+class UR5_Inspire : public UR5 {
+ public:
+  std::string XmlPath() const override{
+    return GetModelPath("ur5/task_inspire.xml");
+  }
+  std::string Name() const override{ return "UR5 Inspire"; }
+};
+
+}  // namespace mjpc
 #endif  // MJPC_TASKS_UR5_UR5_H_
