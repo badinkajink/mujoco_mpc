@@ -656,9 +656,22 @@ Create `mjpc/test/pso_planner/` with:
 
 ---
 
-## 8. References
+## 8. Empirical Findings
+
+PSO is implemented and functional. Key observations from testing:
+
+- **Requires aggressive tuning**: default hyperparameters (c1=1.5, c2=1.5, w=0.7) do not work well. Best results came from low social/cognitive coefficients, high velocity scale, and maximum particles.
+- **Does not match MPPI quality**: the Sampling planner (MPPI with cost-weighted averaging) consistently produces better plans than PSO with the same number of rollouts. PSO discards cost information from non-best particles, while MPPI uses soft exponential weighting across all samples.
+- **Speed is comparable**: the bottleneck for both PSO and MPPI is the parallel MuJoCo rollout step, not the update rule. PSO's velocity update adds negligible overhead.
+
+See [PSO_Upgrades.md](PSO_Upgrades.md) for a detailed analysis of why PSO underperforms MPPI, potential improvement paths (including DIAL-MPC dual-loop annealing), and GPU scaling considerations.
+
+---
+
+## 9. References
 
 1. Kennedy, J., & Eberhart, R. (1995). Particle swarm optimization. *Proceedings of ICNN'95*.
 2. Clerc, M., & Kennedy, J. (2002). The particle swarm - explosion, stability, and convergence. *IEEE TEC*.
 3. Shi, Y., & Eberhart, R. (1998). A modified particle swarm optimizer. *IEEE CEC*.
 4. MuJoCo MPC: https://github.com/google-deepmind/mujoco_mpc
+5. Xue, Pan, Yi, Qu, Shi. "Full-Order Sampling-Based MPC for Torque-Level Locomotion Control via Diffusion-Style Annealing." (DIAL-MPC)
