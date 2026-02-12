@@ -133,9 +133,12 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/magpie/magpie_gripper.xml
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/magpie_gripper.xml
-  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_magpie.xml
-          ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
-          <${CMAKE_CURRENT_SOURCE_DIR}/ur5/ur5e_magpie.xml.patch
+#   COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_magpie.xml
+#           ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
+#           <${CMAKE_CURRENT_SOURCE_DIR}/ur5/ur5e_magpie.xml.patch
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/magpie/ur5_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_magpie.xml
   COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${h12_SOURCE_DIR}/inspire/assets
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets
