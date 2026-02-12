@@ -123,7 +123,7 @@ add_custom_target(
 
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${menagerie_SOURCE_DIR}/universal_robots_ur5e/assets
-          ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e
+          ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets/ur5e
   COMMAND ${CMAKE_COMMAND} -E copy
         ${menagerie_SOURCE_DIR}/universal_robots_ur5e/ur5e.xml
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
@@ -139,12 +139,22 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${h12_SOURCE_DIR}/inspire/assets
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/inspire/assets/visual
+        ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets/visual
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/inspire/assets/collision
+        ${CMAKE_CURRENT_BINARY_DIR}/ur5/assets/collision
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/inspire/inspire_right_ur5.xml
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/inspire_right_ur5.xml
-  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_inspire.xml
-          ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
-          <${CMAKE_CURRENT_SOURCE_DIR}/ur5/ur5e_inspire.xml.patch
+#   COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_inspire.xml
+#           ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5e.xml
+#           <${CMAKE_CURRENT_SOURCE_DIR}/ur5/ur5e_inspire.xml.patch
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/inspire/ur5_inspire.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_inspire.xml
+
 
   ## Cube reorientation
   # patch cube from common assets

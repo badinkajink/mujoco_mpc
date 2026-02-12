@@ -50,23 +50,6 @@
     </body>
   </worldbody>
 
-  <contact>
-    <!-- <exclude body1="world" body2="left_finger_combined"/>
-    <exclude body1="world" body2="right_finger_combined"/>
-    <exclude body1="left_finger_combined" body2="right_finger_combined"/> -->
-    <pair geom1="box" geom2="collision_hand_right_palm_0"/>
-    <pair geom1="box" geom2="collision_hand_right_thumb_1"/>
-    <pair geom1="box" geom2="collision_hand_right_thumb_0"/>
-    <pair geom1="box" geom2="collision_hand_right_index_1"/>
-    <pair geom1="box" geom2="collision_hand_right_index_0"/>
-    <pair geom1="box" geom2="collision_hand_right_middle_1"/>
-    <pair geom1="box" geom2="collision_hand_right_middle_0"/>
-    <pair geom1="box" geom2="collision_hand_right_ring_1"/>
-    <pair geom1="box" geom2="collision_hand_right_ring_0"/>
-    <pair geom1="box" geom2="collision_hand_right_pinky_1"/>
-    <pair geom1="box" geom2="collision_hand_right_pinky_0"/>
-  </contact>
-
   <sensor>
     <user name="Reach" dim="3" user="2 1 0 5 0.01"/>
     <user name="Bring" dim="6" user="2 .1 0 1 0.003"/>
