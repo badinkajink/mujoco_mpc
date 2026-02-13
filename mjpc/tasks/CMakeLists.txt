@@ -158,6 +158,19 @@ add_custom_target(
         ${h12_SOURCE_DIR}/inspire/ur5_inspire.xml
         ${CMAKE_CURRENT_BINARY_DIR}/ur5/ur5_inspire.xml
 
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/inspire/assets
+        ${CMAKE_CURRENT_BINARY_DIR}/grasp/assets
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/inspire/assets/visual
+        ${CMAKE_CURRENT_BINARY_DIR}/grasp/assets/visual
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/inspire/assets/collision
+        ${CMAKE_CURRENT_BINARY_DIR}/grasp/assets/collision
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${h12_SOURCE_DIR}/inspire/inspire_right_floating.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/grasp/inspire.xml
+
 
   ## Cube reorientation
   # patch cube from common assets

@@ -1,0 +1,106 @@
+<mujoco model="Inspire Grasp">
+  <include file="../common.xml"/>
+
+  <size memory="1M"/>
+
+  <include file="inspire.xml"/>
+
+  <custom>
+    <numeric name="agent_planner" data="0" />
+    <numeric name="agent_horizon" data="0.5" />
+    <numeric name="agent_timestep" data="0.009" />
+    <numeric name="agent_policy_width" data="0.0035" />
+    <numeric name="sampling_trajectories" data="60"/>
+    <numeric name="sampling_spline_points" data="7" />
+    <numeric name="sampling_exploration" data="0.1" />
+    <numeric name="gradient_spline_points" data="6" />
+  </custom>
+
+  <statistic extent="1.5" center="0.1 0.2 0.3"/>
+
+  <visual>
+    <quality shadowsize="8192"/>
+    <global azimuth="180" elevation="-30"/>
+    <scale framelength=".3" framewidth=".03"/>
+  </visual>
+
+  <default>
+    <geom solref=".001 1"/>
+  </default>
+
+  <worldbody>
+    <site name="world"/>
+    <light pos="0 -0.1 0.5" dir="0 0.2 -1" diffuse="0.7 0.7 0.7" specular="0.3 0.3 0.3"
+        directional="true" castshadow="true"/>
+    <geom name="floor" pos="0 0 0" size="0 0 0.05" type="plane" material="blue_grid"/>
+
+    <body name="box" pos="0.4 0.5 0.2">
+      <freejoint/>
+      <geom name="box"  type="box" size="0.02 0.03 0.02" priority="1" condim="6" friction="1 .01 .003"/>
+      <site name="box1" type="box" pos="0  .026 0" size="0.021 0.005 0.021" rgba="1 .1 .1 1"/>
+      <site name="box2" type="box" pos="0 -.026 0" size="0.021 0.005 0.021" rgba=".1 .1 1 1"/>
+    </body>
+  </worldbody>
+
+  <compiler texturedir="./textures"/>
+
+  <sensor>
+    <!-- Cost residuals (must be first and sequential) -->
+    <!-- 12 actuators: 6 for hand position adjustment + 6 for fingers -->
+    <user name="Hand to Box" dim="3" user="0 1.0 0 10.0"/>
+    <user name="Contact Count" dim="1" user="0 0.5 0 5.0"/>
+    <user name="Contact Quality" dim="1" user="0 0.3 0 5.0"/>
+    <user name="Box Linear Velocity" dim="3" user="0 0.1 0 1.0"/>
+    <user name="Box Angular Velocity" dim="3" user="0 0.1 0 1.0"/>
+    <user name="Control" dim="12" user="0 0.01 0 0.1"/>
+    <user name="Control Rate" dim="12" user="0 0.005 0 0.1"/>
+
+    <!-- Position sensors for visualization and computation -->
+    <framepos name="hand" objtype="site" objname="eeff"/>
+    <framepos name="box" objtype="geom" objname="box"/>
+    <framepos name="box1" objtype="site" objname="box1"/>
+    <framepos name="box2" objtype="site" objname="box2"/>
+    <framepos name="trace0" objtype="site" objname="trace_hand_right_thumb_tip"/>
+    <framepos name="trace1" objtype="site" objname="trace_hand_right_index_tip"/>
+    <framepos name="trace2" objtype="site" objname="trace_hand_right_middle_tip"/>
+    <framepos name="trace3" objtype="site" objname="trace_hand_right_ring_tip"/>
+    <framepos name="trace4" objtype="site" objname="trace_hand_right_pinky_tip"/>
+  </sensor>
+
+  <sensor>
+    <force name="thumb_tip_force" site="right_thumb_tip"/>
+    <force name="index_tip_force" site="right_index_tip"/>
+    <force name="middle_tip_force" site="right_middle_tip"/>
+    <force name="ring_tip_force" site="right_ring_tip"/>
+    <force name="pinky_tip_force" site="right_pinky_tip"/>
+    <torque name="thumb_tip_torque" site="right_thumb_tip"/>
+    <torque name="index_tip_torque" site="right_index_tip"/>
+    <torque name="middle_tip_torque" site="right_middle_tip"/>
+    <torque name="ring_tip_torque" site="right_ring_tip"/>
+    <torque name="pinky_tip_torque" site="right_pinky_tip"/>
+  </sensor>
+
+  <keyframe>
+    <!-- world position -->
+     <!-- wx wy wz wrx wry wrz -->
+    <!-- hand qpos -->
+     <!-- 0 = thumb, 1 = index, ..., 4 = pinky-->
+     <!-- 0_yaw, 0_prox, 0_int, 0_dist -->
+     <!-- 1_prox, 1_int -->
+     <!-- ... -->
+     <!-- 4_prox, 4_int -->
+    <!-- Box qpos, x y z qw qx qy qz -->
+    <key name="home"
+      qpos="
+      -0.14 0 0.15 0 1.6 0
+      0 0 0 0
+      0 0
+      0 0
+      0 0
+      0 0
+      -0.026895 0 0.02
+      0 0 0 0
+      "
+    />
+  </keyframe>
+</mujoco>

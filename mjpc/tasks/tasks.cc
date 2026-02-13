@@ -41,6 +41,7 @@
 #include "mjpc/tasks/swimmer/swimmer.h"
 #include "mjpc/tasks/ur5/ur5.h"
 #include "mjpc/tasks/walker/walker.h"
+#include "mjpc/tasks/grasp/grasp.h"
 // Humanoid Bench Tasks
 #include "mjpc/tasks/humanoid_bench/push/push.h"
 #include "mjpc/tasks/humanoid_bench/stand/stand.h"
@@ -75,6 +76,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<manipulation::Bring>(),
       std::make_shared<UR5_Magpie>(),
       std::make_shared<UR5_Inspire>(),
+      std::make_shared<GraspSynthesis_Inspire>(),
       // DEEPMIND INTERNAL TASKS
       std::make_shared<OP3>(),
       std::make_shared<Panda>(),

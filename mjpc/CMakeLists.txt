@@ -86,6 +86,8 @@ add_library(
   tasks/swimmer/swimmer.h
   tasks/ur5/ur5.cc
   tasks/ur5/ur5.h
+  tasks/grasp/grasp.cc
+  tasks/grasp/grasp.h
   tasks/walker/walker.cc
   tasks/walker/walker.h
   tasks/humanoid_bench/utility/dm_control_utils_rewards.cpp
