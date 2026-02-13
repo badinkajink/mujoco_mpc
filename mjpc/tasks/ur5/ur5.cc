@@ -87,12 +87,12 @@ void UR5::TransitionLocked(mjModel *model, mjData *data) {
     data->qpos[9] = 0.0;
   }
     // DEBUG
-  printf("\nJoint order for qpos:\n");
-  for (int i = 0; i < model->njnt; i++) {
-    const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
-    int qpos_adr = model->jnt_qposadr[i];
-    printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
-  }
+  // printf("\nJoint order for qpos:\n");
+  // for (int i = 0; i < model->njnt; i++) {
+  //   const char* jnt_name = mj_id2name(model, mjOBJ_JOINT, i);
+  //   int qpos_adr = model->jnt_qposadr[i];
+  //   printf("  Joint %d: %s (qpos index %d)\n", i, jnt_name ? jnt_name : "unnamed", qpos_adr);
+  // }
 
 }
 
