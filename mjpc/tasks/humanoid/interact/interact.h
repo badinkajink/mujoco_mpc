@@ -33,6 +33,7 @@ constexpr int kTorsoHeightParameterIndex = 1;
 constexpr int kDistanceToleranceParameterIndex = 2;
 constexpr int kTimeLimitParameterIndex = 3;
 constexpr int kSustainTimeParameterIndex = 4;
+constexpr int kStrategyParameterIndex = 5;
 
 // ---------- Enums ----------------- //
 enum TaskMode : int {
@@ -109,7 +110,7 @@ class Interact : public Task {
                          double* residual, int* counter) const;
   };
 
-  Interact() : residual_(this) {}
+  Interact() : residual_(this), current_strategy_(-1) {}
 
   void TransitionLocked(mjModel* model, mjData* data) override;
 
@@ -126,6 +127,7 @@ class Interact : public Task {
  private:
   ResidualFn residual_;
   MotionStrategy motion_strategy_;
+  int current_strategy_;
 
   void SaveParamsToKeyframe(ContactKeyframe& kf) const;
   void LoadParamsFromKeyframe(const ContactKeyframe& kf);

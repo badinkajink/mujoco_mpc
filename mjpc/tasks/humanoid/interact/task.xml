@@ -5,11 +5,11 @@
 
 <!-- uncomment any scene below to activate it, one scene at a time -->
   <!-- if you activate any of the scenes below, make sure to set kNumberOfFreeJoints=0-->
-  <include file="./scenes/armchair.xml"/>
+  <!-- <include file="./scenes/armchair.xml"/> -->
   <!-- <include file="./scenes/bed.xml"/> -->
   <!-- <include file="./scenes/bench.xml"/> -->
   <!-- <include file="./scenes/stool.xml"/> -->
-  <!-- <include file="./scenes/table.xml"/> -->
+  <include file="./scenes/table.xml"/>
 
   <!-- if you activate the scene below, make sure to set kNumberOfFreeJoints=1-->
   <!-- <include file="./scenes/dining_chair.xml"/> -->
@@ -27,9 +27,10 @@
 
   <custom>
     <numeric name="agent_planner" data="0" />
-    <numeric name="agent_horizon" data="0.35" />
-    <numeric name="agent_timestep" data="0.015" />
-    <numeric name="sampling_spline_points" data="3" />
+    <numeric name="agent_horizon" data="0.40" />
+    <numeric name="agent_timestep" data="0.02" />
+    <numeric name="sampling_trajectories" data="32" />
+    <numeric name="sampling_spline_points" data="2" />
     <numeric name="sampling_exploration" data="0.05" />
     <numeric name="gradient_spline_points" data="5" />
     <text name="task_transition" data="Sit Down|Stand Up|Relax|Stay Still" />
@@ -38,6 +39,7 @@
     <numeric name="residual_Dist. Tolerance" data="0.1 0. 2."/>         <!--2-->
     <numeric name="residual_Time Limit" data="2. 0 10." />              <!--3-->
     <numeric name="residual_Sustain Time" data="1. 0 5." />             <!--4-->
+    <numeric name="residual_Strategy" data="0 0 9" />                  <!--5: index into kStrategyNames in interact.cc-->
   </custom>
 
   <sensor>

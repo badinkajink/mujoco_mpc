@@ -222,9 +222,24 @@ void Interact::TransitionLocked(mjModel* model, mjData* data) {
     weight = default_weights[residual_.current_task_mode_];
   }
 
-  //  If the motion strategy is not initialized, load the given strategy
-  if (!motion_strategy_.HasKeyframes()) {
-    motion_strategy_.LoadStrategy("armchair_cross_leg");
+  // Ordered list of available strategies — add new JSON names here to expose them.
+  // The Strategy slider index maps directly into this list.
+  static const std::vector<std::string> kStrategyNames = {
+      "table_lean_reach",           // 0
+      "table_climb",                // 1
+      "table_lean_reach_extended",  // 2
+  };
+
+  int requested_strategy = (int)std::round(parameters[kStrategyParameterIndex]);
+  requested_strategy =
+      std::max(0, std::min(requested_strategy, (int)kStrategyNames.size() - 1));
+
+  if (!motion_strategy_.HasKeyframes() || requested_strategy != current_strategy_) {
+    current_strategy_ = requested_strategy;
+    motion_strategy_.ClearKeyframes();
+    motion_strategy_.LoadStrategy(kStrategyNames[current_strategy_]);
+    motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+    motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
     LoadParamsFromKeyframe(motion_strategy_.GetCurrentKeyframe());
     return;
   }
@@ -242,6 +257,7 @@ void Interact::TransitionLocked(mjModel* model, mjData* data) {
     LoadParamsFromKeyframe(motion_strategy_.GetCurrentKeyframe());
     residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
     motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+    motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
   } else if (total_distance <= current_keyframe.target_distance_tolerance &&
              data->time -
                      motion_strategy_.GetCurrentKeyframeSuccessStartTime() >
@@ -250,6 +266,8 @@ void Interact::TransitionLocked(mjModel* model, mjData* data) {
     motion_strategy_.NextKeyframe();
     LoadParamsFromKeyframe(motion_strategy_.GetCurrentKeyframe());
     residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
+    motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+    motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
   } else if (total_distance > current_keyframe.target_distance_tolerance) {
     // keyframe error is more than tolerance, update the success start time
     motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);

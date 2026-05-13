@@ -1,0 +1,208 @@
+[
+    {
+        "contacts": [
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]},
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]},
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]},
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]},
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]}
+        ],
+        "facing_target": [],
+        "name": "stand_up",
+        "success_sustain_time": 2.5,
+        "target_distance_tolerance": 0.3,
+        "time_limit": 10.0,
+        "weight": {
+            "COM Feet XY": 20.0,
+            "CoM Vel.": 10.0,
+            "Contact": 0.0,
+            "Control": 0.025,
+            "Facing Dir": 0.0,
+            "Head Height": 45.0,
+            "Joint Vel.": 0.01,
+            "Knee Feet XY": 30.0,
+            "LFoot Up": 15.0,
+            "Pelvis Up": 25.0,
+            "RFoot Up": 15.0,
+            "Torse Target": 0.0,
+            "Torso Height": 50.0,
+            "Torso Up": 25.0
+        }
+    },
+    {
+        "contacts": [
+            {
+                "body1": 17,
+                "body2": 0,
+                "geom1": 16,
+                "geom2": 0,
+                "local_pos1": [0.023724, 0.028041, 0.015839],
+                "local_pos2": [0.82, -0.09, 0.90]
+            },
+            {
+                "body1": 12,
+                "body2": 0,
+                "geom1": 12,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, 0.09, 0.0]
+            },
+            {
+                "body1": 7,
+                "body2": 0,
+                "geom1": 8,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, -0.09, 0.0]
+            },
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]},
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]}
+        ],
+        "facing_target": [0.82, -0.09],
+        "name": "arm_extend",
+        "success_sustain_time": 1.0,
+        "target_distance_tolerance": 0.25,
+        "time_limit": 8.0,
+        "weight": {
+            "COM Feet XY": 18.0,
+            "CoM Vel.": 10.0,
+            "Contact": 80.0,
+            "Control": 0.025,
+            "Facing Dir": 5.0,
+            "Head Height": 40.0,
+            "Joint Vel.": 0.01,
+            "Knee Feet XY": 25.0,
+            "LFoot Up": 18.0,
+            "Pelvis Up": 22.0,
+            "RFoot Up": 18.0,
+            "Torse Target": 0.0,
+            "Torso Height": 48.0,
+            "Torso Up": 22.0
+        }
+    },
+    {
+        "contacts": [
+            {
+                "body1": 20,
+                "body2": 21,
+                "geom1": 19,
+                "geom2": 20,
+                "local_pos1": [0.013216, -0.036975, 0.007628],
+                "local_pos2": [-0.02, 0.22, -0.65]
+            },
+            {
+                "body1": 17,
+                "body2": 0,
+                "geom1": 16,
+                "geom2": 0,
+                "local_pos1": [0.023724, 0.028041, 0.015839],
+                "local_pos2": [0.85, -0.09, 0.88]
+            },
+            {
+                "body1": 12,
+                "body2": 0,
+                "geom1": 12,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, 0.09, 0.0]
+            },
+            {
+                "body1": 7,
+                "body2": 0,
+                "geom1": 8,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, -0.09, 0.0]
+            },
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]}
+        ],
+        "facing_target": [0.85, -0.09],
+        "name": "lean_plant",
+        "success_sustain_time": 0.5,
+        "target_distance_tolerance": 0.25,
+        "time_limit": 10.0,
+        "weight": {
+            "COM Feet XY": 28.0,
+            "CoM Vel.": 10.0,
+            "Contact": 100.0,
+            "Control": 0.025,
+            "Facing Dir": 5.0,
+            "Head Height": 32.0,
+            "Joint Vel.": 0.01,
+            "Knee Feet XY": 18.0,
+            "LFoot Up": 25.0,
+            "Pelvis Up": 14.0,
+            "RFoot Up": 14.0,
+            "Torse Target": 0.0,
+            "Torso Height": 40.0,
+            "Torso Up": 14.0
+        }
+    },
+    {
+        "contacts": [
+            {
+                "body1": 19,
+                "body2": 21,
+                "geom1": 18,
+                "geom2": 20,
+                "local_pos1": [0.09, -0.09, 0.09],
+                "local_pos2": [-0.08, 0.30, -0.65]
+            },
+            {
+                "body1": 17,
+                "body2": 0,
+                "geom1": 16,
+                "geom2": 0,
+                "local_pos1": [0.023724, 0.028041, 0.015839],
+                "local_pos2": [0.95, -0.08, 0.84]
+            },
+            {
+                "body1": 12,
+                "body2": 0,
+                "geom1": 12,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, 0.09, 0.0]
+            },
+            {
+                "body1": 7,
+                "body2": 0,
+                "geom1": 8,
+                "geom2": 0,
+                "local_pos1": [0.0, 0.0, 0.0],
+                "local_pos2": [0.0, -0.09, 0.0]
+            },
+            {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1,
+             "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0]}
+        ],
+        "facing_target": [0.95, -0.08],
+        "name": "lean_reach",
+        "success_sustain_time": 30.0,
+        "target_distance_tolerance": 0.30,
+        "time_limit": 45.0,
+        "weight": {
+            "COM Feet XY": 35.0,
+            "CoM Vel.": 10.0,
+            "Contact": 100.0,
+            "Control": 0.025,
+            "Facing Dir": 5.0,
+            "Head Height": 28.0,
+            "Joint Vel.": 0.01,
+            "Knee Feet XY": 8.0,
+            "LFoot Up": 30.0,
+            "Pelvis Up": 8.0,
+            "RFoot Up": 10.0,
+            "Torse Target": 0.0,
+            "Torso Height": 35.0,
+            "Torso Up": 8.0
+        }
+    }
+]
