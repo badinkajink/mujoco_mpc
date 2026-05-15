@@ -248,35 +248,11 @@ target_include_directories(mjpc_ui_agent_service
 target_compile_options(mjpc_ui_agent_service PUBLIC ${AGENT_SERVICE_COMPILE_OPTIONS})
 target_link_options(mjpc_ui_agent_service PRIVATE ${AGENT_SERVICE_LINK_OPTIONS})
 
-add_executable(
-  ui_agent_server
-  ui_agent_server.cc
-)
-
-target_link_libraries(
-  ui_agent_server
-  mjpc_ui_agent_service
-  ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF}
-  ${_REFLECTION}
-  absl::flags
-  absl::flags_parse
-  absl::log
-  absl::status
-  absl::strings
-  glfw
-  libmjpc
-  mujoco::mujoco
-  mujoco::platform_ui_adapter
-)
-
-target_include_directories(ui_agent_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../..)
-target_compile_options(ui_agent_server PUBLIC ${AGENT_SERVICE_COMPILE_OPTIONS})
-target_link_options(ui_agent_server PRIVATE ${AGENT_SERVICE_LINK_OPTIONS})
-if(APPLE)
-  target_sources(ui_agent_server PRIVATE ../macos_gui.mm)
-  target_link_libraries(ui_agent_server "-framework Cocoa")
-endif()
+# NOTE: the standalone `ui_agent_server` executable was removed.
+# gRPC is now embedded directly into the main `mjpc` binary
+# (see ../main.cc, gated by MJPC_BUILD_GRPC_SERVICE).
+# The `mjpc_ui_agent_service` static library above is still built
+# and linked into `mjpc`; only the redundant launcher is gone.
 
 add_executable(
   direct_server

@@ -202,6 +202,7 @@ target_link_libraries(
   mjpc
   absl::flags
   absl::flags_parse
+  absl::log
   absl::random_random
   absl::strings
   libmjpc
@@ -216,6 +217,21 @@ target_compile_definitions(mjpc PRIVATE MJSIMULATE_STATIC)
 if(APPLE)
   target_sources(mjpc PRIVATE macos_gui.mm)
   target_link_libraries(mjpc "-framework Cocoa")
+endif()
+
+# Wire gRPC into mjpc when the service is enabled
+if(MJPC_BUILD_GRPC_SERVICE)
+  target_compile_definitions(mjpc PRIVATE MJPC_BUILD_GRPC_SERVICE)
+  target_link_libraries(
+    mjpc
+    mjpc_ui_agent_service
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+  )
+  target_include_directories(mjpc PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+  )
 endif()
 
 add_library(

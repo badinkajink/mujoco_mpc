@@ -24,6 +24,14 @@
         <numeric name="sampling_exploration" data="0.05"/>
         <numeric name="gradient_spline_points" data="5"/>
         <numeric name="residual_Height Goal" data="1.65 0.0 1.5"/>
+        <numeric name="residual_select_Use Cap" data="1"/>
+        <text name="residual_list_Use Cap" data="Off|On"/>
+        <numeric name="residual_select_Use ToF" data="0"/>
+        <text name="residual_list_Use ToF" data="Off|On"/>
+        <numeric name="residual_select_Logging" data="0"/>
+        <text name="residual_list_Logging" data="Off|On"/>
+        <numeric name="residual_select_Offline" data="0"/>
+        <text name="residual_list_Offline" data="Off|On"/>
         <numeric name="use_tof_sensors" data="0"/>
         <numeric name="tof_sensor_range" data="4.0"/>
         <numeric name="cap_sensor_range" data="0.15"/>
