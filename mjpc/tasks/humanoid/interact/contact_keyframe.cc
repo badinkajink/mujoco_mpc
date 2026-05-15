@@ -45,6 +45,7 @@ void ContactKeyframe::Reset() {
 
   facing_target.clear();
   weight.clear();
+  brace_force_target = -1.;
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -72,7 +73,8 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"time_limit", keyframe.time_limit},
            {"success_sustain_time", keyframe.success_sustain_time},
            {"target_distance_tolerance", keyframe.target_distance_tolerance},
-           {"weight", keyframe.weight}};
+           {"weight", keyframe.weight},
+           {"brace_force_target", keyframe.brace_force_target}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -83,5 +85,7 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   j.at("success_sustain_time").get_to(keyframe.success_sustain_time);
   j.at("target_distance_tolerance").get_to(keyframe.target_distance_tolerance);
   j.at("weight").get_to(keyframe.weight);
+  // Optional field — older strategy JSONs without it get the sentinel -1.
+  keyframe.brace_force_target = j.value("brace_force_target", -1.);
 }
 }  // namespace mjpc::humanoid
