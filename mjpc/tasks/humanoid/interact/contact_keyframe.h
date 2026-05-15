@@ -67,11 +67,18 @@ class ContactKeyframe {
   // weight of all residual terms (name -> value map)
   std::map<std::string, mjtNum> weight;
 
+  // Opt2Skill-style per-phase contact-force reference (arXiv 2409.20514).
+  // Negative = sentinel "not specified" → task falls back to its built-in
+  // default (e.g. 15 N when contact is active, 0 otherwise).
+  // Positive = use this exact target in the Brace Force residual.
+  mjtNum brace_force_target;
+
   ContactKeyframe()
       : name(""),
         contact_pairs{},
         facing_target(),
         weight(),
+        brace_force_target(-1.),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1) {}
