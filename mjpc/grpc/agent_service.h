@@ -68,6 +68,10 @@ class AgentService final : public agent::Agent::Service {
       const agent::GetCostValuesAndWeightsRequest* request,
       agent::GetCostValuesAndWeightsResponse* response) override;
 
+  grpc::Status GetMetrics(grpc::ServerContext* context,
+                          const agent::GetMetricsRequest* request,
+                          agent::GetMetricsResponse* response) override;
+
   grpc::Status PlannerStep(grpc::ServerContext* context,
                            const agent::PlannerStepRequest* request,
                            agent::PlannerStepResponse* response) override;

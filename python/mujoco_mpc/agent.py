@@ -266,6 +266,18 @@ class Agent(contextlib.AbstractContextManager):
         for name, value_weight in terms.values_weights.items()
     }
 
+  def get_metrics(self) -> tuple[dict[str, float], str]:
+    """Returns (metrics, phase_name) for the active task.
+
+    Metrics is a dict of named scalars: reach_from_pelvis, reach_beyond_foot_edge,
+    com_excursion_*, cop_x/y, icp_x/y, brace_force, brace_force_target,
+    brace_friction_slack, torque_saturation_max, joint_velocity_max, etc.
+    See lean::ComputeMetrics for the full list. Empty dict + empty phase name
+    for tasks that don't implement ComputeMetrics.
+    """
+    response = self.stub.GetMetrics(agent_pb2.GetMetricsRequest())
+    return dict(response.values), response.phase_name
+
   def get_residuals(self) -> dict[str, Sequence[float]]:
     residuals = self.stub.GetResiduals(agent_pb2.GetResidualsRequest())
     return {name: residual.values

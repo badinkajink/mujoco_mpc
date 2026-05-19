@@ -14,6 +14,7 @@
 
 #include "mjpc/grpc/grpc_agent_util.h"
 
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -275,6 +276,25 @@ grpc::Status GetCostValuesAndWeights(
     value_and_weight.set_weight(task->weight[i]);
     (*response->mutable_values_weights())[sensor_name] = value_and_weight;
   }
+  return grpc::Status::OK;
+}
+
+grpc::Status GetMetrics(const agent::GetMetricsRequest* request,
+                        const mjpc::Agent* agent, const mjModel* model,
+                        mjData* data, agent::GetMetricsResponse* response) {
+  const mjpc::Task* task = agent->ActiveTask();
+  std::map<std::string, double> metrics;
+  std::string phase_name;
+  // Read straight from `data` — the agent keeps it fresh via SetState/Step
+  // pathways, both of which call mj_forward. Calling mj_forward again here
+  // would re-invoke the residual_sensor_callback (Residual function), which
+  // is unnecessary and risks triggering MuJoCo error handlers if any task
+  // has a residual-length mismatch.
+  task->ComputeMetrics(model, data, &metrics, &phase_name);
+  for (const auto& kv : metrics) {
+    (*response->mutable_values())[kv.first] = kv.second;
+  }
+  response->set_phase_name(phase_name);
   return grpc::Status::OK;
 }
 

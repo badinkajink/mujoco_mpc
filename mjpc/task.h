@@ -15,6 +15,7 @@
 #ifndef MJPC_TASK_H_
 #define MJPC_TASK_H_
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -120,6 +121,20 @@ class Task {
 
   virtual void ModifyScene(const mjModel* model, const mjData* data,
                            mjvScene* scene) const {}
+
+  // Compute task-specific monitoring metrics for the Research GUI / headless
+  // analyzer. Default: empty (other tasks don't need this). Tasks that
+  // override should clear *metrics first, populate scalar entries keyed by
+  // name (units = SI; e.g. "reach_from_pelvis" in metres), and set
+  // *phase_name from the task's internal phase machine. Called from the
+  // gRPC GetMetrics handler on demand (~30 Hz polling); not on the rollout
+  // hot path, so the implementation can do contact-loop work.
+  virtual void ComputeMetrics(const mjModel* model, const mjData* data,
+                              std::map<std::string, double>* metrics,
+                              std::string* phase_name) const {
+    if (metrics) metrics->clear();
+    if (phase_name) phase_name->clear();
+  }
 
   virtual std::string Name() const = 0;
   virtual std::string XmlPath() const = 0;

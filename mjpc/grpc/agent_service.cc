@@ -209,6 +209,15 @@ grpc::Status AgentService::GetCostValuesAndWeights(
                                                   data_, response);
 }
 
+grpc::Status AgentService::GetMetrics(grpc::ServerContext* context,
+                                      const agent::GetMetricsRequest* request,
+                                      agent::GetMetricsResponse* response) {
+  if (!Initialized()) {
+    return {grpc::StatusCode::FAILED_PRECONDITION, "Init not called."};
+  }
+  return grpc_agent_util::GetMetrics(request, &agent_, model, data_, response);
+}
+
 grpc::Status AgentService::PlannerStep(grpc::ServerContext* context,
                                        const PlannerStepRequest* request,
                                        PlannerStepResponse* response) {

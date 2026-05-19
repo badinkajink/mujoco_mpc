@@ -15,6 +15,7 @@
 // Startup code for `Agent` server.
 
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
 
@@ -26,6 +27,7 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
+#include <mujoco/mujoco.h>
 
 #include "mjpc/grpc/agent_service.h"
 #include "mjpc/tasks/tasks.h"
@@ -35,9 +37,25 @@ ABSL_FLAG(int32_t, mjpc_workers, -1,
           "number of worker threads for MJPC planning. -1 means use the number "
           "of available hardware threads.");
 
+// Non-blocking MuJoCo error / warning handlers. The defaults call exit() with
+// a "Press Enter to exit" prompt that freezes a headless server. We log to
+// stderr and continue. Errors then bubble up as grpc::Status::INTERNAL when
+// the calling RPC catches them; the server stays alive for the next request.
+static void NonBlockingMjuError(const char* msg) {
+  std::fprintf(stderr, "[mju_error] %s\n", msg);
+}
+static void NonBlockingMjuWarning(const char* msg) {
+  std::fprintf(stderr, "[mju_warning] %s\n", msg);
+}
+
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   int port = absl::GetFlag(FLAGS_mjpc_port);
+
+  // Install before any MuJoCo call so a residual-length mismatch or model
+  // load failure logs and returns instead of blocking on getchar().
+  mju_user_error = NonBlockingMjuError;
+  mju_user_warning = NonBlockingMjuWarning;
 
   std::string server_address = absl::StrCat("[::]:", port);
 
