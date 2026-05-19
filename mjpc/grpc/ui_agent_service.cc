@@ -154,6 +154,17 @@ grpc::Status UiAgentService::GetCostValuesAndWeights(
       });
 }
 
+grpc::Status UiAgentService::GetMetrics(
+    grpc::ServerContext* context, const agent::GetMetricsRequest* request,
+    agent::GetMetricsResponse* response) {
+  return RunBeforeStep(
+      context, [request, response](mjpc::Agent* agent, const mjModel* model,
+                                   mjData* data) {
+        return grpc_agent_util::GetMetrics(request, agent, model, data,
+                                            response);
+      });
+}
+
 grpc::Status UiAgentService::PlannerStep(grpc::ServerContext* context,
                                          const PlannerStepRequest* request,
                                          PlannerStepResponse* response) {
