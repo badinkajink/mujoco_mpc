@@ -19,6 +19,8 @@
 .eggs/
 build/
 build_cmake/
+# Local working-tree backups of uncommitted changes (see backup/RESTORE.md)
+backup/
 # Exclude macOS folder attributes
 .DS_Store
 # Exclude macOS Info.framework.plist
