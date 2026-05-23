@@ -20,6 +20,7 @@
 #include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/planners/gradient/planner.h"
 #include "mjpc/planners/icem/planner.h"
+#include "mjpc/planners/icem_dr/planner.h"
 #include "mjpc/planners/ilqg/planner.h"
 #include "mjpc/planners/ilqs/planner.h"
 #include "mjpc/planners/planner.h"
@@ -36,7 +37,8 @@ const char kPlannerNames[] =
     "Robust Sampling\n"
     "Cross Entropy\n"
     "Sample Gradient\n"
-    "iCEM";
+    "iCEM\n"
+    "iCEM-DR";
 
 // load all available planners
 std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
@@ -54,6 +56,9 @@ std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
   // iCEM = CEM + AR(1)-colored noise + cross-call elite memory.
   // Pinneri et al., CoRL 2020 — arXiv 2008.06389.
   planners.emplace_back(new mjpc::iCEMPlanner);
+  // iCEM-DR = iCEM scored over an ensemble of R domain-randomized model
+  // copies via min-aggregation (risk-aware domain-randomized MPC).
+  planners.emplace_back(new mjpc::iCEMDRPlanner);
   return planners;
 }
 

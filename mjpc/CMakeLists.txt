@@ -118,6 +118,8 @@ add_library(
   planners/cross_entropy/planner.h
   planners/icem/planner.cc
   planners/icem/planner.h
+  planners/icem_dr/planner.cc
+  planners/icem_dr/planner.h
   planners/robust/robust_planner.cc
   planners/robust/robust_planner.h
   planners/sample_gradient/planner.cc
