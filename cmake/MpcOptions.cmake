@@ -101,6 +101,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang
                               -Wno-maybe-uninitialized
     )
   endif()
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
+    # Apple Clang 16+ deprecates __is_trivially_relocatable in favour of
+    # __builtin_is_cpp_trivially_relocatable.  The pinned abseil version
+    # (LTS 20230802.1) predates this change, so suppress the warning rather
+    # than failing with -Werror.
+    set(EXTRA_COMPILE_OPTIONS ${EXTRA_COMPILE_OPTIONS} -Wno-deprecated-builtins)
+  endif()
 endif()
 
 if(NOT CMAKE_INTERPROCEDURAL_OPTIMIZATION AND (CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug"))

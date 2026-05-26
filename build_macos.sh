@@ -52,7 +52,8 @@ cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" \
   -G Ninja \
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
   -DMJPC_BUILD_GRPC_SERVICE:BOOL="${GRPC}" \
-  -DCMAKE_OSX_ARCHITECTURES="${ARCH}"
+  -DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
 echo "==> Building with ${JOBS} jobs"
 cmake --build "${BUILD_DIR}" --config "${BUILD_TYPE}" -- -j"${JOBS}"
