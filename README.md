@@ -78,81 +78,118 @@ For a detailed dive of the graphical user interface, see the
 [MJPC GUI](docs/GUI.md) documentation.
 
 ## Installation
-MJPC is tested with [Ubuntu 20.04](https://releases.ubuntu.com/focal/) and [macOS-12](https://www.apple.com/by/macos/monterey/). In principle, other versions and Windows operating system should work with MJPC, but these are not tested.
+
+This branch (`macos-clean`) is the upstream Google DeepMind MJPC codebase with macOS compatibility fixes applied. It is tested on **Apple Silicon (M1–M5) and Intel** Macs running macOS 13 Ventura through macOS 15 Sequoia and the macOS 26 (Tahoe) beta, and on Ubuntu 20.04.
 
 ### Prerequisites
-Operating system specific dependencies:
 
-#### macOS
-Install [Xcode](https://developer.apple.com/xcode/).
+#### macOS (Apple Silicon or Intel)
 
-Install `ninja` and `zlib`:
+Install Xcode Command Line Tools if not already present:
 ```sh
-brew install ninja zlib
+xcode-select --install
 ```
+
+Install build dependencies via [Homebrew](https://brew.sh):
+```sh
+brew install cmake ninja
+```
+
+> `zlib` ships with Xcode CLT, but Homebrew's copy is needed for CMake's `find_package`. The build script installs it automatically if missing.
 
 #### Ubuntu 20.04
 ```sh
-sudo apt-get update && sudo apt-get install cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-12
+sudo apt-get update && sudo apt-get install \
+  cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev \
+  libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-12
 ```
 
-### Clone MuJoCo MPC
-```sh
-git clone https://github.com/google-deepmind/mujoco_mpc
-```
+### Clone
 
-### Build and Run MJPC GUI application
-1. Change directory:
 ```sh
+git clone https://github.com/badinkajink/mujoco_mpc
 cd mujoco_mpc
+git checkout macos-clean
 ```
 
-2. Create and change to build directory:
+> The first configure step fetches several dependencies via CMake FetchContent (MuJoCo, abseil, GLFW, etc.). Expect 5–15 minutes on the first run.
+
+### Build — Option A: build script (macOS, recommended)
+
 ```sh
-mkdir build
-cd build
+./build_macos.sh
 ```
 
-3. Configure:
+Produces `./build/bin/mjpc`. Optional environment overrides:
 
-#### macOS-12
+| Variable | Default | Example |
+|---|---|---|
+| `BUILD_TYPE` | `Release` | `BUILD_TYPE=Debug ./build_macos.sh` |
+| `JOBS` | logical CPU count | `JOBS=4 ./build_macos.sh` |
+
+### Build — Option B: manual cmake
+
+**macOS**
 ```sh
-cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
+cmake -S . -B build \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
 ```
 
-#### Ubuntu 20.04
+**Ubuntu 20.04**
 ```sh
-cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DCMAKE_C_COMPILER:STRING=clang-12 -DCMAKE_CXX_COMPILER:STRING=clang++-12 -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
-```
-**Note: gRPC is a large dependency and can take 10-20 minutes to initially download.**
+cmake -S . -B build \
+  -G Ninja \
+  -DCMAKE_C_COMPILER=clang-12 \
+  -DCMAKE_CXX_COMPILER=clang++-12 \
+  -DCMAKE_BUILD_TYPE=Release
 
-4. Build
+cmake --build build --config Release
+```
+
+### Run
+
 ```sh
-cmake --build . --config=Release
+./build/bin/mjpc
 ```
 
-6. Run GUI application
+### Headless testing
+
 ```sh
-cd bin
-./mjpc
+cd build/mjpc/test
+ctest -C Release --output-on-failure -j$(sysctl -n hw.logicalcpu)
 ```
 
-### Build and Run MJPC GUI application using VSCode
-We recommend using [VSCode](https://code.visualstudio.com/) and 2 of its
-extensions ([CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools)
-and [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools))
-to simplify the build process.
+All 88 tests should pass.
 
-1. Open the cloned directory `mujoco_mpc`.
-2. Configure the project with CMake (a pop-up should appear in VSCode)
-3. Set compiler to `clang-12`.
-4. Build and run the `mjpc` target in "release" mode (VSCode defaults to
-   "debug"). This will open and run the graphical user interface.
+### Build with VSCode (macOS)
 
-### Build Issues
-If you encounter build issues, please see the
-[Github Actions configuration](https://github.com/google-deepmind/mujoco_mpc/blob/main/.github/workflows/build.yml).
-This provides the exact setup we use for building MJPC for testing with Ubuntu 20.04 and macOS-12.
+Install the [CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools) and [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) extensions.
+
+1. Open the cloned `mujoco_mpc` folder in VSCode.
+2. **Cmd+Shift+P → "CMake: Select Configure Preset"** → pick **`macOS Release (Apple Clang, arm64)`**.
+3. **Cmd+Shift+P → "CMake: Configure"** (runs once; downloads all dependencies).
+4. **Cmd+Shift+P → "CMake: Build"**.
+5. **Cmd+Shift+P → "CMake: Run Without Debugging"** → select **`mjpc`**.
+
+No kit selection is needed — the preset supplies the compiler and all required flags automatically.
+
+### Build issues
+
+If you see `Failed to get the hash for HEAD` after a dependency version change, delete the stale FetchContent cache entry and reconfigure:
+
+```sh
+rm -rf ~/.cmake_fc_cache/abseil-cpp-*
+cmake -S . -B build ...
+```
+
+For other issues, see the [GitHub Actions configuration](https://github.com/google-deepmind/mujoco_mpc/blob/main/.github/workflows/build.yml) for the upstream CI setup.
 
 # Python API
 We provide a simple Python API for MJPC. This API is still experimental and expects some more experience from its users. For example, the correct usage requires that the model (defined in Python) and the MJPC task (i.e., the residual and transition functions defined in C++) are compatible with each other. Currently, the Python API does not provide any particular error handling for verifying this compatibility and may be difficult to debug without more in-depth knowledge about MuJoCo and MJPC.
