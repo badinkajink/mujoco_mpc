@@ -14,6 +14,26 @@ namespace mjpc {
 namespace {
 // thread-safe random number generator
 thread_local std::mt19937 generator(std::random_device{}());
+
+// Safe parameter lookup: returns `default_val` when the named residual
+// parameter is not present in the model (avoids mju_error_s crash).
+int SafeParamIndex(const mjModel* model, const char* name) {
+  return mj_name2id(model, mjOBJ_NUMERIC,
+                    (std::string("residual_") + name).c_str());
+}
+double SafeParamVal(const mjModel* model, const double* params,
+                   const char* name, double default_val) {
+  int global_id = SafeParamIndex(model, name);
+  if (global_id < 0) return default_val;
+  // convert global numeric id to residual-parameter index
+  int first = -1;
+  for (int i = 0; i < model->nnumeric; i++) {
+    const char* n = mj_id2name(model, mjOBJ_NUMERIC, i);
+    if (n && std::string(n).substr(0, 9) == "residual_") { first = i; break; }
+  }
+  if (first < 0 || global_id < first) return default_val;
+  return params[global_id - first];
+}
 }  // namespace
 
 
@@ -35,12 +55,12 @@ thread_local std::mt19937 generator(std::random_device{}());
 // ----------------------------------------------------------------
 void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
-  task_->logging_enabled_ = (bool) parameters_[ParameterIndex(model, "select_Logging")];
-  task_->use_offline_obstacles_ = (bool) parameters_[ParameterIndex(model, "select_Offline")];
-  task_->use_cap_sensors_ = (bool) parameters_[ParameterIndex(model, "select_Use Cap")];
-  task_->use_tof_sensors_ = (bool) parameters_[ParameterIndex(model, "select_Use ToF")];
-  task_->cap_sensor_range_ = parameters_[ParameterIndex(model, "Cap Range")];
-  task_->tof_sensor_range_ = parameters_[ParameterIndex(model, "ToF Range")];
+  task_->logging_enabled_       = (bool) SafeParamVal(model, parameters_.data(), "select_Logging", 0.0);
+  task_->use_offline_obstacles_ = (bool) SafeParamVal(model, parameters_.data(), "select_Offline", 0.0);
+  task_->use_cap_sensors_       = (bool) SafeParamVal(model, parameters_.data(), "select_Use Cap", 0.0);
+  task_->use_tof_sensors_       = (bool) SafeParamVal(model, parameters_.data(), "select_Use ToF", 0.0);
+  task_->cap_sensor_range_      = SafeParamVal(model, parameters_.data(), "Cap Range", 0.15);
+  task_->tof_sensor_range_      = SafeParamVal(model, parameters_.data(), "ToF Range", 4.0);
 
   // Capacitive skin readings
   static CapacitiveSkin skin(model, 1.0, task_->cap_sensor_range_, task_->tof_sensor_range_);
@@ -285,20 +305,15 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // auto tof_readings = skin.ComputeAllDistances(model, data);
     const auto& tof_ids = skin.ToFSensorIds();
 
-    int tof_idx = 0;
     for (int sensor_id : tof_ids) {
       double range = tof_readings[sensor_id];
 
       if (range > 0 && range < task_->tof_sensor_range_) {
-        // Penalize proximity: closer = higher cost
-        // Use inverse distance, capped at some max
         double normalized_range = range / task_->tof_sensor_range_;
-        // std::cout << "ToF Sensor " << sensor_id << " range: " << range << ", normalized: " << normalized_range << std::endl;
-        residual[counter++] = 1.0 - normalized_range;  // 0 when far, 1 when very close
+        residual[counter++] = 1.0 - normalized_range;
       } else {
-        residual[counter++] = 0.0;  // No detection = no cost
+        residual[counter++] = 0.0;
       }
-      tof_idx++;
     }
   } else {
     // Zero out ToF residuals if disabled
@@ -639,18 +654,18 @@ void Avoid::TransitionLocked(mjModel *model, mjData *data) {
 // Replace ResetLocked with this version (keeps your radius randomization)
 void Avoid::ResetLocked(const mjModel *model) {
   // task identifiers
-  residual_.use_cap_id_   = ParameterIndex(model, "select_Use Cap");
-  residual_.use_tof_id_   = ParameterIndex(model, "select_Use ToF");
-  residual_.range_cap_id_ = ParameterIndex(model, "Cap Range");
-  residual_.range_tof_id_ = ParameterIndex(model, "ToF Range");
-  residual_.offline_id_   = ParameterIndex(model, "select_Offline");
-  residual_.logging_id_   = ParameterIndex(model, "select_Logging");
-  logging_enabled_        = (bool) parameters[ParameterIndex(model, "select_Logging")];
-  use_offline_obstacles_  = (bool) parameters[ParameterIndex(model, "select_Offline")];
-  use_cap_sensors_        = (bool) parameters[ParameterIndex(model, "select_Use Cap")];
-  use_tof_sensors_        = (bool) parameters[ParameterIndex(model, "select_Use ToF")];
-  cap_sensor_range_       = parameters[ParameterIndex(model, "Cap Range")];
-  tof_sensor_range_       = parameters[ParameterIndex(model, "ToF Range")];
+  residual_.use_cap_id_   = SafeParamIndex(model, "select_Use Cap");
+  residual_.use_tof_id_   = SafeParamIndex(model, "select_Use ToF");
+  residual_.range_cap_id_ = SafeParamIndex(model, "Cap Range");
+  residual_.range_tof_id_ = SafeParamIndex(model, "ToF Range");
+  residual_.offline_id_   = SafeParamIndex(model, "select_Offline");
+  residual_.logging_id_   = SafeParamIndex(model, "select_Logging");
+  logging_enabled_        = (bool) SafeParamVal(model, parameters.data(), "select_Logging", 0.0);
+  use_offline_obstacles_  = (bool) SafeParamVal(model, parameters.data(), "select_Offline", 0.0);
+  use_cap_sensors_        = (bool) SafeParamVal(model, parameters.data(), "select_Use Cap", 0.0);
+  use_tof_sensors_        = (bool) SafeParamVal(model, parameters.data(), "select_Use ToF", 0.0);
+  cap_sensor_range_       = SafeParamVal(model, parameters.data(), "Cap Range", 0.15);
+  tof_sensor_range_       = SafeParamVal(model, parameters.data(), "ToF Range", 4.0);
 
 
   static CapacitiveSkin cap(model);
