@@ -87,10 +87,11 @@ findorfetch(
   EXCLUDE_FROM_ALL
 )
 
-# TODO(nimrod): Update to the latest version of abseil, or use the one defined
-# by MuJoCo, once grpc fix their build issues.
+# Use the same abseil LTS that MuJoCo ships with (20240722.0). The older
+# LTS 20230802.1 fails to build on arm64-apple-darwin25+ (macOS 26 / Tahoe)
+# because it unconditionally passes -msse4.1 without checking the target arch.
 set(MUJOCO_DEP_VERSION_abseil
-    fb3621f4f897824c0dbe0615fa94543df6192f30 # LTS 20230802.1
+    4447c7562e3bc702ade25105912dce503f0c4010 # LTS 20240722.0
     CACHE STRING "Version of `abseil` to be fetched."
     FORCE
 )
