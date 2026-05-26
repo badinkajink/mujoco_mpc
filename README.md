@@ -48,7 +48,7 @@ For a detailed dive of the graphical user interface, see the
 
 ## Installation
 
-This branch (`macos-humanoidbench`) is tested on **Apple Silicon (M1–M5) and Intel** Macs running macOS 13 Ventura through macOS 15 Sequoia and the macOS 26 (Tahoe) beta, and on Ubuntu 22.04.
+This branch (`macos-humanoidbench`) is tested on **Apple Silicon (M5 Pro)** on Tahoe 26.4.
 
 ### Prerequisites
 
