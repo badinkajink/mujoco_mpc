@@ -47,84 +47,123 @@ For a detailed dive of the graphical user interface, see the
 [MJPC GUI](docs/GUI.md) documentation.
 
 ## Installation
-MJPC is tested with [Ubuntu 22.04](https://releases.ubuntu.com/focal/) and [macOS-12](https://www.apple.com/by/macos/monterey/). In principle, other versions and Windows operating system should work with MJPC, but these are not tested.
+
+This branch (`macos-humanoidbench`) is tested on **Apple Silicon (M1–M5) and Intel** Macs running macOS 13 Ventura through macOS 15 Sequoia and the macOS 26 (Tahoe) beta, and on Ubuntu 22.04.
 
 ### Prerequisites
-Operating system specific dependencies:
 
-#### macOS
-Install [Xcode](https://developer.apple.com/xcode/).
+#### macOS (Apple Silicon or Intel)
 
-Install `ninja` and `zlib`:
+Install Xcode Command Line Tools if not already present:
 ```sh
-brew install ninja zlib
+xcode-select --install
 ```
 
-#### Ubuntu 22.04 and Clang 13
+Install build dependencies via [Homebrew](https://brew.sh):
 ```sh
-sudo apt-get update && sudo apt-get install cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev libxrandr-dev libxi-dev ninja-build zlib1g-dev clang-13 libc++-13-dev libc++abi-13-dev
+brew install cmake ninja
 ```
 
-### Clone MuJoCo MPC
-```sh
-git clone https://github.com/badinkajink/mujoco_mpc
-git checkout humanoidbench
-```
-
-### Build and Run MJPC GUI application
-1. Change directory:
-```sh
-cd mujoco_mpc
-```
-
-1. Configure:
-
-#### macOS-12
-```sh
-cmake .. -DCMAKE_BUILD_TYPE:STRING=Release -G Ninja -DMJPC_BUILD_GRPC_SERVICE:BOOL=ON
-```
+> `zlib` ships with Xcode CLT, but Homebrew's copy is needed for CMake's `find_package`. The build script installs it automatically if missing.
 
 #### Ubuntu 22.04
+```sh
+sudo apt-get update && sudo apt-get install \
+  cmake libgl1-mesa-dev libxinerama-dev libxcursor-dev \
+  libxrandr-dev libxi-dev ninja-build zlib1g-dev \
+  clang-13 libc++-13-dev libc++abi-13-dev
+```
+
+### Clone
+
+```sh
+git clone https://github.com/badinkajink/mujoco_mpc
+cd mujoco_mpc
+git checkout macos-humanoidbench
+```
+
+> The first configure step fetches several dependencies via CMake FetchContent (MuJoCo, abseil, GLFW, nlohmann/json, h1\_mujoco, mujoco\_menagerie, dm\_control). Expect 5–15 minutes on the first run.
+
+### Build — Option A: build script (macOS, recommended)
+
+```sh
+./build_macos.sh
+```
+
+Produces `./build/bin/mjpc`. Optional environment overrides:
+
+| Variable | Default | Example |
+|---|---|---|
+| `BUILD_TYPE` | `Release` | `BUILD_TYPE=Debug ./build_macos.sh` |
+| `JOBS` | logical CPU count | `JOBS=4 ./build_macos.sh` |
+
+### Build — Option B: manual cmake
+
+**macOS**
+```sh
+cmake -S . -B build \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
+```
+
+**Ubuntu 22.04**
 ```sh
 cmake -S . -B build \
   -G Ninja \
   -DCMAKE_C_COMPILER=clang-13 \
   -DCMAKE_CXX_COMPILER=clang++-13 \
   -DCMAKE_BUILD_TYPE=Release
-```
-**Note: gRPC is a large dependency and can take 10-20 minutes to initially download.**
 
-4. Build
+cmake --build build --config Release
+```
+
+### Run
+
 ```sh
-cmake --build . --config=Release
+./build/bin/mjpc
 ```
 
-6. Run GUI application
+### Run Avoid tasks
+
+By default the Avoid H12 task runs with both capacitance and ToF sensing. To toggle a sensing modality, set its task weight to 0 in the GUI. Run the simulation at **5% speed**, use the **iLQR planner**, and reset the Agent planner each time the obstacle resets. To generate new random obstacles, open `mjpc/tasks/humanoid_bench/avoid/Avoid_H12_ToF_Cap.xml` and set `use_offline_obstacles` to `0`.
+
+### Headless testing
+
 ```sh
-cd bin
-./mjpc
+cd build/mjpc/test
+ctest -C Release --output-on-failure -j$(sysctl -n hw.logicalcpu)
 ```
 
-7. Run Avoid tasks.
-   
-**By default, the Avoid H12 task will run with both capacitance and ToF sensing. In lieu of proper configurability, set the task weights for the respective sensing modality to 0 to toggle a modality. Make sure to run the simulation at 5% speed, use the iLQR planner, and to reset the Agent planner each time the obstacle resets. To run new obstacles, go to mjpc/tasks/humanoidbench/avoid/Avoid_H12_ToF_Cap.xml and set "use_offline_obstacles" to 0.**
+All 88 tests should pass.
 
-### Build and Run MJPC GUI application using VSCode
-We recommend using [VSCode](https://code.visualstudio.com/) and 2 of its
-extensions ([CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools)
-and [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools))
-to simplify the build process.
+### Build with VSCode (macOS)
 
-1. Open the cloned directory `mujoco_mpc`.
-2. Configure the project with CMake (a pop-up should appear in VSCode)
-3. Set compiler to `clang-12`.
-4. Build and run the `mjpc` target in "release" mode (VSCode defaults to
-   "debug"). This will open and run the graphical user interface.
+Install the [CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools) and [C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) extensions.
 
-### Build Issues
-If you encounter build issues, please see the
-[Github Actions configuration](https://github.com/google-deepmind/mujoco_mpc/blob/main/.github/workflows/build.yml).
-This provides the exact setup we use for building MJPC for testing with Ubuntu 20.04 and macOS-12.
+1. Open the cloned `mujoco_mpc` folder in VSCode.
+2. **Cmd+Shift+P → "CMake: Select Configure Preset"** → pick **`macOS Release (Apple Clang, arm64)`**.
+3. **Cmd+Shift+P → "CMake: Configure"** (runs once; downloads all dependencies).
+4. **Cmd+Shift+P → "CMake: Build"**.
+5. **Cmd+Shift+P → "CMake: Run Without Debugging"** → select **`mjpc`**.
+
+No kit selection is needed — the preset supplies the compiler and all required flags automatically.
+
+### Build issues
+
+If you see `Failed to get the hash for HEAD` after a dependency version change, delete the stale FetchContent cache entry and reconfigure:
+
+```sh
+rm -rf ~/.cmake_fc_cache/abseil-cpp-*
+cmake -S . -B build ...
+```
+
+For other issues, see the [GitHub Actions configuration](https://github.com/google-deepmind/mujoco_mpc/blob/main/.github/workflows/build.yml) for the upstream CI setup.
 
 # Python API
 We provide a simple Python API for MJPC. This API is still experimental and expects some more experience from its users. For example, the correct usage requires that the model (defined in Python) and the MJPC task (i.e., the residual and transition functions defined in C++) are compatible with each other. Currently, the Python API does not provide any particular error handling for verifying this compatibility and may be difficult to debug without more in-depth knowledge about MuJoCo and MJPC.
