@@ -270,6 +270,43 @@ target_compile_options(testspeed PUBLIC ${MJPC_COMPILE_OPTIONS})
 target_link_options(testspeed PRIVATE ${MJPC_LINK_OPTIONS})
 target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
 
+# -----------------------------------------------------------------------------
+# Embedded DDS control node for the Unitree H1-2 (digital twin + real robot).
+# OFF by default so the normal build never needs unitree_sdk2.  Enable with:
+#   cmake .. -DMJPC_BUILD_DEPLOY=ON
+# unitree_sdk2 is auto-located at ~/unitree_install (override by adding your own
+# prefix to -DCMAKE_PREFIX_PATH).  See mjpc/deploy/README_EMBED.md.
+# -----------------------------------------------------------------------------
+option(MJPC_BUILD_DEPLOY "Build the embedded DDS control node (needs unitree_sdk2)" OFF)
+if(MJPC_BUILD_DEPLOY)
+  list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/unitree_install")
+  find_package(unitree_sdk2 REQUIRED)
+  add_executable(h12_control_node deploy/h12_control_node.cc)
+  target_link_libraries(
+    h12_control_node
+    absl::flags
+    absl::flags_parse
+    absl::log
+    libmjpc
+    mujoco::mujoco
+    threadpool
+    Threads::Threads
+    unitree_sdk2
+  )
+  target_include_directories(h12_control_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_compile_options(h12_control_node PUBLIC ${MJPC_COMPILE_OPTIONS})
+  target_link_options(h12_control_node PRIVATE ${MJPC_LINK_OPTIONS})
+  target_compile_definitions(h12_control_node PRIVATE MJSIMULATE_STATIC)
+  # bundled CycloneDDS .so ships next to the SDK; bake its dir into the rpath so
+  # libddsc/libddscxx resolve at runtime regardless of LD_LIBRARY_PATH.
+  get_target_property(_ddsc_loc ddsc IMPORTED_LOCATION)
+  get_filename_component(_dds_libdir "${_ddsc_loc}" DIRECTORY)
+  set_target_properties(h12_control_node PROPERTIES
+    BUILD_RPATH "${_dds_libdir}"
+    INSTALL_RPATH "${_dds_libdir}")
+  message(STATUS "MJPC deploy: h12_control_node ENABLED (unitree_sdk2 at ${_dds_libdir})")
+endif()
+
 add_subdirectory(tasks)
 
 if(BUILD_TESTING AND MJPC_BUILD_TESTS)
@@ -284,3 +321,13 @@ endif()
 include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
 FetchContent_MakeAvailable(json)
+
+# Attach the in-process MJPC gRPC server to the embedded control node so the
+# existing monitor can connect (view state + live Strategy switch). Done HERE,
+# after add_subdirectory(grpc), so mjpc_agent_service (grpc_agent_util helpers +
+# generated proto + grpc++) is already defined.
+if(MJPC_BUILD_DEPLOY AND MJPC_BUILD_GRPC_SERVICE AND TARGET h12_control_node)
+  target_link_libraries(h12_control_node mjpc_agent_service)
+  target_compile_definitions(h12_control_node PRIVATE H12_NODE_GRPC)
+  message(STATUS "MJPC deploy: h12_control_node gRPC monitor server ENABLED")
+endif()
