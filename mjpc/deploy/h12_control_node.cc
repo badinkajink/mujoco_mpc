@@ -39,6 +39,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mjpc/agent.h"
+#include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/task.h"
 #include "mjpc/tasks/tasks.h"
 #include "mjpc/threadpool.h"
@@ -109,6 +110,10 @@ ABSL_FLAG(int, plan_threads, 0,
           "cores) so the twin gets CPU and runs near real-time; watch twin= climb toward wall.");
 ABSL_FLAG(double, warmup_sec, 1.0,
           "seconds to converge the planner while HOLDING the measured pose before releasing the policy");
+ABSL_FLAG(bool, execute_best, false,
+          "CEM only: emit the single lowest-cost ELITE's action instead of the elite MEAN "
+          "(arXiv:2511.19204), so the plant never receives an averaged action no rollout flew. "
+          "OFF = current (mean) behavior. Targets forward-drift from a mushy bimodal elite mean.");
 // ---- latency compensation (Path B Stage 2) ------------------------------------------------
 // The command we emit now lands on the plant Δ later (DDS transport + node compute + twin ZOH).
 // For a STATIC stand Δ is harmless; for DYNAMIC balance the plant has moved by the time the
@@ -483,6 +488,22 @@ int main(int argc, char** argv) {
   std::fprintf(stderr, "[node] planner ThreadPool: %d threads (%d hw available; cap --plan_threads "
                        "to free CPU for the twin so it runs nearer real-time)\n",
                n_plan_threads, mjpc::NumAvailableHardwareThreads());
+
+  // ---- execute-best (CEM only): hand the plant the lowest-cost elite, not the elite mean ----
+  if (absl::GetFlag(FLAGS_execute_best)) {
+    if (auto* cem =
+            dynamic_cast<mjpc::CrossEntropyPlanner*>(&g_agent.ActivePlanner())) {
+      cem->SetBestAction(true);
+      std::fprintf(stderr, "[node] execute-best ON: plant gets the single lowest-cost ELITE "
+                           "(not the elite mean) -- arXiv:2511.19204\n");
+    } else {
+      std::fprintf(stderr, "[node] WARNING: --execute_best ignored -- active planner is not "
+                           "CrossEntropy (need agent_planner=5). Emitting default policy action.\n");
+    }
+  } else {
+    std::fprintf(stderr, "[node] execute-best OFF (CEM emits the elite MEAN; pass --execute_best)\n");
+  }
+
   mjpc::ThreadPool plan_pool(n_plan_threads);
   std::thread planner;
   if (!sync_in_ctrl) {

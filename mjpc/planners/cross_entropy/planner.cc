@@ -89,6 +89,7 @@ void CrossEntropyPlanner::Allocate() {
   policy.Allocate(model, *task, kMaxTrajectoryHorizon);
   resampled_policy.Allocate(model, *task, kMaxTrajectoryHorizon);
   previous_policy.Allocate(model, *task, kMaxTrajectoryHorizon);
+  best_policy_.Allocate(model, *task, kMaxTrajectoryHorizon);
 
   // scratch
   parameters_scratch.resize(num_max_parameter);
@@ -131,6 +132,7 @@ void CrossEntropyPlanner::Reset(int horizon,
   policy.Reset(horizon, initial_repeated_action);
   resampled_policy.Reset(horizon, initial_repeated_action);
   previous_policy.Reset(horizon, initial_repeated_action);
+  best_policy_.Reset(horizon, initial_repeated_action);
 
   // scratch
   std::fill(parameters_scratch.begin(), parameters_scratch.end(), 0.0);
@@ -280,6 +282,14 @@ void CrossEntropyPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
                               parameters_scratch.data() + (t + 1) * model->nu);
       policy.plan.AddNode(times_scratch[t], values);
     }
+
+    // execute-best: stash the single lowest-cost elite's spline so
+    // ActionFromPolicy can emit it (arXiv:2511.19204) instead of the elite
+    // MEAN computed above. The CEM distribution update (policy = mean) is left
+    // intact; only what is HANDED TO THE PLANT changes when best_action_ is on.
+    best_policy_.CopyFrom(candidate_policy[trajectory_order[0]],
+                          num_spline_points);
+    best_policy_.plan.SetInterpolation(interpolation_);
   }
 
   // improvement: compare nominal to elite average
@@ -313,6 +323,8 @@ void CrossEntropyPlanner::ActionFromPolicy(double* action, const double* state,
   const std::shared_lock<std::shared_mutex> lock(mtx_);
   if (use_previous) {
     previous_policy.Action(action, state, time);
+  } else if (best_action_) {
+    best_policy_.Action(action, state, time);
   } else {
     policy.Action(action, state, time);
   }

@@ -91,6 +91,12 @@ class CrossEntropyPlanner : public Planner {
     return policy.num_spline_points * policy.model->nu;
   };
 
+  // execute-best (arXiv:2511.19204): when enabled, ActionFromPolicy emits the
+  // single lowest-cost ELITE's action instead of the elite MEAN, so the plant
+  // never receives an averaged action no sampled rollout actually flew. CEM's
+  // distribution update stays mean-based. OFF by default = unchanged behavior.
+  void SetBestAction(bool enable) { best_action_ = enable; }
+
   // ----- members ----- //
   mjModel* model;
   const Task* task;
@@ -106,6 +112,7 @@ class CrossEntropyPlanner : public Planner {
   SamplingPolicy candidate_policy[kMaxTrajectory];
   SamplingPolicy resampled_policy;
   SamplingPolicy previous_policy;
+  SamplingPolicy best_policy_;  // lowest-cost elite (execute-best); guarded by mtx_
 
   // scratch
   std::vector<double> parameters_scratch;
@@ -141,6 +148,7 @@ class CrossEntropyPlanner : public Planner {
   mjpc::spline::SplineInterpolation interpolation_ =
       mjpc::spline::SplineInterpolation::kZeroSpline;
   int num_trajectory_;
+  std::atomic<bool> best_action_ = false;  // execute lowest-cost elite vs elite-mean
   mutable std::shared_mutex mtx_;
 };
 
