@@ -41,6 +41,8 @@
 #include "mjpc/agent.h"
 #include "mjpc/task.h"
 #include "mjpc/tasks/tasks.h"
+#include "mjpc/threadpool.h"
+#include "mjpc/utilities.h"
 
 // Unitree SDK2 (C++): DDS channel API + unitree_hg / unitree_go IDL.
 #include <unitree/robot/channel/channel_publisher.hpp>
@@ -77,14 +79,73 @@ ABSL_FLAG(int, strategy, 6,
           "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left ...)");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables");
+ABSL_FLAG(int, sync_plan, 0,
+          "if >0, plan SYNCHRONOUSLY in the control thread: N PlanIteration per tick "
+          "(SetState->plan->action, the cartpole/discriminator pattern) instead of the async "
+          "background Plan() thread. Try 8.");
+ABSL_FLAG(double, plan_rate_hz, 0.0,
+          "if >0, plan SYNCHRONOUSLY in the control thread at this many PlanIteration PER SECOND, "
+          "FRACTIONALLY accumulated: most ticks do 0 iters so the ctrl-rate stays high, and ~every "
+          "few ticks 1 iter runs on the FRESH state. This is the discriminator's proven "
+          "--plan-rate-hz mode (it HOLDS balance where async and integer --sync_plan do not, because "
+          "the policy is always planned on the current state without collapsing ctrl-rate). Overrides "
+          "--sync_plan and disables the async Plan() thread. Try 80.");
 ABSL_FLAG(double, ctrl_hz, 200.0, "control / publish rate (Hz)");
+ABSL_FLAG(bool, use_twin_time, false,
+          "time the planner by the TWIN's sim-clock (rt/lowstate tick * twin_dt) instead of wall-clock. "
+          "The in-process discriminator (which HOLDS balance) uses sim-time; if the twin runs SLOWER "
+          "than real-time, wall races ahead of the twin so the policy/phase is mis-timed -> persistent "
+          "lean. The status line prints t=wall(twin=...) so you can see the divergence. Try true.");
+ABSL_FLAG(double, twin_dt, 0.005,
+          "twin physics timestep (s) -- MUST equal the twin's model.opt.timestep (mujoco_env.py=0.005; "
+          "the twin sets rt/lowstate tick = sim_time/0.005). Used for the --use_twin_time sim-clock AND "
+          "the single-stream velocity finite-diff (Δt = Δtick*twin_dt). WAS 0.002 = WRONG: twin_time read "
+          "0.4x real (the bogus '0.40x') and the velocity FD over-scaled 2.5x. Set to the real plant's "
+          "tick period on hardware.");
+ABSL_FLAG(int, plan_threads, 0,
+          "planner ThreadPool size (rollout parallelism). 0 = all hardware threads (default). On a "
+          "single machine the twin shares the CPU; all-threads STARVES the Python twin to ~0.37x "
+          "real-time (see the twin= readout) -> planner/plant rate mismatch. Cap this (e.g. half your "
+          "cores) so the twin gets CPU and runs near real-time; watch twin= climb toward wall.");
 ABSL_FLAG(double, warmup_sec, 1.0,
           "seconds to converge the planner while HOLDING the measured pose before releasing the policy");
+// ---- latency compensation (Path B Stage 2) ------------------------------------------------
+// The command we emit now lands on the plant Δ later (DDS transport + node compute + twin ZOH).
+// For a STATIC stand Δ is harmless; for DYNAMIC balance the plant has moved by the time the
+// stale action arrives -> lag -> topple. Fix (the standard mjpc2real move, arXiv 2511.19204):
+// roll the planner model forward by Δ under the in-flight command, plan from THAT predicted
+// state, and read the policy at the landing time. Pure node-side, DDS-observable state only ->
+// deploys to the real robot unchanged. Default OFF = byte-identical to the current node.
+// Pairs best with --plan_rate_hz (synchronous fresh-state planning; then measured Δ is exact).
+ABSL_FLAG(bool, latency_comp, false,
+          "predict state forward by the loop delay before planning (latency compensation). OFF = "
+          "current behavior. Best paired with --plan_rate_hz (synchronous, so measured Δ is exact).");
+ABSL_FLAG(double, latency_ms, 0.0,
+          "fixed loop delay Δ (ms) to compensate. 0 = AUTO: EWMA of the node's measured per-tick "
+          "compute time + --latency_extra_ms. Pin a value once you've measured it (e.g. dds_trace).");
+ABSL_FLAG(double, latency_extra_ms, 4.0,
+          "AUTO mode only: transport + twin zero-order-hold added to the measured compute time "
+          "(DDS state->node + cmd->twin + ~one twin step). Loopback ~4ms; real robot: re-measure.");
+ABSL_FLAG(double, latency_max_ms, 40.0,
+          "hard cap on the predicted-forward horizon, so a mis-estimated Δ can't roll the "
+          "prediction arbitrarily far and destabilize it.");
 ABSL_FLAG(std::string, lowcmd_topic, "rt/safety/lowcmd_in",
           "DDS LowCmd output topic (through the safety layer)");
 ABSL_FLAG(std::string, lowstate_topic, "rt/lowstate", "DDS LowState input topic");
 ABSL_FLAG(std::string, sportstate_topic, "rt/sportmodestate",
           "DDS SportModeState input topic (IMU-site world pose)");
+// ---- base linear-velocity reconstruction (single-stream FD, the mjpc2real estimation fix) -------
+// The base linvel was built as (site_v from rt/sportmodestate) - (gyro from rt/lowstate) x r, which
+// FUSES TWO UNSYNCHRONIZED 200Hz DDS streams (separate publisher threads, latest-wins, no timestamp
+// align) -> a phantom base velocity that is exactly 0 at rest but grows with motion -> the planner
+// perceives drift and leans to chase it. Every proven legged deploy fuses pose AND velocity in ONE
+// time-consistent estimator (Bloesch RSS2012; DIAL-MPC / MPPI mocap+EKF). Fix here, sampling-only,
+// node-side, DDS-observable-only (deploys to the real robot unchanged): derive base linvel by
+// finite-differencing the reconstructed pelvis POSITION over the twin sim-clock + a 1st-order LPF.
+// This drops the instantaneous cross-stream gyro x r term (the fast phantom) entirely.
+ABSL_FLAG(double, vel_lpf_ms, 30.0,
+          "base linear velocity = LPF(d/dt pelvis_pos) over the sim-clock, time constant in ms "
+          "(single consistent stream). <=0 = OLD cross-stream (site_v - gyro x r) behavior, for A/B.");
 ABSL_FLAG(int, domain_id, 0, "DDS domain id");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = local/loopback for the twin; e.g. 'eth0' for the robot)");
@@ -159,6 +220,7 @@ struct StateData {
   double quat[4] = {1, 0, 0, 0}, gyro[3] = {0};  // rt/lowstate IMU (wxyz, body gyro)
   double site_p[3] = {0}, site_v[3] = {0};       // rt/sportmodestate (IMU-site world pose)
   uint8_t mode_machine = 0;
+  uint32_t tick = 0;          // rt/lowstate tick = twin sim-step count (twin sim_time = tick * twin_dt)
 };
 // Mutex-guarded holder (std::mutex isn't copyable, so it stays out of the snapshot).
 struct RobotState {
@@ -370,6 +432,7 @@ int main(int argc, char** argv) {
         for (int k = 0; k < 4; k++) rs.d.quat[k] = s->imu_state().quaternion().at(k);
         for (int k = 0; k < 3; k++) rs.d.gyro[k] = s->imu_state().gyroscope().at(k);
         rs.d.mode_machine = s->mode_machine();
+        rs.d.tick = s->tick();
         rs.d.have_ls = true;
       },
       10);
@@ -405,10 +468,36 @@ int main(int argc, char** argv) {
   }
   std::fprintf(stderr, "[node] state stream up -> starting continuous planner.\n");
 
-  // ---- continuous planner thread (the throughput fix) ----
+  // ---- planner: pick ONE of three modes ----
+  //   plan_rate_hz>0 : SYNCHRONOUS, FRACTIONAL iters/tick on FRESH state (discriminator's proven
+  //                    --plan-rate-hz mode; HOLDS balance, ctrl-rate stays high).  <-- the fix
+  //   sync_plan>0    : SYNCHRONOUS, INTEGER iters/tick (collapses ctrl-rate; kept for comparison).
+  //   else (default) : ASYNC background Plan() thread (refutes balance: policy planned on stale state).
+  const int sync_plan = absl::GetFlag(FLAGS_sync_plan);
+  const double plan_rate_hz = absl::GetFlag(FLAGS_plan_rate_hz);
+  const bool sync_in_ctrl = (plan_rate_hz > 0.0) || (sync_plan > 0);
   std::atomic<bool> plan_exit{false};
-  std::atomic<int> uiload{0};
-  std::thread planner([&] { g_agent.Plan(plan_exit, uiload); });
+  std::atomic<long> plan_count{0};  // REAL planner-iteration counter (PlanSteps() is the HORIZON, not iters)
+  const int plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  const int n_plan_threads = plan_threads > 0 ? plan_threads : mjpc::NumAvailableHardwareThreads();
+  std::fprintf(stderr, "[node] planner ThreadPool: %d threads (%d hw available; cap --plan_threads "
+                       "to free CPU for the twin so it runs nearer real-time)\n",
+               n_plan_threads, mjpc::NumAvailableHardwareThreads());
+  mjpc::ThreadPool plan_pool(n_plan_threads);
+  std::thread planner;
+  if (!sync_in_ctrl) {
+    planner = std::thread([&] {
+      while (!plan_exit.load()) { g_agent.PlanIteration(&plan_pool); plan_count.fetch_add(1); }
+    });
+  } else if (plan_rate_hz > 0.0) {
+    std::fprintf(stderr, "[node] SYNCHRONOUS planning: %.0f PlanIteration/sec FRACTIONALLY in the "
+                         "control thread on FRESH state (discriminator's proven --plan-rate-hz mode; "
+                         "no async Plan thread; ctrl-rate stays high)\n", plan_rate_hz);
+  } else {
+    std::fprintf(stderr, "[node] SYNCHRONOUS planning: %d PlanIteration/tick in the control "
+                         "thread (cartpole/discriminator pattern; no background Plan thread)\n",
+                 sync_plan);
+  }
 
   // ---- live strategy switch via stdin: type a number 0-16 (+Enter), q=quit ----
   std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-16 + Enter (q=quit)\n");
@@ -432,9 +521,11 @@ int main(int argc, char** argv) {
   // Object/task slots beyond the robot (qpos[34:], qvel[33:]) keep home defaults.
   mjData* sd = mj_makeData(g_model);
   mjData* gd = mj_makeData(g_model);
+  mjData* pdat = mj_makeData(g_model);   // latency-comp: forward-prediction rollout scratch
   if (home >= 0) {
     mj_resetDataKeyframe(g_model, sd, home);
     mj_resetDataKeyframe(g_model, gd, home);
+    mj_resetDataKeyframe(g_model, pdat, home);
   }
 
   auto fill_state = [&](const StateData& cur) {
@@ -452,6 +543,51 @@ int main(int argc, char** argv) {
     for (int i = 0; i < kNU; i++) sd->qvel[6 + i] = cur.dq[i];
   };
 
+  // ---- latency compensation: roll the planner model forward by Δ under the in-flight command ----
+  // The planner model's <position> actuators have kp/kv == the node's KP[]/KV[] == the twin's PD,
+  // so this rollout reproduces the twin's joint law; we only add the gravity tau_ff the twin also
+  // applies. Object/task slots are left at home (we copy only the robot dofs back). NaN-guarded.
+  const bool   lat_comp  = absl::GetFlag(FLAGS_latency_comp);
+  const double lat_fixed = absl::GetFlag(FLAGS_latency_ms) * 1e-3;
+  const double lat_extra = absl::GetFlag(FLAGS_latency_extra_ms) * 1e-3;
+  const double lat_max   = absl::GetFlag(FLAGS_latency_max_ms) * 1e-3;
+  const double pred_dt   = g_model->opt.timestep;     // native model step (0.002) == twin granularity
+  double ewma_comp = 1.0 / ctrl_hz;                   // measured per-tick compute time (EWMA), seeded
+  double last_cmd_q[kNU];
+  for (int i = 0; i < kNU; i++) last_cmd_q[i] = sd->qpos[7 + i];   // home target until first publish
+
+  auto predict_forward = [&](mjData* s, double dt_ahead, const double* cmd_q) {
+    int nsub = static_cast<int>(std::lround(dt_ahead / pred_dt));
+    if (nsub < 1) return;
+    mju_copy(pdat->qpos, s->qpos, nq);
+    mju_copy(pdat->qvel, s->qvel, nv);
+    if (g_model->na > 0) mju_zero(pdat->act, g_model->na);
+    mju_zero(pdat->qfrc_applied, nv);
+    if (gff != 0.0) {                                   // same constant tau_ff the twin's LowCmd carries
+      mju_copy(gd->qpos, s->qpos, nq);
+      mju_zero(gd->qvel, nv);
+      mj_forward(g_model, gd);
+      for (int i = 0; i < kNU; i++) pdat->qfrc_applied[6 + i] = gff * gd->qfrc_bias[6 + i];
+    }
+    for (int k = 0; k < nsub; k++) {
+      for (int i = 0; i < nact; i++) pdat->ctrl[i] = cmd_q[i];   // position-actuator target = in-flight cmd
+      mj_step(g_model, pdat);
+    }
+    bool ok = true;                                     // discard a blown-up rollout, keep measured state
+    for (int k = 0; ok && k < 7 + kNU; k++) if (!std::isfinite(pdat->qpos[k])) ok = false;
+    for (int k = 0; ok && k < 6 + kNU; k++) if (!std::isfinite(pdat->qvel[k])) ok = false;
+    if (!ok) return;
+    for (int k = 0; k < 7 + kNU; k++) s->qpos[k] = pdat->qpos[k];
+    for (int k = 0; k < 6 + kNU; k++) s->qvel[k] = pdat->qvel[k];
+  };
+  if (lat_comp)
+    std::fprintf(stderr, "[node] latency-comp ON: predict-forward %s%s (extra %.1fms, cap %.0fms); "
+                 "plan + policy read at the landing time\n",
+                 lat_fixed > 0.0 ? "FIXED " : "AUTO measured", lat_fixed > 0.0 ? "" : "+extra",
+                 lat_extra * 1e3, lat_max * 1e3);
+  else
+    std::fprintf(stderr, "[node] latency-comp OFF (pass --latency_comp to enable)\n");
+
   std::vector<double> action(nu, 0.0);
 
   // ---- Title-5 baseline (B0) accumulators: tracking error, applied torque, balance ----
@@ -465,6 +601,16 @@ int main(int argc, char** argv) {
   bool m_sat_warned = false;
 
   // ---- control loop @ ctrl_hz (mirrors app.cc physics thread) ----
+  const bool use_twin_time = absl::GetFlag(FLAGS_use_twin_time);
+  const double twin_dt = absl::GetFlag(FLAGS_twin_dt);
+  uint32_t tick0 = 0; bool tick0_set = false;   // zero the twin sim-clock at the first state
+  // single-stream base-velocity finite-diff + LPF state (see vel_lpf_ms flag).
+  const double vel_lpf_tau = absl::GetFlag(FLAGS_vel_lpf_ms) * 1e-3;
+  double fd_prev_p[3] = {0}, fd_vel[3] = {0}, fd_prev_t = 0.0; bool fd_have = false;
+  std::fprintf(stderr, vel_lpf_tau > 0.0
+                 ? "[node] base linvel: SINGLE-STREAM finite-diff + %.0fms LPF (drops the two-stream phantom)\n"
+                 : "[node] base linvel: OLD cross-stream site_v - gyro x r (vel_lpf_ms<=0)\n",
+               absl::GetFlag(FLAGS_vel_lpf_ms));
   auto t0 = std::chrono::steady_clock::now();
   auto next = t0;
   long ticks = 0;
@@ -474,12 +620,69 @@ int main(int argc, char** argv) {
       std::lock_guard<std::mutex> lk(rs.mu);
       cur = rs.d;
     }
+    auto t_tick = std::chrono::steady_clock::now();
+    double wall = std::chrono::duration<double>(t_tick - t0).count();
+    bool warming = wall < warmup_sec;
+    if (!tick0_set && cur.have_ls) { tick0 = cur.tick; tick0_set = true; }
+    double twin_time = static_cast<double>(static_cast<int64_t>(cur.tick) -
+                                           static_cast<int64_t>(tick0)) * twin_dt;
+
     fill_state(cur);
+    // SINGLE-STREAM base linvel: replace the cross-stream (site_v - gyro x r) value with a finite
+    // diff of the reconstructed pelvis position over the sim-clock + LPF. Updates only when the twin
+    // tick advances (a genuinely new state); holds between. Set before the latency rollout so the
+    // prediction starts from the de-noised velocity. vel_lpf_ms<=0 keeps the old behavior.
+    if (vel_lpf_tau > 0.0 && cur.have_ls && cur.have_ss) {
+      if (fd_have && twin_time > fd_prev_t + 1e-9) {       // new state -> differentiate over real dt
+        double dt = twin_time - fd_prev_t;
+        double a = dt / (vel_lpf_tau + dt);                // 1st-order LPF, step-size independent
+        for (int k = 0; k < 3; k++) {
+          double raw = (sd->qpos[k] - fd_prev_p[k]) / dt;
+          fd_vel[k] += a * (raw - fd_vel[k]);
+          fd_prev_p[k] = sd->qpos[k];
+        }
+        fd_prev_t = twin_time;
+      } else if (!fd_have) {                                // seed at rest (v=0) on the first state
+        for (int k = 0; k < 3; k++) { fd_prev_p[k] = sd->qpos[k]; fd_vel[k] = 0.0; }
+        fd_prev_t = twin_time; fd_have = true;
+      }
+      for (int k = 0; k < 3; k++) sd->qvel[k] = fd_vel[k];
+    }
+    // snapshot the MEASURED base pose NOW -- latency prediction overwrites sd->qpos below, but B0
+    // and the status line must report the real (measured) height/tilt/knees, not the predicted ones.
+    double meas_base_z = sd->qpos[2];
+    double meas_R8; { double Rm[9]; mju_quat2Mat(Rm, sd->qpos + 3); meas_R8 = Rm[8]; }
+    double meas_kneeL = sd->qpos[10], meas_kneeR = sd->qpos[16];
+
+    // LATENCY COMPENSATION: predict the state forward by Δ and plan from THERE, so the action we
+    // emit is in-phase when it lands on the plant. dlt=0 (default, or warmup) -> identical to before.
+    double dlt = 0.0;
+    if (lat_comp && !warming) {
+      dlt = (lat_fixed > 0.0) ? lat_fixed : (ewma_comp + lat_extra);
+      if (dlt > lat_max) dlt = lat_max;
+      predict_forward(sd, dlt, last_cmd_q);
+    }
+    // disc (which HOLDS) times the planner by SIM-time; the node used wall, which races ahead of a
+    // slower-than-realtime twin -> mis-timed policy. --use_twin_time clocks it by the twin's tick.
+    // + dlt reads the policy at the LANDING time, consistent with the predicted start state above.
+    sd->time = (use_twin_time ? twin_time : wall) + dlt;
+                       // FIX 2026-06-02: advance the planner clock. It was NEVER set (stuck at 0),
+                       // so ActionFromPolicy(state.time) read the START of the plan every tick ->
+                       // the node executed only the first instant of each trajectory. Static holds
+                       // (stand) looked fine; DYNAMIC motions (crouch, arms_overhead) never played
+                       // out. app.cc advances d->time the same way so the policy is read forward.
     mj_forward(g_model, sd);
     g_agent.SetState(sd);
-
-    double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    bool warming = wall < warmup_sec;
+    // synchronous planning on THIS (fresh) state -- the discriminator pattern.
+    if (plan_rate_hz > 0.0) {   // FRACTIONAL: ~plan_rate_hz iters/sec, most ticks 0 -> ctrl-rate stays high
+      static double plan_accum = 0.0;
+      plan_accum += plan_rate_hz * ctrl_dt;
+      int niter = static_cast<int>(plan_accum);
+      plan_accum -= niter;
+      for (int i = 0; i < niter; i++) { g_agent.PlanIteration(&plan_pool); plan_count.fetch_add(1); }
+    } else if (sync_plan > 0) {  // INTEGER iters/tick (collapses ctrl-rate; comparison only)
+      for (int i = 0; i < sync_plan; i++) { g_agent.PlanIteration(&plan_pool); plan_count.fetch_add(1); }
+    }
 
     // policy: 27 target joint positions (rad). Held at measured q during warmup.
     if (!warming) {
@@ -512,11 +715,19 @@ int main(int argc, char** argv) {
     cmd.crc() = Crc32Core(reinterpret_cast<uint32_t*>(&cmd), (sizeof(LowCmd) >> 2) - 1);
     cmd_pub->Write(cmd);
 
+    // latency-comp bookkeeping: this command is the in-flight target during the NEXT prediction
+    // window; and (AUTO mode) fold this tick's compute time tick-start->post-write into the EWMA Δ.
+    for (int i = 0; i < kNU; i++)
+      last_cmd_q[i] = (warming || i >= nact) ? cur.q[i] : action[i];
+    if (lat_comp && lat_fixed <= 0.0) {
+      double comp = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_tick).count();
+      ewma_comp = 0.9 * ewma_comp + 0.1 * comp;
+    }
+
     // ---- per-tick metrics (B0 baseline; balance every tick, accumulate in policy) ----
-    double base_z = sd->qpos[2];
-    double R[9];
-    mju_quat2Mat(R, sd->qpos + 3);
-    double tilt = std::acos(std::fmax(-1.0, std::fmin(1.0, R[8]))) * 57.29577951308232;
+    // use the MEASURED snapshot taken before prediction (sd may now hold the predicted state).
+    double base_z = meas_base_z;
+    double tilt = std::acos(std::fmax(-1.0, std::fmin(1.0, meas_R8))) * 57.29577951308232;
     if (!warming) {
       m_ticks++;
       m_z_sum += base_z;
@@ -549,9 +760,15 @@ int main(int argc, char** argv) {
       }
     }
     if (++ticks % static_cast<long>(ctrl_hz) == 0) {
-      std::fprintf(stderr, "[node] t=%5.1fs %s base_z=%.3f tilt=%4.1fdeg knee(L/R)=%+.2f/%+.2f\n",
-                   wall, warming ? "WARMUP-hold" : "policy", base_z, tilt,
-                   sd->qpos[10], sd->qpos[16]);
+      static long last_pc = 0; static double last_w = 0.0;
+      long pc = plan_count.load();
+      double prate = (wall > last_w) ? (pc - last_pc) / (wall - last_w) : 0.0;
+      last_pc = pc; last_w = wall;
+      std::fprintf(stderr,
+                   "[node] t=%5.1fs(twin=%5.1f) %s base_z=%.3f tilt=%4.1fdeg knee(L/R)=%+.2f/%+.2f  "
+                   "plan=%.0f/s lat=%.0fms\n",
+                   wall, twin_time, warming ? "WARMUP-hold" : "policy", base_z, tilt,
+                   meas_kneeL, meas_kneeR, prate, dlt * 1e3);
     }
 
     next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -598,6 +815,7 @@ int main(int argc, char** argv) {
   if (planner.joinable()) planner.join();
   mj_deleteData(gd);
   mj_deleteData(sd);
+  mj_deleteData(pdat);
   mj_deleteData(data);
   mj_deleteModel(g_model);
   return 0;
