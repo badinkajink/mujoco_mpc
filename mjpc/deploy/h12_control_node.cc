@@ -110,6 +110,11 @@ ABSL_FLAG(int, plan_threads, 0,
           "cores) so the twin gets CPU and runs near real-time; watch twin= climb toward wall.");
 ABSL_FLAG(double, warmup_sec, 1.0,
           "seconds to converge the planner while HOLDING the measured pose before releasing the policy");
+ABSL_FLAG(double, arm_ramp_sec, 2.0,
+          "seconds to linearly ramp ARM joint targets (idx 13..26) from the measured power-on pose to "
+          "the home/policy target, so the bent-arm-vs-straight-command elbow PD spike stays under the "
+          "safety-layer arm estop (0.80*18=14.4 Nm). 0 = disabled (old instant switch). Arms only; "
+          "legs/torso untouched.");
 ABSL_FLAG(bool, execute_best, false,
           "CEM only: emit the single lowest-cost ELITE's action instead of the elite MEAN "
           "(arXiv:2511.19204), so the plant never receives an averaged action no rollout flew. "
@@ -164,25 +169,53 @@ namespace {
 constexpr int kNU = 27;  // actuated joints on the handless H1-2
 // Per-joint gains == h1_2_modified actuator classes == real LowCmd kp/kd.
 // (Must match mjpc_dds_bridge.py / _lockstep_capability.py.)
-const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80,  200,
-                        40, 40, 40, 40, 40, 40, 40,   40, 40, 40, 40, 40, 40, 40};
+// Safety-layer-operational gains (2026-06-09): arm kp 40 -> 30/20/15 (shoulder_p/r, shoulder_yaw+elbow,
+// wrist), torso 200 -> 100, hip_yaw 150 -> 120, so the onboard PD torque from a transient tracking error
+// stays under each joint's estop bound (ratio*URDF). Legs/ankle/knee kp unchanged. These are ALSO patched
+// into the planner + latency-comp model at load (PatchActuators, after LoadModel) so the invariant
+// node KP[]/KV[] == planner kp/kv == twin PD is preserved.
+const double KP[kNU] = {120, 200, 200, 200, 80, 80,  120, 200, 200, 200, 80, 80,  100,
+                        30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
+// Per-joint actuator FORCE limit = the safety-layer estop torque bound (estop torque_ratio * OPERATIONAL
+// URDF). Patched into the planner + latency model so the planner only plans estop-FEASIBLE torques
+// (otherwise it assumes motor-peak forceranges far above the estop and can prefer a pose the estop cuts).
+// ratios: legs [.30,.65,1,1,.90,.90], torso .20, arms [.80,.80,.80,.80,.50,.50,.50]; order = JOINT_NAMES.
+const double FRC_LIMIT[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36,  40,
+                               32, 32, 14, 14, 9, 9, 9,   32, 32, 14, 14, 9, 9, 9};
+// Patch a freshly-loaded model's <position> actuators to the node's authoritative gains + estop-bound
+// forceranges (single source of truth; keeps planner + latency rollout == node KP[]/KV[] == twin PD,
+// and bounds planned torque to the estop envelope). <position>: gainprm[0]=kp, biasprm[1]=-kp,
+// biasprm[2]=-kv. Call on the loaded model BEFORE Agent::Initialize (it is const after GetModel()).
+void PatchActuators(mjModel* m) {
+  for (int i = 0; i < kNU && i < m->nu; i++) {
+    m->actuator_gainprm[i * mjNGAIN + 0] = KP[i];
+    m->actuator_biasprm[i * mjNBIAS + 1] = -KP[i];
+    m->actuator_biasprm[i * mjNBIAS + 2] = -KV[i];
+    m->actuator_forcelimited[i] = 1;
+    m->actuator_forcerange[i * 2 + 0] = -FRC_LIMIT[i];
+    m->actuator_forcerange[i * 2 + 1] = FRC_LIMIT[i];
+  }
+}
 // short joint names (qpos[7..33] order) for the Title-5 baseline (B0) report.
 const char* const JOINT_NAMES[kNU] = {
     "LhipY", "LhipP", "LhipR", "Lknee", "LankP", "LankR",
     "RhipY", "RhipP", "RhipR", "Rknee", "RankP", "RankR", "torso",
     "LshP", "LshR", "LshY", "Lelb", "LwrR", "LwrP", "LwrY",
     "RshP", "RshR", "RshY", "Relb", "RwrR", "RwrP", "RwrY"};
-// Real H1-2 joint torque limits (Nm) from h12-lab-docs/docs/specs.md motor table,
-// in the qpos[7..33] order. The TWIN motors are UNLIMITED, so this is the real-robot
-// ceiling the sim must respect — checked against B0 |tau| per joint.
-//   legs: hipY 200, hipP/hipR/knee 300, ankle 75; torso 200;
-//   arms: shoulderP/R 120, shoulderY 75, elbow 120, wrist 25.
-const double TAU_LIMIT[kNU] = {200, 300, 300, 300, 75, 75,
-                               200, 300, 300, 300, 75, 75, 200,
-                               120, 120, 75, 120, 25, 25, 25,
-                               120, 120, 75, 120, 25, 25, 25};
+// OPERATIONAL H1-2 joint torque limits (Nm) = Unitree URDF actuatorfrcrange == the twin's
+// actuatorfrcrange == the safety-layer URDF_TORQUE_LIMITS. NOT the motor-PEAK from specs.md (which is
+// ~6.7x higher on the arms: that table lists motor stall torque, e.g. elbow MOTOR 120 Nm, but the
+// operational/control limit is 18). The safety estop enforces ratio*THIS, so [B0] must grade against
+// THIS basis to predict trips (the old motor-peak table reported the arms 'torque-safe' while they
+// tripped the estop). qpos[7..33] order.
+//   legs: hipY/hipP/hipR 200, knee 300, ankP 60, ankR 40; torso 200;
+//   arms: shoulderP/R 40, shoulderY 18, elbow 18, wrist 19.
+const double TAU_LIMIT[kNU] = {200, 200, 200, 300, 60, 40,
+                               200, 200, 200, 300, 60, 40, 200,
+                               40, 40, 18, 18, 19, 19, 19,
+                               40, 40, 18, 18, 19, 19, 19};
 // IMU site position in the pelvis (free-joint) frame, from h1_2_handless.xml.
 const double IMU_OFFSET[3] = {-0.04452, -0.01891, 0.27756};
 
@@ -373,12 +406,14 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "[node] LoadModel failed: %s\n", lm.error.c_str());
     return 1;
   }
+  PatchActuators(lm.model.get());   // safety-operational gains + estop forceranges BEFORE the agent uses it
   g_agent.Initialize(lm.model.get());
   g_agent.Allocate();
   g_agent.Reset();
   g_task = g_agent.ActiveTask();
   g_agent_model = g_agent.GetModel();
   g_model = mj_copyModel(nullptr, g_agent_model);
+  PatchActuators(g_model);   // latency-comp rollout model (the planner model was patched at LoadModel above)
   mjData* data = mj_makeData(g_model);
   int home = mj_name2id(g_model, mjOBJ_KEY, "home");
   if (home >= 0) mj_resetDataKeyframe(g_model, data, home);
@@ -576,6 +611,16 @@ int main(int argc, char** argv) {
   double ewma_comp = 1.0 / ctrl_hz;                   // measured per-tick compute time (EWMA), seeded
   double last_cmd_q[kNU];
   for (int i = 0; i < kNU; i++) last_cmd_q[i] = sd->qpos[7 + i];   // home target until first publish
+  // ---- arm-target ramp state (safety arm-estop fix): blend ONLY arm joints (idx 13..26) from the
+  //      measured power-on pose to the home/policy target over arm_ramp_sec so the elbow PD never
+  //      saturates at the warmup->policy switch. home_q = the straight destination during warmup.
+  const double arm_ramp_sec = absl::GetFlag(FLAGS_arm_ramp_sec);
+  double home_q[kNU];
+  { int hk = mj_name2id(g_model, mjOBJ_KEY, "home"); if (hk < 0) hk = 0;
+    for (int i = 0; i < kNU; i++) home_q[i] = g_model->key_qpos[hk * nq + 7 + i]; }
+  double arm_q_init[kNU];
+  for (int i = 0; i < kNU; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
+  bool arm_init_set = false;
 
   auto predict_forward = [&](mjData* s, double dt_ahead, const double* cmd_q) {
     int nsub = static_cast<int>(std::lround(dt_ahead / pred_dt));
@@ -649,6 +694,10 @@ int main(int argc, char** argv) {
                                            static_cast<int64_t>(tick0)) * twin_dt;
 
     fill_state(cur);
+    if (!arm_init_set && cur.have_ls) {                 // latch the measured power-on arm pose for the ramp
+      for (int i = 0; i < kNU; i++) arm_q_init[i] = cur.q[i];
+      arm_init_set = true;
+    }
     // SINGLE-STREAM base linvel: replace the cross-stream (site_v - gyro x r) value with a finite
     // diff of the reconstructed pelvis position over the sim-clock + LPF. Updates only when the twin
     // tick advances (a genuinely new state); holds between. Set before the latency rollout so the
@@ -720,6 +769,20 @@ int main(int argc, char** argv) {
       for (int i = 0; i < kNU; i++) tau[i] = gff * gd->qfrc_bias[6 + i];
     }
 
+    // per-joint commanded position target, with the ARM ramp (idx 13..26): blend the measured power-on
+    // pose -> target over arm_ramp_sec; legs/torso keep the existing warmup-hold -> policy switch.
+    double tgt_q[kNU];
+    double arm_a = (arm_ramp_sec > 0.0 && arm_init_set)
+                       ? std::fmin(1.0, std::fmax(0.0, wall / arm_ramp_sec)) : 1.0;
+    for (int i = 0; i < kNU; i++) {
+      double base = (warming || i >= nact) ? cur.q[i] : action[i];
+      if (i >= 13 && arm_ramp_sec > 0.0 && arm_init_set) {
+        double tgt = (warming || i >= nact) ? home_q[i] : action[i];
+        base = (1.0 - arm_a) * arm_q_init[i] + arm_a * tgt;
+      }
+      tgt_q[i] = base;
+    }
+
     // build unitree_hg LowCmd_
     LowCmd cmd{};
     cmd.mode_pr() = 0;                       // PR mode
@@ -727,7 +790,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < kNU; i++) {
       auto& mc = cmd.motor_cmd().at(i);
       mc.mode() = 1;  // 1 = enable
-      mc.q() = (warming || i >= nact) ? static_cast<float>(cur.q[i]) : static_cast<float>(action[i]);
+      mc.q() = static_cast<float>(tgt_q[i]);
       mc.dq() = 0.0f;
       mc.tau() = static_cast<float>(tau[i]);
       mc.kp() = static_cast<float>(KP[i]);
@@ -739,7 +802,7 @@ int main(int argc, char** argv) {
     // latency-comp bookkeeping: this command is the in-flight target during the NEXT prediction
     // window; and (AUTO mode) fold this tick's compute time tick-start->post-write into the EWMA Δ.
     for (int i = 0; i < kNU; i++)
-      last_cmd_q[i] = (warming || i >= nact) ? cur.q[i] : action[i];
+      last_cmd_q[i] = tgt_q[i];
     if (lat_comp && lat_fixed <= 0.0) {
       double comp = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_tick).count();
       ewma_comp = 0.9 * ewma_comp + 0.1 * comp;
@@ -757,7 +820,7 @@ int main(int argc, char** argv) {
       m_tilt_sum += tilt;
       if (tilt > m_tilt_max) m_tilt_max = tilt;
       for (int i = 0; i < kNU; i++) {
-        double cmd_q = (i < nact) ? action[i] : cur.q[i];
+        double cmd_q = tgt_q[i];    // the actual ramped command the twin/estop sees
         double err = cmd_q - cur.q[i];                              // commanded - measured
         double ae = std::fabs(err);
         m_err_sum[i] += ae;
@@ -772,9 +835,9 @@ int main(int argc, char** argv) {
           m_sat_count[i]++;
           if (!m_sat_warned) {
             std::fprintf(stderr,
-                         "[node] WARNING: torque on %s = %.0f Nm > real H1-2 limit %.0f Nm "
-                         "(twin is unlimited; real robot would saturate)\n",
-                         JOINT_NAMES[i], at, TAU_LIMIT[i]);
+                         "[node] WARNING: torque on %s = %.0f Nm > operational H1-2 limit %.0f Nm "
+                         "(safety-layer estop bound ~%.0f Nm -> it WILL trip)\n",
+                         JOINT_NAMES[i], at, TAU_LIMIT[i], FRC_LIMIT[i]);
             m_sat_warned = true;
           }
         }
