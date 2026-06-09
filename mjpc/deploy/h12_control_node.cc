@@ -169,21 +169,21 @@ namespace {
 constexpr int kNU = 27;  // actuated joints on the handless H1-2
 // Per-joint gains == h1_2_modified actuator classes == real LowCmd kp/kd.
 // (Must match mjpc_dds_bridge.py / _lockstep_capability.py.)
-// Safety-layer-operational gains (2026-06-09): arm kp 40 -> 30/20/15 (shoulder_p/r, shoulder_yaw+elbow,
-// wrist), torso 200 -> 100, hip_yaw 150 -> 120, so the onboard PD torque from a transient tracking error
-// stays under each joint's estop bound (ratio*URDF). Legs/ankle/knee kp unchanged. These are ALSO patched
-// into the planner + latency-comp model at load (PatchActuators, after LoadModel) so the invariant
-// node KP[]/KV[] == planner kp/kv == twin PD is preserved.
-const double KP[kNU] = {120, 200, 200, 200, 80, 80,  120, 200, 200, 200, 80, 80,  100,
+// Safety-layer arm-gain fix (2026-06-09): ARMS ONLY -- arm kp 40 -> 30/20/15 (shoulder_p/r,
+// shoulder_yaw+elbow, wrist) so the onboard arm PD torque stays under the arm estop bound. LEG/TORSO/
+// hip_yaw kp LEFT AT ORIGINAL: lowering torso/hipY kp + tightening leg forceranges REGRESSED the hold
+// (fell ~15s vs ~30s); the strut/lean is a SEPARATE balance problem, not a gain issue. Patched into the
+// planner+latency model (PatchActuators) so node KP[]/KV[] == planner kp/kv == twin PD.
+const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80,  200,
                         30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
-// Per-joint actuator FORCE limit = the safety-layer estop torque bound (estop torque_ratio * OPERATIONAL
-// URDF). Patched into the planner + latency model so the planner only plans estop-FEASIBLE torques
-// (otherwise it assumes motor-peak forceranges far above the estop and can prefer a pose the estop cuts).
-// ratios: legs [.30,.65,1,1,.90,.90], torso .20, arms [.80,.80,.80,.80,.50,.50,.50]; order = JOINT_NAMES.
-const double FRC_LIMIT[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36,  40,
-                               32, 32, 14, 14, 9, 9, 9,   32, 32, 14, 14, 9, 9, 9};
+// ARM actuator force limit = OPERATIONAL URDF (= twin actuatorfrcrange). Patched into the planner+latency
+// model for the ARMS ONLY (idx 13..26) so the planner caps arm torque at the real 18/40/19 Nm instead of
+// the motor-peak 120 it otherwise assumes. LEG/TORSO forceranges are LEFT at the model default -- tightening
+// them to the estop bound clamped the planner's hip/ankle balance authority and regressed the hold.
+const double FRC_LIMIT[kNU] = {200, 200, 200, 300, 60, 40,  200, 200, 200, 300, 60, 40,  200,
+                               40, 40, 18, 18, 19, 19, 19,   40, 40, 18, 18, 19, 19, 19};
 // Patch a freshly-loaded model's <position> actuators to the node's authoritative gains + estop-bound
 // forceranges (single source of truth; keeps planner + latency rollout == node KP[]/KV[] == twin PD,
 // and bounds planned torque to the estop envelope). <position>: gainprm[0]=kp, biasprm[1]=-kp,
@@ -193,9 +193,11 @@ void PatchActuators(mjModel* m) {
     m->actuator_gainprm[i * mjNGAIN + 0] = KP[i];
     m->actuator_biasprm[i * mjNBIAS + 1] = -KP[i];
     m->actuator_biasprm[i * mjNBIAS + 2] = -KV[i];
-    m->actuator_forcelimited[i] = 1;
-    m->actuator_forcerange[i * 2 + 0] = -FRC_LIMIT[i];
-    m->actuator_forcerange[i * 2 + 1] = FRC_LIMIT[i];
+    if (i >= 13) {                       // ARM joints only: cap force to operational (18/40/19) so the
+      m->actuator_forcelimited[i] = 1;   // planner can't plan a motor-peak (120) arm torque. LEG/TORSO
+      m->actuator_forcerange[i * 2 + 0] = -FRC_LIMIT[i];   // forceranges LEFT at the model default --
+      m->actuator_forcerange[i * 2 + 1] = FRC_LIMIT[i];    // tightening them regressed the hold.
+    }
   }
 }
 // short joint names (qpos[7..33] order) for the Title-5 baseline (B0) report.
@@ -836,8 +838,8 @@ int main(int argc, char** argv) {
           if (!m_sat_warned) {
             std::fprintf(stderr,
                          "[node] WARNING: torque on %s = %.0f Nm > operational H1-2 limit %.0f Nm "
-                         "(safety-layer estop bound ~%.0f Nm -> it WILL trip)\n",
-                         JOINT_NAMES[i], at, TAU_LIMIT[i], FRC_LIMIT[i]);
+                         "(the safety-layer estop trips BELOW this -> address before deploy)\n",
+                         JOINT_NAMES[i], at, TAU_LIMIT[i]);
             m_sat_warned = true;
           }
         }
