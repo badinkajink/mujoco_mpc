@@ -27,12 +27,19 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+
+// POSIX networking -- auto-pin the wired robot-subnet NIC (see AutoDetectRobotInterface).
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
@@ -74,6 +81,33 @@ using unitree::robot::ChannelSubscriberPtr;
 using LowCmd = unitree_hg::msg::dds_::LowCmd_;
 using LowState = unitree_hg::msg::dds_::LowState_;
 using SportState = unitree_go::msg::dds_::SportModeState_;
+
+// Auto-detect the interface holding a 192.168.123.x address (the wired H1-2
+// robot subnet), so an EMPTY --network_interface binds the robot link instead
+// of CycloneDDS autodetermine grabbing WiFi/Tailscale -- the trap that silently
+// makes the node hear the same-host twin but never the real robot. Mirrors
+// dds_tools/dds_topic_check.py. Returns "" when no robot-subnet NIC is present
+// (-> caller keeps autodetermine/loopback, the right default for the twin).
+static std::string AutoDetectRobotInterface() {
+  const char kRobotPrefix[] = "192.168.123.";
+  std::string result;
+  struct ifaddrs* ifaddr = nullptr;
+  if (getifaddrs(&ifaddr) == -1) return result;
+  for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+    if (ifa->ifa_addr == nullptr) continue;
+    if (ifa->ifa_addr->sa_family != AF_INET) continue;
+    char host[INET_ADDRSTRLEN] = {0};
+    const void* sin_addr =
+        &reinterpret_cast<const struct sockaddr_in*>(ifa->ifa_addr)->sin_addr;
+    if (inet_ntop(AF_INET, sin_addr, host, sizeof(host)) == nullptr) continue;
+    if (std::strncmp(host, kRobotPrefix, sizeof(kRobotPrefix) - 1) == 0) {
+      result = ifa->ifa_name;
+      break;
+    }
+  }
+  freeifaddrs(ifaddr);
+  return result;
+}
 
 ABSL_FLAG(std::string, task, "Lean H12", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
@@ -159,6 +193,11 @@ ABSL_FLAG(double, vel_lpf_ms, 30.0,
 ABSL_FLAG(int, domain_id, 0, "DDS domain id");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = local/loopback for the twin; e.g. 'eth0' for the robot)");
+ABSL_FLAG(bool, require_sportstate, true,
+          "Require rt/sportmodestate at startup (true = twin/high-level mode -> real world base "
+          "pose). false = DEBUG MODE (no high-level estimator publishes it): run on rt/lowstate "
+          "alone -- hold a nominal standing base (xy=0, z=home keyframe height) + zero base "
+          "linvel, balance off live IMU orientation + joints.");
 #ifdef H12_NODE_GRPC
 ABSL_FLAG(int, grpc_port, 10000,
           "if >0, host an MJPC gRPC server on this port so the monitor can attach "
@@ -457,8 +496,29 @@ int main(int argc, char** argv) {
 #endif
 
   // ---- DDS: subscribe rt/lowstate + rt/sportmodestate, publish lowcmd ----
-  ChannelFactory::Instance()->Init(absl::GetFlag(FLAGS_domain_id),
-                                   absl::GetFlag(FLAGS_network_interface));
+  // Resolve the interface: explicit --network_interface wins; otherwise auto-pin
+  // the 192.168.123.x robot-subnet NIC (so NO flag is needed on the real robot);
+  // fall back to autodetermine/loopback for the same-host twin.
+  std::string net_if = absl::GetFlag(FLAGS_network_interface);
+  if (net_if.empty()) {
+    std::string auto_if = AutoDetectRobotInterface();
+    if (!auto_if.empty()) {
+      net_if = auto_if;
+      std::fprintf(stderr,
+                   "[node] auto-pinned DDS interface '%s' (192.168.123.x robot "
+                   "subnet); pass --network_interface to override\n",
+                   net_if.c_str());
+    } else {
+      std::fprintf(stderr,
+                   "[node] no robot-subnet NIC found -> DDS autodetermine "
+                   "(twin/loopback); pass --network_interface for the robot\n");
+    }
+  } else {
+    std::fprintf(stderr,
+                 "[node] DDS interface '%s' (explicit --network_interface)\n",
+                 net_if.c_str());
+  }
+  ChannelFactory::Instance()->Init(absl::GetFlag(FLAGS_domain_id), net_if);
   RobotState rs;
 
   ChannelSubscriberPtr<LowState> ls_sub(
@@ -498,13 +558,30 @@ int main(int argc, char** argv) {
   cmd_pub->InitChannel();
 
   // ---- wait for the first full state ----
-  std::fprintf(stderr, "[node] waiting for %s + %s ...\n",
+  // Debug mode (no high-level estimator) never publishes rt/sportmodestate, so
+  // --require_sportstate=false gates on rt/lowstate alone and fill_state holds a
+  // nominal standing base instead. Default true = twin/high-level (real base pose).
+  const bool require_sport = absl::GetFlag(FLAGS_require_sportstate);
+  double nominal_base_p[3] = {0, 0, 0};
+  if (home >= 0) {
+    for (int k = 0; k < 3; k++) nominal_base_p[k] = g_model->key_qpos[home * nq + k];
+  } else {
+    for (int k = 0; k < 3; k++) nominal_base_p[k] = g_model->qpos0[k];
+  }
+  std::fprintf(stderr, "[node] waiting for %s%s ...\n",
                absl::GetFlag(FLAGS_lowstate_topic).c_str(),
-               absl::GetFlag(FLAGS_sportstate_topic).c_str());
+               require_sport ? " + rt/sportmodestate"
+                             : " (debug mode: sportstate optional, nominal base)");
+  if (!require_sport) {
+    std::fprintf(stderr,
+                 "[node] DEBUG MODE: rt/sportmodestate NOT required -> nominal base "
+                 "(xy=0, z=%.3f) + zero base linvel; balance off IMU + joints\n",
+                 nominal_base_p[2]);
+  }
   while (!g_exit.load()) {
     {
       std::lock_guard<std::mutex> lk(rs.mu);
-      if (rs.d.have_ls && rs.d.have_ss) break;
+      if (rs.d.have_ls && (rs.d.have_ss || !require_sport)) break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
@@ -593,10 +670,17 @@ int main(int argc, char** argv) {
     QuatRot(cur.quat, cur.gyro, ww);
     double cr[3] = {ww[1] * roff[2] - ww[2] * roff[1], ww[2] * roff[0] - ww[0] * roff[2],
                     ww[0] * roff[1] - ww[1] * roff[0]};
-    for (int k = 0; k < 3; k++) sd->qpos[k] = cur.site_p[k] - roff[k];  // pelvis = site - R*offset
+    if (require_sport && cur.have_ss) {
+      for (int k = 0; k < 3; k++) sd->qpos[k] = cur.site_p[k] - roff[k];  // pelvis = site - R*offset
+      for (int k = 0; k < 3; k++) sd->qvel[k] = cur.site_v[k] - cr[k];    // pelvis world linvel
+    } else {
+      // DEBUG MODE / no sportmodestate: no world base estimate. Hold a nominal
+      // standing base (xy=0, z=home height) with zero base linvel; balance is
+      // driven by the live IMU orientation + joints set below.
+      for (int k = 0; k < 3; k++) { sd->qpos[k] = nominal_base_p[k]; sd->qvel[k] = 0.0; }
+    }
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = cur.quat[k];
     for (int i = 0; i < kNU; i++) sd->qpos[7 + i] = cur.q[i];
-    for (int k = 0; k < 3; k++) sd->qvel[k] = cur.site_v[k] - cr[k];  // pelvis world linvel
     for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
     for (int i = 0; i < kNU; i++) sd->qvel[6 + i] = cur.dq[i];
   };
