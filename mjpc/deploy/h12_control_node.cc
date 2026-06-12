@@ -144,6 +144,12 @@ ABSL_FLAG(int, plan_threads, 0,
           "cores) so the twin gets CPU and runs near real-time; watch twin= climb toward wall.");
 ABSL_FLAG(double, warmup_sec, 1.0,
           "seconds to converge the planner while HOLDING the measured pose before releasing the policy");
+ABSL_FLAG(double, start_ramp_sec, 5.0,
+          "ALL-joint bring-up ramp: blend every joint target from the measured power-on pose to "
+          "the home/policy target over this many seconds. Prevents the warmup->policy SNAP when "
+          "the robot starts away from home (e.g. crouched on the real robot -- the violent leg "
+          "outstretch). No-op when the robot already starts at home. 0 = disable (legacy arm-only "
+          "ramp via --arm_ramp_sec still applies).");
 ABSL_FLAG(double, arm_ramp_sec, 2.0,
           "seconds to linearly ramp ARM joint targets (idx 13..26) from the measured power-on pose to "
           "the home/policy target, so the bent-arm-vs-straight-command elbow PD spike stays under the "
@@ -701,12 +707,26 @@ int main(int argc, char** argv) {
   //      measured power-on pose to the home/policy target over arm_ramp_sec so the elbow PD never
   //      saturates at the warmup->policy switch. home_q = the straight destination during warmup.
   const double arm_ramp_sec = absl::GetFlag(FLAGS_arm_ramp_sec);
+  const double start_ramp_sec = absl::GetFlag(FLAGS_start_ramp_sec);
+  if (start_ramp_sec > 0.0) {
+    std::fprintf(stderr, "[node] bring-up ramp ON: ALL joints measured->home/policy over %.1fs "
+                         "(no-op if already at home; --start_ramp_sec 0 to disable)\n",
+                 start_ramp_sec);
+  }
   double home_q[kNU];
-  { int hk = mj_name2id(g_model, mjOBJ_KEY, "home"); if (hk < 0) hk = 0;
+  { // bring-up destination = the OPERATING stance ("stand", bent-knee), NOT the singular
+    // straight-knee "home": ramping to knee=0 hands the policy the hyperextension basin
+    // (knees snapped to the -0.12 stop within 1 s of ramp end -- live-verified).
+    int hk = mj_name2id(g_model, mjOBJ_KEY, "stand");
+    if (hk < 0) hk = mj_name2id(g_model, mjOBJ_KEY, "home");
+    if (hk < 0) hk = 0;
+    std::fprintf(stderr, "[node] bring-up ramp destination keyframe: '%s'\n",
+                 mj_id2name(g_model, mjOBJ_KEY, hk));
     for (int i = 0; i < kNU; i++) home_q[i] = g_model->key_qpos[hk * nq + 7 + i]; }
   double arm_q_init[kNU];
   for (int i = 0; i < kNU; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
   bool arm_init_set = false;
+  double ramp_eff = start_ramp_sec;   // rescaled at latch by distance-from-home (see loop)
 
   auto predict_forward = [&](mjData* s, double dt_ahead, const double* cmd_q) {
     int nsub = static_cast<int>(std::lround(dt_ahead / pred_dt));
@@ -783,6 +803,18 @@ int main(int argc, char** argv) {
     if (!arm_init_set && cur.have_ls) {                 // latch the measured power-on arm pose for the ramp
       for (int i = 0; i < kNU; i++) arm_q_init[i] = cur.q[i];
       arm_init_set = true;
+      if (start_ramp_sec > 0.0) {
+        // scale the ramp (and its policy-holdout) by how far off-home we latched: the
+        // holdout is only survivable while a harness supports the robot -- from a HOME
+        // start a full 5 s without active balance topples it (bench: fell at 2.7 s).
+        // >=0.5 rad off-home -> full ramp; at home -> ~0 -> policy right after warmup
+        // (the proven home-start behavior).
+        double d0 = 0.0;
+        for (int i = 0; i < kNU; i++) d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
+        ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
+        std::fprintf(stderr, "[node] bring-up ramp: latched pose is %.2f rad from home -> "
+                             "effective ramp %.1fs\n", d0, ramp_eff);
+      }
     }
     // SINGLE-STREAM base linvel: replace the cross-stream (site_v - gyro x r) value with a finite
     // diff of the reconstructed pelvis position over the sim-clock + LPF. Updates only when the twin
@@ -855,16 +887,23 @@ int main(int argc, char** argv) {
       for (int i = 0; i < kNU; i++) tau[i] = gff * gd->qfrc_bias[6 + i];
     }
 
-    // per-joint commanded position target, with the ARM ramp (idx 13..26): blend the measured power-on
-    // pose -> target over arm_ramp_sec; legs/torso keep the existing warmup-hold -> policy switch.
+    // per-joint commanded position target with the BRING-UP ramp: blend from the measured
+    // power-on pose to the home/policy target. start_ramp_sec>0 -> ALL joints (kills the
+    // warmup->policy SNAP from off-home starts: legs included); 0 -> legacy arm-only ramp.
     double tgt_q[kNU];
-    double arm_a = (arm_ramp_sec > 0.0 && arm_init_set)
-                       ? std::fmin(1.0, std::fmax(0.0, wall / arm_ramp_sec)) : 1.0;
     for (int i = 0; i < kNU; i++) {
-      double base = (warming || i >= nact) ? cur.q[i] : action[i];
-      if (i >= 13 && arm_ramp_sec > 0.0 && arm_init_set) {
-        double tgt = (warming || i >= nact) ? home_q[i] : action[i];
-        base = (1.0 - arm_a) * arm_q_init[i] + arm_a * tgt;
+      double ramp_dur = (start_ramp_sec > 0.0) ? ramp_eff
+                                               : (i >= 13 ? arm_ramp_sec : 0.0);
+      double base;
+      if (ramp_dur > 0.0 && arm_init_set) {
+        double aa = std::fmin(1.0, std::fmax(0.0, wall / ramp_dur));
+        // SCRIPTED rise: target HOME for the whole ramp (policy steering a half-risen,
+        // moving robot topples it -- bench-proven); policy takes over only at ramp end,
+        // from a near-static home pose = the validated stand condition.
+        double tgt = (aa < 1.0 || warming || i >= nact) ? home_q[i] : action[i];
+        base = (1.0 - aa) * arm_q_init[i] + aa * tgt;
+      } else {
+        base = (warming || i >= nact) ? cur.q[i] : action[i];
       }
       tgt_q[i] = base;
     }
