@@ -150,11 +150,22 @@ ABSL_FLAG(double, start_ramp_sec, 5.0,
           "the robot starts away from home (e.g. crouched on the real robot -- the violent leg "
           "outstretch). No-op when the robot already starts at home. 0 = disable (legacy arm-only "
           "ramp via --arm_ramp_sec still applies).");
+ABSL_FLAG(double, ramp_hold_sec, 3.0,
+          "after the bring-up ramp reaches the stance, HOLD it scripted this many more "
+          "seconds before the policy takes over -- lets the planner converge at the "
+          "static operating pose (removes the hand-off tug). 0 = hand over at ramp end.");
 ABSL_FLAG(double, arm_ramp_sec, 2.0,
           "seconds to linearly ramp ARM joint targets (idx 13..26) from the measured power-on pose to "
           "the home/policy target, so the bent-arm-vs-straight-command elbow PD spike stays under the "
           "safety-layer arm estop (0.80*18=14.4 Nm). 0 = disabled (old instant switch). Arms only; "
           "legs/torso untouched.");
+ABSL_FLAG(bool, target_clamp, true,
+          "torque-aware target clamp: bound every emitted joint target so the PD demand "
+          "|kp*(target-q)| stays <= 0.9x the safety layer's tau-ESTOP threshold. Makes "
+          "command-side tau estops impossible for ANY planner output (the recurring kill: "
+          "limp bent elbows at engagement -> target ~2 rad away -> kp*err blows the 14.4 Nm "
+          "arm estop; ankle-tau on a hard release). Also the slew-limit the safety layer "
+          "lacks. false = raw targets (old behavior).");
 ABSL_FLAG(bool, execute_best, false,
           "CEM only: emit the single lowest-cost ELITE's action instead of the elite MEAN "
           "(arXiv:2511.19204), so the plant never receives an averaged action no rollout flew. "
@@ -223,6 +234,14 @@ const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80,
                         30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
+// SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit, from
+// default_safety_full.yaml + h12_safety_layer/core/joint_limits.py). Used by
+// --target_clamp: |KP*(tgt-q)| is capped at 0.9x these, so a commanded position can
+// never demand estop-level torque. kv*dq transients are not bounded here -- the 10%
+// margin plus the planner's velocity-limit cost cover those.
+const double TAU_ESTOP[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36,  40,
+                               32, 32, 14.4, 14.4, 9.5, 9.5, 9.5,
+                               32, 32, 14.4, 14.4, 9.5, 9.5, 9.5};
 // ARM actuator force limit = OPERATIONAL URDF (= twin actuatorfrcrange). Patched into the planner+latency
 // model for the ARMS ONLY (idx 13..26) so the planner caps arm torque at the real 18/40/19 Nm instead of
 // the motor-peak 120 it otherwise assumes. LEG/TORSO forceranges are LEFT at the model default -- tightening
@@ -623,6 +642,11 @@ int main(int argc, char** argv) {
   } else {
     std::fprintf(stderr, "[node] execute-best OFF (CEM emits the elite MEAN; pass --execute_best)\n");
   }
+  if (absl::GetFlag(FLAGS_target_clamp))
+    std::fprintf(stderr,
+                 "[node] torque-aware target clamp ON: |kp*(tgt-q)| <= 0.9 x tau-estop per "
+                 "joint (elbow/wrist/ankle command-side estops impossible; --notarget_clamp "
+                 "to disable)\n");
 
   mjpc::ThreadPool plan_pool(n_plan_threads);
   std::thread planner;
@@ -860,6 +884,13 @@ int main(int argc, char** argv) {
                        // (stand) looked fine; DYNAMIC motions (crouch, arms_overhead) never played
                        // out. app.cc advances d->time the same way so the policy is read forward.
     mj_forward(g_model, sd);
+    // THE MISSING CALL (found 2026-06-12 via residual forensics): the GUI's physics loop
+    // runs Task::Transition every step -- it is what LOADS the strategy JSON (posture
+    // keyframe + per-phase weights) and advances multi-phase strategies. This node NEVER
+    // called it, so every deployment planned toward keyframe 0 (straight-knee 'home',
+    // z=1.028): the hand-off knee snap, the 1.028 base parking, and the inert keyframe
+    // edits were all this one absence.
+    g_agent.ActiveTask()->Transition(g_model, sd);
     g_agent.SetState(sd);
     // synchronous planning on THIS (fresh) state -- the discriminator pattern.
     if (plan_rate_hz > 0.0) {   // FRACTIONAL: ~plan_rate_hz iters/sec, most ticks 0 -> ctrl-rate stays high
@@ -897,15 +928,30 @@ int main(int argc, char** argv) {
       double base;
       if (ramp_dur > 0.0 && arm_init_set) {
         double aa = std::fmin(1.0, std::fmax(0.0, wall / ramp_dur));
-        // SCRIPTED rise: target HOME for the whole ramp (policy steering a half-risen,
-        // moving robot topples it -- bench-proven); policy takes over only at ramp end,
-        // from a near-static home pose = the validated stand condition.
-        double tgt = (aa < 1.0 || warming || i >= nact) ? home_q[i] : action[i];
+        // SCRIPTED rise: target the stance for the whole ramp (policy steering a half-
+        // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
+        // for ramp_hold_sec more so CEM converges around the STATIC operating pose
+        // before getting authority (kills the hand-off "first tug" toward the old basin).
+        double tgt = (aa < 1.0 || warming || i >= nact ||
+                      wall < ramp_dur + absl::GetFlag(FLAGS_ramp_hold_sec))
+                         ? home_q[i] : action[i];
         base = (1.0 - aa) * arm_q_init[i] + aa * tgt;
       } else {
         base = (warming || i >= nact) ? cur.q[i] : action[i];
       }
       tgt_q[i] = base;
+    }
+
+    // torque-aware target clamp (--target_clamp): see TAU_ESTOP. Applied to the FINAL
+    // target (ramp + policy uniformly), and last_cmd_q below stores the clamped value so
+    // the latency predictor models what was actually sent.
+    if (absl::GetFlag(FLAGS_target_clamp)) {
+      for (int i = 0; i < kNU; i++) {
+        double dmax = 0.9 * TAU_ESTOP[i] / KP[i];
+        double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;
+        if (tgt_q[i] < lo) tgt_q[i] = lo;
+        else if (tgt_q[i] > hi) tgt_q[i] = hi;
+      }
     }
 
     // build unitree_hg LowCmd_
