@@ -215,6 +215,13 @@ ABSL_FLAG(bool, require_sportstate, true,
           "pose). false = DEBUG MODE (no high-level estimator publishes it): run on rt/lowstate "
           "alone -- hold a nominal standing base (xy=0, z=home keyframe height) + zero base "
           "linvel, balance off live IMU orientation + joints.");
+ABSL_FLAG(double, imu_pitch_offset_deg, 0.0,
+          "IMU pitch zero-offset CALIBRATION (deg). The perceived base orientation is rotated by "
+          "this about the body pitch axis BEFORE the planner consumes it -- cancels a measured IMU "
+          "mounting/zero bias (e.g. body verified TRULY vertical but IMU reads -1.6 deg -> pass 1.6 "
+          "to zero it). 0 = raw IMU. Tune sign empirically: if the forward lean worsens, flip sign.");
+ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
+          "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
 #ifdef H12_NODE_GRPC
 ABSL_FLAG(int, grpc_port, 10000,
           "if >0, host an MJPC gRPC server on this port so the monitor can attach "
@@ -693,6 +700,16 @@ int main(int argc, char** argv) {
     mj_resetDataKeyframe(g_model, pdat, home);
   }
 
+  // IMU zero-offset calibration (deg->rad): a measured constant mounting/zero bias in the
+  // base orientation feeds straight into the planner (qpos[3:7] below) and makes it balance
+  // around a false vertical -> a steady lean (sim-confirmed). Cancel it here.
+  const double imu_pitch_off = absl::GetFlag(FLAGS_imu_pitch_offset_deg) * M_PI / 180.0;
+  const double imu_roll_off = absl::GetFlag(FLAGS_imu_roll_offset_deg) * M_PI / 180.0;
+  if (imu_pitch_off != 0.0 || imu_roll_off != 0.0)
+    std::printf("[node] IMU zero-offset calibration ON: perceived base orientation rotated "
+                "pitch%+.2f roll%+.2f deg before planning\n",
+                absl::GetFlag(FLAGS_imu_pitch_offset_deg), absl::GetFlag(FLAGS_imu_roll_offset_deg));
+
   auto fill_state = [&](const StateData& cur) {
     double roff[3];
     QuatRot(cur.quat, IMU_OFFSET, roff);
@@ -709,7 +726,22 @@ int main(int argc, char** argv) {
       // driven by the live IMU orientation + joints set below.
       for (int k = 0; k < 3; k++) { sd->qpos[k] = nominal_base_p[k]; sd->qvel[k] = 0.0; }
     }
-    for (int k = 0; k < 4; k++) sd->qpos[3 + k] = cur.quat[k];
+    // base orientation = IMU quat, with the measured zero-offset cancelled (body-frame
+    // post-multiply by the small pitch/roll correction; wxyz, MuJoCo convention).
+    double bq[4];
+    mju_copy4(bq, cur.quat);
+    if (imu_pitch_off != 0.0) {
+      double d[4], ax[3] = {0, 1, 0}, t[4];
+      mju_axisAngle2Quat(d, ax, imu_pitch_off);
+      mju_mulQuat(t, bq, d); mju_copy4(bq, t);
+    }
+    if (imu_roll_off != 0.0) {
+      double d[4], ax[3] = {1, 0, 0}, t[4];
+      mju_axisAngle2Quat(d, ax, imu_roll_off);
+      mju_mulQuat(t, bq, d); mju_copy4(bq, t);
+    }
+    mju_normalize4(bq);
+    for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];
     for (int i = 0; i < kNU; i++) sd->qpos[7 + i] = cur.q[i];
     for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
     for (int i = 0; i < kNU; i++) sd->qvel[6 + i] = cur.dq[i];
