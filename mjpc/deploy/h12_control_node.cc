@@ -352,6 +352,15 @@ const mjModel* g_agent_model = nullptr;
 mjModel* g_model = nullptr;
 mjpc::Task* g_task = nullptr;
 std::atomic<bool> g_exit{false};
+// --- LIVE STRATEGY-SWITCH BLEND: ease the pre-switch pose -> the new policy target over
+//     g_switch_blend sec (same idea as the cold-start policy-blend, but re-armed on EVERY
+//     live switch, so pressing 8 mid-run descends smoothly instead of snapping). g_switch_from
+//     is written only by the main loop; the stdin thread (or the Squatter sequencer) just
+//     raises g_switch_pending and sets the duration.
+std::atomic<bool> g_switch_pending{false};
+std::atomic<double> g_switch_wall{-1e9};   // wall time the active switch-blend started
+std::atomic<double> g_switch_blend{0.0};   // duration of the active switch-blend (sec)
+double g_switch_from[kNU] = {0};           // captured pre-switch commanded pose
 
 void residual_sensor_callback(const mjModel* m, mjData* d, int stage) {
   if (m == g_agent_model || m == g_model) {
@@ -688,7 +697,10 @@ int main(int argc, char** argv) {
       try {
         int s = std::stoi(line);
         g_agent.SetParamByName("residual_Strategy", static_cast<double>(s));
-        std::fprintf(stderr, "[node] >>> Strategy -> %d (task eases into the new pose)\n", s);
+        g_switch_blend.store(absl::GetFlag(FLAGS_policy_blend_sec));
+        g_switch_pending.store(true);   // main loop captures the from-pose + arms the blend
+        std::fprintf(stderr, "[node] >>> Strategy -> %d (eases into the new pose over %.1fs)\n",
+                     s, absl::GetFlag(FLAGS_policy_blend_sec));
       } catch (...) {
         std::fprintf(stderr, "[node] (enter a strategy number 0-16, or q to quit)\n");
       }
@@ -957,6 +969,14 @@ int main(int argc, char** argv) {
       for (int i = 0; i < kNU; i++) tau[i] = gff * gd->qfrc_bias[6 + i];
     }
 
+    // ---- live strategy-switch blend: on a pending switch, snapshot the CURRENT measured pose
+    //      as the blend start + stamp the switch time, so the target eases from where the robot
+    //      IS into the new policy target (no snap). Serves stdin switches and the Squatter loop.
+    if (g_switch_pending.exchange(false)) {
+      for (int i = 0; i < kNU; i++) g_switch_from[i] = cur.q[i];
+      g_switch_wall.store(wall);
+    }
+
     // per-joint commanded position target with the BRING-UP ramp: blend from the measured
     // power-on pose to the home/policy target. start_ramp_sec>0 -> ALL joints (kills the
     // warmup->policy SNAP from off-home starts: legs included); 0 -> legacy arm-only ramp.
@@ -982,7 +1002,16 @@ int main(int argc, char** argv) {
           double bb = (wall - t_ho) / pblend;    // 0..1
           tgt = (1.0 - bb) * home_q[i] + bb * action[i];
         } else {
-          tgt = action[i];                       // full policy authority
+          // full policy authority -- UNLESS a LIVE switch just armed a blend: ease the captured
+          // pre-switch pose -> the new policy target over g_switch_blend (re-armed each switch).
+          double sw_dt = wall - g_switch_wall.load();
+          double sbl = g_switch_blend.load();
+          if (sbl > 0.0 && sw_dt >= 0.0 && sw_dt < sbl) {
+            double sb = sw_dt / sbl;             // 0..1
+            tgt = (1.0 - sb) * g_switch_from[i] + sb * action[i];
+          } else {
+            tgt = action[i];                     // full policy authority
+          }
         }
         base = (1.0 - aa) * arm_q_init[i] + aa * tgt;
       } else {
