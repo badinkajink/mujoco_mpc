@@ -154,6 +154,12 @@ ABSL_FLAG(double, ramp_hold_sec, 3.0,
           "after the bring-up ramp reaches the stance, HOLD it scripted this many more "
           "seconds before the policy takes over -- lets the planner converge at the "
           "static operating pose (removes the hand-off tug). 0 = hand over at ramp end.");
+ABSL_FLAG(double, policy_blend_sec, 0.0,
+          "after the ramp+hold, EASE the commanded target from the scripted stance to the LIVE "
+          "policy target over this many seconds (0 = legacy hard switch). The ramp always rises to "
+          "'stand', so COLD-STARTING a non-stand task (crouch/squat) snaps at the scripted->policy "
+          "handoff; this blend descends smoothly into the task pose instead. Stand is ~unaffected "
+          "(its policy target == the stance). Try ~2.0-3.0 for crouch/squat cold starts.");
 ABSL_FLAG(double, arm_ramp_sec, 2.0,
           "seconds to linearly ramp ARM joint targets (idx 13..26) from the measured power-on pose to "
           "the home/policy target, so the bent-arm-vs-straight-command elbow PD spike stays under the "
@@ -215,11 +221,12 @@ ABSL_FLAG(bool, require_sportstate, true,
           "pose). false = DEBUG MODE (no high-level estimator publishes it): run on rt/lowstate "
           "alone -- hold a nominal standing base (xy=0, z=home keyframe height) + zero base "
           "linvel, balance off live IMU orientation + joints.");
-ABSL_FLAG(double, imu_pitch_offset_deg, 0.0,
-          "IMU pitch zero-offset CALIBRATION (deg). The perceived base orientation is rotated by "
-          "this about the body pitch axis BEFORE the planner consumes it -- cancels a measured IMU "
-          "mounting/zero bias (e.g. body verified TRULY vertical but IMU reads -1.6 deg -> pass 1.6 "
-          "to zero it). 0 = raw IMU. Tune sign empirically: if the forward lean worsens, flip sign.");
+ABSL_FLAG(double, imu_pitch_offset_deg, 1.6,
+          "IMU pitch zero-offset CALIBRATION (deg) -- DEFAULT 1.6 = the MEASURED offset for THIS "
+          "H1-2 (body verified truly vertical reads -1.6 deg on the IMU; +1.6 zeroes it). The "
+          "perceived base orientation is rotated by this about the body pitch axis before planning. "
+          "Validated on real (most-upright stand to date). Pass --imu_pitch_offset_deg 0 for the "
+          "TWIN (no IMU mounting offset there) or to A/B against the raw IMU.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
 #ifdef H12_NODE_GRPC
@@ -964,9 +971,19 @@ int main(int argc, char** argv) {
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
         // for ramp_hold_sec more so CEM converges around the STATIC operating pose
         // before getting authority (kills the hand-off "first tug" toward the old basin).
-        double tgt = (aa < 1.0 || warming || i >= nact ||
-                      wall < ramp_dur + absl::GetFlag(FLAGS_ramp_hold_sec))
-                         ? home_q[i] : action[i];
+        const double t_ho = ramp_dur + absl::GetFlag(FLAGS_ramp_hold_sec);
+        const double pblend = absl::GetFlag(FLAGS_policy_blend_sec);
+        double tgt;
+        if (aa < 1.0 || warming || i >= nact || wall < t_ho) {
+          tgt = home_q[i];                       // rising / warmup / non-policy joint / scripted hold
+        } else if (pblend > 0.0 && wall < t_ho + pblend) {
+          // POLICY-BLEND: ease the scripted stance -> the LIVE policy target over pblend so a
+          // cold-started non-stand task descends smoothly instead of snapping at the handoff.
+          double bb = (wall - t_ho) / pblend;    // 0..1
+          tgt = (1.0 - bb) * home_q[i] + bb * action[i];
+        } else {
+          tgt = action[i];                       // full policy authority
+        }
         base = (1.0 - aa) * arm_q_init[i] + aa * tgt;
       } else {
         base = (warming || i >= nact) ? cur.q[i] : action[i];
