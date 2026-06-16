@@ -160,6 +160,22 @@ ABSL_FLAG(double, policy_blend_sec, 0.0,
           "'stand', so COLD-STARTING a non-stand task (crouch/squat) snaps at the scripted->policy "
           "handoff; this blend descends smoothly into the task pose instead. Stand is ~unaffected "
           "(its policy target == the stance). Try ~2.0-3.0 for crouch/squat cold starts.");
+ABSL_FLAG(double, switch_settle_sec, 2.0,
+          "after a LIVE strategy switch (stdin, e.g. type 6 then 8), HOLD the pre-switch pose this "
+          "many seconds so the planner re-CONVERGES on the new strategy BEFORE the blend eases into "
+          "it (mirrors ramp_hold for cold-start). Without it the robot descends mid-replan and sinks "
+          "past the target. The total live-switch transition = switch_settle_sec + the blend.");
+ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
+          "LEFT ankle-roll zero-offset calibration (deg): SUBTRACTED from the perceived roll AND "
+          "ADDED to the command, so a foot the encoder reports rolled is both reasoned about and "
+          "driven to its true angle. 0 = off. Dial to flatten an edge-rolled foot (free-hang L/R asym).");
+ABSL_FLAG(double, ankle_roll_offset_r_deg, 0.0,
+          "RIGHT ankle-roll zero-offset calibration (deg); see --ankle_roll_offset_l_deg. The "
+          "free-hang showed the RIGHT foot resting ~6 deg more rolled (edge) than the left.");
+// NOTE: strategy 18 ("Squatter") is now a NATIVE 2-phase MJPC strategy (h12_simple_squatter.json,
+// stand_up<->crouch), cycled by the task's own phase machine via ActiveTask()->Transition() below.
+// The old node-side sequencer (g_squatter + squatter_*_hold/blend flags) was removed -- the planner
+// now anticipates the transition instead of being surprised by a mid-flight cost switch.
 ABSL_FLAG(double, arm_ramp_sec, 2.0,
           "seconds to linearly ramp ARM joint targets (idx 13..26) from the measured power-on pose to "
           "the home/policy target, so the bent-arm-vs-straight-command elbow PD spike stays under the "
@@ -355,8 +371,8 @@ std::atomic<bool> g_exit{false};
 // --- LIVE STRATEGY-SWITCH BLEND: ease the pre-switch pose -> the new policy target over
 //     g_switch_blend sec (same idea as the cold-start policy-blend, but re-armed on EVERY
 //     live switch, so pressing 8 mid-run descends smoothly instead of snapping). g_switch_from
-//     is written only by the main loop; the stdin thread (or the Squatter sequencer) just
-//     raises g_switch_pending and sets the duration.
+//     is written only by the main loop; the stdin thread just raises g_switch_pending and sets
+//     the duration.
 std::atomic<bool> g_switch_pending{false};
 std::atomic<double> g_switch_wall{-1e9};   // wall time the active switch-blend started
 std::atomic<double> g_switch_blend{0.0};   // duration of the active switch-blend (sec)
@@ -510,7 +526,12 @@ int main(int argc, char** argv) {
   g_agent.SetState(data);
   g_agent.plan_enabled = true;
   g_agent.action_enabled = true;
-  g_agent.SetParamByName("residual_Strategy", absl::GetFlag(FLAGS_strategy));
+  // Strategy 18 ("Squatter") is a native multi-phase MJPC strategy now -- it loads like any other
+  // index and the task's phase machine (ActiveTask()->Transition() in the loop) cycles stand_up<->
+  // crouch on its own. The cold-start ramp + policy_blend eases into phase 0 (stand) just like
+  // strat 6, then the first crouch fires once stand is achieved + sustained (success_sustain_time).
+  g_agent.SetParamByName("residual_Strategy",
+                         static_cast<double>(absl::GetFlag(FLAGS_strategy)));
 
   const int nq = g_model->nq, nv = g_model->nv, nu = g_model->nu;
   const int nact = nu < kNU ? nu : kNU;
@@ -696,13 +717,16 @@ int main(int argc, char** argv) {
       if (line.empty()) continue;
       try {
         int s = std::stoi(line);
+        // Any strategy (incl. 18 = native Squatter) loads the same way: set the residual strategy
+        // and arm the live-switch settle+blend so the target eases from the current pose into the
+        // new policy target instead of snapping. The phase machine handles 18's internal cycling.
         g_agent.SetParamByName("residual_Strategy", static_cast<double>(s));
         g_switch_blend.store(absl::GetFlag(FLAGS_policy_blend_sec));
         g_switch_pending.store(true);   // main loop captures the from-pose + arms the blend
         std::fprintf(stderr, "[node] >>> Strategy -> %d (eases into the new pose over %.1fs)\n",
                      s, absl::GetFlag(FLAGS_policy_blend_sec));
       } catch (...) {
-        std::fprintf(stderr, "[node] (enter a strategy number 0-16, or q to quit)\n");
+        std::fprintf(stderr, "[node] (enter a strategy number 0-18, or q to quit)\n");
       }
     }
   });
@@ -762,6 +786,11 @@ int main(int argc, char** argv) {
     mju_normalize4(bq);
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];
     for (int i = 0; i < kNU; i++) sd->qpos[7 + i] = cur.q[i];
+    // ankle-roll zero-offset calibration: the planner sees the CORRECTED roll (idx 5=L, 11=R
+    // ankle_roll) so it doesn't chase a foot only the encoder thinks is rolled. Pairs with the
+    // command shift before publish below. 0 = no-op.
+    sd->qpos[7 + 5]  -= absl::GetFlag(FLAGS_ankle_roll_offset_l_deg) * M_PI / 180.0;
+    sd->qpos[7 + 11] -= absl::GetFlag(FLAGS_ankle_roll_offset_r_deg) * M_PI / 180.0;
     for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
     for (int i = 0; i < kNU; i++) sd->qvel[6 + i] = cur.dq[i];
   };
@@ -971,7 +1000,8 @@ int main(int argc, char** argv) {
 
     // ---- live strategy-switch blend: on a pending switch, snapshot the CURRENT measured pose
     //      as the blend start + stamp the switch time, so the target eases from where the robot
-    //      IS into the new policy target (no snap). Serves stdin switches and the Squatter loop.
+    //      IS into the new policy target (no snap). Serves stdin switches (strategy 18's internal
+    //      stand<->crouch cycling is handled by the task phase machine, not here).
     if (g_switch_pending.exchange(false)) {
       for (int i = 0; i < kNU; i++) g_switch_from[i] = cur.q[i];
       g_switch_wall.store(wall);
@@ -1002,12 +1032,18 @@ int main(int argc, char** argv) {
           double bb = (wall - t_ho) / pblend;    // 0..1
           tgt = (1.0 - bb) * home_q[i] + bb * action[i];
         } else {
-          // full policy authority -- UNLESS a LIVE switch just armed a blend: ease the captured
-          // pre-switch pose -> the new policy target over g_switch_blend (re-armed each switch).
+          // full policy authority -- UNLESS a LIVE switch just armed a blend. Mirror the proven
+          // cold-start path (rise -> HOLD while CEM converges -> blend): first hold the pre-switch
+          // pose for switch_settle_sec so the planner re-converges on the NEW strategy, THEN ease
+          // into its target over g_switch_blend. Without the settle the robot descends mid-replan
+          // and collapses past the target (the Squatter "snap": cmd blended to 0.63 but q hit 0.99).
           double sw_dt = wall - g_switch_wall.load();
+          double settle = absl::GetFlag(FLAGS_switch_settle_sec);
           double sbl = g_switch_blend.load();
-          if (sbl > 0.0 && sw_dt >= 0.0 && sw_dt < sbl) {
-            double sb = sw_dt / sbl;             // 0..1
+          if (sw_dt >= 0.0 && sw_dt < settle) {
+            tgt = g_switch_from[i];              // SETTLE: hold pose, let the planner converge
+          } else if (sbl > 0.0 && sw_dt >= settle && sw_dt < settle + sbl) {
+            double sb = (sw_dt - settle) / sbl;  // 0..1
             tgt = (1.0 - sb) * g_switch_from[i] + sb * action[i];
           } else {
             tgt = action[i];                     // full policy authority
@@ -1031,6 +1067,16 @@ int main(int argc, char** argv) {
         else if (tgt_q[i] > hi) tgt_q[i] = hi;
       }
     }
+
+    // ankle-roll zero-offset: shift the COMMAND by the calibration so the physical joint reaches
+    // the planner's intended (corrected) angle. Pairs with the belief correction in fill_state;
+    // applied to tgt_q so mc.q() AND last_cmd_q (latency model) stay consistent. 0 = no-op.
+    tgt_q[5]  += absl::GetFlag(FLAGS_ankle_roll_offset_l_deg) * M_PI / 180.0;
+    tgt_q[11] += absl::GetFlag(FLAGS_ankle_roll_offset_r_deg) * M_PI / 180.0;
+    // SAFETY: the offset is applied after the torque clamp, so hard-clamp the ankle_roll command
+    // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
+    tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
+    tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
 
     // build unitree_hg LowCmd_
     LowCmd cmd{};
