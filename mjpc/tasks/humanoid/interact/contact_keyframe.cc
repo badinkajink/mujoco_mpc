@@ -74,7 +74,8 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"success_sustain_time", keyframe.success_sustain_time},
            {"target_distance_tolerance", keyframe.target_distance_tolerance},
            {"weight", keyframe.weight},
-           {"brace_force_target", keyframe.brace_force_target}};
+           {"brace_force_target", keyframe.brace_force_target},
+           {"target_ramp_sec", keyframe.target_ramp_sec}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -85,7 +86,8 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   j.at("success_sustain_time").get_to(keyframe.success_sustain_time);
   j.at("target_distance_tolerance").get_to(keyframe.target_distance_tolerance);
   j.at("weight").get_to(keyframe.weight);
-  // Optional field — older strategy JSONs without it get the sentinel -1.
+  // Optional fields — older strategy JSONs without them get the sentinel -1.
   keyframe.brace_force_target = j.value("brace_force_target", -1.);
+  keyframe.target_ramp_sec = j.value("target_ramp_sec", -1.);
 }
 }  // namespace mjpc::humanoid

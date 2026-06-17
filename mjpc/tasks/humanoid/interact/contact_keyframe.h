@@ -81,7 +81,8 @@ class ContactKeyframe {
         brace_force_target(-1.),
         time_limit(10.),
         success_sustain_time(2.),
-        target_distance_tolerance(0.1) {}
+        target_distance_tolerance(0.1),
+        target_ramp_sec(-1.) {}
 
   void Reset();
 
@@ -93,6 +94,11 @@ class ContactKeyframe {
   mjtNum target_distance_tolerance;  // the proximity to the keyframe objective
                                      // that needs to be maintained for a
                                      // certain time
+  mjtNum target_ramp_sec;  // per-phase override (s) for the planner's target-pose
+                           // ramp when ENTERING this phase. <0 = use the lean
+                           // global default (kPhaseRampSeconds); 0 = snap. Lets a
+                           // cyclic strategy ease its target in slowly (e.g. the
+                           // squatter stand_up) so it does not launch the body.
 };
 
 void to_json(json& j, const ContactPair& contact_pair);

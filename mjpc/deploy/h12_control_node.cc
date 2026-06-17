@@ -111,7 +111,8 @@ static std::string AutoDetectRobotInterface() {
 
 ABSL_FLAG(std::string, task, "Lean H12", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
-          "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left ...)");
+          "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left "
+          "18=squatter 19=jab ...)");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables");
 ABSL_FLAG(int, sync_plan, 0,
@@ -708,8 +709,8 @@ int main(int argc, char** argv) {
                  sync_plan);
   }
 
-  // ---- live strategy switch via stdin: type a number 0-16 (+Enter), q=quit ----
-  std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-16 + Enter (q=quit)\n");
+  // ---- live strategy switch via stdin: type a number 0-19 (+Enter), q=quit ----
+  std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-19 + Enter (q=quit)\n");
   std::thread stdin_thread([&] {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -717,16 +718,17 @@ int main(int argc, char** argv) {
       if (line.empty()) continue;
       try {
         int s = std::stoi(line);
-        // Any strategy (incl. 18 = native Squatter) loads the same way: set the residual strategy
-        // and arm the live-switch settle+blend so the target eases from the current pose into the
-        // new policy target instead of snapping. The phase machine handles 18's internal cycling.
+        // Any strategy (incl. 18 = native Squatter, 19 = native Jab) loads the same way: set the
+        // residual strategy and arm the live-switch settle+blend so the target eases from the current
+        // pose into the new policy target instead of snapping. The phase machine handles the internal
+        // cycling of multi-phase strategies (18 squat cycle, 19 jab guard<->extend).
         g_agent.SetParamByName("residual_Strategy", static_cast<double>(s));
         g_switch_blend.store(absl::GetFlag(FLAGS_policy_blend_sec));
         g_switch_pending.store(true);   // main loop captures the from-pose + arms the blend
         std::fprintf(stderr, "[node] >>> Strategy -> %d (eases into the new pose over %.1fs)\n",
                      s, absl::GetFlag(FLAGS_policy_blend_sec));
       } catch (...) {
-        std::fprintf(stderr, "[node] (enter a strategy number 0-18, or q to quit)\n");
+        std::fprintf(stderr, "[node] (enter a strategy number 0-19, or q to quit)\n");
       }
     }
   });
