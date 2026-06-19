@@ -277,6 +277,12 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
+  # Auto-derive the magpie-gripper variant from the (just-copied) h1_2_modified.xml so
+  # the gripper model is never hand-maintained: edit the BASE model, rebuild, and the
+  # magpie variant is regenerated = base + the two fixed wrist grippers. One source of truth.
+  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
+        <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml

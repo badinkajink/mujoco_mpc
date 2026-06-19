@@ -112,7 +112,7 @@ static std::string AutoDetectRobotInterface() {
 ABSL_FLAG(std::string, task, "Lean H12", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
           "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left "
-          "18=squatter 19=jab ...)");
+          "18=squatter 19=jab 20=stumble ...)");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables");
 ABSL_FLAG(int, sync_plan, 0,
@@ -512,6 +512,34 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "[node] LoadModel failed: %s\n", lm.error.c_str());
     return 1;
   }
+  // ---- Strategy 20 ("Stumble") needs slightly higher control BANDWIDTH than the
+  // stock stand: its gait clock makes the legs oscillate, which the stand-tuned
+  // sampling_spline_points=3 cannot represent (swing foot never lifts -> static).
+  // CALIBRATED on the faithful twin (2026-06-18): spline=8 DESTABILISES even a
+  // plain stand (stand FALLS ~2 s at spline 8 vs HOLDS at spline 3) -- the extra
+  // knots let the real-time planner chatter/over-actuate -- so the original 8 was
+  // making stumble WORSE, not better. spline=5 is the sweet spot: enough knots for
+  // the (now gentler/slower, see lean.cc kCadenceHz=0.8) gait to lift the feet,
+  // few enough that balance is preserved (~5/8 hold 25 s WITH light stepping on the
+  // twin bench vs 0/8 at spline 8 which fell ~2-3 s). Keep exploration 0.08. Set
+  // HERE -- before Agent::Initialize, when the sampling policy reads these model
+  // numerics (planners/sampling/policy.cc) -- and ONLY for strategy 20, so every
+  // other strategy keeps the stand-tuned 3/0.05. The loaded model is still mutable.
+  // NOTE: keyed off the STARTUP --strategy flag; to run stumble, start the node
+  // with --strategy 20 (live-switching INTO 20 keeps the startup spline).
+  if (absl::GetFlag(FLAGS_strategy) == 20) {
+    mjModel* sm = lm.model.get();
+    auto set_numeric = [&](const char* nm, double v) -> bool {
+      int id = mj_name2id(sm, mjOBJ_NUMERIC, nm);
+      if (id >= 0) sm->numeric_data[sm->numeric_adr[id]] = v;
+      return id >= 0;
+    };
+    bool ok = set_numeric("sampling_spline_points", 5.0) &
+              set_numeric("sampling_exploration", 0.08);
+    std::fprintf(stderr,
+        "[node] strategy 20 (stumble): planner bandwidth -> spline_points=5 "
+        "exploration=0.08 (%s)\n", ok ? "ok" : "NUMERIC MISSING");
+  }
   PatchActuators(lm.model.get());   // safety-operational gains + estop forceranges BEFORE the agent uses it
   g_agent.Initialize(lm.model.get());
   g_agent.Allocate();
@@ -709,8 +737,8 @@ int main(int argc, char** argv) {
                  sync_plan);
   }
 
-  // ---- live strategy switch via stdin: type a number 0-19 (+Enter), q=quit ----
-  std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-19 + Enter (q=quit)\n");
+  // ---- live strategy switch via stdin: type a number 0-20 (+Enter), q=quit ----
+  std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-20 + Enter (q=quit)\n");
   std::thread stdin_thread([&] {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -728,7 +756,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[node] >>> Strategy -> %d (eases into the new pose over %.1fs)\n",
                      s, absl::GetFlag(FLAGS_policy_blend_sec));
       } catch (...) {
-        std::fprintf(stderr, "[node] (enter a strategy number 0-19, or q to quit)\n");
+        std::fprintf(stderr, "[node] (enter a strategy number 0-20, or q to quit)\n");
       }
     }
   });

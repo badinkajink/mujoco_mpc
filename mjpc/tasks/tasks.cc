@@ -60,6 +60,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
 
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),
+      std::make_shared<Lean_H12_Magpie>(),
       std::make_shared<Lean_H12_Hands>(),
 
       std::make_shared<Acrobot>(),
