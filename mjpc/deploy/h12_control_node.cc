@@ -535,10 +535,14 @@ int main(int argc, char** argv) {
       return id >= 0;
     };
     bool ok = set_numeric("sampling_spline_points", 5.0) &
-              set_numeric("sampling_exploration", 0.08);
+              set_numeric("sampling_exploration", 0.05);
     std::fprintf(stderr,
         "[node] strategy 20 (stumble): planner bandwidth -> spline_points=5 "
-        "exploration=0.08 (%s)\n", ok ? "ok" : "NUMERIC MISSING");
+        "exploration=0.05 (%s)\n", ok ? "ok" : "NUMERIC MISSING");
+    // exploration 0.08->0.05 (2026-06-19): 0.05 = the bench-validated value + the MJPC
+    // task default; 0.08 injected extra spline-knot chatter that made the spline-5
+    // stand more marginal. Sampling-param sweep (trajectories 10..32, linear/cubic,
+    // spline 4..6, heavy-tail) showed 0.05 single-std is the reliability optimum here.
   }
   PatchActuators(lm.model.get());   // safety-operational gains + estop forceranges BEFORE the agent uses it
   g_agent.Initialize(lm.model.get());
