@@ -512,37 +512,35 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "[node] LoadModel failed: %s\n", lm.error.c_str());
     return 1;
   }
-  // ---- Strategy 20 ("Stumble") needs slightly higher control BANDWIDTH than the
-  // stock stand: its gait clock makes the legs oscillate, which the stand-tuned
-  // sampling_spline_points=3 cannot represent (swing foot never lifts -> static).
-  // CALIBRATED on the faithful twin (2026-06-18): spline=8 DESTABILISES even a
-  // plain stand (stand FALLS ~2 s at spline 8 vs HOLDS at spline 3) -- the extra
-  // knots let the real-time planner chatter/over-actuate -- so the original 8 was
-  // making stumble WORSE, not better. spline=5 is the sweet spot: enough knots for
-  // the (now gentler/slower, see lean.cc kCadenceHz=0.8) gait to lift the feet,
-  // few enough that balance is preserved (~5/8 hold 25 s WITH light stepping on the
-  // twin bench vs 0/8 at spline 8 which fell ~2-3 s). Keep exploration 0.08. Set
-  // HERE -- before Agent::Initialize, when the sampling policy reads these model
-  // numerics (planners/sampling/policy.cc) -- and ONLY for strategy 20, so every
-  // other strategy keeps the stand-tuned 3/0.05. The loaded model is still mutable.
-  // NOTE: keyed off the STARTUP --strategy flag; to run stumble, start the node
-  // with --strategy 20 (live-switching INTO 20 keeps the startup spline).
-  if (absl::GetFlag(FLAGS_strategy) == 20) {
+  // ---- Per-strategy planner overrides (GENERIC -- no strategy hardcoded here) --
+  // A strategy may need different planner model numerics than the stock stand --
+  // e.g. "Stumble" needs a higher control bandwidth (sampling_spline_points 3->5)
+  // so its gait clock can lift the swing foot; the stand-tuned 3 knots cannot
+  // represent the leg oscillation (8 over-actuates and destabilises even a plain
+  // stand -- 5 is the twin-validated sweet spot, 2026-06-18). The node stays
+  // strategy-AGNOSTIC: it asks the TASK what numerics this strategy wants
+  // (Task::PlannerNumericOverrides, default empty; the lean task overrides it per
+  // strategy name) and applies them blindly. Adding a strategy with custom
+  // bandwidth is a fork-side edit to the task only -- this deploy node never
+  // changes. Applied HERE -- before Agent::Initialize, when the sampling policy
+  // reads these numerics (planners/sampling/policy.cc). Keyed off the STARTUP
+  // --strategy (the planner policy size is fixed at Initialize; live-switching
+  // INTO another strategy keeps the startup bandwidth).
+  {
     mjModel* sm = lm.model.get();
-    auto set_numeric = [&](const char* nm, double v) -> bool {
-      int id = mj_name2id(sm, mjOBJ_NUMERIC, nm);
-      if (id >= 0) sm->numeric_data[sm->numeric_adr[id]] = v;
-      return id >= 0;
-    };
-    bool ok = set_numeric("sampling_spline_points", 5.0) &
-              set_numeric("sampling_exploration", 0.05);
-    std::fprintf(stderr,
-        "[node] strategy 20 (stumble): planner bandwidth -> spline_points=5 "
-        "exploration=0.05 (%s)\n", ok ? "ok" : "NUMERIC MISSING");
-    // exploration 0.08->0.05 (2026-06-19): 0.05 = the bench-validated value + the MJPC
-    // task default; 0.08 injected extra spline-knot chatter that made the spline-5
-    // stand more marginal. Sampling-param sweep (trajectories 10..32, linear/cubic,
-    // spline 4..6, heavy-tail) showed 0.05 single-std is the reliability optimum here.
+    const int strat = absl::GetFlag(FLAGS_strategy);
+    for (const auto& kv : g_agent.ActiveTask()->PlannerNumericOverrides(strat)) {
+      int id = mj_name2id(sm, mjOBJ_NUMERIC, kv.first.c_str());
+      if (id >= 0) {
+        sm->numeric_data[sm->numeric_adr[id]] = kv.second;
+        std::fprintf(stderr, "[node] planner override: %s = %.4g (strategy %d)\n",
+                     kv.first.c_str(), kv.second, strat);
+      } else {
+        std::fprintf(stderr,
+                     "[node] planner override NUMERIC MISSING: %s (strategy %d)\n",
+                     kv.first.c_str(), strat);
+      }
+    }
   }
   PatchActuators(lm.model.get());   // safety-operational gains + estop forceranges BEFORE the agent uses it
   g_agent.Initialize(lm.model.get());

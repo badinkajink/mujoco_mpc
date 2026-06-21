@@ -136,6 +136,18 @@ class Task {
     if (phase_name) phase_name->clear();
   }
 
+  // Optional per-strategy planner model-numeric overrides (e.g.
+  // "sampling_spline_points"), applied by the deploy node BEFORE
+  // Agent::Initialize -- when the sampling policy reads these numerics -- so a
+  // strategy can request a different planner bandwidth WITHOUT any
+  // strategy-specific code in the node. Keyed off the startup strategy index.
+  // Default: none (other tasks are unaffected). The node iterates the returned
+  // {numeric_name: value} map and sets each on the loaded model.
+  virtual std::map<std::string, double> PlannerNumericOverrides(
+      int /*strategy*/) const {
+    return {};
+  }
+
   virtual std::string Name() const = 0;
   virtual std::string XmlPath() const = 0;
 
