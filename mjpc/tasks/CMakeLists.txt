@@ -297,11 +297,18 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_skin_cap_tof.xml
   COMMENT "Copying Menagerie and dm_control assets into binary directory")
 
+add_custom_target(gen_lean_pipeline ALL
+        COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/lean/strategies/_gen_lean_pipeline.py
+        COMMENT "Generating lean pipeline strategies 31-35 from pre-lean twins")
+
 add_custom_target(copy_resources ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}
         COMMENT "Copying tasks into binary directory")
+
+add_dependencies(copy_resources gen_lean_pipeline)
 
 add_dependencies(copy_model_resources copy_resources)
 
