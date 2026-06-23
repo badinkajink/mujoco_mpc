@@ -1,0 +1,4366 @@
+### BRANCH lean-pipeline-31-35  (merge-base 3fa037c .. HEAD)
+
+### COMMITS
+796dc6d build: regenerate lean pipeline 31-35 on every build
+99d55dd lean: register strats 31-35 + reserved 23-30, slider->35
+048e55d lean: add 31-35 ladder generator + generated JSONs
+694ec17 lean: redo strat 16 re-anchor surgically (leg-core+standing-height only, preserve tuned knobs/arm/single-phase)
+ba1b29f lean: re-anchor strat 16 counterbalance leg-core to strat 6
+4b73ba6 lean: add strat 22 pre-lean forearm-brace + register, slider->22
+96d16e9 lean: fix reach_right shadow + stale left_reaches comment (review)
+3b5a7f6 lean: mirror forearm brace point to the auto-picked bracing arm
+d33d2e1 lean: counterbalance reaches the live mocap object (no clamp -> leans)
+8e3fa15 lean: shared auto-arm selection (reaching + opposite bracing hand)
+df469e6 model: add magpie gripper collision proxy for table presence
+
+### STAT
+ mjpc/tasks/CMakeLists.txt                          |   7 +
+ .../humanoid_bench/h1_2_modified_magpie.xml.patch  |  12 +-
+ mjpc/tasks/humanoid_bench/lean/Lean_H12.xml        |   4 +-
+ mjpc/tasks/humanoid_bench/lean/Lean_H12_Hands.xml  |   4 +-
+ mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml |   4 +-
+ mjpc/tasks/humanoid_bench/lean/lean.cc             |  55 ++-
+ mjpc/tasks/humanoid_bench/lean/lean.h              |  20 +-
+ .../lean/strategies/_gen_lean_pipeline.py          |  56 +++
+ .../lean/strategies/h12_hands_lean_brace.json      | 497 ++++++++++++++++++++
+ .../strategies/h12_hands_lean_counterbalance.json  | 376 ++++++++++++++++
+ .../lean/strategies/h12_hands_lean_full.json       | 497 ++++++++++++++++++++
+ .../lean/strategies/h12_hands_lean_reach.json      | 258 +++++++++++
+ .../lean/strategies/h12_hands_lean_stand.json      | 128 ++++++
+ .../h12_hands_simple_counterbalance.json           |  24 +-
+ .../strategies/h12_hands_simple_forearm_brace.json |  29 ++
+ .../lean/strategies/h12_lean_brace.json            | 501 +++++++++++++++++++++
+ .../lean/strategies/h12_lean_counterbalance.json   | 380 ++++++++++++++++
+ .../lean/strategies/h12_lean_full.json             | 501 +++++++++++++++++++++
+ .../lean/strategies/h12_lean_reach.json            | 262 +++++++++++
+ .../lean/strategies/h12_lean_stand.json            | 132 ++++++
+ .../lean/strategies/h12_simple_counterbalance.json |  24 +-
+ .../lean/strategies/h12_simple_forearm_brace.json  |  29 ++
+ 22 files changed, 3760 insertions(+), 40 deletions(-)
+
+### FULL DIFF (-U10)
+diff --git a/mjpc/tasks/CMakeLists.txt b/mjpc/tasks/CMakeLists.txt
+index 0ef0ae7..977cd1e 100644
+--- a/mjpc/tasks/CMakeLists.txt
++++ b/mjpc/tasks/CMakeLists.txt
+@@ -290,19 +290,26 @@ add_custom_target(
+         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_torso_skin.xml
+         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_torso_skin.xml
+   COMMAND ${CMAKE_COMMAND} -E copy
+         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h12_tof.xml
+         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_skin_tof.xml
+   COMMAND ${CMAKE_COMMAND} -E copy
+         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h12_tof.xml
+         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_skin_cap_tof.xml
+   COMMENT "Copying Menagerie and dm_control assets into binary directory")
+ 
++add_custom_target(gen_lean_pipeline ALL
++        COMMAND ${Python_EXECUTABLE}
++        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/lean/strategies/_gen_lean_pipeline.py
++        COMMENT "Generating lean pipeline strategies 31-35 from pre-lean twins")
++
+ add_custom_target(copy_resources ALL
+         COMMAND ${CMAKE_COMMAND} -E copy_directory
+         ${CMAKE_CURRENT_SOURCE_DIR}
+         ${CMAKE_CURRENT_BINARY_DIR}
+         COMMENT "Copying tasks into binary directory")
+ 
++add_dependencies(copy_resources gen_lean_pipeline)
++
+ add_dependencies(copy_model_resources copy_resources)
+ 
+ add_dependencies(libmjpc copy_model_resources)
+diff --git a/mjpc/tasks/humanoid_bench/h1_2_modified_magpie.xml.patch b/mjpc/tasks/humanoid_bench/h1_2_modified_magpie.xml.patch
+index 54c7ba3..88e2f99 100644
+--- a/mjpc/tasks/humanoid_bench/h1_2_modified_magpie.xml.patch
++++ b/mjpc/tasks/humanoid_bench/h1_2_modified_magpie.xml.patch
+@@ -1,48 +1,52 @@
+---- mujoco_mpc/mujoco_mpc/build/mjpc/tasks/humanoid_bench/h1_2/h1_2_modified.xml	2026-06-19 13:27:32.209916121 -0600
+-+++ mujoco_mpc/mujoco_mpc/build/mjpc/tasks/humanoid_bench/h1_2/h1_2_modified_magpie.xml	2026-06-19 13:40:31.408099181 -0600
++--- h1_2_modified.xml	2026-06-22 02:48:42.502678766 -0600
+++++ h1_2_modified_magpie.xml	2026-06-22 02:50:12.957671374 -0600
+ @@ -1,4 +1,4 @@
+ -<mujoco model="Unitree H1_2 Handless With Position Actuators">
+ +<mujoco model="Unitree H1_2 + Magpie Grippers (fixed mass) With Position Actuators">
+    <compiler angle="radian" meshdir="meshes/" autolimits="true"/>
+  
+    <default>
+ @@ -99,6 +99,7 @@
+      <mesh name="left_wrist_roll_link" file="left_wrist_roll_link.STL"/>
+      <mesh name="left_wrist_pitch_link" file="left_wrist_pitch_link.STL"/>
+      <mesh name="wrist_yaw_link" file="wrist_yaw_link.STL"/>
+ +    <mesh name="h12_mount" file="magpie_h12.stl" scale="0.001 0.001 0.001"/>
+      <mesh name="right_shoulder_pitch_link" file="right_shoulder_pitch_link.STL"/>
+      <mesh name="right_shoulder_roll_link" file="right_shoulder_roll_link.STL"/>
+      <mesh name="right_shoulder_yaw_link" file="right_shoulder_yaw_link.STL"/>
+-@@ -272,6 +273,15 @@
++@@ -272,6 +273,17 @@
+                        <geom class="collision" type="capsule" size="0.025" fromto="0 0 0 0.13 0 0"/>
+                        <geom class="collision" type="sphere" size="0.033" pos="0.13 0 0"/>
+                        <site name="left_hand" pos="0.17 0 0.0" size="0.01" rgba="0 1 0 1"/>
+ +                      <!-- Magpie gripper: FIXED, rigidly welded (NOT actuated). Visual = the real
+ +                           combined h12_mount mesh; the geom carries the lumped mass (0.506 kg) and
+ +                           MuJoCo derives the CoM (~6.7 cm past the wrist) + inertia from the mesh.
+ +                           Placement (pos 0.054, 90° quat) copied from h1_2_magpie.xml's own visual
+ +                           geom. Opened/closed OFF-BUS by the magpie_msgs controller, not MJPC.
+ +                           Zero extra DOF -> keeps nu=27 / nq=41 (sysid loaders unchanged). -->
+ +                      <body name="left_magpie_gripper">
+ +                        <geom type="mesh" mesh="h12_mount" pos="0.054 0 0" quat="0.7071068 0 0.70710685 0" mass="0.506" contype="0" conaffinity="0" group="1" rgba="0.1 0.1 0.1 1"/>
+++                        <geom name="left_gripper_collision" class="collision" type="box" size="0.035 0.05 0.06"
+++                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0" contype="1" conaffinity="1"/>
+ +                      </body>
+                      </body>
+                    </body>
+                  </body>
+-@@ -323,6 +333,15 @@
++@@ -323,6 +335,17 @@
+                        <geom class="collision" type="capsule" size="0.025" fromto="0 0 0 0.13 0 0"/>
+                        <geom class="collision" type="sphere" size="0.033" pos="0.13 0 0"/>
+                        <site name="right_hand" pos="0.17 0 0" size="0.01" rgba="0 1 0 1"/>
+ +                      <!-- Magpie gripper: FIXED, rigidly welded (NOT actuated). Visual = the real
+ +                           combined h12_mount mesh; the geom carries the lumped mass (0.506 kg) and
+ +                           MuJoCo derives the CoM (~6.7 cm past the wrist) + inertia from the mesh.
+ +                           Placement (pos 0.054, 90° quat) copied from h1_2_magpie.xml's own visual
+ +                           geom. Opened/closed OFF-BUS by the magpie_msgs controller, not MJPC.
+ +                           Zero extra DOF -> keeps nu=27 / nq=41 (sysid loaders unchanged). -->
+ +                      <body name="right_magpie_gripper">
+ +                        <geom type="mesh" mesh="h12_mount" pos="0.054 0 0" quat="0.7071068 0 0.70710685 0" mass="0.506" contype="0" conaffinity="0" group="1" rgba="0.1 0.1 0.1 1"/>
+++                        <geom name="right_gripper_collision" class="collision" type="box" size="0.035 0.05 0.06"
+++                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0" contype="1" conaffinity="1"/>
+ +                      </body>
+                      </body>
+                    </body>
+                  </body>
+diff --git a/mjpc/tasks/humanoid_bench/lean/Lean_H12.xml b/mjpc/tasks/humanoid_bench/lean/Lean_H12.xml
+index db54ecd..7250f43 100644
+--- a/mjpc/tasks/humanoid_bench/lean/Lean_H12.xml
++++ b/mjpc/tasks/humanoid_bench/lean/Lean_H12.xml
+@@ -203,21 +203,21 @@
+              -> more forward margin. XML-tunable, no rebuild. -->
+         <numeric name="stance_off_x" data="0.13"/>
+         <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
+              torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
+              is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
+         <numeric name="lean_nominal_x" data="0.06"/>
+         <!-- recover_pitch_gain / recover_roll_gain (2026-06-20, strategy 20): the
+              HIP/ARM angular-momentum RECOVERY tier. Targets counter-momentum =
+              gain * capture_excursion (throw torso+arms opposite the fall) so the CoM
+              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
+-        <numeric name="recover_pitch_gain" data="-35.0"/>
++        <numeric name="recover_pitch_gain" data="0.0"/>
+         <numeric name="recover_roll_gain" data="0.0"/>
+         <!-- Default 1.70 matches the actual head-feet error at the home
+              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
+              The old 1.65 made the Height residual +0.05 at home with cost
+              ~1.1 per timestep (~76 over the 1.0s horizon), pulling the head
+              down by 5 cm during the upright stand_up phase. Max raised to
+              2.0 so the slider can sweep above the home value if needed. -->
+         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
+         <!-- Slider → strategy (user's 6-phase decomposition):
+                0 = pipeline_stand             (stand_up)
+@@ -237,21 +237,21 @@
+              GetStrategyNames in lean.h): 6 stand, 7 reach_forward, 8 crouch,
+              9 arms_sideways, 10 arms_forward, 11 arms_overhead,
+              12 single_arm_raise, 13 lean_left, 14 lean_right, 15 torso_twist,
+              16 counterbalance, 17 squat (cyclic), 18 squatter (native
+              stand<->crouch auto-cycle, made of strat 6 + 8),
+              19 jab (standing boxing jab: left arm guard, right arm punches
+              forward and retracts; 3-phase stand_up->jab_guard->jab_extend
+              auto-cycle with a stand lead-in; jab_extend gets a dedicated
+              right-hand forward reach reward so the punch fully extends).
+              Slider max raised 5 → 19 so these are reachable. -->
+-        <numeric name="residual_Strategy" data="5 0 21" />
++        <numeric name="residual_Strategy" data="5 0 35" />
+         <!-- Manual phase scrubber. -1 = auto-advance through keyframes
+              (default behaviour, runs the whole loaded pipeline). 0..6 =
+              hold at that keyframe index regardless of progress; auto-
+              advance disabled. Body state and weights smooth-ramp into
+              the new phase rather than reloading the strategy. Use this
+              to inspect transitions one-by-one (e.g. set Strategy=5 then
+              slide Phase 3→4→5) without the body snapping back to
+              stand_up on every strategy switch. -->
+         <numeric name="residual_Phase" data="-1 -1 5" />
+     </custom>
+diff --git a/mjpc/tasks/humanoid_bench/lean/Lean_H12_Hands.xml b/mjpc/tasks/humanoid_bench/lean/Lean_H12_Hands.xml
+index 591c64e..d171a2e 100644
+--- a/mjpc/tasks/humanoid_bench/lean/Lean_H12_Hands.xml
++++ b/mjpc/tasks/humanoid_bench/lean/Lean_H12_Hands.xml
+@@ -77,21 +77,21 @@
+              -> more forward margin. XML-tunable, no rebuild. -->
+         <numeric name="stance_off_x" data="0.13"/>
+         <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
+              torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
+              is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
+         <numeric name="lean_nominal_x" data="0.06"/>
+         <!-- recover_pitch_gain / recover_roll_gain (2026-06-20, strategy 20): the
+              HIP/ARM angular-momentum RECOVERY tier. Targets counter-momentum =
+              gain * capture_excursion (throw torso+arms opposite the fall) so the CoM
+              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
+-        <numeric name="recover_pitch_gain" data="-35.0"/>
++        <numeric name="recover_pitch_gain" data="0.0"/>
+         <numeric name="recover_roll_gain" data="0.0"/>
+         <!-- horizon restored to 1.0s (was 0.6) because the real-hardware-spec PD
+              gains (ankle kp=20, knee kp=200 — IsaacLab H1_CFG / Opt2Skill) are
+              too weak for MPC to recover balance within 0.6s of lookahead. 1.0s
+              lets the planner anticipate small drifts and apply the gradual
+              position offsets that turn into stabilising torques given the soft
+              PD. Sampling cost rises ~40% but balance is non-negotiable. -->
+         <numeric name="agent_horizon" data="1.0"/>
+         <!-- agent_timestep 0.015 -> 0.010 (2026-06-07): sim2sim fix, see Lean_H12.xml.
+              Planner rolls out at this dt (agent.cc:288); 0.015 mis-predicts the 5ms twin ->
+@@ -127,21 +127,21 @@
+              2.0 so the slider can sweep above the home value if needed. -->
+         <numeric name="residual_Height Goal" data="1.70 0.0 2.0"/>
+         <!-- Slider maps to GetStrategyNames() in lean.h; default 5 = full
+              pipeline (ends in a HELD two-foot forearm brace — leg-lift is
+              DROPPED 2026-05-26, both feet stay grounded; only WBC foot/hip
+              adjustment for the brace, never a leg lift). Indices 0-4 are
+              progressive prefix slices. Indices 6-16 are the standalone
+              simple-task strategies (see Lean_H12.xml + GetStrategyNames).
+              18 = native squatter (stand<->crouch auto-cycle, strat 6 + 8).
+              19 = jab (standing boxing jab: left guard, right arm punches). -->
+-        <numeric name="residual_Strategy" data="5 0 21" />
++        <numeric name="residual_Strategy" data="5 0 35" />
+         <!-- See Lean_H12.xml for the Phase slider semantics. -->
+         <numeric name="residual_Phase" data="-1 -1 5" />
+     </custom>
+ 
+     <sensor>
+         <!--        cost terms for lean task-->
+         <user name="humanoid_bench" dim="1" user="6 0.0 0.0 100.0 0.01"/>
+         <user name="Height" dim="1" user="6 100.0 0.0 100.0 0.1"/>
+         <user name="CoM Vel." dim="2" user="0 10.0 0.0 100.0"/>
+         <user name="Joint Vel." dim="27" user="0 0.01 0.0 0.1"/>
+diff --git a/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml b/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml
+index d285b50..9fa1cfb 100644
+--- a/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml
++++ b/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml
+@@ -203,21 +203,21 @@
+              -> more forward margin. XML-tunable, no rebuild. -->
+         <numeric name="stance_off_x" data="0.13"/>
+         <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
+              torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
+              is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
+         <numeric name="lean_nominal_x" data="0.06"/>
+         <!-- recover_pitch_gain / recover_roll_gain (2026-06-20, strategy 20): the
+              HIP/ARM angular-momentum RECOVERY tier. Targets counter-momentum =
+              gain * capture_excursion (throw torso+arms opposite the fall) so the CoM
+              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
+-        <numeric name="recover_pitch_gain" data="-35.0"/>
++        <numeric name="recover_pitch_gain" data="0.0"/>
+         <numeric name="recover_roll_gain" data="0.0"/>
+         <!-- Default 1.70 matches the actual head-feet error at the home
+              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
+              The old 1.65 made the Height residual +0.05 at home with cost
+              ~1.1 per timestep (~76 over the 1.0s horizon), pulling the head
+              down by 5 cm during the upright stand_up phase. Max raised to
+              2.0 so the slider can sweep above the home value if needed. -->
+         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
+         <!-- Slider → strategy (user's 6-phase decomposition):
+                0 = pipeline_stand             (stand_up)
+@@ -237,21 +237,21 @@
+              GetStrategyNames in lean.h): 6 stand, 7 reach_forward, 8 crouch,
+              9 arms_sideways, 10 arms_forward, 11 arms_overhead,
+              12 single_arm_raise, 13 lean_left, 14 lean_right, 15 torso_twist,
+              16 counterbalance, 17 squat (cyclic), 18 squatter (native
+              stand<->crouch auto-cycle, made of strat 6 + 8),
+              19 jab (standing boxing jab: left arm guard, right arm punches
+              forward and retracts; 3-phase stand_up->jab_guard->jab_extend
+              auto-cycle with a stand lead-in; jab_extend gets a dedicated
+              right-hand forward reach reward so the punch fully extends).
+              Slider max raised 5 → 19 so these are reachable. -->
+-        <numeric name="residual_Strategy" data="5 0 21" />
++        <numeric name="residual_Strategy" data="5 0 35" />
+         <!-- Manual phase scrubber. -1 = auto-advance through keyframes
+              (default behaviour, runs the whole loaded pipeline). 0..6 =
+              hold at that keyframe index regardless of progress; auto-
+              advance disabled. Body state and weights smooth-ramp into
+              the new phase rather than reloading the strategy. Use this
+              to inspect transitions one-by-one (e.g. set Strategy=5 then
+              slide Phase 3→4→5) without the body snapping back to
+              stand_up on every strategy switch. -->
+         <numeric name="residual_Phase" data="-1 -1 5" />
+     </custom>
+diff --git a/mjpc/tasks/humanoid_bench/lean/lean.cc b/mjpc/tasks/humanoid_bench/lean/lean.cc
+index d1a3d02..2e48c2d 100644
+--- a/mjpc/tasks/humanoid_bench/lean/lean.cc
++++ b/mjpc/tasks/humanoid_bench/lean/lean.cc
+@@ -414,54 +414,62 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
+       posture_target = stumble_posture_target;
+     }
+   }
+ 
+   // ----- object position ----- //
+   double const *object_pos = SensorByName(model, data, "object_pos");
+ 
+   // ----- Determine which hand reaches and which braces ----- //
+   double const *left_hand_pos = SensorByName(model, data, "left_hand_pos");
+   double const *right_hand_pos = SensorByName(model, data, "right_hand_pos");
++  // torso_pos needed here for AUTO arm-side selection; also used below for
++  // brace target computation. Declared once, reused in both places.
++  double *torso_pos = SensorByName(model, data, "torso_position");
+ 
+-  // Right arm always braces on the table; left arm always reaches for the
+-  // object. body1=28 in the contact keyframes targets the right hand body, so
+-  // the reaching/bracing assignment must stay fixed — dynamic switching based
+-  // on object position causes both arms to be pulled toward the table
+-  // simultaneously, creating an irresolvable contradiction.
+-  constexpr bool left_reaches = true;
+-  double const *reaching_hand = left_hand_pos;
+-  double const *bracing_hand  = right_hand_pos;
++  // Auto-arm selection shared by counterbalance + forearm-brace phases (the
++  // reach_to_target branch does its own identical pick). reach_hand numeric:
++  // 0 = AUTO (mocap target y < torso y -> right hand reaches), 1 = force LEFT,
++  // 2 = force RIGHT. The OTHER arm always braces/counterweights.
++  int rh_id_sel = mj_name2id(model, mjOBJ_NUMERIC, "reach_hand");
++  int rh_sel = (rh_id_sel >= 0)
++      ? (int)std::lround(model->numeric_data[model->numeric_adr[rh_id_sel]])
++      : 0;
++  bool reach_right = (rh_sel == 2) ? true
++                   : (rh_sel == 1) ? false
++                   : (data->mocap_pos[1] < torso_pos[1]);
++  double const *reaching_hand = reach_right ? right_hand_pos : left_hand_pos;
++  double const *bracing_hand  = reach_right ? left_hand_pos  : right_hand_pos;
+ 
+   //------------- Reward calculation --------------//
+   double const hand_dist_penalty = 1.0;
+   double const brace_reward = 0.5;
+   double const success = 1000;
+   // double const retrieve_reward = 1000;
+ 
+   // ----- reaching hand position ----- //
+   double hand_dist = mju_dist3(reaching_hand, object_pos);
+ 
+   // ----- Contact forces ----- //
+   double *left_contact = SensorByName(model, data, "left_hand_contact");
+   double *right_contact = SensorByName(model, data, "right_hand_contact");
+-  double brace_contact_force = left_reaches ? right_contact[0] : left_contact[0];
+-  double reach_contact_force = left_reaches ? left_contact[0] : right_contact[0];
++  double brace_contact_force = reach_right ? left_contact[0] : right_contact[0];
++  double reach_contact_force = reach_right ? right_contact[0] : left_contact[0];
+ 
+   double reward = 0;
+ 
+   // Bracing position calculation. Reverted Y-clamp (was test 14) → back
+   // to bracing_hand[1] (test 12 state). User confirmed test 14 introduced
+   // chaotic early-phase behaviour. Y free means no restoring force on
+   // lateral position; the eventual ~60s slip seen in test 12 is the
+   // known trade-off for accepting this baseline.
+   double const *table_pos = SensorByName(model, data, "table_surface_pos");
+-  double *torso_pos = SensorByName(model, data, "torso_position");
++  // torso_pos declared above (near arm-selection) to keep one definition.
+ 
+   // ----- Phase-dependent reach target ------------------------------------//
+   // For most phases the reach residual targets the actual `object_pos`
+   // (set by mocap to wherever the next task object is). But during the
+   // posture-driven `arm_extend_standing` phase we DON'T want the body to
+   // twist toward an off-centre object — the goal is "arm forward, body
+   // squared up." So we override the target to a fixed point directly in
+   // front of the left shoulder. Reach gradient pulls the LEFT hand
+   // straight forward, no lateral component, no body-twist incentive.
+   //
+@@ -489,40 +497,42 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
+   // target (0.55) let the elbow stay folded; pushing it out straightens the reach
+   // so the hand extends further in front. The free right arm + hips swing back to
+   // counterbalance. z = 0.75 is BELOW torso (~1.03) so reach_dir points
+   // forward-DOWN — that is what lets `Torso Forward Tilt` (JSON weight, off in the
+   // upright variant) pitch the torso FORWARD into the reach instead of leaning
+   // back; a shoulder-height target gave reach_dir UP, so the only balance response
+   // to the forward arm was a BACKWARD lean (measured −7.5°). Forward distance and
+   // lean depth are the SAME knob: a further/lower target = deeper lean = bigger
+   // counter-arm swing. Pipeline's `arm_extend_standing` override (above) untouched.
+   else if (residual_keyframe_.name == "counterbalance_standing") {
+-    double const *fl = SensorByName(model, data, "foot_left_pos");
+-    double const *fr = SensorByName(model, data, "foot_right_pos");
+-    phase1_target_storage[0] = 0.5 * (fl[0] + fr[0]) + 0.70;
+-    phase1_target_storage[1] = 0.5 * (fl[1] + fr[1]) + 0.15;
+-    phase1_target_storage[2] = 0.75;
++    // Counterbalance (Strategy 16 pre-lean + pipeline stage 33): the reaching
++    // arm pulls toward the LIVE mocap object (world-fixed, so the reach error
++    // shrinks as the body bows in -> self-limiting, no runaway). NO sphere clamp
++    // (unlike reach_to_target): an out-of-reach object is exactly what makes the
++    // torso lean forward, with the free arm + hips swinging back to counterweight.
++    // Lean depth is bounded by Pelvis Tilt / Torso Forward Tilt (JSON lean knobs).
++    mju_copy3(phase1_target_storage, data->mocap_pos);
+     reach_target = phase1_target_storage;
+   }
+   // jab_extend (Strategy 19): the RIGHT arm punches straight forward. Posture
+   // alone (one arm joint out of ~30) is too weak a reward for the warm-started
+   // policy to commit to the big shoulder excursion — it leaves the arms hovering
+   // near the guard pose (user report: "guard held for a minute, never jabs").
+   // Give the punch a DEDICATED reach reward: repoint the reaching hand to the
+   // RIGHT fist and target a fixed point one arm-length forward of the right
+   // shoulder at shoulder height — a mirror of the proven arm_extend_standing
+   // forward override with y flipped to the right side. The reach residual
+   // (Reaching Hand Dist, enabled ONLY in the jab_extend JSON phase) then pulls
+   // the fist out with a steep, targeted gradient the warm-start mean drifts
+   // toward; the left arm holds guard via Posture. Gated on the keyframe name so
+-  // no other strategy's reach assignment is touched (left_reaches stays true
+-  // everywhere else).
++  // no other strategy's reach assignment is touched (auto arm-selection via the
++  // outer reach_right covers the other branches).
+   else if (residual_keyframe_.name == "jab_extend") {
+     reaching_hand = right_hand_pos;
+     // Target = the FK-measured location of the right fist at FULL straight
+     // extension, expressed relative to torso_position. Measured (jab_fk.py,
+     // build Lean_H12) for the jab_extend keyframe: fist is dx=+0.498, dy=-0.085,
+     // dz=+0.366 from torso_position (torso sits at z~1.225, the extended fist at
+     // z~1.59 — torso_position is well BELOW the shoulder, so a torso_z-0.05
+     // "shoulder height" guess like arm_extend_standing uses puts the target
+     // ~0.4 m too LOW and the planner punches DOWN with a bent elbow). x pushed a
+     // touch past 0.498 to demand the elbow fully straighten rather than fold to
+@@ -568,28 +578,28 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
+     double const *in_target = data->mocap_pos;
+     // Hand selection via the `reach_hand` numeric: 0/absent = AUTO (the nearer
+     // hand — target on the robot's right, y below torso, picks the right hand),
+     // 1 = force LEFT, 2 = force RIGHT. Forcing a hand lets a future lean/grasp
+     // pipeline keep the other arm free (e.g. brace with the left, reach with the
+     // right) instead of letting target geometry decide.
+     int rh_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_hand");
+     int rh_mode = (rh_id >= 0)
+         ? (int)std::lround(model->numeric_data[model->numeric_adr[rh_id]])
+         : 0;
+-    bool reach_right = (rh_mode == 2) ? true
++    bool reach_right_reach = (rh_mode == 2) ? true
+                      : (rh_mode == 1) ? false
+                      : (in_target[1] < torso_pos[1]);   // 0/auto
+-    reaching_hand = reach_right ? right_hand_pos : left_hand_pos;
++    reaching_hand = reach_right_reach ? right_hand_pos : left_hand_pos;
+     // Shoulder anchor = torso_position + FK-measured offset (MJPC frame):
+     // (+0.000, +-0.148, +0.219); rest |shoulder->hand| = 0.524.
+     double shoulder[3] = {torso_pos[0],
+-                          torso_pos[1] + (reach_right ? -0.148 : 0.148),
++                          torso_pos[1] + (reach_right_reach ? -0.148 : 0.148),
+                           torso_pos[2] + 0.219};
+     double v[3];
+     mju_sub3(v, in_target, shoulder);
+     double r = mju_norm3(v);
+     // R=0.50 keeps the elbow a touch bent (rest reach 0.524) so the arm never
+     // locks straight into a strut at full extension.
+     constexpr double kReachRadius = 0.50;
+     if (r > kReachRadius && r > 1e-6) {
+       mju_scl3(v, v, kReachRadius / r);          // project onto the sphere
+       mju_add3(phase1_target_storage, shoulder, v);
+@@ -606,21 +616,22 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
+   // torso_y -0.209) — an inboard brace gives almost no lateral support, so the
+   // {L_foot, R_hand} base is narrow and the body tips sideways (user-reported).
+   // Targeting torso_y - 0.24 places the palm just to the right of the shoulder
+   // joint → a near-vertical force path (plank-like) and a WIDE lateral base
+   // coupled with the left foot. The phase_brace_pos_scale ramp still gates this
+   // to the brace phases (it's 0 in stand/extend), so non-brace phases are
+   // unaffected. Pairs with the contact local_pos2 y = -0.24 in the strategy
+   // JSONs (hand + elbow share the same Y → forearm parallel to x, not slanted).
+   double ideal_brace[3] = {
+       torso_pos[0] + 0.4 * torso_to_table_x,  // Partway between torso and far edge
+-      torso_pos[1] - 0.24,                     // under/just-right-of R shoulder joint
++      // bracing arm = the OTHER arm (reach_right -> left arm braces, so +0.24).
++      torso_pos[1] + (reach_right ? 0.24 : -0.24),
+       // 2026-05-22: press TARGET 6 cm BELOW the surface (was -0.02). Under the
+       // real-robot (doc) ROM the bracing forearm stalled ~7 cm ABOVE the table:
+       // with the target only 2 cm under the surface the downward Brace-Pos pull
+       // faded before contact, so no contact + no brace force formed and the lean
+       // tipped. A deeper press target sustains the pull through to firm forearm
+       // contact (the table collision arrests the hand at the surface and converts
+       // the residual press into the brace force the Brace-Force cost rewards).
+       table_pos[2] - 0.06
+   };
+ 
+diff --git a/mjpc/tasks/humanoid_bench/lean/lean.h b/mjpc/tasks/humanoid_bench/lean/lean.h
+index 1a5aa91..4dec80d 100644
+--- a/mjpc/tasks/humanoid_bench/lean/lean.h
++++ b/mjpc/tasks/humanoid_bench/lean/lean.h
+@@ -259,32 +259,40 @@ class lean : public Task {
+                                          //    gait clock alternates the feet (antiphase, ~1.6 Hz,
+                                          //    duty 0.65, 6 cm step) so the robot STEPS IN PLACE to
+                                          //    stay up ("stumble") and WALKS when a desired CoM
+                                          //    velocity is commanded (nav-package hook in lean.cc).
+                                          //    Unlike every other lean strategy (both feet planted,
+                                          //    ankle-only balance) it RELOCATES the support polygon
+                                          //    under the CoM -> escapes the weak-ankle ceiling. New
+                                          //    Gait + Step Place cost terms, name-gated; Symmetry/
+                                          //    Lateral Center/Knees OFF (stepping breaks the static-
+                                          //    stance symmetry on purpose).
+-            "h12_simple_reach"};         // 21 reach-to-target: standalone REACH
++            "h12_simple_reach",          // 21 reach-to-target: standalone REACH
+                                          //    primitive. A stand_up LEAD-IN (reach_stand)
+                                          //    settles balance, THEN the nearer hand reaches an
+                                          //    EXTERNAL target (object_pos mocap = the `reach_target`
+                                          //    numeric, or a vision/nav input) while the body stays
+                                          //    upright and the feet planted -- no lean, no brace. The
+                                          //    target is auto-clamped to a balance-safe workspace box
+                                          //    (lean.cc reach_to_target): in-reach => hand on target,
+                                          //    out-of-reach => fully-extended arm, still standing
+                                          //    (the beyond-reach regime is LEAN's job). The reusable
+                                          //    base primitive for pick/retrieve; the lean pipeline is
+                                          //    this reach + brace + whole-body pitch for FAR targets.
++            "h12_simple_forearm_brace",  // 22  pre-lean forearm brace
++            "h12_simple_stand", "h12_simple_stand", "h12_simple_stand", "h12_simple_stand", // 23-26 reserved
++            "h12_simple_stand", "h12_simple_stand", "h12_simple_stand", "h12_simple_stand", // 27-30 reserved
++            "h12_lean_stand",            // 31
++            "h12_lean_reach",            // 32
++            "h12_lean_counterbalance",   // 33
++            "h12_lean_brace",            // 34
++            "h12_lean_full"};            // 35
+   }
+ 
+   // Live per-phase weight blending --------------------------------------- //
+   // Per-phase keyframes in the strategy JSON carry a `weight: { name: val }`
+   // map. On phase advance we snapshot the live cost weights, compute the new
+   // phase's targets (JSON override OR XML default for missing keys), and ramp
+   // weight[] from snapshot → target over kPhaseRampSeconds using the same
+   // smoothstep curve the residual uses for reach/brace/posture scales.
+   // This lets the user isolate behaviours from the strategy file alone:
+   // setting "Brace Pos": 0 in a phase silences brace cost without recompiling.
+@@ -390,17 +398,25 @@ class Lean_H12_Hands : public lean {
+             "h12_hands_simple_lean_left",
+             "h12_hands_simple_lean_right",
+             "h12_hands_simple_torso_twist",
+             "h12_hands_simple_counterbalance",  // 16 (mirrors Lean_H12 slot 16)
+             "h12_hands_simple_squat",   // 17 cyclic squat (mirrors Lean_H12 slot 17)
+             "h12_hands_simple_squatter",  // 18 native squatter (mirrors Lean_H12 slot 18)
+             "h12_hands_simple_jab",     // 19 standing boxing jab (mirrors Lean_H12 slot 19).
+                                         //    Right-arm punch tracks only partially on the
+                                         //    Hands model (Posture dim 27 misses the right arm).
+             "h12_hands_simple_stumble",  // 20 gait-clock stepping (mirrors Lean_H12 slot 20).
+-            "h12_hands_simple_reach"};   // 21 reach-to-target (mirrors Lean_H12 slot 21).
++            "h12_hands_simple_reach",    // 21 reach-to-target (mirrors Lean_H12 slot 21).
++            "h12_hands_simple_forearm_brace",  // 22  pre-lean forearm brace
++            "h12_hands_simple_stand", "h12_hands_simple_stand", "h12_hands_simple_stand", "h12_hands_simple_stand", // 23-26 reserved
++            "h12_hands_simple_stand", "h12_hands_simple_stand", "h12_hands_simple_stand", "h12_hands_simple_stand", // 27-30 reserved
++            "h12_hands_lean_stand",            // 31
++            "h12_hands_lean_reach",            // 32
++            "h12_hands_lean_counterbalance",   // 33
++            "h12_hands_lean_brace",            // 34
++            "h12_hands_lean_full"};            // 35
+   }
+ };
+ 
+ }  // namespace mjpc
+ 
+ #endif  // MJPC_TASKS_HUMANOID_BENCH_LEAN_LEAN_H_
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/_gen_lean_pipeline.py b/mjpc/tasks/humanoid_bench/lean/strategies/_gen_lean_pipeline.py
+new file mode 100644
+index 0000000..fd0656b
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/_gen_lean_pipeline.py
+@@ -0,0 +1,56 @@
++#!/usr/bin/env python3
++"""Generate the 31-35 lean pipeline JSONs from the <30 pre-lean twins.
++Single source of truth: each pipeline phase = strat-6 leg-core + the stage's
++arm/lean overrides. Run by the build (mjpc/tasks/CMakeLists.txt) and by hand.
++"""
++import json, os, copy
++HERE = os.path.dirname(os.path.abspath(__file__))
++
++def load(name): return json.load(open(os.path.join(HERE, name + ".json")))
++def dump(name, phases):
++    json.dump(phases, open(os.path.join(HERE, name + ".json"), "w"), indent=4)
++
++CORE = {"Foot Left Up":2000.0,"Foot Right Up":2000.0,"Foot Stability":15.0,
++        "Hip Yaw L":20.0,"Hip Roll L":20.0,"Hip Yaw R":20.0,"Hip Roll R":20.0,
++        "Lateral Center":150.0,"Symmetry":200.0,"Angular Momentum":5.0,"Balance":2.5,
++        "CoM Vel.":10.0,"Velocity":0.625,"Joint Vel.":0.01,"Joint Vel. Limit":5.0,
++        "Waist Yaw":30.0,"Control":0.05,"Posture":12.0}
++NO_CONTACT = [{"body1":-1,"body2":-1,"geom1":-1,"geom2":-1,
++               "local_pos1":[0,0,0],"local_pos2":[0,0,0]} for _ in range(5)]
++
++def phase(src_json, idx, name, sustain, ramp):
++    """Build one ladder phase: src's terminal weight block, leg-core re-anchored."""
++    w = copy.deepcopy(src_json[-1]["weight"])
++    w.update(CORE)                      # enforce the standing-core anchor
++    p = copy.deepcopy(src_json[-1])
++    p["weight"] = w
++    p["name"] = name
++    p["success_sustain_time"] = sustain
++    p["target_ramp_sec"] = ramp
++    p.setdefault("contacts", NO_CONTACT)
++    return p
++
++def build(prefix):
++    # prefix is "h12_" (base/magpie) or "h12_hands_" (hands). Pre-lean files are
++    # "<prefix>simple_*"; generated ladder files are "<prefix>lean_*".
++    stand  = load(prefix + "simple_stand")
++    reach  = load(prefix + "simple_reach")
++    cbal   = load(prefix + "simple_counterbalance")
++    brace  = load(prefix + "simple_forearm_brace")
++    # ladder phase definitions: (src, phase-name, lead-in sustain, ramp)
++    P_stand = phase(stand, 0, "stand_up",                5.0, 1.5)
++    P_reach = phase(reach, 1, "reach_to_target",         4.0, 2.0)
++    P_cbal  = phase(cbal,  2, "counterbalance_standing", 4.0, 2.0)
++    P_brace = phase(brace, 3, "forearm_brace_lean",      4.0, 15.0)
++    held = lambda p: {**copy.deepcopy(p), "success_sustain_time": 9999.0}
++    out = prefix + "lean_"   # "h12_lean_" or "h12_hands_lean_"
++    # cumulative-prefix ladder; last phase of each truncation is held
++    dump(out + "stand",          [held(P_stand)])
++    dump(out + "reach",          [P_stand, held(P_reach)])
++    dump(out + "counterbalance", [P_stand, P_reach, held(P_cbal)])
++    dump(out + "brace",          [P_stand, P_reach, P_cbal, held(P_brace)])
++    dump(out + "full",           [P_stand, P_reach, P_cbal, P_brace])  # 35: all finite
++
++build("h12_")          # base / magpie names: h12_lean_*
++build("h12_hands_")    # hands names: h12_hands_lean_*
++print("generated 31-35 ladder JSONs")
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_brace.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_brace.json
+new file mode 100644
+index 0000000..77a52d5
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_brace.json
+@@ -0,0 +1,497 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Foot Stability": 15.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 4.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "forearm_brace_lean",
++        "success_sustain_time": 9999.0,
++        "target_ramp_sec": 15.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "brace_force_target": 15.0,
++        "weight": {
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0,
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 20.0,
++            "Reaching Hand Dist": 80.0,
++            "Object Dist": 0.0,
++            "Brace Pos": 120.0,
++            "Brace Force": 60.0,
++            "Contact": 30.0
++        }
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_counterbalance.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_counterbalance.json
+new file mode 100644
+index 0000000..210120c
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_counterbalance.json
+@@ -0,0 +1,376 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Foot Stability": 15.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 9999.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_full.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_full.json
+new file mode 100644
+index 0000000..ce16591
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_full.json
+@@ -0,0 +1,497 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Foot Stability": 15.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 4.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "forearm_brace_lean",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 15.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "brace_force_target": 15.0,
++        "weight": {
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0,
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 20.0,
++            "Reaching Hand Dist": 80.0,
++            "Object Dist": 0.0,
++            "Brace Pos": 120.0,
++            "Brace Force": 60.0,
++            "Contact": 30.0
++        }
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_reach.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_reach.json
+new file mode 100644
+index 0000000..dcca7de
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_reach.json
+@@ -0,0 +1,258 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Foot Stability": 15.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 9999.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_stand.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_stand.json
+new file mode 100644
+index 0000000..abdd98a
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_lean_stand.json
+@@ -0,0 +1,128 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 9999.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Foot Stability": 15.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_counterbalance.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_counterbalance.json
+index d79e771..8227ef2 100644
+--- a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_counterbalance.json
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_counterbalance.json
+@@ -83,19 +83,37 @@
+             }
+         ],
+         "facing_target": [],
+         "name": "counterbalance_standing",
+         "success_sustain_time": 9999.0,
+         "target_distance_tolerance": 0.3,
+         "time_limit": 9999.0,
+         "weight": {
+             "Pelvis Tilt": 50.0,
+             "Torso Forward Tilt": 15.0,
+-            "Foot Stability": 60.0,
++            "Foot Stability": 15.0,
+             "Object Dist": 100.0,
+             "Reaching Hand Dist": 80.0,
+-            "Balance": 1.5,
+-            "Posture": 12.0
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
+         },
+         "brace_force_target": 0.0
+     }
+ ]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_forearm_brace.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_forearm_brace.json
+new file mode 100644
+index 0000000..faae049
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_hands_simple_forearm_brace.json
+@@ -0,0 +1,29 @@
++[
++  {
++    "contacts": [
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]}
++    ],
++    "facing_target": [],
++    "name": "forearm_brace_lean",
++    "success_sustain_time": 9999.0,
++    "target_ramp_sec": 15.0,
++    "target_distance_tolerance": 0.3,
++    "time_limit": 9999.0,
++    "brace_force_target": 15.0,
++    "weight": {
++      "Posture": 12.0, "Balance": 2.5, "Symmetry": 200.0, "Angular Momentum": 5.0,
++      "Lateral Center": 150.0, "CoM Vel.": 10.0, "Velocity": 0.625, "Joint Vel.": 0.01,
++      "Joint Vel. Limit": 5.0, "Waist Yaw": 30.0, "Control": 0.05, "Foot Stability": 15.0,
++      "Foot Left Up": 2000.0, "Foot Right Up": 2000.0,
++      "Hip Yaw L": 20.0, "Hip Roll L": 20.0, "Hip Yaw R": 20.0, "Hip Roll R": 20.0,
++      "Base Height": 450.0, "Height": 100.0, "Knees Straight": 40.0,
++      "Pelvis Tilt": 50.0, "Torso Forward Tilt": 20.0,
++      "Reaching Hand Dist": 80.0, "Object Dist": 0.0,
++      "Brace Pos": 120.0, "Brace Force": 60.0, "Contact": 30.0
++    }
++  }
++]
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_brace.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_brace.json
+new file mode 100644
+index 0000000..ecfd404
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_brace.json
+@@ -0,0 +1,501 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 4.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "forearm_brace_lean",
++        "success_sustain_time": 9999.0,
++        "target_ramp_sec": 15.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "brace_force_target": 15.0,
++        "weight": {
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0,
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 20.0,
++            "Reaching Hand Dist": 80.0,
++            "Object Dist": 0.0,
++            "Brace Pos": 120.0,
++            "Brace Force": 60.0,
++            "Contact": 30.0
++        }
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_counterbalance.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_counterbalance.json
+new file mode 100644
+index 0000000..616130b
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_counterbalance.json
+@@ -0,0 +1,380 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 9999.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_full.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_full.json
+new file mode 100644
+index 0000000..531826a
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_full.json
+@@ -0,0 +1,501 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "counterbalance_standing",
++        "success_sustain_time": 4.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 15.0,
++            "Foot Stability": 15.0,
++            "Object Dist": 100.0,
++            "Reaching Hand Dist": 80.0,
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 2.0
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0,
++                    0,
++                    0
++                ],
++                "local_pos2": [
++                    0,
++                    0,
++                    0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "forearm_brace_lean",
++        "success_sustain_time": 4.0,
++        "target_ramp_sec": 15.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "brace_force_target": 15.0,
++        "weight": {
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0,
++            "Pelvis Tilt": 50.0,
++            "Torso Forward Tilt": 20.0,
++            "Reaching Hand Dist": 80.0,
++            "Object Dist": 0.0,
++            "Brace Pos": 120.0,
++            "Brace Force": 60.0,
++            "Contact": 30.0
++        }
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_reach.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_reach.json
+new file mode 100644
+index 0000000..a65236d
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_reach.json
+@@ -0,0 +1,262 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 5.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    },
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "reach_to_target",
++        "success_sustain_time": 9999.0,
++        "target_ramp_sec": 2.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 120.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_stand.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_stand.json
+new file mode 100644
+index 0000000..abb5953
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_lean_stand.json
+@@ -0,0 +1,132 @@
++[
++    {
++        "contacts": [
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            },
++            {
++                "body1": -1,
++                "body2": -1,
++                "geom1": -1,
++                "geom2": -1,
++                "local_pos1": [
++                    0.0,
++                    0.0,
++                    0.0
++                ],
++                "local_pos2": [
++                    0.0,
++                    0.0,
++                    0.0
++                ]
++            }
++        ],
++        "facing_target": [],
++        "name": "stand_up",
++        "success_sustain_time": 9999.0,
++        "target_distance_tolerance": 0.3,
++        "time_limit": 9999.0,
++        "weight": {
++            "humanoid_bench": 0.0,
++            "Object Dist": 0.0,
++            "Reaching Hand Dist": 0.0,
++            "Brace Pos": 0.0,
++            "Brace Force": 0.0,
++            "Contact": 0.0,
++            "Left Leg Anchor": 0.0,
++            "Right Foot Lift": 0.0,
++            "Pelvis Forward": 0.0,
++            "Support Polygon": 0.0,
++            "Body Yaw": 0.0,
++            "Body Table Clearance": 0.0,
++            "Hip Clearance": 0.0,
++            "Leg Clearance": 0.0,
++            "Torso Forward Tilt": 0.0,
++            "Posture": 12.0,
++            "Balance": 2.5,
++            "Symmetry": 200.0,
++            "Base Height": 450.0,
++            "Angular Momentum": 5.0,
++            "Lateral Center": 150.0,
++            "Height": 100.0,
++            "CoM Vel.": 10.0,
++            "Joint Vel.": 0.01,
++            "Pelvis Tilt": 100.0,
++            "Foot Right Up": 2000.0,
++            "Foot Left Up": 2000.0,
++            "Waist Yaw": 30.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Velocity": 0.625,
++            "Control": 0.05,
++            "Foot Stability": 15.0,
++            "Joint Vel. Limit": 5.0,
++            "Knees Straight": 40.0
++        },
++        "brace_force_target": 0.0,
++        "target_ramp_sec": 1.5
++    }
++]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_counterbalance.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_counterbalance.json
+index d79e771..8227ef2 100644
+--- a/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_counterbalance.json
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_counterbalance.json
+@@ -83,19 +83,37 @@
+             }
+         ],
+         "facing_target": [],
+         "name": "counterbalance_standing",
+         "success_sustain_time": 9999.0,
+         "target_distance_tolerance": 0.3,
+         "time_limit": 9999.0,
+         "weight": {
+             "Pelvis Tilt": 50.0,
+             "Torso Forward Tilt": 15.0,
+-            "Foot Stability": 60.0,
++            "Foot Stability": 15.0,
+             "Object Dist": 100.0,
+             "Reaching Hand Dist": 80.0,
+-            "Balance": 1.5,
+-            "Posture": 12.0
++            "Balance": 2.5,
++            "Posture": 12.0,
++            "Foot Left Up": 2000.0,
++            "Foot Right Up": 2000.0,
++            "Hip Yaw L": 20.0,
++            "Hip Roll L": 20.0,
++            "Hip Yaw R": 20.0,
++            "Hip Roll R": 20.0,
++            "Lateral Center": 150.0,
++            "Symmetry": 200.0,
++            "Angular Momentum": 5.0,
++            "CoM Vel.": 10.0,
++            "Velocity": 0.625,
++            "Joint Vel.": 0.01,
++            "Joint Vel. Limit": 5.0,
++            "Waist Yaw": 30.0,
++            "Control": 0.05,
++            "Base Height": 450.0,
++            "Height": 100.0,
++            "Knees Straight": 40.0
+         },
+         "brace_force_target": 0.0
+     }
+ ]
+\ No newline at end of file
+diff --git a/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_forearm_brace.json b/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_forearm_brace.json
+new file mode 100644
+index 0000000..faae049
+--- /dev/null
++++ b/mjpc/tasks/humanoid_bench/lean/strategies/h12_simple_forearm_brace.json
+@@ -0,0 +1,29 @@
++[
++  {
++    "contacts": [
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]},
++      {"body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0,0,0], "local_pos2": [0,0,0]}
++    ],
++    "facing_target": [],
++    "name": "forearm_brace_lean",
++    "success_sustain_time": 9999.0,
++    "target_ramp_sec": 15.0,
++    "target_distance_tolerance": 0.3,
++    "time_limit": 9999.0,
++    "brace_force_target": 15.0,
++    "weight": {
++      "Posture": 12.0, "Balance": 2.5, "Symmetry": 200.0, "Angular Momentum": 5.0,
++      "Lateral Center": 150.0, "CoM Vel.": 10.0, "Velocity": 0.625, "Joint Vel.": 0.01,
++      "Joint Vel. Limit": 5.0, "Waist Yaw": 30.0, "Control": 0.05, "Foot Stability": 15.0,
++      "Foot Left Up": 2000.0, "Foot Right Up": 2000.0,
++      "Hip Yaw L": 20.0, "Hip Roll L": 20.0, "Hip Yaw R": 20.0, "Hip Roll R": 20.0,
++      "Base Height": 450.0, "Height": 100.0, "Knees Straight": 40.0,
++      "Pelvis Tilt": 50.0, "Torso Forward Tilt": 20.0,
++      "Reaching Hand Dist": 80.0, "Object Dist": 0.0,
++      "Brace Pos": 120.0, "Brace Force": 60.0, "Contact": 30.0
++    }
++  }
++]
