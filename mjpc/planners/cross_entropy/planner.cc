@@ -366,7 +366,6 @@ void CrossEntropyPlanner::AddNoiseToPolicy(int i, double std_min) {
 
   // dimensions
   int num_spline_points = candidate_policy[i].num_spline_points;
-  int num_parameters = num_spline_points * model->nu;
 
   // sampling token
   absl::BitGen gen_;
@@ -378,9 +377,22 @@ void CrossEntropyPlanner::AddNoiseToPolicy(int i, double std_min) {
   // variance[k] is the standard deviation for the k^th control parameter over
   // the elite samples we draw a bunch of control actions from this distribution
   // (which i indexes) - the noise is stored in `noise`.
-  for (int k = 0; k < num_parameters; k++) {
-    noise[k + shift] = absl::Gaussian<double>(
-        gen_, 0.0, std::max(std::sqrt(variance[k]), std_min));
+  // ACTION-LEVEL annealing (foot-lift Tier C, 2026-06-24): far-horizon spline
+  // knots sample at HIGHER variance than near-term knots, so an aggressive future
+  // swing/flight phase can be proposed without destabilising the immediate
+  // committed action (DIAL-MPC's horizon_diffuse_factor). knot_growth=0 -> uniform
+  // (legacy default) -> byte-identical for every other strategy/task.
+  double knot_growth = GetNumberOrDefault(0.0, model, "sampling_knot_var_growth");
+  for (int t = 0; t < num_spline_points; t++) {
+    double knot_frac = (num_spline_points > 1)
+                           ? static_cast<double>(t) / (num_spline_points - 1)
+                           : 0.0;
+    double knot_scale = 1.0 + knot_growth * knot_frac;
+    for (int j = 0; j < model->nu; j++) {
+      int k = t * model->nu + j;
+      noise[k + shift] = absl::Gaussian<double>(
+          gen_, 0.0, std::max(std::sqrt(variance[k]), std_min) * knot_scale);
+    }
   }
 
   for (int k = 0; k < candidate_policy[i].plan.Size(); k++) {

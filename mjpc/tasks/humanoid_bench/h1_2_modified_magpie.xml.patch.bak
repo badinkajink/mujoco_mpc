@@ -32,7 +32,7 @@
                    <!-- <geom class="visual" mesh="right_ankle_roll_link"/> -->
                    <!-- <geom class="foot1"/>
                    <geom class="foot2"/>
-@@ -272,6 +273,27 @@
+@@ -272,6 +273,17 @@
                        <geom class="collision" type="capsule" size="0.025" fromto="0 0 0 0.13 0 0"/>
                        <geom class="collision" type="sphere" size="0.033" pos="0.13 0 0"/>
                        <site name="left_hand" pos="0.17 0 0.0" size="0.01" rgba="0 1 0 1"/>
@@ -46,21 +46,11 @@
 +                        <geom type="mesh" mesh="h12_mount" pos="0.054 0 0" quat="0.7071068 0 0.70710685 0" mass="0.506" contype="0" conaffinity="0" group="1" rgba="0.1 0.1 0.1 1"/>
 +                        <geom name="left_gripper_collision" class="collision" type="box" size="0.035 0.05 0.06"
 +                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0" contype="1" conaffinity="1"/>
-+                        <!-- gripper-gripper KEEP-AWAY (2026-06-25): planning-only buffer on a
-+                             dedicated collision channel (contype/conaffinity bit 2) so the two
-+                             grippers repel each OTHER with a 2.5 cm soft margin, but are INVISIBLE
-+                             to the floor/brace-table/body (everything real uses bit 1) -> zero
-+                             sim2real contact-parity impact. Stops the near-collision the user saw
-+                             when the arms flailed inward. mass/density 0 = no dynamics change. -->
-+                        <geom name="left_gripper_keepaway" type="box" size="0.045 0.065 0.07"
-+                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0"
-+                              contype="2" conaffinity="2" group="3" mass="0" density="0"
-+                              margin="0.025" rgba="1 0.35 0 0.18"/>
 +                      </body>
                      </body>
                    </body>
                  </body>
-@@ -323,6 +345,24 @@
+@@ -323,6 +335,17 @@
                        <geom class="collision" type="capsule" size="0.025" fromto="0 0 0 0.13 0 0"/>
                        <geom class="collision" type="sphere" size="0.033" pos="0.13 0 0"/>
                        <site name="right_hand" pos="0.17 0 0" size="0.01" rgba="0 1 0 1"/>
@@ -74,13 +64,6 @@
 +                        <geom type="mesh" mesh="h12_mount" pos="0.054 0 0" quat="0.7071068 0 0.70710685 0" mass="0.506" contype="0" conaffinity="0" group="1" rgba="0.1 0.1 0.1 1"/>
 +                        <geom name="right_gripper_collision" class="collision" type="box" size="0.035 0.05 0.06"
 +                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0" contype="1" conaffinity="1"/>
-+                        <!-- gripper-gripper KEEP-AWAY (2026-06-25): see left_gripper_keepaway.
-+                             Dedicated channel (bit 2) -> repels the other gripper only, invisible
-+                             to floor/table/body, zero contact-parity impact. -->
-+                        <geom name="right_gripper_keepaway" type="box" size="0.045 0.065 0.07"
-+                              pos="0.10 0 0" quat="0.7071068 0 0.70710685 0"
-+                              contype="2" conaffinity="2" group="3" mass="0" density="0"
-+                              margin="0.025" rgba="1 0.35 0 0.18"/>
 +                      </body>
                      </body>
                    </body>

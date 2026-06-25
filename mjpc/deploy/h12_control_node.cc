@@ -444,7 +444,16 @@ class NodeAgentService final : public agent::Agent::Service {
     std::lock_guard<std::mutex> lk(mu_);
     agent_->state.CopyTo(model_, data_);
     mj_forward(model_, data_);
-    return grpc_agent_util::GetMetrics(request, agent_, model_, data_, response);
+    grpc::Status status =
+        grpc_agent_util::GetMetrics(request, agent_, model_, data_, response);
+    // Identity beacon: this gRPC service is the REAL-HARDWARE deploy node
+    // (h12_control_node, reading rt/lowstate), NOT an MJPC sim agent_server.
+    // The monitor reads this sentinel to auto-label the connection as
+    // "REAL HW" and stream live — no special port or flag needed. It's just a
+    // map<string,double> key, so adding it requires no agent.proto change. The
+    // monitor strips it before plotting, so it never shows up as a metric.
+    (*response->mutable_values())["__real_hardware__"] = 1.0;
+    return status;
   }
   grpc::Status GetTaskParameters(grpc::ServerContext*, const agent::GetTaskParametersRequest* request,
                                  agent::GetTaskParametersResponse* response) override {
@@ -566,6 +575,24 @@ int main(int argc, char** argv) {
 
   const int nq = g_model->nq, nv = g_model->nv, nu = g_model->nu;
   const int nact = nu < kNU ? nu : kNU;
+
+  // ---- ACTIVE-CONFIG ECHO: print the LIVE strat-21 reach numerics this binary
+  // actually loaded, so a stale binary / wrong value is obvious in the log header
+  // (the 2026-06-23 "node 2h stale, reach_com_back ignored" class). g_model is the
+  // fully-loaded planner model -> these are exactly what the residual reads. ----
+  {
+    auto NUM = [&](const char* nm, double dflt) {
+      int id = mj_name2id(g_model, mjOBJ_NUMERIC, nm);
+      return id >= 0 ? g_model->numeric_data[g_model->numeric_adr[id]] : dflt;
+    };
+    int rh = static_cast<int>(std::lround(NUM("reach_hand", -1)));
+    std::fprintf(stderr,
+      "[node] reach config (LIVE numerics): reach_hand=%d(%s) radius=%.2f drop=%.2f "
+      "com_back=%.3f brace_hold=%.1f  [if these are wrong -> stale build / bad XML]\n",
+      rh, rh == 2 ? "RIGHT" : rh == 1 ? "LEFT" : "auto",
+      NUM("reach_radius", 0.46), NUM("reach_drop", 0.36),
+      NUM("reach_com_back", 0.0), NUM("reach_brace_hold", 1.0));
+  }
   std::fprintf(stderr,
                "[node] task='%s' nq=%d nv=%d nu=%d strategy=%d gravity_ff=%.2f ctrl_hz=%.0f\n",
                task_id.c_str(), nq, nv, nu, absl::GetFlag(FLAGS_strategy), gff, ctrl_hz);
@@ -975,8 +1002,17 @@ int main(int argc, char** argv) {
     // snapshot the MEASURED base pose NOW -- latency prediction overwrites sd->qpos below, but B0
     // and the status line must report the real (measured) height/tilt/knees, not the predicted ones.
     double meas_base_z = sd->qpos[2];
-    double meas_R8; { double Rm[9]; mju_quat2Mat(Rm, sd->qpos + 3); meas_R8 = Rm[8]; }
+    double meas_R8, meas_lean_fwd = 0.0, meas_lean_lat = 0.0;
+    { double Rm[9]; mju_quat2Mat(Rm, sd->qpos + 3); meas_R8 = Rm[8];
+      // SIGNED torso lean from the measured base quat (the |tilt| above hides the
+      // direction -> can't tell a forward CREEP from a backward one). The torso
+      // up-axis in world = column 2 of R = (Rm[2], Rm[5], Rm[8]); its fore-aft tip
+      // is +x (robot-forward), its lateral tip is +y (robot-left).
+      meas_lean_fwd = std::atan2(Rm[2], Rm[8]) * 57.29577951308232;  // + = FORWARD
+      meas_lean_lat = std::atan2(Rm[5], Rm[8]) * 57.29577951308232;  // + = LEFT
+    }
     double meas_kneeL = sd->qpos[10], meas_kneeR = sd->qpos[16];
+    double tau_now[kNU] = {0};   // per-tick applied torque, for the status-line headroom readout
 
     // LATENCY COMPENSATION: predict the state forward by Δ and plan from THERE, so the action we
     // emit is in-phase when it lands on the plant. dlt=0 (default, or warmup) -> identical to before.
@@ -1156,6 +1192,7 @@ int main(int argc, char** argv) {
         // torque the onboard/twin PD actually applies (matches SimInterface law)
         double total_tau = tau[i] + KP[i] * err + KV[i] * (0.0 - cur.dq[i]);
         double at = std::fabs(total_tau);
+        tau_now[i] = at;
         m_tau_sum[i] += at;
         if (at > m_tau_max[i]) m_tau_max[i] = at;
         if (at > TAU_LIMIT[i]) {
@@ -1176,10 +1213,47 @@ int main(int argc, char** argv) {
       double prate = (wall > last_w) ? (pc - last_pc) / (wall - last_w) : 0.0;
       last_pc = pc; last_w = wall;
       std::fprintf(stderr,
-                   "[node] t=%5.1fs(twin=%5.1f) %s base_z=%.3f tilt=%4.1fdeg knee(L/R)=%+.2f/%+.2f  "
+                   "[node] t=%5.1fs(twin=%5.1f) %s z=%.3f tilt=%4.1f lean(fwd/lat)=%+.1f/%+.1f "
+                   "knee=%+.2f/%+.2f  Rsh(cmd/ms)=%+.0f/%+.0f Lsh=%+.0f/%+.0f[neg=FWD]  "
                    "plan=%.0f/s lat=%.0fms\n",
-                   wall, twin_time, warming ? "WARMUP-hold" : "policy", base_z, tilt,
-                   meas_kneeL, meas_kneeR, prate, dlt * 1e3);
+                   wall, twin_time, warming ? "WARMUP" : "policy", base_z, tilt,
+                   meas_lean_fwd, meas_lean_lat,
+                   meas_kneeL, meas_kneeR,
+                   tgt_q[20] * 57.29578, cur.q[20] * 57.29578,
+                   tgt_q[13] * 57.29578, cur.q[13] * 57.29578,
+                   prate, dlt * 1e3);
+      // torque headroom on the joints that have repeatedly limited us (elbow estop
+      // 18 Nm; ankle 60; shoulder 40), as %estop so a near-trip / saturation is
+      // obvious at a glance. Indices: Rsh=20 Relb=23 Rank=10 | Lsh=13 Lelb=16 Lank=4.
+      std::fprintf(stderr,
+                   "[node]        tau%%estop  Rsh=%.0f Relb=%.0f Rank=%.0f | "
+                   "Lsh=%.0f Lelb=%.0f Lank=%.0f  (>90 = near-trip)\n",
+                   100 * tau_now[20] / TAU_LIMIT[20], 100 * tau_now[23] / TAU_LIMIT[23],
+                   100 * tau_now[10] / TAU_LIMIT[10], 100 * tau_now[13] / TAU_LIMIT[13],
+                   100 * tau_now[16] / TAU_LIMIT[16], 100 * tau_now[4] / TAU_LIMIT[4]);
+      // REACH extent + CoM-vs-feet margin from the measured-state sensors (mj_forward
+      // on the real qpos ran above). Rhand_fwd = how far the right (reaching) hand is
+      // ahead of the torso. CoM_margin = CoM_x - midfoot_x: + = CoM AHEAD of the feet
+      // (leaning out over the toes -> the forward-creep tip risk), - = behind midfoot.
+      static int adr_rh = -2, adr_tp = -2, adr_flp = -2, adr_frp = -2, adr_com = -2;
+      if (adr_rh == -2) {
+        auto SA = [&](const char* nm) {
+          int id = mj_name2id(g_model, mjOBJ_SENSOR, nm);
+          return id >= 0 ? g_model->sensor_adr[id] : -1;
+        };
+        adr_rh = SA("right_hand_pos"); adr_tp = SA("torso_position");
+        adr_flp = SA("foot_left_pos"); adr_frp = SA("foot_right_pos");
+        adr_com = SA("torso_subcom");
+      }
+      if (adr_rh >= 0 && adr_tp >= 0 && adr_com >= 0 && adr_flp >= 0 && adr_frp >= 0) {
+        double rhand_fwd = sd->sensordata[adr_rh] - sd->sensordata[adr_tp];
+        double midfoot_x = 0.5 * (sd->sensordata[adr_flp] + sd->sensordata[adr_frp]);
+        double com_margin = sd->sensordata[adr_com] - midfoot_x;
+        std::fprintf(stderr,
+                     "[node]        Rhand_fwd=%+.2fm  CoM_margin=%+.3fm "
+                     "(+=CoM ahead of feet=fwd-tip risk)\n",
+                     rhand_fwd, com_margin);
+      }
     }
 
     next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
