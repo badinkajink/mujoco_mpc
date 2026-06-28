@@ -143,6 +143,12 @@ void Trajectory::NoisyRollout(
     policy(DataAt(actions, t * nu), DataAt(states, t * dim_state), data->time);
     mju_copy(data->ctrl, DataAt(actions, t * nu), nu);
 
+    // open-loop channel freeze (default no-op): hard-write scripted actuator
+    // channels so the rollout DYNAMICS reflect the forced reference; the sampler
+    // optimises the remaining channels around it.
+    if (task) task->ModifyControl(model, data->qpos, data->qvel, data->time,
+                                  data->ctrl);
+
     // apply perturbation
     if (xfrc_std > 0) {
       // convert rate and scale to discrete time (Ornstein–Uhlenbeck)

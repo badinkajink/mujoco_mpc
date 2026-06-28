@@ -103,6 +103,16 @@ class Task {
   // lock
   void Transition(mjModel* model, mjData* data);
 
+  // Open-loop control override applied AFTER the policy fills ctrl and BEFORE
+  // mj_step, in EVERY planner rollout (Trajectory::NoisyRollout) AND on the
+  // executed action (planner ActionFromPolicy). Lets a task hard-write specific
+  // actuator channels to a scripted, time-indexed reference the sampler cannot
+  // move (a "channel freeze"), while the sampler optimises the rest around it.
+  // Default no-op -> every task/strategy is byte-identical unless it overrides.
+  virtual void ModifyControl(const mjModel* model, const double* qpos,
+                             const double* qvel, double time,
+                             double* ctrl) const {}
+
   // get information from model
   // calls ResetLocked and InternalResidual()->Update() while holding a lock
   void Reset(const mjModel* model);

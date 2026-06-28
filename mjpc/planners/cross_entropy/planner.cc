@@ -328,6 +328,10 @@ void CrossEntropyPlanner::ActionFromPolicy(double* action, const double* state,
   } else {
     policy.Action(action, state, time);
   }
+  // capture-point footstep override (default no-op): mirror the rollout swing
+  // onto the EXECUTED action so what runs == what the planner rolled out. state
+  // layout = [qpos(nq), qvel(nv), act(na)] -> qvel = state + nq.
+  if (task) task->ModifyControl(model, state, state + model->nq, time, action);
 }
 
 // update policy via resampling
