@@ -143,6 +143,13 @@ ABSL_FLAG(int, plan_threads, 0,
           "single machine the twin shares the CPU; all-threads STARVES the Python twin to ~0.37x "
           "real-time (see the twin= readout) -> planner/plant rate mismatch. Cap this (e.g. half your "
           "cores) so the twin gets CPU and runs near real-time; watch twin= climb toward wall.");
+ABSL_FLAG(int, plan_trajectories, 0,
+          "override sampling_trajectories (rollouts per plan) AFTER the per-strategy "
+          "PlannerNumericOverrides. 0 = use the task default (e.g. trot slot 23 = 36). On the "
+          "LOCKSTEP twin trajectories are free (planner waits for physics) so more = strictly better; "
+          "on the REAL robot they are NOT free -- 36 traj plans at ~28Hz on 12 threads, 16 at ~80Hz. "
+          "More samples vs faster replanning is a real tradeoff the lockstep twin cannot see. Use this "
+          "to sweep {16,24,36} on hardware / the real-time bench without a rebuild. >0 overrides.");
 ABSL_FLAG(double, warmup_sec, 1.0,
           "seconds to converge the planner while HOLDING the measured pose before releasing the policy");
 ABSL_FLAG(double, start_ramp_sec, 5.0,
@@ -548,6 +555,23 @@ int main(int argc, char** argv) {
         std::fprintf(stderr,
                      "[node] planner override NUMERIC MISSING: %s (strategy %d)\n",
                      kv.first.c_str(), strat);
+      }
+    }
+    // CLI override of sampling_trajectories, applied LAST so it beats the
+    // per-strategy default (e.g. trot's 36). Lets you sweep rollouts-vs-replan-
+    // rate on real hardware without a rebuild. 0 = leave the task default.
+    const int traj_cli = absl::GetFlag(FLAGS_plan_trajectories);
+    if (traj_cli > 0) {
+      int id = mj_name2id(sm, mjOBJ_NUMERIC, "sampling_trajectories");
+      if (id >= 0) {
+        sm->numeric_data[sm->numeric_adr[id]] = static_cast<double>(traj_cli);
+        std::fprintf(stderr,
+                     "[node] --plan_trajectories CLI override: sampling_trajectories = %d "
+                     "(beats strategy %d default)\n", traj_cli, strat);
+      } else {
+        std::fprintf(stderr,
+                     "[node] --plan_trajectories set but 'sampling_trajectories' numeric "
+                     "MISSING in model -> ignored\n");
       }
     }
   }
