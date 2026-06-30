@@ -101,6 +101,8 @@ add_library(
   tasks/humanoid_bench/push/push.h
   tasks/humanoid_bench/lean/lean.cc
   tasks/humanoid_bench/lean/lean.h
+  tasks/humanoid_bench/stabilize/stabilize.cc
+  tasks/humanoid_bench/stabilize/stabilize.h
   tasks/humanoid_bench/avoid/avoid.cc
   tasks/humanoid_bench/avoid/avoid.h
   tasks/humanoid_bench/avoid/offline_obstacles.h
@@ -305,6 +307,30 @@ if(MJPC_BUILD_DEPLOY)
     BUILD_RPATH "${_dds_libdir}"
     INSTALL_RPATH "${_dds_libdir}")
   message(STATUS "MJPC deploy: h12_control_node ENABLED (unitree_sdk2 at ${_dds_libdir})")
+
+  # Legs-only (nu=12) lower-body controller: same DDS deploy node, drives the
+  # Stabilize task and publishes 12 leg joints to the safety layer's split LOWER
+  # channel so the upper-body IK can own the arms.
+  add_executable(h12_lower_body_controller deploy/h12_lower_body_controller.cc)
+  target_link_libraries(
+    h12_lower_body_controller
+    absl::flags
+    absl::flags_parse
+    absl::log
+    libmjpc
+    mujoco::mujoco
+    threadpool
+    Threads::Threads
+    unitree_sdk2
+  )
+  target_include_directories(h12_lower_body_controller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_compile_options(h12_lower_body_controller PUBLIC ${MJPC_COMPILE_OPTIONS})
+  target_link_options(h12_lower_body_controller PRIVATE ${MJPC_LINK_OPTIONS})
+  target_compile_definitions(h12_lower_body_controller PRIVATE MJSIMULATE_STATIC)
+  set_target_properties(h12_lower_body_controller PROPERTIES
+    BUILD_RPATH "${_dds_libdir}"
+    INSTALL_RPATH "${_dds_libdir}")
+  message(STATUS "MJPC deploy: h12_lower_body_controller ENABLED (legs-only nu=12)")
 endif()
 
 add_subdirectory(tasks)

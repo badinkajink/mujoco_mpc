@@ -283,6 +283,24 @@ add_custom_target(
   COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
         <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch
+  # Lower-body "stabilize" robot: derive the nu=12 legs-only variant from the
+  # (just-built) magpie robot -- drop the 15 upper-body actuators and
+  # equality-lock those joints at home. Then mirror lean's mesh symlinks so the
+  # stabilize model resolves the shared h1_2 STLs.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stabilize/_gen_stabilize_model.py
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stabilize_magpie.xml
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml
