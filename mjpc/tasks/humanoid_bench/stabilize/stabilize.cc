@@ -2142,6 +2142,17 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     if (is_trot && (kDesVelX != 0.0 || kDesVelY != 0.0)) {
       int aw_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_angmom_w");
       angmom_w = (aw_id >= 0) ? model->numeric_data[model->numeric_adr[aw_id]] : 1.0;
+    } else if (!arm_contact_or_lean) {
+      // FREE-STANDING angular-momentum regulation (A6, 2026-06-30): the planted
+      // stand was MISSING the centroidal-angular-momentum ("hip") strategy -- this
+      // term was trot-ONLY, so the stand's "Angular Momentum" JSON weight multiplied
+      // a ZEROED residual (inert). Regulate L_cm -> 0 for every free-standing (non-
+      // arm) strategy so the JSON weight actually carries it. This is the dynamic
+      // rotational complement that catches an incipient asymmetric tip BEFORE it
+      // grows into the one-leg passive strut (research 2026-06-30). Regulate-to-zero
+      // only (Lx/Ly/Lz targets stay 0 here; the is_stumble recover targets above are
+      // separate). SAMPLING-LEGAL: penalises only the STATE L_cm, no feedback/dL/dt.
+      angmom_w = 1.0;
     }
     residual[counter++] = angmom_w * 0.1 * (angmom[0] - Lx_tgt);
     residual[counter++] = angmom_w * 0.1 * (angmom[1] - Ly_tgt);
@@ -2193,7 +2204,14 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     double lat_amp = mju_min(0.20, kLatShift * trot_swing_scale);
     double lat_tgt = midfoot_y +
         (is_stumble ? lat_amp * g_amp * (g_bump_r - g_bump_l) : 0.0);
-    residual[counter++] = 10.0 * (subcom[1] - lat_tgt);
+    // A1 CAPTURE-POINT lateral (2026-06-30): penalise the lateral CAPTURE POINT
+    // (y_CoM + y_dot/omega0), not just y_CoM, so a sideways DRIFT is caught while
+    // it is still a velocity -- a position-only term reacts only after the CoM has
+    // already moved, which is why the sustained lateral lean escaped. omega0 =
+    // sqrt(g/z) ~= 3.1 -> tau ~= 0.32s; reuse the 0.3 the capture_point above uses
+    // (subcomvel = torso_subcomvel, fetched with subcom). Sagittal (x) capture is
+    // already covered by the Balance term; this closes the frontal-plane gap.
+    residual[counter++] = 10.0 * (subcom[1] + 0.3 * subcomvel[1] - lat_tgt);
   } else {
     residual[counter++] = 0.0;
   }
