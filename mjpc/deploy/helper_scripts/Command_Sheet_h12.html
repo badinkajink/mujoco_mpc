@@ -117,30 +117,12 @@
       can't tell which, which is what makes it a clean A/B.
     </p>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-      <span class="mono text-slate-500">v2026-06-30</span>
+      <span class="mono text-slate-500">v2026-07-01</span>
       <span class="text-slate-600">·</span>
-      <span><span class="text-emerald-400 font-semibold">rev 2026-06-14:</span>
-        forward lean SOLVED — IMU pitch-zero calib baked in ·
-        <code class="text-amber-300">--gravity_ff 0.85</code> standard ·
-        <code class="text-amber-300">--policy_blend_sec</code> for cold-start crouch / squat</span>
-      <span class="text-slate-600">·</span>
-      <span><span class="text-emerald-400 font-semibold">rev 2026-06-16:</span>
-        native Squatter (<code class="text-amber-300">--strategy 18</code>) reworked — 4-phase cycle through a
-        <code>crouch_mid</code> staging pose (halved leg step ⇒ no stand-up launch; slow staged descent
-        so the gantry harness can be paid out)</span>
-      <span class="text-slate-600">·</span>
-      <span><span class="text-emerald-400 font-semibold">rev 2026-06-19:</span>
-        grippers on ⇒ task <code class="text-amber-300">Lean H12 Magpie</code> everywhere (planner +
-        twin <code>--magpie</code>); robot phase split into <code class="text-amber-300">B1</code>
-        (estimator base) vs <code class="text-amber-300">B2</code> (OptiTrack mocap base) — same stand,
-        same node, only the publisher of <code>rt/sportmodestate</code> changes</span>
-      <span class="text-slate-600">·</span>
-      <span><span class="text-emerald-400 font-semibold">rev 2026-06-30:</span>
-        added the <code class="text-amber-300">Stabilize</code> B track beside Lean (legs-only loco-manip —
-        <code>h12_lower_body_controller</code>, task <code>Stabilize H12 Magpie</code>, <code>nu=12</code>,
-        publishes <code>lowcmd_lower_in</code> only; <code class="text-amber-300">--arm_aware</code> for manip).
-        Real bringup <code>h1_real_robot_bringup.launch.py</code> VERIFIED on pc4 to auto-start estop +
-        SPLIT safety (<code>default_safety_split.yaml</code>) + FrameTask (arms→home) — no separate safety launch</span>
+      <span>grippers on (<code class="text-amber-300">Lean H12 Magpie</code>) · IMU pitch calib +1.6° baked in ·
+        <code class="text-amber-300">--gravity_ff 0.85</code> + <code class="text-amber-300">--policy_blend_sec 4.5</code> standard ·
+        B split into <code class="text-amber-300">B1</code> estimator / <code class="text-amber-300">B2</code> OptiTrack, plus the
+        <code class="text-amber-300">Stabilize</code> legs-only loco-manip track</span>
     </div>
 
     <!-- legend -->
@@ -352,11 +334,11 @@ uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
-  --plan_threads 12 --latency_comp <span class="hl">--imu_pitch_offset_deg 0</span>
+  --plan_threads 12 --latency_comp --policy_blend_sec 4.5 <span class="hl">--imu_pitch_offset_deg 0</span>
 
 <span class="c"># T4  estimator — compare mode, side topic</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py \
   <span class="hl">--no-auto-iface --out-topic rt/sportmodestate_est --compare</span></pre>
     </div>
     <div class="flex items-start gap-2 text-xs text-emerald-200/90">
@@ -395,12 +377,12 @@ uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
-  --plan_threads 12 --latency_comp \
+  --plan_threads 12 --latency_comp --policy_blend_sec 4.5 \
   <span class="hl">--sportstate_topic rt/sportmodestate_est --imu_pitch_offset_deg 0</span>
 
 <span class="c"># T4  estimator — publish only (no --compare)</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py \
   <span class="hl">--no-auto-iface --out-topic rt/sportmodestate_est</span></pre>
     </div>
     <ul class="space-y-1.5 text-xs">
@@ -482,14 +464,14 @@ uv run h12_safety_layer/script/safety_layer_main.py --config <span class="hl">de
         </div>
 <pre class="cmd"><span class="c"># T3  estimator — defaults: auto-pins enx, PUBLISHES rt/sportmodestate</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py
 
 <span class="c"># T4  node — defaults: auto-pins enx, consumes rt/sportmodestate (= the estimate)</span>
 <span class="c"># --twin_dt 0.001 ROBOT-ONLY (real tick=1kHz); IMU pitch calib +1.6° BAKED IN (default)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001
+  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
 
 <span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; auto-pins enx → logs/&lt;tag&gt;_&lt;ts&gt;.npz + .csv)</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB1_est --csv</span></pre>
@@ -529,12 +511,12 @@ python publish_sportmodestate.py
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001
+  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
 
 <span class="c"># T4  (BONUS) estimator as a RULER — side topic + compare vs OptiTrack truth.</span>
 <span class="c"># prints  pos_err / vel_err  of the EKF vs mocap → first real-robot ground-truth score. Does NOT feed control.</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py \
   <span class="hl">--out-topic rt/sportmodestate_est --compare --truth-topic rt/sportmodestate</span>
 
 <span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; tag distinguishes the two A/B runs)</span>
@@ -549,14 +531,6 @@ cd ~/Desktop/h12/h1_mujoco
       <code>ros2 topic echo /estop/plugged_in</code> → true.
     </div>
 
-    <ul class="space-y-2 text-xs text-slate-300">
-      <li class="leading-relaxed">⚖ <strong>The A/B:</strong> B1 and B2 differ only in the source of <code>rt/sportmodestate</code>. OptiTrack gives a non-drifting absolute base (zero XY drift, true height/yaw) → B2 is the gold-standard reference; B1 is the contribution (no mocap needed). Compare hold time, tilt, and ankle effort between <code>standB1_est</code> and <code>standB2_optitrack</code>.</li>
-      <li class="leading-relaxed">🪪 <strong>magpie task:</strong> <code class="text-amber-300">--task "Lean H12 Magpie"</code> + twin <code>--magpie</code>. Grippers are mass-only (nu=27 unchanged) so every other flag is identical to the handless sheet; if the grippers come off, swap the task back to <code>"Lean H12"</code> and drop <code>--magpie</code>.</li>
-      <li class="leading-relaxed">⚠ <code class="text-amber-300">--twin_dt 0.001</code> (NOT the twin's 0.005): real lowstate <code>tick</code> = 1 kHz, so 0.005 → twin_time 5× wall → base-velocity finite-diff reads 1/5 reality → forward lean. At startup confirm the readout shows <code>t=X(twin=X)</code> 1:1. <span class="text-emerald-400">validated 2026-06-13 (self-recovered, 281 s).</span></li>
-      <li class="leading-relaxed">✓ <span class="text-emerald-400 font-semibold">forward lean SOLVED (2026-06-14)</span>: cause was the IMU pitch zero-offset (−1.6°), NOT CoM / ankle. Correction baked in (default +1.6°) → most upright to date (mean tilt 2.7°), <code>com_x_offset</code> retired. <code class="text-amber-300">--gravity_ff 0.85</code> now standard.</li>
-      <li class="leading-relaxed">▶ other strategies swap in identically under either base source: <code class="text-amber-300">--strategy 18</code> Squatter (add <code class="text-amber-300">--policy_blend_sec 2.5</code>; 4-phase stand_up 15s→crouch_mid 12s→crouch 5s→crouch_mid 8s, crouch_mid pauses descent to pay out the harness), or <code class="text-amber-300">8</code>/<code class="text-amber-300">17</code> crouch/squat.</li>
-      <li class="leading-relaxed">📋 report back: B2 OptiTrack <code>err=…mm</code> (mocap fit) + the estimator-ruler <code>vel_err</code> line; B1 estimator <code>[est] accel health:</code> (~9.81 → full IMU fusion unlockable).</li>
-    </ul>
     </article><!-- /b-lean -->
 
     <!-- ════════ RIGHT: STABILIZE — legs-only loco-manip ════════ -->
@@ -618,14 +592,14 @@ ps aux | grep safety_node | grep -v grep   <span class="c"># expect: --config de
         </div>
 <pre class="cmd"><span class="c"># T3  base estimator — RW-EKF, PUBLISHES rt/sportmodestate (identical to Lean B1)</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py
 
 <span class="c"># T4  LOWER-BODY MPC node — legs only -> rt/safety/lowcmd_lower_in (default topic)</span>
 <span class="c"># FIRST STAND TEST: NO --arm_aware (arms at home => identical; isolates legs + split plumbing)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_lower_body_controller</span> \
   --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001
+  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
 
 <span class="c"># MANIP (only after the stand is solid): add --arm_aware so the legs PRE-compensate the reach</span>
 <span class="c"># (reads the 15 upper joints for CoM; STILL commands legs only). Then feed FrameTask IK targets.</span>
@@ -641,13 +615,6 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
         wide bent-knee stance then balance — keep supported until the harness residual is ≤ ~1.6 Nm sustained.
       </div>
 
-      <ul class="space-y-2 text-xs text-slate-300">
-        <li class="leading-relaxed">🦵 <strong>legs only:</strong> <code class="text-amber-300">nu=12</code>, publishes <code>rt/safety/lowcmd_lower_in</code> (slots 0–11). Arms = FrameTask on <code>lowcmd_upper_in</code>; the node never commands arms.</li>
-        <li class="leading-relaxed">🤝 <strong>arm bring-up is FrameTask's job</strong> — it ramps arms to home + holds. The legs-only node neither snaps nor ramps the arms (lean ramped all 27; this node ramps only the legs).</li>
-        <li class="leading-relaxed">🧠 <strong><code class="text-amber-300">--arm_aware</code> = perception only:</strong> reads the 15 upper joints so the legs pre-compensate a reach (retargets the equality locks to the measured arm pose; still <code>nu=12</code>). OFF for the first stand (no-op at home), ON for manip.</li>
-        <li class="leading-relaxed">⚠ <strong>backward = weak axis:</strong> twin push matrix → lateral bulletproof, forward good, backward falls @0.3 m/s (planted stand, known). Avoid pushing INTO the fridge.</li>
-        <li class="leading-relaxed">⚙ the bringup loads <code>default_safety_split.yaml</code> + <code>frame_task_server --config safety_split.yaml</code> — <strong>no separate safety/estop launch</strong>. Same <code class="text-amber-300">--twin_dt 0.001</code> caveat (real tick 1 kHz; confirm the 1:1 <code>t=X(twin=X)</code> readout).</li>
-      </ul>
     </article><!-- /b-stabilize -->
 
     </div><!-- /grid -->
@@ -660,7 +627,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
     <!-- constant core -->
     <div class="card card-hair p-5 space-y-2">
       <div class="text-xs text-slate-400">The constant core of every node launch:</div>
-      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6 --use_twin_time --plan_threads 12 --latency_comp</code>
+      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6 --use_twin_time --plan_threads 12 --latency_comp --policy_blend_sec 4.5</code>
       <div class="text-xs text-slate-400 pt-1">…then exactly one phase delta (the <span class="text-amber-400 font-semibold">amber</span> slot):</div>
       <div class="flex flex-wrap gap-2 pt-1">
         <span class="keycap">A1 → <span class="text-amber-300">--imu_pitch_offset_deg 0</span></span>
@@ -725,12 +692,9 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
     </div>
     <p class="text-sm text-slate-300 leading-relaxed">
       A1 + A2 passed on the twin (~83 s on the estimate). <strong>Phase B is live on the real
-      H1-2</strong> with the <strong>forward lean solved</strong> (IMU pitch zero-offset −1.6°,
-      corrected in-node by default; mean tilt 2.7°, <code class="text-xs text-slate-200">com_x_offset</code>
-      hack retired). <strong>Next:</strong> the gripper-on stand (<code class="text-xs text-slate-200">Lean H12 Magpie</code>)
-      run as a base-source A/B — <strong>B1</strong> on our RW-EKF estimate (self-recovered 281 s) vs
-      <strong>B2</strong> on OptiTrack mocap — which finally scores the estimator against a real
-      ground-truth ruler. Residual = a yaw / foot-twist + marginal stability; sysid path (foot friction) follows.
+      H1-2</strong>, forward lean solved. Next: the gripper-on stand (<code class="text-xs text-slate-200">Lean H12 Magpie</code>)
+      as a base-source A/B — <strong>B1</strong> on the RW-EKF estimate (self-recovered 281 s) vs
+      <strong>B2</strong> on OptiTrack mocap — plus the Stabilize legs-only track.
     </p>
     <p class="text-xs text-slate-500 pt-1">
       Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a>
