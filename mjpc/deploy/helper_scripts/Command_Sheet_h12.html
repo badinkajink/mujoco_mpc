@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>H1-2 Deploy Command Sheet — A1 / A2 / B (Lean ‖ Stabilize)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true, theme: "base", securityLevel: "loose",
+    themeVariables: {
+      background: "#0b1120", primaryColor: "#0f1a2e", primaryBorderColor: "#334155",
+      primaryTextColor: "#e2e8f0", lineColor: "#475569", fontSize: "13px",
+      fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    }
+  });
+</script>
+<style>
+  :root{
+    --bg:#080c16; --panel:#0e1626; --panel2:#0b1120; --ink:#cbd5e1; --ink-hi:#f1f5f9;
+    --line:#1e293b; --line-soft:#172033; --muted:#8093ab;
+    --font-display:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,ui-serif,serif;
+    --font-mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  html{scroll-behavior:smooth;}
+  body{
+    background:
+      radial-gradient(1100px 620px at 78% -8%, rgba(56,189,248,.07), transparent 60%),
+      radial-gradient(900px 560px at 8% 108%, rgba(16,185,129,.06), transparent 55%),
+      var(--bg);
+    color:var(--ink);
+  }
+  .display{font-family:var(--font-display);}
+  h1,h2,h3,strong,th,.lead{color:var(--ink-hi);}
+  .mono{font-family:var(--font-mono);}
+  code{font-family:var(--font-mono);}
+
+  /* schematic / blueprint labels */
+  .lbl{font-size:.64rem;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);}
+  .eyebrow{font-size:.66rem;text-transform:uppercase;letter-spacing:.26em;color:#64748b;}
+
+  /* cards */
+  .card{
+    background:linear-gradient(180deg, rgba(20,30,50,.55), rgba(11,17,32,.55));
+    border:1px solid var(--line); border-radius:1rem;
+  }
+  .card-hair{box-shadow:inset 0 1px 0 rgba(255,255,255,.03);}
+
+  /* pills */
+  .pill{display:inline-flex;align-items:center;gap:.3rem;border-radius:9999px;padding:.2rem .7rem;
+        font-size:.68rem;font-weight:600;letter-spacing:.02em;line-height:1;white-space:nowrap;}
+  .pill-sky{background:rgba(8,47,73,.7);color:#7dd3fc;border:1px solid rgba(56,189,248,.25);}
+  .pill-rose{background:rgba(76,5,25,.6);color:#fda4af;border:1px solid rgba(244,63,94,.28);}
+  .pill-emer{background:rgba(6,46,33,.7);color:#6ee7b7;border:1px solid rgba(16,185,129,.28);}
+  .pill-amber{background:rgba(69,39,3,.7);color:#fcd34d;border:1px solid rgba(245,158,11,.28);}
+  .pill-slate{background:rgba(30,41,59,.7);color:#cbd5e1;border:1px solid rgba(148,163,184,.22);}
+
+  /* command blocks */
+  .term{border:1px solid var(--line);border-radius:.75rem;overflow:hidden;background:#05080f;}
+  .term-bar{display:flex;align-items:center;gap:.5rem;padding:.5rem .85rem;
+            background:#0a1120;border-bottom:1px solid var(--line);}
+  .term-dot{width:.55rem;height:.55rem;border-radius:9999px;display:inline-block;}
+  pre.cmd{margin:0;padding:1rem 1.15rem;overflow-x:auto;color:#a5f3fc;
+          font-family:var(--font-mono);font-size:.78rem;line-height:1.6;}
+  pre.cmd .c{color:#5b6b82;}                 /* comment */
+  pre.cmd .hl{color:#fbbf24;font-weight:600;}/* the flag that changes between phases */
+  pre.cmd .k{color:#e2e8f0;}                 /* binary / emphasis */
+
+  /* spec table */
+  table.spec{width:100%;border-collapse:collapse;}
+  table.spec td,table.spec th{padding:.55rem .85rem;border-bottom:1px solid var(--line-soft);
+        font-size:.78rem;vertical-align:top;text-align:left;}
+  table.spec thead th{color:#e2e8f0;font-size:.64rem;text-transform:uppercase;letter-spacing:.12em;
+        border-bottom:1px solid var(--line);}
+  table.spec tbody tr:hover{background:rgba(56,189,248,.04);}
+
+  /* hero stepper */
+  .step{position:relative;}
+  .chev{color:#3a4a63;}
+  .keycap{display:inline-block;border:1px solid var(--line);border-radius:.4rem;
+          padding:.12rem .45rem;background:#0a1120;color:#cbd5e1;font-family:var(--font-mono);font-size:.72rem;}
+
+  a.anchor{color:#7dd3fc;text-decoration:none;border-bottom:1px solid rgba(125,211,252,.3);}
+  a.anchor:hover{border-bottom-color:#7dd3fc;}
+
+  @media print{
+    body{background:#fff !important;color:#0f172a !important;}
+    h1,h2,h3,strong,th,.lead{color:#0b1220 !important;}
+    .eyebrow,.lbl{color:#475569 !important;}
+    .card,.term{background:#fff !important;border-color:#d4dae3 !important;box-shadow:none !important;}
+    .term-bar{background:#f1f5f9 !important;border-color:#d4dae3 !important;}
+    pre.cmd{background:#f6f8fb !important;color:#0f172a !important;}
+    pre.cmd .c{color:#64748b !important;} pre.cmd .hl{color:#a16207 !important;}
+    .pill{border-color:#cbd5e1 !important;}
+    svg .stroke-emer{stroke:#047857 !important;} svg .stroke-rose{stroke:#b91c1c !important;}
+  }
+</style>
+</head>
+<body class="font-sans antialiased">
+<main class="max-w-5xl mx-auto px-6 py-14 space-y-14">
+
+  <!-- ───────────────────────── HEADER ───────────────────────── -->
+  <header class="space-y-5">
+    <div class="eyebrow">Deploy runbook · MJPC → safety → twin / robot</div>
+    <h1 class="display text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.05]">
+      H1-2 Deploy Command Sheet
+    </h1>
+    <p class="lead text-[15px] max-w-3xl leading-relaxed">
+      Sampling-MPC balance on a real Unitree H1-2 — with the <strong>magpie grippers on</strong>
+      (task <code class="text-amber-300">Lean H12 Magpie</code>). Graduate from the twin's truth to
+      our own estimate, then run the <em>same</em> stand on hardware <strong>two ways</strong> and
+      compare the base source head-to-head: <strong>B1</strong> our proprioceptive estimator
+      (RW-EKF leg odometry) vs <strong>B2</strong> OptiTrack motion capture
+      (<code>publish_sportmodestate.py</code> on the Motive PC, mocap-in-loop). Both feed the
+      identical <code class="text-amber-300">rt/sportmodestate</code> the node reads — the node
+      can't tell which, which is what makes it a clean A/B.
+    </p>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+      <span class="mono text-slate-500">v2026-06-30</span>
+      <span class="text-slate-600">·</span>
+      <span><span class="text-emerald-400 font-semibold">rev 2026-06-14:</span>
+        forward lean SOLVED — IMU pitch-zero calib baked in ·
+        <code class="text-amber-300">--gravity_ff 0.85</code> standard ·
+        <code class="text-amber-300">--policy_blend_sec</code> for cold-start crouch / squat</span>
+      <span class="text-slate-600">·</span>
+      <span><span class="text-emerald-400 font-semibold">rev 2026-06-16:</span>
+        native Squatter (<code class="text-amber-300">--strategy 18</code>) reworked — 4-phase cycle through a
+        <code>crouch_mid</code> staging pose (halved leg step ⇒ no stand-up launch; slow staged descent
+        so the gantry harness can be paid out)</span>
+      <span class="text-slate-600">·</span>
+      <span><span class="text-emerald-400 font-semibold">rev 2026-06-19:</span>
+        grippers on ⇒ task <code class="text-amber-300">Lean H12 Magpie</code> everywhere (planner +
+        twin <code>--magpie</code>); robot phase split into <code class="text-amber-300">B1</code>
+        (estimator base) vs <code class="text-amber-300">B2</code> (OptiTrack mocap base) — same stand,
+        same node, only the publisher of <code>rt/sportmodestate</code> changes</span>
+      <span class="text-slate-600">·</span>
+      <span><span class="text-emerald-400 font-semibold">rev 2026-06-30:</span>
+        added the <code class="text-amber-300">Stabilize</code> B track beside Lean (legs-only loco-manip —
+        <code>h12_lower_body_controller</code>, task <code>Stabilize H12 Magpie</code>, <code>nu=12</code>,
+        publishes <code>lowcmd_lower_in</code> only; <code class="text-amber-300">--arm_aware</code> for manip).
+        Real bringup <code>h1_real_robot_bringup.launch.py</code> VERIFIED on pc4 to auto-start estop +
+        SPLIT safety (<code>default_safety_split.yaml</code>) + FrameTask (arms→home) — no separate safety launch</span>
+    </div>
+
+    <!-- legend -->
+    <div class="card card-hair p-4 mt-2">
+      <div class="lbl mb-2.5">Legend</div>
+      <div class="flex flex-wrap gap-2">
+        <span class="pill pill-emer">✓ VALIDATED</span>
+        <span class="pill pill-amber">▶ NEXT — hardware</span>
+        <span class="pill pill-sky">TWIN — robot UNPLUGGED</span>
+        <span class="pill pill-rose">ROBOT — wired, debug mode</span>
+      </div>
+      <p class="text-xs text-slate-400 mt-3 leading-relaxed">
+        <span class="text-amber-400 font-semibold">Amber</span> in any command marks the
+        <em>one</em> thing that changes between phases. Every other flag is identical everywhere —
+        that invariance is the whole point of the sheet.
+      </p>
+    </div>
+  </header>
+
+  <!-- ──────────────── HERO: the trust ladder ──────────────── -->
+  <section class="space-y-5">
+    <div class="lbl">The path to hardware — a graduated trust ladder</div>
+    <div class="grid md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-4 items-stretch">
+
+      <!-- A1 -->
+      <a href="#a1" class="step card card-hair p-5 flex flex-col gap-3 no-underline">
+        <div class="flex items-center justify-between">
+          <span class="display text-2xl text-slate-100">A1</span>
+          <span class="pill pill-sky">TWIN</span>
+        </div>
+        <div>
+          <div class="lbl">Balances on</div>
+          <div class="text-sm text-slate-200 font-semibold">the twin's ground truth</div>
+          <div class="text-xs text-slate-500 mt-0.5">estimator rides along, scored vs truth</div>
+        </div>
+        <div class="mt-auto pt-2 border-t border-slate-800">
+          <span class="pill pill-emer">✓ estimate accurate</span>
+          <div class="text-[11px] text-slate-500 mt-1.5 mono">vel_err ≤ 0.03 m/s</div>
+        </div>
+      </a>
+
+      <div class="hidden md:flex items-center justify-center chev">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 12h12m0 0-5-5m5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- A2 -->
+      <a href="#a2" class="step card card-hair p-5 flex flex-col gap-3 no-underline">
+        <div class="flex items-center justify-between">
+          <span class="display text-2xl text-slate-100">A2</span>
+          <span class="pill pill-sky">TWIN</span>
+        </div>
+        <div>
+          <div class="lbl">Balances on</div>
+          <div class="text-sm text-slate-200 font-semibold">our own estimate</div>
+          <div class="text-xs text-slate-500 mt-0.5">truth removed — dress rehearsal</div>
+        </div>
+        <div class="mt-auto pt-2 border-t border-slate-800">
+          <span class="pill pill-emer">✓ stood 83 s</span>
+          <div class="text-[11px] text-slate-500 mt-1.5 mono">outlived truth-fed A1</div>
+        </div>
+      </a>
+
+      <div class="hidden md:flex items-center justify-center chev">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 12h12m0 0-5-5m5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+
+      <!-- B -->
+      <a href="#b" class="step card card-hair p-5 flex flex-col gap-3 no-underline" style="border-color:rgba(244,63,94,.35)">
+        <div class="flex items-center justify-between">
+          <span class="display text-2xl text-slate-100">B</span>
+          <span class="pill pill-rose">ROBOT</span>
+        </div>
+        <div>
+          <div class="lbl">Balances on</div>
+          <div class="text-sm text-slate-200 font-semibold">the real H1-2 — two tracks</div>
+          <div class="text-xs text-slate-500 mt-0.5">Lean full-body ‖ Stabilize legs-only loco-manip</div>
+        </div>
+        <div class="mt-auto pt-2 border-t border-slate-800">
+          <span class="pill pill-emer">✓ Lean self-recovered 281 s</span>
+          <div class="text-[11px] text-slate-500 mt-1.5 mono">Stabilize = legs MPC + arms on IK</div>
+        </div>
+      </a>
+    </div>
+    <p class="text-xs text-slate-500 leading-relaxed max-w-3xl">
+      Each rung trusts the layer below it less: <span class="text-slate-300">ground truth →
+      our estimate → the physical robot</span>. A1 and A2 are passed; on the robot the same
+      stand runs twice — <span class="text-slate-300">B1 on our estimate, B2 on OptiTrack mocap</span>
+      — so the estimator can finally be scored against a real ground-truth ruler.
+    </p>
+  </section>
+
+  <!-- ──────────────── PIPELINE (Mermaid) ──────────────── -->
+  <section class="card card-hair p-6 space-y-3">
+    <div class="lbl">The pipeline — byte-identical on twin and robot; only the base publisher swaps</div>
+    <pre class="mermaid">
+flowchart LR
+  LS["rt/lowstate<br/>joints + IMU @500Hz"] --> EST["base_estimator_node.py<br/>RW-EKF leg odometry"]
+  OPTI["publish_sportmodestate.py<br/>OptiTrack mocap · Motive PC"] -. "B2" .-> SS
+  EST -- "B1" --> SS["rt/sportmodestate<br/>base pos + vel"]
+  SS --> NODE["h12_control_node<br/>MJPC CEM planner"]
+  LS --> NODE
+  NODE -- "rt/safety/lowcmd_in" --> SAFE["safety layer<br/>clip + estop"]
+  SAFE -- "rt/lowcmd" --> PLANT["twin / real H1-2"]
+  PLANT --> LS
+    </pre>
+    <p class="text-xs text-slate-400 leading-relaxed">
+      The base state on <code class="text-slate-300">rt/sportmodestate</code> stands in for Unitree's
+      closed-firmware estimator (off in debug mode). The node runs unmodified — it cannot tell whether
+      that state came from the twin's truth, <strong>our filter (B1)</strong>, or
+      <strong>OptiTrack mocap (B2)</strong>. <span class="text-rose-300">Exactly one publisher writes
+      that topic at a time</span> — B1 = the laptop estimator, B2 = the Motive PC. Run both and the two
+      writers fight.
+    </p>
+  </section>
+
+  <!-- ──────────────── FORWARD-LEAN: before / after ──────────────── -->
+  <section class="card card-hair p-6 space-y-5" style="border-color:rgba(16,185,129,.3)">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="display text-2xl">Forward lean — solved</h2>
+      <span class="eyebrow">rev 2026-06-14</span>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-4">
+      <!-- BEFORE -->
+      <figure class="rounded-xl border border-rose-900/50 bg-rose-950/10 p-4">
+        <figcaption class="lbl mb-1" style="color:#fb7185">Before — com_x_offset hack</figcaption>
+        <svg viewBox="0 0 160 180" class="w-full" style="height:230px" role="img" aria-label="Robot leaning forward">
+          <!-- ground -->
+          <line x1="14" y1="158" x2="146" y2="158" stroke="#3f1d2b" stroke-width="2"/>
+          <!-- plumb (true vertical) -->
+          <line x1="80" y1="158" x2="80" y2="34" stroke="#64748b" stroke-width="1" stroke-dasharray="3 4"/>
+          <text x="84" y="40" fill="#64748b" font-size="8" font-family="monospace">vertical</text>
+          <!-- leaning body, rotated ~12° forward about the ankle -->
+          <g transform="rotate(12 80 156)" class="stroke-rose" stroke="#fb7185" stroke-width="2.4" fill="none" stroke-linecap="round">
+            <line x1="73" y1="156" x2="78" y2="104"/>      <!-- left leg -->
+            <line x1="87" y1="156" x2="82" y2="104"/>      <!-- right leg -->
+            <line x1="80" y1="104" x2="80" y2="62"/>       <!-- torso -->
+            <line x1="68" y1="70" x2="80" y2="76"/>        <!-- left arm -->
+            <line x1="92" y1="70" x2="80" y2="76"/>        <!-- right arm -->
+            <circle cx="80" cy="52" r="9" fill="#1a0a10"/> <!-- head -->
+          </g>
+          <!-- lean arc -->
+          <path d="M80 92 A 66 66 0 0 1 94 96" stroke="#fb7185" stroke-width="1.4" fill="none"/>
+          <text x="96" y="100" fill="#fb7185" font-size="9" font-family="monospace">~lean</text>
+        </svg>
+        <p class="text-xs text-rose-200/80 mt-1 leading-relaxed">
+          Pitched forward; a CoM fudge masked the real cause.
+        </p>
+      </figure>
+
+      <!-- AFTER -->
+      <figure class="rounded-xl border border-emerald-900/50 bg-emerald-950/10 p-4">
+        <figcaption class="lbl mb-1" style="color:#34d399">After — IMU +1.6° calib (default)</figcaption>
+        <svg viewBox="0 0 160 180" class="w-full" style="height:230px" role="img" aria-label="Robot standing upright">
+          <line x1="14" y1="158" x2="146" y2="158" stroke="#0f3d2e" stroke-width="2"/>
+          <line x1="80" y1="158" x2="80" y2="34" stroke="#475569" stroke-width="1" stroke-dasharray="3 4"/>
+          <g class="stroke-emer" stroke="#34d399" stroke-width="2.4" fill="none" stroke-linecap="round">
+            <line x1="73" y1="156" x2="78" y2="104"/>
+            <line x1="87" y1="156" x2="82" y2="104"/>
+            <line x1="80" y1="104" x2="80" y2="62"/>
+            <line x1="68" y1="70" x2="80" y2="76"/>
+            <line x1="92" y1="70" x2="80" y2="76"/>
+            <circle cx="80" cy="52" r="9" fill="#06140f"/>
+          </g>
+          <text x="86" y="120" fill="#34d399" font-size="9" font-family="monospace">tilt 2.7°</text>
+        </svg>
+        <p class="text-xs text-emerald-200/80 mt-1 leading-relaxed">
+          Most upright to date — mean tilt 2.7°, hack retired.
+        </p>
+      </figure>
+    </div>
+
+    <p class="text-sm text-slate-300 leading-relaxed">
+      <strong>Root cause:</strong> the IMU pitch zero-offset (−1.6°), found by checking calibration
+      with the body verified vertical — <em>not</em> the CoM and <em>not</em> the ankle. One constant,
+      corrected in-node by default (+1.6°). <code class="text-amber-300">--gravity_ff 0.85</code> is
+      now standard to calm the residual fore-aft swing.
+    </p>
+  </section>
+
+  <!-- ──────────────── A1 CARD ──────────────── -->
+  <article id="a1" class="card card-hair p-6 space-y-4 scroll-mt-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="display text-xl">A1 — Estimator accuracy on the twin</h2>
+      <span class="pill pill-emer">✓ PASSED</span>
+      <span class="pill pill-sky">TWIN</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      The node balances on the twin's <strong>ground truth</strong>; the estimator rides along and
+      prints its error against truth. Measures estimate quality without yet trusting it for control.
+    </p>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">4 terminals · twin host</span>
+      </div>
+<pre class="cmd"><span class="c"># T1  twin (MuJoCo GUI) — --magpie loads the gripper twin (mass-only, nu=27 unchanged)</span>
+cd ~/Desktop/h12/h1_mujoco &amp;&amp; __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+uv run h12_mujoco.py <span class="hl">--magpie</span>
+
+<span class="c"># T2  safety layer — the strict full config</span>
+cd ~/Desktop/h12/h12_safety_layer
+uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
+
+<span class="c"># T3  node — DEFAULT flags (reads the twin's truth sportmodestate)</span>
+<span class="c"># --imu_pitch_offset_deg 0: TWIN has no IMU mount offset (node now defaults +1.6 for the ROBOT)</span>
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
+  --plan_threads 12 --latency_comp <span class="hl">--imu_pitch_offset_deg 0</span>
+
+<span class="c"># T4  estimator — compare mode, side topic</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+  <span class="hl">--no-auto-iface --out-topic rt/sportmodestate_est --compare</span></pre>
+    </div>
+    <div class="flex items-start gap-2 text-xs text-emerald-200/90">
+      <span class="pill pill-emer mt-0.5">result</span>
+      <p class="leading-relaxed mono">vel_err 0.000–0.030 m/s standing · xy drift 3–5 cm / 58 s · accel probe 9.81 HEALTHY</p>
+    </div>
+  </article>
+
+  <!-- ──────────────── A2 CARD ──────────────── -->
+  <article id="a2" class="card card-hair p-6 space-y-4 scroll-mt-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="display text-xl">A2 — Faithful bench: balance on the estimate</h2>
+      <span class="pill pill-emer">✓ PASSED — 83 s</span>
+      <span class="pill pill-sky">TWIN</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      The node consumes <strong>our estimate</strong> instead of truth — the dress rehearsal for
+      hardware. Only one flag changes versus A1.
+    </p>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">4 terminals · twin host</span>
+      </div>
+<pre class="cmd"><span class="c"># T1  twin (MuJoCo GUI) — --magpie loads the gripper twin (mass-only, nu=27 unchanged)</span>
+cd ~/Desktop/h12/h1_mujoco &amp;&amp; __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+uv run h12_mujoco.py <span class="hl">--magpie</span>
+
+<span class="c"># T2  safety layer — the strict full config</span>
+cd ~/Desktop/h12/h12_safety_layer
+uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
+
+<span class="c"># T3  node — redirected to OUR estimate (require_sportstate stays default true)</span>
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
+  --plan_threads 12 --latency_comp \
+  <span class="hl">--sportstate_topic rt/sportmodestate_est --imu_pitch_offset_deg 0</span>
+
+<span class="c"># T4  estimator — publish only (no --compare)</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+  <span class="hl">--no-auto-iface --out-topic rt/sportmodestate_est</span></pre>
+    </div>
+    <ul class="space-y-1.5 text-xs">
+      <li class="flex items-start gap-2 text-emerald-200/90"><span class="pill pill-emer mt-0.5">result</span><span class="leading-relaxed mono">stood ~83 s on the estimate alone — outlived the truth-fed A1 run (48 s)</span></li>
+      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">red flag</span><span class="leading-relaxed">a fall within seconds of planner engagement — report immediately</span></li>
+    </ul>
+  </article>
+
+  <!-- ──────────────── B SECTION — Lean ‖ Stabilize, side by side ──────────────── -->
+  <section id="b" class="space-y-5 scroll-mt-6 relative left-1/2 -translate-x-1/2 w-[min(90rem,94vw)]">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="display text-2xl">B — Hardware deploy</h2>
+      <span class="eyebrow">two tracks side by side · Lean (full-body) ‖ Stabilize (loco-manip)</span>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-6 items-start">
+
+    <!-- ════════ LEFT: LEAN — full-body stand ════════ -->
+    <article id="b-lean" class="card card-hair p-6 space-y-5" style="border-color:rgba(244,63,94,.4)">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="display text-xl">B — Hardware: estimator vs OptiTrack, head-to-head</h2>
+      <span class="pill pill-amber">▶ NEXT</span>
+      <span class="pill pill-rose">ROBOT</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      Run the <em>same</em> stand (<code class="text-xs text-slate-200">Lean H12 Magpie</code>, strategy 6)
+      <strong>twice</strong>. The node, safety layer, gains, the baked-in IMU calib (+1.6°),
+      <code class="text-xs text-slate-200">--twin_dt 0.001</code> and
+      <code class="text-xs text-slate-200">--gravity_ff 0.85</code> are <em>identical</em> both runs —
+      the <strong>only</strong> difference is who publishes
+      <code class="text-amber-300">rt/sportmodestate</code>: our laptop estimator
+      (<strong>B1</strong>) or the OptiTrack mocap on the Motive PC (<strong>B2</strong>).
+    </p>
+
+    <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
+      <strong class="text-rose-200">One publisher per topic.</strong> B1 and B2 both write
+      <code>rt/sportmodestate</code> — <em>never</em> run the estimator (publishing it) and
+      <code>publish_sportmodestate.py</code> at the same time, or two writers fight and the base state
+      is garbage. In B2 the estimator, if run at all, goes to a <strong>side</strong> topic
+      (<code>rt/sportmodestate_est --compare</code>) where it becomes a ground-truth ruler, not a controller input.
+    </div>
+
+    <!-- shared preflight -->
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">shared preflight · both runs</span>
+      </div>
+<pre class="cmd"><span class="c"># ─── laptop: DDS preflight (FIRST — confirm the robot link before anything else) ───</span>
+<span class="c"># expect: ping OK + rt/lowstate ✅ ~500Hz (rt/lowcmd + sportmodestate SILENT = normal when idle)</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/dds_topic_check.py <span class="hl">--robot-ip 192.168.123.164</span>
+
+<span class="c"># ─── pc4 (SSH, robot onboard PC) — same for B1 and B2 ──────────</span>
+<span class="c"># T1  hardware e-stop button node (BEFORE the safety layer — it latches without it)</span>
+source ~/core_ws/install/setup.bash &amp;&amp; export ROS_DOMAIN_ID=0 &amp;&amp; ros2 run estop estop_node
+
+<span class="c"># T2  safety layer — the lab's STRICT config on real hardware (after ~8 s)</span>
+cd ~/core_ws/src/h12_safety_layer
+uv run h12_safety_layer/script/safety_layer_main.py --config <span class="hl">default_safety_full</span></pre>
+    </div>
+
+    <!-- ── B1 ─────────────────────────────────────────────── -->
+    <div class="space-y-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="display text-lg text-slate-100">B1</span>
+        <span class="text-sm text-slate-200 font-semibold">stand on our estimator</span>
+        <span class="pill pill-slate">current pipeline</span>
+        <span class="pill pill-emer">✓ self-recovered 281 s</span>
+      </div>
+      <div class="text-xs text-slate-400 leading-relaxed">
+        Laptop owns <code class="text-slate-300">rt/sportmodestate</code> via the RW-EKF. OptiTrack OFF.
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">laptop (wired 192.168.123.x · Tailscale OFF)</span>
+        </div>
+<pre class="cmd"><span class="c"># T3  estimator — defaults: auto-pins enx, PUBLISHES rt/sportmodestate</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py
+
+<span class="c"># T4  node — defaults: auto-pins enx, consumes rt/sportmodestate (= the estimate)</span>
+<span class="c"># --twin_dt 0.001 ROBOT-ONLY (real tick=1kHz); IMU pitch calib +1.6° BAKED IN (default)</span>
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
+  --plan_threads 12 --latency_comp --twin_dt 0.001
+
+<span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; auto-pins enx → logs/&lt;tag&gt;_&lt;ts&gt;.npz + .csv)</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB1_est --csv</span></pre>
+      </div>
+    </div>
+
+    <!-- ── B2 ─────────────────────────────────────────────── -->
+    <div class="space-y-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="display text-lg text-slate-100">B2</span>
+        <span class="text-sm text-slate-200 font-semibold">stand on OptiTrack mocap</span>
+        <span class="pill pill-sky">mocap-in-loop · ground-truth base</span>
+      </div>
+      <div class="text-xs text-slate-400 leading-relaxed">
+        The <strong>Motive PC</strong> owns <code class="text-slate-300">rt/sportmodestate</code> from the
+        <code>h1_2_pelvis</code> rigid body. The laptop estimator does <em>not</em> publish it; node + safety
+        + record are <strong>identical to B1</strong>.
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#7dd3fc"></span>
+          <span class="lbl ml-2">Motive PC (Windows · cameras + 192.168.123.x route)</span>
+        </div>
+<pre class="cmd"><span class="c"># T0  Motive PC — close the Motive GUI first (the API takes the cameras).</span>
+<span class="c"># One-time: edit the CONFIG block — RIGID_BODY "h1_2_pelvis", CALIBRATION .cal path,</span>
+<span class="c"># DDS_INTERFACE "" (auto-detect this PC's 192.168.123.x) — then publish:</span>
+python publish_sportmodestate.py
+<span class="c"># expect: "PUBLISHING 'rt/sportmodestate' @ 100 Hz" then per-sec  pos=[..] vel=[..] err=0.4mm</span>
+<span class="c"># validate axes ONCE: nudge robot +x forward → world x rises; lift → world z rises (else fix AXIS_MAP)</span></pre>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">laptop — node IDENTICAL to B1 (no estimator on the live topic)</span>
+        </div>
+<pre class="cmd"><span class="c"># T3  node — byte-identical to B1 T4; rt/sportmodestate is now OptiTrack-sourced</span>
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
+  --plan_threads 12 --latency_comp --twin_dt 0.001
+
+<span class="c"># T4  (BONUS) estimator as a RULER — side topic + compare vs OptiTrack truth.</span>
+<span class="c"># prints  pos_err / vel_err  of the EKF vs mocap → first real-robot ground-truth score. Does NOT feed control.</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py \
+  <span class="hl">--out-topic rt/sportmodestate_est --compare --truth-topic rt/sportmodestate</span>
+
+<span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; tag distinguishes the two A/B runs)</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB2_optitrack --csv</span></pre>
+      </div>
+    </div>
+
+    <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
+      <strong class="text-rose-200">Safety, first actuated attempt:</strong> robot supported / on
+      gantry · debug mode · <code>sudo systemctl stop tailscaled</code> on laptop AND pc4 ·
+      estop_node before safety layer · verify estop with
+      <code>ros2 topic echo /estop/plugged_in</code> → true.
+    </div>
+
+    <ul class="space-y-2 text-xs text-slate-300">
+      <li class="leading-relaxed">⚖ <strong>The A/B:</strong> B1 and B2 differ only in the source of <code>rt/sportmodestate</code>. OptiTrack gives a non-drifting absolute base (zero XY drift, true height/yaw) → B2 is the gold-standard reference; B1 is the contribution (no mocap needed). Compare hold time, tilt, and ankle effort between <code>standB1_est</code> and <code>standB2_optitrack</code>.</li>
+      <li class="leading-relaxed">🪪 <strong>magpie task:</strong> <code class="text-amber-300">--task "Lean H12 Magpie"</code> + twin <code>--magpie</code>. Grippers are mass-only (nu=27 unchanged) so every other flag is identical to the handless sheet; if the grippers come off, swap the task back to <code>"Lean H12"</code> and drop <code>--magpie</code>.</li>
+      <li class="leading-relaxed">⚠ <code class="text-amber-300">--twin_dt 0.001</code> (NOT the twin's 0.005): real lowstate <code>tick</code> = 1 kHz, so 0.005 → twin_time 5× wall → base-velocity finite-diff reads 1/5 reality → forward lean. At startup confirm the readout shows <code>t=X(twin=X)</code> 1:1. <span class="text-emerald-400">validated 2026-06-13 (self-recovered, 281 s).</span></li>
+      <li class="leading-relaxed">✓ <span class="text-emerald-400 font-semibold">forward lean SOLVED (2026-06-14)</span>: cause was the IMU pitch zero-offset (−1.6°), NOT CoM / ankle. Correction baked in (default +1.6°) → most upright to date (mean tilt 2.7°), <code>com_x_offset</code> retired. <code class="text-amber-300">--gravity_ff 0.85</code> now standard.</li>
+      <li class="leading-relaxed">▶ other strategies swap in identically under either base source: <code class="text-amber-300">--strategy 18</code> Squatter (add <code class="text-amber-300">--policy_blend_sec 2.5</code>; 4-phase stand_up 15s→crouch_mid 12s→crouch 5s→crouch_mid 8s, crouch_mid pauses descent to pay out the harness), or <code class="text-amber-300">8</code>/<code class="text-amber-300">17</code> crouch/squat.</li>
+      <li class="leading-relaxed">📋 report back: B2 OptiTrack <code>err=…mm</code> (mocap fit) + the estimator-ruler <code>vel_err</code> line; B1 estimator <code>[est] accel health:</code> (~9.81 → full IMU fusion unlockable).</li>
+    </ul>
+    </article><!-- /b-lean -->
+
+    <!-- ════════ RIGHT: STABILIZE — legs-only loco-manip ════════ -->
+    <article id="b-stabilize" class="card card-hair p-6 space-y-5" style="border-color:rgba(56,189,248,.45)">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="display text-xl">B · Stabilize — legs-only MPC + arms on IK</h2>
+        <span class="pill pill-amber">▶ NEXT</span>
+        <span class="pill pill-rose">ROBOT</span>
+        <span class="pill pill-sky">SPLIT SAFETY</span>
+      </div>
+      <p class="text-sm text-slate-300 leading-relaxed">
+        Loco-manip: the <strong>lower-body MPC node balances the 12 legs</strong> while the
+        <strong>FrameTask IK owns the arms</strong>. Task <code class="text-amber-300">Stabilize H12 Magpie</code>,
+        <code class="text-xs text-slate-200">nu=12</code>. The node publishes <em>only</em> the lower channel
+        (<code class="text-amber-300">rt/safety/lowcmd_lower_in</code>, motor slots 0–11); arms come from
+        <code>rt/safety/lowcmd_upper_in</code>. Same base source as Lean B1 (RW-EKF →
+        <code>rt/sportmodestate</code>), same <code class="text-xs text-slate-200">--twin_dt 0.001</code> /
+        <code class="text-xs text-slate-200">--gravity_ff 0.85</code> / baked IMU +1.6°.
+      </p>
+
+      <div class="rounded-lg border border-sky-900/70 bg-sky-950/30 p-3.5 text-xs text-sky-100/90 leading-relaxed">
+        <strong class="text-sky-200">Split safety.</strong> Legs from <code>lowcmd_lower_in</code> (our node)
+        + arms from <code>lowcmd_upper_in</code> (FrameTask), merged by the split safety layer. The bringup
+        auto-takes the arms to <strong>home</strong> and HOLDS them before the legs engage — never stop
+        publishing the upper channel (silent ⇒ hold-last / estop).
+      </div>
+
+      <!-- robot PC: bringup brings up arms + split safety -->
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#f87171"></span>
+          <span class="term-dot" style="background:#fbbf24"></span>
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">robot PC (SSH) · arms → home + split safety</span>
+        </div>
+<pre class="cmd"><span class="c"># laptop: DDS preflight (same as Lean) — expect rt/lowstate ✅ ~500Hz</span>
+.venv/bin/python ~/Desktop/h12/dds_tools/dds_topic_check.py <span class="hl">--robot-ip 192.168.123.164</span>
+
+<span class="c"># robot PC: source the ACTIVE workspace — NOT ~/depricated_core_ws.</span>
+<span class="c"># the real bringup lives in ~/HAMS/core_ws (verified on pc4 2026-06-30).</span>
+source <span class="hl">~/HAMS/core_ws/install/setup.bash</span> &amp;&amp; export ROS_DOMAIN_ID=0
+
+<span class="c"># ONE bringup does it ALL — ✓ VERIFIED on pc4 (src == install/share, no rebuild):</span>
+<span class="c">#   estop_node  +  safety_node --config default_safety_split.yaml  (+3s)  = SPLIT safety</span>
+<span class="c">#   +  frame_task_server --config safety_split.yaml  (+5s)  = arms auto -> HOME, held on lowcmd_upper_in</span>
+<span class="c"># DO NOT launch estop / safety separately — they are inside this launch (would collide).</span>
+ros2 launch h1_bringup <span class="hl">h1_real_robot_bringup.launch.py</span>
+
+<span class="c"># confirm (2nd terminal): all three up + which safety config ACTUALLY loaded</span>
+ros2 node list | grep -E <span class="hl">"safety_node|estop_node|frame_task_server"</span>
+ps aux | grep safety_node | grep -v grep   <span class="c"># expect: --config default_safety_split.yaml</span></pre>
+      </div>
+
+      <!-- laptop: estimator + lower-body node + record -->
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">laptop (wired enx · Tailscale OFF) · legs MPC</span>
+        </div>
+<pre class="cmd"><span class="c"># T3  base estimator — RW-EKF, PUBLISHES rt/sportmodestate (identical to Lean B1)</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/base_estimator_node.py
+
+<span class="c"># T4  LOWER-BODY MPC node — legs only -> rt/safety/lowcmd_lower_in (default topic)</span>
+<span class="c"># FIRST STAND TEST: NO --arm_aware (arms at home => identical; isolates legs + split plumbing)</span>
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_lower_body_controller</span> \
+  --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
+  --plan_threads 12 --latency_comp --twin_dt 0.001
+
+<span class="c"># MANIP (only after the stand is solid): add --arm_aware so the legs PRE-compensate the reach</span>
+<span class="c"># (reads the 15 upper joints for CoM; STILL commands legs only). Then feed FrameTask IK targets.</span>
+  ... same command <span class="hl">+ --arm_aware</span>
+
+<span class="c"># T5  RECORD</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standStab_legs --csv</span></pre>
+      </div>
+
+      <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
+        <strong class="text-rose-200">First actuated attempt:</strong> robot on gantry · debug mode ·
+        <code>sudo systemctl stop tailscaled</code> (laptop + pc4) · estop verified. The legs RAMP to the
+        wide bent-knee stance then balance — keep supported until the harness residual is ≤ ~1.6 Nm sustained.
+      </div>
+
+      <ul class="space-y-2 text-xs text-slate-300">
+        <li class="leading-relaxed">🦵 <strong>legs only:</strong> <code class="text-amber-300">nu=12</code>, publishes <code>rt/safety/lowcmd_lower_in</code> (slots 0–11). Arms = FrameTask on <code>lowcmd_upper_in</code>; the node never commands arms.</li>
+        <li class="leading-relaxed">🤝 <strong>arm bring-up is FrameTask's job</strong> — it ramps arms to home + holds. The legs-only node neither snaps nor ramps the arms (lean ramped all 27; this node ramps only the legs).</li>
+        <li class="leading-relaxed">🧠 <strong><code class="text-amber-300">--arm_aware</code> = perception only:</strong> reads the 15 upper joints so the legs pre-compensate a reach (retargets the equality locks to the measured arm pose; still <code>nu=12</code>). OFF for the first stand (no-op at home), ON for manip.</li>
+        <li class="leading-relaxed">⚠ <strong>backward = weak axis:</strong> twin push matrix → lateral bulletproof, forward good, backward falls @0.3 m/s (planted stand, known). Avoid pushing INTO the fridge.</li>
+        <li class="leading-relaxed">⚙ the bringup loads <code>default_safety_split.yaml</code> + <code>frame_task_server --config safety_split.yaml</code> — <strong>no separate safety/estop launch</strong>. Same <code class="text-amber-300">--twin_dt 0.001</code> caveat (real tick 1 kHz; confirm the 1:1 <code>t=X(twin=X)</code> readout).</li>
+      </ul>
+    </article><!-- /b-stabilize -->
+
+    </div><!-- /grid -->
+  </section>
+
+  <!-- ──────────────── WHAT CHANGES ──────────────── -->
+  <section class="space-y-5">
+    <div class="lbl">What changes between phases — everything else is identical</div>
+
+    <!-- constant core -->
+    <div class="card card-hair p-5 space-y-2">
+      <div class="text-xs text-slate-400">The constant core of every node launch:</div>
+      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6 --use_twin_time --plan_threads 12 --latency_comp</code>
+      <div class="text-xs text-slate-400 pt-1">…then exactly one phase delta (the <span class="text-amber-400 font-semibold">amber</span> slot):</div>
+      <div class="flex flex-wrap gap-2 pt-1">
+        <span class="keycap">A1 → <span class="text-amber-300">--imu_pitch_offset_deg 0</span></span>
+        <span class="keycap">A2 → <span class="text-amber-300">+ --sportstate_topic …_est</span></span>
+        <span class="keycap">B1 → <span class="text-amber-300">--gravity_ff 0.85 · --twin_dt 0.001</span> · estimator publishes</span>
+        <span class="keycap">B2 → <span class="text-amber-300">same node</span> · OptiTrack publishes rt/sportmodestate</span>
+      </div>
+    </div>
+
+    <div class="card card-hair overflow-hidden">
+      <table class="spec">
+        <thead><tr><th>Phase</th><th>Robot link</th><th>Who publishes rt/sportmodestate</th><th>Node extra flag</th><th>Safety config</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="pill pill-sky">A1 twin</span></td>
+            <td class="text-slate-400">UNPLUGGED</td>
+            <td class="mono text-[11px] text-slate-300">twin truth · estimator rides → …_est --compare</td>
+            <td class="mono text-[11px] text-amber-300">--imu_pitch_offset_deg 0</td>
+            <td class="mono text-[11px] text-slate-300">default_safety_full.yaml</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-sky">A2 twin</span></td>
+            <td class="text-slate-400">UNPLUGGED</td>
+            <td class="mono text-[11px] text-slate-300">estimator → …_est (node reads …_est)</td>
+            <td class="mono text-[11px] text-amber-300">--sportstate_topic …_est · --imu_pitch_offset_deg 0</td>
+            <td class="mono text-[11px] text-slate-300">default_safety_full.yaml</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-rose">B1 robot</span></td>
+            <td class="text-slate-400">wired enx</td>
+            <td class="mono text-[11px] text-emerald-300">estimator (laptop RW-EKF)</td>
+            <td class="mono text-[11px] text-amber-300">--twin_dt 0.001 · --gravity_ff 0.85 · (imu +1.6 baked in)</td>
+            <td class="mono text-[11px] text-slate-300">default_safety_full + estop_node</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-rose">B2 robot</span></td>
+            <td class="text-slate-400">wired enx + Motive PC</td>
+            <td class="mono text-[11px] text-sky-300">OptiTrack mocap (Motive PC) · est → …_est --compare = ruler</td>
+            <td class="mono text-[11px] text-amber-300">(same node as B1)</td>
+            <td class="mono text-[11px] text-slate-300">default_safety_full + estop_node</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="space-y-1.5 text-xs text-slate-400">
+      <li class="leading-relaxed">· Never <code>--iface lo</code> — loopback disables multicast, DDS goes deaf. Twin = <code>--no-auto-iface</code>.</li>
+      <li class="leading-relaxed">· <code>--imu_pitch_offset_deg</code> defaults to <code class="text-slate-300">1.6</code> = the ROBOT's measured IMU pitch zero-offset. The TWIN has no mount offset → pass <code class="text-slate-300">0</code> on A1/A2, else the twin leans. (<code>_twin_probe</code> is unaffected — different code path.)</li>
+      <li class="leading-relaxed">· Twin tests with the dongle plugged would auto-pin the robot NIC and miss the twin — unplug first.</li>
+      <li class="leading-relaxed">· Falls at ~40–90 s with slow knee-creep then ankle-torque blowup = the known cost-side sink / strut, NOT a pipeline failure.</li>
+      <li class="leading-relaxed">· <code>default_safety_full</code>'s state estop is LATCHING: a fall / transient (q / dq / tau out of range) drives the relay to zeros for good — restart the safety node to clear and rerun. A trip ends that run; it is not a pipeline failure.</li>
+      <li class="leading-relaxed">· <span class="text-rose-300">B2 only:</span> exactly ONE writer on <code>rt/sportmodestate</code>. Run OptiTrack <em>or</em> the estimator-publishing-it — never both. In B2 the estimator must go to <code>rt/sportmodestate_est --compare</code> (a ruler), not the live topic.</li>
+      <li class="leading-relaxed">· <span class="text-slate-300">magpie:</span> task is <code>"Lean H12 Magpie"</code> and the twin runs <code>--magpie</code>. Grippers are welded mass-only (nu=27, nq unchanged) → no cost/weight/gain retune; swap back to <code>"Lean H12"</code> (no <code>--magpie</code>) when they come off. Validate the OptiTrack <code>AXIS_MAP</code> once with the +x / +z motion test before trusting B2.</li>
+    </ul>
+  </section>
+
+  <!-- ──────────────── STATUS ──────────────── -->
+  <section class="card card-hair p-6 space-y-2" style="border-color:rgba(16,185,129,.4); background:linear-gradient(180deg, rgba(6,46,33,.28), rgba(11,17,32,.5))">
+    <div class="flex items-center gap-3">
+      <h2 class="display text-lg">Status</h2>
+      <span class="pill pill-emer">on hardware</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      A1 + A2 passed on the twin (~83 s on the estimate). <strong>Phase B is live on the real
+      H1-2</strong> with the <strong>forward lean solved</strong> (IMU pitch zero-offset −1.6°,
+      corrected in-node by default; mean tilt 2.7°, <code class="text-xs text-slate-200">com_x_offset</code>
+      hack retired). <strong>Next:</strong> the gripper-on stand (<code class="text-xs text-slate-200">Lean H12 Magpie</code>)
+      run as a base-source A/B — <strong>B1</strong> on our RW-EKF estimate (self-recovered 281 s) vs
+      <strong>B2</strong> on OptiTrack mocap — which finally scores the estimator against a real
+      ground-truth ruler. Residual = a yaw / foot-twist + marginal stability; sysid path (foot friction) follows.
+    </p>
+    <p class="text-xs text-slate-500 pt-1">
+      Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a>
+    </p>
+  </section>
+
+  <footer class="pt-2 text-center text-[11px] text-slate-600">
+    H1-2 deploy command sheet · MJPC sampling-MPC · base = RW-EKF estimator (B1) vs OptiTrack mocap (B2) · single self-contained file
+  </footer>
+
+</main>
+</body>
+</html>
