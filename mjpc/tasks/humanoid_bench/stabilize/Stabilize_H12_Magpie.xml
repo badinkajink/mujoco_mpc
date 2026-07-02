@@ -417,8 +417,12 @@
              stochastic-noise-dominated). Turn up (~0.1-0.3) on the REAL robot / fast-arm bench
              where a genuine arm-swing transient exists for it to anticipate. -->
         <numeric name="arm_lead_sec" data="0.0"/>
-        <numeric name="back_balance_boost" data="1.6"/>  <!-- F3: backward Balance barrier x1.6 -->
-        <numeric name="back_angmom_boost"  data="2.0"/>  <!-- F2: backward pitch-angmom penalty x2.0 -->
+        <!-- F2/F3 REVERTED to 1.0 (2026-07-02, real-hw): making backward stricter than forward
+             re-opened the FORWARD escape the 2026-06-04 symmetric-barrier fix closed => a 10-12 deg
+             forward lurch on the real robot (real CoM sits fwd; twin missed it, no fwd-CoM offset).
+             KEEP SYMMETRIC (1.0) on real; only try >1 on a twin that reproduces the real fwd lean. -->
+        <numeric name="back_balance_boost" data="1.0"/>
+        <numeric name="back_angmom_boost"  data="1.0"/>
         <!-- Default 1.70 matches the actual head-feet error at the home
              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
              The old 1.65 made the Height residual +0.05 at home with cost
