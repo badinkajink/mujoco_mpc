@@ -150,12 +150,12 @@ class CopyTaskAssetsCommand(setuptools.Command):
   def run(self):
     mjpc_tasks_path = Path(__file__).parent.parent / "build" / "mjpc" / "tasks"
     assert mjpc_tasks_path.exists(), "Build MJPC before installing Python API"
-    source_paths = (
-      tuple(mjpc_tasks_path.rglob("*.xml"))
-      + tuple(mjpc_tasks_path.rglob("*.png"))
-      + tuple(mjpc_tasks_path.rglob("*.stl"))
-      + tuple(mjpc_tasks_path.rglob("*.obj"))
-    )
+    source_paths = tuple(dict.fromkeys(
+      p
+      for _ext in ("xml", "png", "stl", "obj", "skn", "msh")
+      for _pat in ("*." + _ext, "*." + _ext.upper())
+      for p in mjpc_tasks_path.rglob(_pat)
+    ))
     relative_source_paths = tuple(p.relative_to(mjpc_tasks_path) for p in source_paths)
     assert self.build_lib is not None
     build_lib_path = Path(self.build_lib).resolve()
