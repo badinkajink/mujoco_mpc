@@ -2117,18 +2117,42 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int pelvis_id = mj_name2id(model, mjOBJ_BODY, "pelvis");
     if (pelvis_id < 0) pelvis_id = 1;  // floating-base root fallback (always exists)
     const mjtNum *angmom = data->subtree_angmom + 3 * pelvis_id;
-    // HIP/ARM RECOVERY tier (Strategy 20): when the capture point excurses, target
-    // COUNTER angular momentum (throw torso+arms OPPOSITE the fall) instead of zero
-    // -> the flat-footed ankle->HIP->step INTERMEDIATE tier that hauls the CoM back
-    // BEFORE a step is needed, WITHOUT rocking onto the toe/heel (the CoP/ankle
-    // strategy we deliberately avoid). Zero target when calm == the original
-    // regulate-to-zero (unchanged for every other strategy). Fore-aft capture
-    // excursion -> pitch momentum (Ly); lateral -> roll (Lx); yaw (Lz) always ->0.
-    // Gains are numerics (default 0 = OFF until tuned on the twin; SIGN found there).
+    // FREE-STANDING capture excursion (2026-07-02, stand push-recovery fix): the
+    // stand (strat 6) had NO recovery tier above the ankle -- g_cap_ex/ey were
+    // computed ONLY inside the is_stumble gait block, so a fore/aft push drove the
+    // capture point out of the (tiny; heel=0.035 m backward) support base in ~0.15 s
+    // while the ankle sat <11% of range (twin swing_diag) -> topple by leaning.
+    // Compute the SAME signed capture excursion here for the non-stumble free-
+    // standing strategies so the hip/arm counter-momentum tier below can haul the
+    // CoM back BEFORE a step. Sampling-legal (state cost target, no feedback gain).
+    if (!is_stumble) {
+      double const *tup_r  = SensorByName(model, data, "torso_up");
+      double const *cvel_r = SensorByName(model, data, "waist_lower_subcomvel");
+      double zc_r  = mju_max(0.5, data->subtree_com[3 * pelvis_id + 2]);
+      double tau_r = mju_sqrt(zc_r / 9.81);
+      int lnx_id2 = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
+      double kLeanX2 = (lnx_id2 >= 0)
+          ? model->numeric_data[model->numeric_adr[lnx_id2]] : 0.06;
+      double tx_r = (tup_r ? tup_r[0] : 0.0) - kLeanX2, ty_r = tup_r ? tup_r[1] : 0.0;
+      double vx_r = cvel_r ? cvel_r[0] : 0.0, vy_r = cvel_r ? cvel_r[1] : 0.0;
+      g_cap_ex = zc_r * tx_r + tau_r * vx_r;   // signed fore-aft capture excursion
+      g_cap_ey = zc_r * ty_r + tau_r * vy_r;   // signed lateral
+    }
+    // HIP/ARM RECOVERY tier: when the capture point excurses, target COUNTER angular
+    // momentum (throw torso+arms OPPOSITE the fall) instead of zero -> the flat-
+    // footed ankle->HIP->step INTERMEDIATE tier that hauls the CoM back BEFORE a
+    // step, WITHOUT rocking onto the toe/heel. Zero target when calm == the original
+    // regulate-to-zero. Now active for ALL free-standing strategies (we are inside
+    // !arm_contact_or_lean); stumble keeps its own recover_* gains (catch-step
+    // frontier), the stand/crouch/arms use stand_recover_* so the two regimes tune
+    // INDEPENDENTLY. Fore-aft excursion -> pitch (Ly); lateral -> roll (Lx); yaw ->0.
+    // Gains default 0 = OFF (byte-identical) until tuned on the twin; SIGN found there.
     double Lx_tgt = 0.0, Ly_tgt = 0.0;
-    if (is_stumble) {
-      int rpg_id = mj_name2id(model, mjOBJ_NUMERIC, "recover_pitch_gain");
-      int rrg_id = mj_name2id(model, mjOBJ_NUMERIC, "recover_roll_gain");
+    {
+      const char *pg = is_stumble ? "recover_pitch_gain" : "stand_recover_pitch_gain";
+      const char *rg = is_stumble ? "recover_roll_gain"  : "stand_recover_roll_gain";
+      int rpg_id = mj_name2id(model, mjOBJ_NUMERIC, pg);
+      int rrg_id = mj_name2id(model, mjOBJ_NUMERIC, rg);
       double kRecPitch = (rpg_id >= 0)
           ? model->numeric_data[model->numeric_adr[rpg_id]] : 0.0;
       double kRecRoll = (rrg_id >= 0)

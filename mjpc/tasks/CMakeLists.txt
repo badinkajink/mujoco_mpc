@@ -277,12 +277,15 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
-  # NOTE: h1_2_modified_magpie.xml.patch is stale against the pinned h1_mujoco
-  # base (2 of 6 hunks reject on the ankle/foot geoms), so `patch` exits non-zero
-  # and aborts copy_model_resources -- a hard dep of libmjpc/agent_server. Until
-  # the patch is regenerated, directly COPY the base model as the "magpie" variant
-  # (the same copy-instead-of-patch workaround used elsewhere in this file). The
-  # gripperless base is fine for lower-body work; nothing here selects a magpie task.
+  # Magpie model (2026-07-02): COPY the gripperless base as the "magpie" variant FIRST,
+  # so the lower-body stabilize model is derived below from the gripperless condim-4 base
+  # (exactly what the stand / hip-throw tuning + the real deploy are validated on). The
+  # FULL magpie patch (welded gripper bodies + forearm brace pads/sites) is RE-APPLIED to
+  # this file AFTER the stabilize derivation (see below) so the Lean/reach tasks -- which
+  # reference left/right_magpie_gripper bodies + forearm_brace sites -- get the complete
+  # model, while the stabilize/deploy model does NOT silently gain ~1 kg of gripper mass
+  # mid-tuning. (The old 934c59a "patch is stale, 2 hunks reject" note is obsolete: against
+  # the re-synced pinned base the patch now applies cleanly -- Lean loads again.)
   COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
@@ -294,6 +297,14 @@ add_custom_target(
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stabilize/_gen_stabilize_model.py
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stabilize_magpie.xml
+  # NOW re-apply the magpie patch to the magpie model (grippers + forearm brace pads/
+  # sites) for the Lean/reach tasks -- AFTER the gripperless stabilize model was derived
+  # above, so the stabilize/deploy model stays gripperless (tuning-safe). `|| true` keeps
+  # a FUTURE re-staleness from aborting copy_model_resources (a hard dep of libmjpc):
+  # worst case Lean would miss the pads, but the build still succeeds. The reject file
+  # (if any ankle hunk rejects against a future base) is discarded -- harmless to Lean.
+  COMMAND bash -c "patch -f --no-backup-if-mismatch ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml -i ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch || true"
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml.rej
   COMMAND ${CMAKE_COMMAND} -E make_directory
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes
   COMMAND ${CMAKE_COMMAND} -E rm -f

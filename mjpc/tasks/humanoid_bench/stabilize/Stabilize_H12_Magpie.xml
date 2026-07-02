@@ -405,6 +405,19 @@
              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
         <numeric name="recover_pitch_gain" data="0.0"/> <!-- PHASE 1 2026-06-26: tested +10 (2/6=33%) and +30 (6/12=50% on twin) = NO robust catch-step fix (the 4/4@30 was variance). Reverted to 0. Frontier needs concurrent lateral-CoM + recovery, not pitch gain alone. -->
         <numeric name="recover_roll_gain" data="0.0"/>
+        <!-- stand_recover_pitch_gain / stand_recover_roll_gain (2026-07-02, stand push-recovery):
+             the SAME hip/arm momentum-throw recovery tier as above, but wired into the FREE-STANDING
+             stand (strat 6), which previously had NO recovery above the ankle (g_cap_ex + throw +
+             catch-step were is_stumble-gated => a fore/aft push drove the capture point out of the
+             tiny support base in ~0.15 s while the ankle sat <11% range -> topple by leaning; twin
+             swing_diag). Separate numerics so the stand tunes INDEPENDENTLY of strat 20's catch-step
+             frontier. Ly_tgt = gain * g_cap_ex (fore-aft), Lx_tgt = gain * g_cap_ey (lateral). GATED
+             on capture excursion => nominal stand (g_cap_ex~0) is byte-identical (SAFE vs the F2/F3
+             always-on-barrier lurch). SIGN + magnitude found on the twin. 0 = off. XML-tunable, no rebuild. -->
+        <numeric name="stand_recover_pitch_gain" data="300.0"/> <!-- 2026-07-02: hip-throw recovery for the free-standing stand. Twin swing_diag + armrobust: converts the arms_front (full horizontal) raise FALL->HOLD (gain 0 falls ~3-5s; gain>=150 holds 8-9deg tilt), single-config raises robust; excursion-gated so nominal stand + resting posture BYTE-unchanged (null holds 4.3deg, NOT the F2/F3 forward-lurch). Tune 150-600 on real (higher only DELAYS the residual rapid-cycle falls = envelope-limited, needs the catch-step); 0 = off. -->
+        <numeric name="stand_recover_roll_gain"  data="0.0"/> <!-- lateral (roll) recovery; 0 = off. Fore-aft (pitch) is the reported failure; roll untested, enable + tune if lateral configs (t_pose/arms_asym) need it. -->
+        <!-- NOTE: rapid random config CYCLES still fall (compound config-to-config swings exceed the hip strategy; gain 300->600 only delays 8->17s) => that residual needs the Strategy-20 CATCH-STEP wired into the stand (option B). Single-config raises (the real "home->arm45" failure class) are fixed by the throw above. -->
+
         <!-- F2/F3 (2026-07-02, arm-motion robustness): asymmetric BACKWARD boosts, active only
              when the capture point escapes backward on the free-standing stand (arm-raise reaction
              throws the trunk back onto the weak 0.035 m heel). 1.0 = off (byte-identical). XML-tunable. -->
