@@ -277,12 +277,15 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
-  # Auto-derive the magpie-gripper variant from the (just-copied) h1_2_modified.xml so
-  # the gripper model is never hand-maintained: edit the BASE model, rebuild, and the
-  # magpie variant is regenerated = base + the two fixed wrist grippers. One source of truth.
-  COMMAND patch -o ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+  # NOTE: h1_2_modified_magpie.xml.patch is stale against the pinned h1_mujoco
+  # base (2 of 6 hunks reject on the ankle/foot geoms), so `patch` exits non-zero
+  # and aborts copy_model_resources -- a hard dep of libmjpc/agent_server. Until
+  # the patch is regenerated, directly COPY the base model as the "magpie" variant
+  # (the same copy-instead-of-patch workaround used elsewhere in this file). The
+  # gripperless base is fine for lower-body work; nothing here selects a magpie task.
+  COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
-        <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
   # Lower-body "stabilize" robot: derive the nu=12 legs-only variant from the
   # (just-built) magpie robot -- drop the 15 upper-body actuators and
   # equality-lock those joints at home. Then mirror lean's mesh symlinks so the
