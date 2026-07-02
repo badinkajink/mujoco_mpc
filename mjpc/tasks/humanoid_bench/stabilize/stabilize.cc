@@ -1252,7 +1252,15 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // penalize forward as strictly as backward (symmetric => keep CoM centered, no escape
   // direction). Table-lean pipeline (arm_contact_or_lean == true) is unchanged.
   double fwd_scale = arm_contact_or_lean ? balance_scale : 1.0;
-  double dir_scale_x = (cp_dx > 0.0) ? fwd_scale : 1.0;
+  // F3 (2026-07-02, arm-motion robustness): a forward arm RAISE throws the trunk
+  // reaction BACKWARD onto the short heel (~0.035 m vs 0.115 m toe) -- the weak
+  // axis. Penalise a BACKWARD capture excursion (cp_dx < 0) harder to bank the
+  // scarce backward margin (asymmetric margin-of-stability, Hof). Numeric
+  // back_balance_boost (default 1.0 = OFF => byte-identical; forward unchanged).
+  double kBackBal = 1.0;
+  { int bb_id = mj_name2id(model, mjOBJ_NUMERIC, "back_balance_boost");
+    if (bb_id >= 0) kBackBal = model->numeric_data[model->numeric_adr[bb_id]]; }
+  double dir_scale_x = (cp_dx > 0.0) ? fwd_scale : kBackBal;
   double dir_scale_y = 1.0;
   // STUMBLE Tier A: release the capture/balance barrier during single support so
   // the capture point may legitimately leave the (shrinking) polygon to be caught
@@ -2154,8 +2162,18 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
       // separate). SAMPLING-LEGAL: penalises only the STATE L_cm, no feedback/dL/dt.
       angmom_w = 1.0;
     }
+    // F2 (2026-07-02, arm-motion robustness): boost the PITCH (Ly) centroidal-
+    // angular-momentum penalty when the capture point is escaping BACKWARD
+    // (g_cap_ex < 0) -- the arm-raise reaction spikes a backward pitch rate;
+    // penalising it harder resists the topple on the weak axis. Direction taken
+    // from g_cap_ex (signed fore-aft capture), NOT the raw Ly sign (model-frame
+    // ambiguous). Numeric back_angmom_boost (default 1.0 = OFF => byte-identical).
+    double kBackAng = 1.0;
+    { int ba_id = mj_name2id(model, mjOBJ_NUMERIC, "back_angmom_boost");
+      if (ba_id >= 0) kBackAng = model->numeric_data[model->numeric_adr[ba_id]]; }
+    double ly_boost = (g_cap_ex < 0.0) ? kBackAng : 1.0;
     residual[counter++] = angmom_w * 0.1 * (angmom[0] - Lx_tgt);
-    residual[counter++] = angmom_w * 0.1 * (angmom[1] - Ly_tgt);
+    residual[counter++] = angmom_w * 0.1 * ly_boost * (angmom[1] - Ly_tgt);
     residual[counter++] = angmom_w * 0.1 * angmom[2];
   } else {
     residual[counter++] = 0.0;
@@ -2498,6 +2516,44 @@ void stabilize::ResidualFn::ContactResidual(const mjModel *model, const mjData *
 // of net body weight on each foot, enough friction to hold against the
 // soft cost gradients without artificial pins).
 void stabilize::TransitionLocked(mjModel *model, mjData *data) {
+  // ---- F1-A (2026-07-02): ARM-AWARE-IN-ROLLOUT ---------------------------- //
+  // Retarget the arm equality locks to the MEASURED upper-body pose (data->qpos
+  // == the SetState'd real state) so EVERY sampled rollout holds the arms where
+  // they ACTUALLY are, instead of frozen at home. Runs ONCE per plan under the
+  // transition lock (the rollout workers fan out AFTER this), so editing the
+  // shared model->eq_data here is thread-safe -- the deploy node's arm_aware
+  // (h12_lower_body_controller fill_state), moved into the planner task so the
+  // agent_server itself anticipates the arm's CoM instead of toppling toward it.
+  // Numeric arm_aware_plan (default 1 = on; 0 = legacy home-locked stand).
+  // F1b (2026-07-02): TRAJECTORY feedforward. Retarget not to where the arm IS but
+  // to where it is GOING -- the lead-extrapolated pose q + arm_lead_sec * qdot
+  // (measured arm velocity). On a HELD arm (qdot~0) this is identical to F1-A; DURING
+  // an arm swing it pre-positions the planner's CoM toward the arm's near-future, so
+  // the legs pre-lean EARLIER (anticipatory postural adjustment) instead of chasing the
+  // reaction. Still ONE eq_data write per plan (thread-safe). Numeric arm_lead_sec
+  // (default 0 = pure F1-A pose; ~0.3 s ≈ plan horizon / APA lead).
+  {
+    int aap_id = mj_name2id(model, mjOBJ_NUMERIC, "arm_aware_plan");
+    bool arm_aware_plan =
+        (aap_id < 0) || (model->numeric_data[model->numeric_adr[aap_id]] > 0.5);
+    int al_id = mj_name2id(model, mjOBJ_NUMERIC, "arm_lead_sec");
+    double arm_lead = (al_id >= 0)
+        ? model->numeric_data[model->numeric_adr[al_id]] : 0.0;
+    if (arm_aware_plan) {
+      for (int e = 0; e < model->neq; e++) {
+        if (model->eq_type[e] != mjEQ_JOINT) continue;
+        int jid = model->eq_obj1id[e];
+        int qadr = model->jnt_qposadr[jid];
+        int midx = qadr - 7;                       // motor index 0..26
+        if (midx >= 12 && midx <= 26) {
+          double q = data->qpos[qadr];
+          if (arm_lead > 0.0)
+            q += arm_lead * data->qvel[model->jnt_dofadr[jid]];   // F1b lead
+          model->eq_data[e * mjNEQDATA + 0] = q;
+        }
+      }
+    }
+  }
   // ---- DEBUG: print leg stability diagnostics every ~0.5 s ---- //
   static int debug_tick = 0;
   static const bool lean_dbg = (std::getenv("LEAN_DEBUG") != nullptr);

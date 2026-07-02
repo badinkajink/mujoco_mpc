@@ -405,6 +405,20 @@
              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
         <numeric name="recover_pitch_gain" data="0.0"/> <!-- PHASE 1 2026-06-26: tested +10 (2/6=33%) and +30 (6/12=50% on twin) = NO robust catch-step fix (the 4/4@30 was variance). Reverted to 0. Frontier needs concurrent lateral-CoM + recovery, not pitch gain alone. -->
         <numeric name="recover_roll_gain" data="0.0"/>
+        <!-- F2/F3 (2026-07-02, arm-motion robustness): asymmetric BACKWARD boosts, active only
+             when the capture point escapes backward on the free-standing stand (arm-raise reaction
+             throws the trunk back onto the weak 0.035 m heel). 1.0 = off (byte-identical). XML-tunable. -->
+        <!-- F1-A: arm-aware-in-rollout. 1 = retarget arm eq-locks to the measured arm pose
+             each plan (planner anticipates the arm CoM); 0 = legacy home-locked stand. -->
+        <numeric name="arm_aware_plan" data="1"/>
+        <!-- F1b: lead time [s] for arm-motion anticipation (eq target = q + lead*qdot).
+             0 = pure F1-A pose. Built + tunable but DEFAULT 0: in-process bench showed no
+             measurable benefit (slow arm-PD => weak transient; marginal case is step-limited +
+             stochastic-noise-dominated). Turn up (~0.1-0.3) on the REAL robot / fast-arm bench
+             where a genuine arm-swing transient exists for it to anticipate. -->
+        <numeric name="arm_lead_sec" data="0.0"/>
+        <numeric name="back_balance_boost" data="1.6"/>  <!-- F3: backward Balance barrier x1.6 -->
+        <numeric name="back_angmom_boost"  data="2.0"/>  <!-- F2: backward pitch-angmom penalty x2.0 -->
         <!-- Default 1.70 matches the actual head-feet error at the home
              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
              The old 1.65 made the Height residual +0.05 at home with cost

@@ -255,15 +255,16 @@ ABSL_FLAG(double, imu_pitch_offset_deg, 1.6,
           "TWIN (no IMU mounting offset there) or to A/B against the raw IMU.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
-ABSL_FLAG(bool, arm_aware, false,
+ABSL_FLAG(bool, arm_aware, true,
           "ARM-AWARE balance (loco-manip): read the 15 upper-body joints (torso+arms, motor 12..26) "
           "from rt/lowstate and feed them to the planner so its CoM/dynamics model tracks where the "
           "arms ACTUALLY are -- the legs then PRE-compensate for a reach instead of only reacting to "
           "the resulting base tilt. The planner STILL actuates only the 12 legs (nu=12); the upper "
           "joints are held at the MEASURED pose during each rollout via the equality locks (retargeted "
           "live), so they don't snap to home. This node NEVER commands the arms (the FrameTask IK owns "
-          "rt/safety/lowcmd_upper_in). No-op when the arms are at home (measured==0). Default false = "
-          "the validated home-locked stand; turn ON when running with the upper-body IK.");
+          "rt/safety/lowcmd_upper_in). No-op when the arms are at home (measured==0). DEFAULT TRUE "
+          "(2026-07-02: strictly better on the F6 bench -- arm45 ankle margin 2x; also feeds the "
+          "task-side arm_aware_plan retarget). --noarm_aware = legacy home-locked isolation mode.");
 #ifdef H12_NODE_GRPC
 ABSL_FLAG(int, grpc_port, 10000,
           "if >0, host an MJPC gRPC server on this port so the monitor can attach "

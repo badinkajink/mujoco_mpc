@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<package format="3">
+  <name>reach_target_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    Bridges a HAMS perception grasp/object PoseStamped (pelvis frame) into the
+    MuJoCo-MPC control node's live reach target via gRPC SetTaskParameters.
+    Converts pelvis-&gt;MJPC-world using the node's GetState base pose.
+  </description>
+  <maintainer email="allendevaraj33333@gmail.com">Allen Devaraj</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <!-- optional: only needed for non-pelvis input frames -->
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <!-- python-only deps not declared as rosdep keys: grpcio, numpy, and the
+       mujoco_mpc agent gRPC proto (agent_pb2) must be importable at runtime. -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

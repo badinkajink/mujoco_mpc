@@ -595,15 +595,19 @@ cd ~/Desktop/h12/h1_mujoco
 .venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py
 
 <span class="c"># T4  LOWER-BODY MPC node — legs only -> rt/safety/lowcmd_lower_in (default topic)</span>
-<span class="c"># FIRST STAND TEST: NO --arm_aware (arms at home => identical; isolates legs + split plumbing)</span>
+<span class="c"># arm_aware is now BUILT-IN DEFAULT (2026-07-02): legs PRE-compensate the arm CoM (reads the 15 upper</span>
+<span class="c"># joints from rt/lowstate + task-side arm_aware_plan retarget in every rollout; STILL legs only, nu=12).</span>
+<span class="c"># Also baked into the task: back_balance_boost 1.6 + back_angmom_boost 2.0 (backward-axis robustness).</span>
+<span class="c"># ISOLATION: add --noarm_aware to reproduce the legacy home-locked stand (legs + split plumbing only).</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_lower_body_controller</span> \
   --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
   --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
 
-<span class="c"># MANIP (only after the stand is solid): add --arm_aware so the legs PRE-compensate the reach</span>
-<span class="c"># (reads the 15 upper joints for CoM; STILL commands legs only). Then feed FrameTask IK targets.</span>
-  ... same command <span class="hl">+ --arm_aware</span>
+<span class="c"># ARM POSES (robot PC — ws sourced + ROS_DOMAIN_ID=0) — move arms via FrameTask; legs hold via --arm_aware.</span>
+<span class="c"># smooth IK ramp (not a snap); escalate: arms_front_45 -> arms_front -> t_pose -> arms_asym -> arms_overhead.</span>
+<span class="c"># NB frame_task_client is a pynput GUI (needs X) -> over SSH send the action directly:</span>
+ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedConfig <span class="hl">"{config_name: 'arms_front'}"</span>
 
 <span class="c"># T5  RECORD</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standStab_legs --csv</span></pre>
