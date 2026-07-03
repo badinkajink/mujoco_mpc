@@ -85,7 +85,7 @@ cd ~/Desktop/h12/h12_safety_layer && \
   uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
 # 3) the embedded control node (strategy 6=stand 8=crouch 11=arms_overhead 13=lean_left):
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/h12_control_node \
-  --task "Lean H12" --strategy 6 --gravity_ff 0.85 --ctrl_hz 200
+  --task "Lean H12 Magpie" --strategy 6 --gravity_ff 0   # twin: gravity_ff 0 + --imu_pitch_offset_deg 0
 ```
 For the **real robot**, add `--network_interface <nic>` (e.g. `eth0`) so DDS binds
 the robot link instead of loopback.

@@ -120,7 +120,7 @@
       <span class="mono text-slate-500">v2026-07-01</span>
       <span class="text-slate-600">·</span>
       <span>grippers on (<code class="text-amber-300">Lean H12 Magpie</code>) · IMU pitch calib +1.6° baked in ·
-        <code class="text-amber-300">--gravity_ff 0.85</code> + <code class="text-amber-300">--policy_blend_sec 4.5</code> standard ·
+        <code class="text-amber-300">--gravity_ff 0.85</code> standard (blend 4.5 s compiled in) ·
         B split into <code class="text-amber-300">B1</code> estimator / <code class="text-amber-300">B2</code> OptiTrack, plus the
         <code class="text-amber-300">Stabilize</code> legs-only loco-manip track</span>
     </div>
@@ -333,8 +333,7 @@ uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full
 <span class="c"># --imu_pitch_offset_deg 0: TWIN has no IMU mount offset (node now defaults +1.6 for the ROBOT)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
-  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
-  --plan_threads 12 --latency_comp --policy_blend_sec 4.5 <span class="hl">--imu_pitch_offset_deg 0</span>
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 <span class="hl">--imu_pitch_offset_deg 0</span>
 
 <span class="c"># T4  estimator — compare mode, side topic</span>
 cd ~/Desktop/h12/h1_mujoco
@@ -376,8 +375,7 @@ uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full
 <span class="c"># T3  node — redirected to OUR estimate (require_sportstate stays default true)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
-  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --use_twin_time \
-  --plan_threads 12 --latency_comp --policy_blend_sec 4.5 \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 <span class="hl">--imu_pitch_offset_deg 0</span> \
   <span class="hl">--sportstate_topic rt/sportmodestate_est --imu_pitch_offset_deg 0</span>
 
 <span class="c"># T4  estimator — publish only (no --compare)</span>
@@ -470,8 +468,7 @@ cd ~/Desktop/h12/h1_mujoco
 <span class="c"># --twin_dt 0.001 ROBOT-ONLY (real tick=1kHz); IMU pitch calib +1.6° BAKED IN (default)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
-  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
 <span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; auto-pins enx → logs/&lt;tag&gt;_&lt;ts&gt;.npz + .csv)</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB1_est --csv</span></pre>
@@ -510,8 +507,7 @@ python publish_sportmodestate.py
 <pre class="cmd"><span class="c"># T3  node — byte-identical to B1 T4; rt/sportmodestate is now OptiTrack-sourced</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
-  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
 <span class="c"># T4  (BONUS) estimator as a RULER — side topic + compare vs OptiTrack truth.</span>
 <span class="c"># prints  pos_err / vel_err  of the EKF vs mocap → first real-robot ground-truth score. Does NOT feed control.</span>
@@ -601,8 +597,7 @@ cd ~/Desktop/h12/h1_mujoco
 <span class="c"># ISOLATION: add --noarm_aware to reproduce the legacy home-locked stand (legs + split plumbing only).</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_lower_body_controller</span> \
-  --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --use_twin_time \
-  --plan_threads 12 --latency_comp --twin_dt 0.001 --policy_blend_sec 4.5
+  --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
 <span class="c"># ARM POSES (robot PC — ws sourced + ROS_DOMAIN_ID=0) — move arms via FrameTask; legs hold via --arm_aware.</span>
 <span class="c"># smooth IK ramp (not a snap); escalate: arms_front_45 -> arms_front -> t_pose -> arms_asym -> arms_overhead.</span>
@@ -631,7 +626,7 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
     <!-- constant core -->
     <div class="card card-hair p-5 space-y-2">
       <div class="text-xs text-slate-400">The constant core of every node launch:</div>
-      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6 --use_twin_time --plan_threads 12 --latency_comp --policy_blend_sec 4.5</code>
+      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6   <!-- twin-time, latency comp, 12 threads, 4.5s blend: compiled in (2026-07-02 flag diet) --></code>
       <div class="text-xs text-slate-400 pt-1">…then exactly one phase delta (the <span class="text-amber-400 font-semibold">amber</span> slot):</div>
       <div class="flex flex-wrap gap-2 pt-1">
         <span class="keycap">A1 → <span class="text-amber-300">--imu_pitch_offset_deg 0</span></span>

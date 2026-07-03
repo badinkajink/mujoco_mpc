@@ -283,7 +283,7 @@ option(MJPC_BUILD_DEPLOY "Build the embedded DDS control node (needs unitree_sdk
 if(MJPC_BUILD_DEPLOY)
   list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/unitree_install")
   find_package(unitree_sdk2 REQUIRED)
-  add_executable(h12_control_node deploy/h12_control_node.cc)
+  add_executable(h12_control_node deploy/h12_control_node.cc deploy/deploy_common.cc)
   target_link_libraries(
     h12_control_node
     absl::flags
@@ -311,7 +311,7 @@ if(MJPC_BUILD_DEPLOY)
   # Legs-only (nu=12) lower-body controller: same DDS deploy node, drives the
   # Stabilize task and publishes 12 leg joints to the safety layer's split LOWER
   # channel so the upper-body IK can own the arms.
-  add_executable(h12_lower_body_controller deploy/h12_lower_body_controller.cc)
+  add_executable(h12_lower_body_controller deploy/h12_lower_body_controller.cc deploy/deploy_common.cc)
   target_link_libraries(
     h12_lower_body_controller
     absl::flags
@@ -348,12 +348,18 @@ include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-# Attach the in-process MJPC gRPC server to the embedded control node so the
+# Attach the in-process MJPC gRPC server to BOTH embedded control nodes so the
 # existing monitor can connect (view state + live Strategy switch). Done HERE,
 # after add_subdirectory(grpc), so mjpc_agent_service (grpc_agent_util helpers +
-# generated proto + grpc++) is already defined.
-if(MJPC_BUILD_DEPLOY AND MJPC_BUILD_GRPC_SERVICE AND TARGET h12_control_node)
-  target_link_libraries(h12_control_node mjpc_agent_service)
-  target_compile_definitions(h12_control_node PRIVATE H12_NODE_GRPC)
-  message(STATUS "MJPC deploy: h12_control_node gRPC monitor server ENABLED")
+# generated proto + grpc++) is already defined. (Until 2026-07-02 only
+# h12_control_node was wired -- the lower-body binary's #ifdef H12_NODE_GRPC
+# blocks were dead code and it had no monitor server.)
+if(MJPC_BUILD_DEPLOY AND MJPC_BUILD_GRPC_SERVICE)
+  foreach(_node h12_control_node h12_lower_body_controller)
+    if(TARGET ${_node})
+      target_link_libraries(${_node} mjpc_agent_service)
+      target_compile_definitions(${_node} PRIVATE H12_NODE_GRPC)
+      message(STATUS "MJPC deploy: ${_node} gRPC monitor server ENABLED")
+    endif()
+  endforeach()
 endif()
