@@ -117,10 +117,10 @@
       can't tell which, which is what makes it a clean A/B.
     </p>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-      <span class="mono text-slate-500">v2026-07-01</span>
+      <span class="mono text-slate-500">v2026-07-02</span>
       <span class="text-slate-600">·</span>
-      <span>grippers on (<code class="text-amber-300">Lean H12 Magpie</code>) · IMU pitch calib +1.6° baked in ·
-        <code class="text-amber-300">--gravity_ff 0.85</code> standard (blend 4.5 s compiled in) ·
+      <span>grippers on (<code class="text-amber-300">Lean H12 Magpie</code>) ·
+        flag diet 2026-07-02: settled flags <strong>compiled in</strong>, only per-plant deltas remain ·
         B split into <code class="text-amber-300">B1</code> estimator / <code class="text-amber-300">B2</code> OptiTrack, plus the
         <code class="text-amber-300">Stabilize</code> legs-only loco-manip track</span>
     </div>
@@ -329,8 +329,8 @@ uv run h12_mujoco.py <span class="hl">--magpie</span>
 cd ~/Desktop/h12/h12_safety_layer
 uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
 
-<span class="c"># T3  node — DEFAULT flags (reads the twin's truth sportmodestate)</span>
-<span class="c"># --imu_pitch_offset_deg 0: TWIN has no IMU mount offset (node now defaults +1.6 for the ROBOT)</span>
+<span class="c"># T3  node — reads the twin's truth sportmodestate; twin values: gravity_ff 0, IMU offset 0</span>
+<span class="c"># (the node defaults imu_pitch +1.6 for the ROBOT; the twin has no mount offset)</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 <span class="hl">--imu_pitch_offset_deg 0</span>
@@ -372,11 +372,11 @@ uv run h12_mujoco.py <span class="hl">--magpie</span>
 cd ~/Desktop/h12/h12_safety_layer
 uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
 
-<span class="c"># T3  node — redirected to OUR estimate (require_sportstate stays default true)</span>
+<span class="c"># T3  node — same as A1, redirected to OUR estimate</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
-  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 <span class="hl">--imu_pitch_offset_deg 0</span> \
-  <span class="hl">--sportstate_topic rt/sportmodestate_est --imu_pitch_offset_deg 0</span>
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0 --imu_pitch_offset_deg 0 \
+  <span class="hl">--sportstate_topic rt/sportmodestate_est</span>
 
 <span class="c"># T4  estimator — publish only (no --compare)</span>
 cd ~/Desktop/h12/h1_mujoco
@@ -470,7 +470,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
-<span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; auto-pins enx → logs/&lt;tag&gt;_&lt;ts&gt;.npz + .csv)</span>
+<span class="c"># T5  RECORD → logs/&lt;tag&gt;_&lt;ts&gt;.npz + .csv</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB1_est --csv</span></pre>
       </div>
     </div>
@@ -492,12 +492,10 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
           <span class="term-dot" style="background:#7dd3fc"></span>
           <span class="lbl ml-2">Motive PC (Windows · cameras + 192.168.123.x route)</span>
         </div>
-<pre class="cmd"><span class="c"># T0  Motive PC — close the Motive GUI first (the API takes the cameras).</span>
-<span class="c"># One-time: edit the CONFIG block — RIGID_BODY "h1_2_pelvis", CALIBRATION .cal path,</span>
-<span class="c"># DDS_INTERFACE "" (auto-detect this PC's 192.168.123.x) — then publish:</span>
+<pre class="cmd"><span class="c"># T0  Motive PC — close the Motive GUI first (the API takes the cameras); one-time CONFIG:</span>
+<span class="c"># RIGID_BODY "h1_2_pelvis", CALIBRATION .cal path, DDS_INTERFACE "" (auto 192.168.123.x)</span>
 python publish_sportmodestate.py
-<span class="c"># expect: "PUBLISHING 'rt/sportmodestate' @ 100 Hz" then per-sec  pos=[..] vel=[..] err=0.4mm</span>
-<span class="c"># validate axes ONCE: nudge robot +x forward → world x rises; lift → world z rises (else fix AXIS_MAP)</span></pre>
+<span class="c"># expect: "PUBLISHING 'rt/sportmodestate' @ 100 Hz"; validate axes ONCE (+x fwd rises x, lift rises z)</span></pre>
       </div>
       <div class="term">
         <div class="term-bar">
@@ -509,13 +507,12 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
   --task <span class="hl">"Lean H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
-<span class="c"># T4  (BONUS) estimator as a RULER — side topic + compare vs OptiTrack truth.</span>
-<span class="c"># prints  pos_err / vel_err  of the EKF vs mocap → first real-robot ground-truth score. Does NOT feed control.</span>
+<span class="c"># T4  (BONUS) estimator as a RULER — side topic, compared vs OptiTrack (does NOT feed control)</span>
 cd ~/Desktop/h12/h1_mujoco
 .venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py \
   <span class="hl">--out-topic rt/sportmodestate_est --compare --truth-topic rt/sportmodestate</span>
 
-<span class="c"># T5  RECORD (own terminal, any cwd — absolute venv path; tag distinguishes the two A/B runs)</span>
+<span class="c"># T5  RECORD — tag distinguishes the two A/B runs</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py <span class="hl">--seconds 200 --tag standB2_optitrack --csv</span></pre>
       </div>
     </div>
@@ -565,14 +562,11 @@ cd ~/Desktop/h12/h1_mujoco
 <pre class="cmd"><span class="c"># laptop: DDS preflight (same as Lean) — expect rt/lowstate ✅ ~500Hz</span>
 .venv/bin/python ~/Desktop/h12/dds_tools/dds_topic_check.py <span class="hl">--robot-ip 192.168.123.164</span>
 
-<span class="c"># robot PC: source the ACTIVE workspace — NOT ~/depricated_core_ws.</span>
-<span class="c"># the real bringup lives in ~/HAMS/core_ws (verified on pc4 2026-06-30).</span>
+<span class="c"># robot PC: source the ACTIVE workspace (~/HAMS/core_ws — NOT ~/depricated_core_ws)</span>
 source <span class="hl">~/HAMS/core_ws/install/setup.bash</span> &amp;&amp; export ROS_DOMAIN_ID=0
 
-<span class="c"># ONE bringup does it ALL — ✓ VERIFIED on pc4 (src == install/share, no rebuild):</span>
-<span class="c">#   estop_node  +  safety_node --config default_safety_split.yaml  (+3s)  = SPLIT safety</span>
-<span class="c">#   +  frame_task_server --config safety_split.yaml  (+5s)  = arms auto -> HOME, held on lowcmd_upper_in</span>
-<span class="c"># DO NOT launch estop / safety separately — they are inside this launch (would collide).</span>
+<span class="c"># ONE bringup = estop + SPLIT safety (+3s) + frame_task_server (+5s, arms -> HOME on lowcmd_upper_in)</span>
+<span class="c"># DO NOT launch estop / safety separately — they are inside this launch.</span>
 ros2 launch h1_bringup <span class="hl">h1_real_robot_bringup.launch.py</span>
 
 <span class="c"># confirm (2nd terminal): all three up + which safety config ACTUALLY loaded</span>
@@ -591,17 +585,13 @@ cd ~/Desktop/h12/h1_mujoco
 .venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py
 
 <span class="c"># T4  LOWER-BODY MPC node — legs only -> rt/safety/lowcmd_lower_in (default topic)</span>
-<span class="c"># arm_aware is now BUILT-IN DEFAULT (2026-07-02): legs PRE-compensate the arm CoM (reads the 15 upper</span>
-<span class="c"># joints from rt/lowstate + task-side arm_aware_plan retarget in every rollout; STILL legs only, nu=12).</span>
-<span class="c"># Also baked into the task: back_balance_boost 1.6 + back_angmom_boost 2.0 (backward-axis robustness).</span>
-<span class="c"># ISOLATION: add --noarm_aware to reproduce the legacy home-locked stand (legs + split plumbing only).</span>
+<span class="c"># arm_aware defaults ON: legs pre-compensate the measured arm CoM; --noarm_aware = legacy isolation A/B</span>
 __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_lower_body_controller</span> \
   --task <span class="hl">"Stabilize H12 Magpie"</span> --strategy 6 --gravity_ff 0.85 --twin_dt 0.001
 
-<span class="c"># ARM POSES (robot PC — ws sourced + ROS_DOMAIN_ID=0) — move arms via FrameTask; legs hold via --arm_aware.</span>
-<span class="c"># smooth IK ramp (not a snap); escalate: arms_front_45 -> arms_front -> t_pose -> arms_asym -> arms_overhead.</span>
-<span class="c"># NB frame_task_client is a pynput GUI (needs X) -> over SSH send the action directly:</span>
+<span class="c"># ARM POSES (robot PC, ws sourced) — escalate: arms_front_45 -> arms_front -> t_pose -> arms_asym -> arms_overhead</span>
+<span class="c"># frame_task_client is a pynput GUI (needs X) -> over SSH send the action directly:</span>
 ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedConfig <span class="hl">"{config_name: 'arms_front'}"</span>
 
 <span class="c"># T5  RECORD</span>
@@ -625,15 +615,19 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
 
     <!-- constant core -->
     <div class="card card-hair p-5 space-y-2">
-      <div class="text-xs text-slate-400">The constant core of every node launch:</div>
-      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6   <!-- twin-time, latency comp, 12 threads, 4.5s blend: compiled in (2026-07-02 flag diet) --></code>
-      <div class="text-xs text-slate-400 pt-1">…then exactly one phase delta (the <span class="text-amber-400 font-semibold">amber</span> slot):</div>
+      <div class="text-xs text-slate-400">Every node launch (flag diet 2026-07-02 — twin-time clocking, latency comp,
+        12 planner threads, 4.5 s policy blend, 200 Hz control all <span class="text-slate-200">compiled in</span>):</div>
+      <code class="mono text-xs text-cyan-200 block leading-relaxed">h12_control_node --task "Lean H12 Magpie" --strategy 6</code>
+      <div class="text-xs text-slate-400 pt-1">…plus the per-plant delta (the <span class="text-amber-400 font-semibold">amber</span> slot):</div>
       <div class="flex flex-wrap gap-2 pt-1">
-        <span class="keycap">A1 → <span class="text-amber-300">--imu_pitch_offset_deg 0</span></span>
-        <span class="keycap">A2 → <span class="text-amber-300">+ --sportstate_topic …_est</span></span>
-        <span class="keycap">B1 → <span class="text-amber-300">--gravity_ff 0.85 · --twin_dt 0.001</span> · estimator publishes</span>
+        <span class="keycap">TWIN A1 → <span class="text-amber-300">--gravity_ff 0 · --imu_pitch_offset_deg 0</span></span>
+        <span class="keycap">A2 adds → <span class="text-amber-300">--sportstate_topic …_est</span></span>
+        <span class="keycap">ROBOT B1 → <span class="text-amber-300">--gravity_ff 0.85 · --twin_dt 0.001</span> · estimator publishes</span>
         <span class="keycap">B2 → <span class="text-amber-300">same node</span> · OptiTrack publishes rt/sportmodestate</span>
       </div>
+      <div class="text-[11px] text-slate-500 pt-1">Removed flags (<code>--use_twin_time --plan_threads --latency_comp
+        --policy_blend_sec</code> …) now fail loudly with “Unknown command line flag” — a stale launcher can’t
+        silently run with wrong settings.</div>
     </div>
 
     <div class="card card-hair overflow-hidden">
@@ -644,21 +638,21 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
             <td><span class="pill pill-sky">A1 twin</span></td>
             <td class="text-slate-400">UNPLUGGED</td>
             <td class="mono text-[11px] text-slate-300">twin truth · estimator rides → …_est --compare</td>
-            <td class="mono text-[11px] text-amber-300">--imu_pitch_offset_deg 0</td>
+            <td class="mono text-[11px] text-amber-300">--gravity_ff 0 · --imu_pitch_offset_deg 0</td>
             <td class="mono text-[11px] text-slate-300">default_safety_full.yaml</td>
           </tr>
           <tr>
             <td><span class="pill pill-sky">A2 twin</span></td>
             <td class="text-slate-400">UNPLUGGED</td>
             <td class="mono text-[11px] text-slate-300">estimator → …_est (node reads …_est)</td>
-            <td class="mono text-[11px] text-amber-300">--sportstate_topic …_est · --imu_pitch_offset_deg 0</td>
+            <td class="mono text-[11px] text-amber-300">A1 flags + --sportstate_topic …_est</td>
             <td class="mono text-[11px] text-slate-300">default_safety_full.yaml</td>
           </tr>
           <tr>
             <td><span class="pill pill-rose">B1 robot</span></td>
             <td class="text-slate-400">wired enx</td>
             <td class="mono text-[11px] text-emerald-300">estimator (laptop RW-EKF)</td>
-            <td class="mono text-[11px] text-amber-300">--twin_dt 0.001 · --gravity_ff 0.85 · (imu +1.6 baked in)</td>
+            <td class="mono text-[11px] text-amber-300">--gravity_ff 0.85 · --twin_dt 0.001 (imu +1.6 default)</td>
             <td class="mono text-[11px] text-slate-300">default_safety_full + estop_node</td>
           </tr>
           <tr>
