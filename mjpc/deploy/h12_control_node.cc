@@ -82,6 +82,19 @@ ABSL_FLAG(int, domain_id, DefaultDomainId(),
 ABSL_FLAG(int, grpc_port, 10000,
           "if >0, host an MJPC gRPC server on this port so the monitor can attach "
           "(view state + switch Strategy live); 0 disables");
+ABSL_FLAG(int, plan_trajectories, 0,
+          "override sampling_trajectories (rollouts per plan) AFTER the per-strategy "
+          "PlannerNumericOverrides. 0 = use the task default (e.g. trot slot 23 = 36). On the "
+          "LOCKSTEP twin trajectories are free (planner waits for physics) so more = strictly "
+          "better; on the REAL robot they are NOT -- 36 traj plans ~28Hz on 12 threads, 16 at "
+          "~80Hz. Samples-per-plan vs replan-rate is a real tradeoff the lockstep twin cannot "
+          "see. Sweep {16,18,24,36} on hardware / the real-chain bench without a rebuild. "
+          "(Re-added 2026-07-03; the 07-02 flag diet cut it by mistake.)");
+ABSL_FLAG(int, plan_threads, 0,
+          "override the planner ThreadPool size. 0 = compiled kPlanThreads (12, leaves CPU for "
+          "the twin/safety layer). One-wave rule: plan_trajectories <= plan_threads maximizes "
+          "replan rate (e.g. 18/18). Raising past 12 on the real robot trades safety-layer/"
+          "estimator CPU + thermal headroom for plan rate.");
 
 namespace {
 constexpr int kNU = 27;  // actuated joints on the handless H1-2
@@ -155,5 +168,7 @@ int main(int argc, char** argv) {
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);
   cfg.arm_aware = false;
+  cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
+  cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   return h12deploy::RunDeployNode(cfg);
 }

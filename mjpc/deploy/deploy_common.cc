@@ -370,6 +370,23 @@ int RunDeployNode(const NodeConfig& cfg) {
                      kv.first.c_str(), strat);
       }
     }
+    // CLI override of sampling_trajectories, applied LAST so it beats the
+    // per-strategy default (e.g. trot's 36). The R2 sweep lever: rollouts-vs-
+    // replan-rate on real hardware without a rebuild. 0 = leave the task default.
+    if (cfg.plan_trajectories > 0) {
+      int id = mj_name2id(sm, mjOBJ_NUMERIC, "sampling_trajectories");
+      if (id >= 0) {
+        sm->numeric_data[sm->numeric_adr[id]] =
+            static_cast<double>(cfg.plan_trajectories);
+        std::fprintf(stderr,
+                     "[node] --plan_trajectories CLI override: sampling_trajectories = %d "
+                     "(beats strategy %d default)\n", cfg.plan_trajectories, strat);
+      } else {
+        std::fprintf(stderr,
+                     "[node] --plan_trajectories set but 'sampling_trajectories' numeric "
+                     "MISSING in model -> ignored\n");
+      }
+    }
   }
   PatchActuators(lm.model.get(), cfg);   // safety-operational gains + estop forceranges BEFORE the agent uses it
   g_agent.Initialize(lm.model.get());
@@ -578,10 +595,13 @@ int RunDeployNode(const NodeConfig& cfg) {
   // documented run and were removed in the 2026-07-02 flag diet). ----
   std::atomic<bool> plan_exit{false};
   std::atomic<long> plan_count{0};  // REAL planner-iteration counter (PlanSteps() is the HORIZON, not iters)
-  const int n_plan_threads = kPlanThreads > 0 ? kPlanThreads : mjpc::NumAvailableHardwareThreads();
-  std::fprintf(stderr, "[node] planner ThreadPool: %d threads (%d hw available; compiled kPlanThreads "
+  const int n_plan_threads =
+      cfg.plan_threads > 0 ? cfg.plan_threads
+      : (kPlanThreads > 0 ? kPlanThreads : mjpc::NumAvailableHardwareThreads());
+  std::fprintf(stderr, "[node] planner ThreadPool: %d threads (%d hw available; %s "
                        "leaves CPU for the twin/safety layer)\n",
-               n_plan_threads, mjpc::NumAvailableHardwareThreads());
+               n_plan_threads, mjpc::NumAvailableHardwareThreads(),
+               cfg.plan_threads > 0 ? "--plan_threads CLI" : "compiled kPlanThreads");
   std::fprintf(stderr,
                "[node] torque-budget clamp ON (audit H2): |tau_ff + kp*(tgt-q) + kv*dq| <= %.1f x "
                "tau-estop per joint (command-side estops impossible for ANY planner output)\n",

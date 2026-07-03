@@ -69,6 +69,13 @@ ABSL_FLAG(int, domain_id, DefaultDomainId(),
 ABSL_FLAG(int, grpc_port, 10000,
           "if >0, host an MJPC gRPC server on this port so the monitor can attach "
           "(view state + switch Strategy live); 0 disables");
+ABSL_FLAG(int, plan_trajectories, 0,
+          "override sampling_trajectories (rollouts per plan) AFTER the per-strategy "
+          "PlannerNumericOverrides. 0 = task default. Real-hardware plan-rate sweep lever "
+          "(samples-per-plan vs replan-rate); see h12_control_node --help for the full story.");
+ABSL_FLAG(int, plan_threads, 0,
+          "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). One-wave "
+          "rule: plan_trajectories <= plan_threads maximizes replan rate.");
 ABSL_FLAG(bool, arm_aware, true,
           "ARM-AWARE balance (loco-manip): read the 15 upper-body joints (torso+arms, motor 12..26) "
           "from rt/lowstate and feed them to the planner so its CoM/dynamics model tracks where the "
@@ -133,5 +140,7 @@ int main(int argc, char** argv) {
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);
   cfg.arm_aware = absl::GetFlag(FLAGS_arm_aware);
+  cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
+  cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   return h12deploy::RunDeployNode(cfg);
 }

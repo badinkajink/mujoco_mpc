@@ -15,10 +15,15 @@
 // sportstate_topic, IMU/ankle calibration, network_interface, domain_id,
 // grpc_port, arm_aware). Deleted dead paths: --sync_plan / --plan_rate_hz (all
 // runs used the async planner thread), --arm_ramp_sec (only live when
-// start_ramp_sec==0, which never happened), --plan_trajectories (strategy JSONs
-// own it), --require_sportstate=false debug mode (the base estimator / OptiTrack
-// always publishes sportmodestate now), --execute_best (never used).
+// start_ramp_sec==0, which never happened), --require_sportstate=false debug
+// mode (the base estimator / OptiTrack always publishes sportmodestate now),
+// --execute_best (never used).
 // NO TUNED VALUE CHANGED: only how it is supplied (compiled default vs CLI).
+// RE-ADDED 2026-07-03: --plan_trajectories + --plan_threads. Cutting them was
+// a diet mistake -- they are the R2 plan-rate sweep levers on REAL hardware
+// (samples-per-plan vs replan-rate: trot's 36 traj @ 12 threads plans only
+// ~28 Hz = the 06-29 starvation diagnosis; one-wave rule: traj <= threads).
+// Both default 0 = the compiled/task value, so a bare invocation is unchanged.
 #ifndef MJPC_DEPLOY_DEPLOY_COMMON_H_
 #define MJPC_DEPLOY_DEPLOY_COMMON_H_
 
@@ -85,6 +90,9 @@ struct NodeConfig {
   int domain_id = 0;                   // default read from $ROS_DOMAIN_ID in the mains
   int grpc_port = 10000;               // monitor server; 0 disables
   bool arm_aware = false;              // legs-only node: retarget eq locks to measured arms
+  int plan_trajectories = 0;           // >0 overrides sampling_trajectories AFTER the
+                                       // per-strategy PlannerNumericOverrides; 0 = task default
+  int plan_threads = 0;                // >0 overrides kPlanThreads(12); 0 = compiled default
 };
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.
