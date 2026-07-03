@@ -677,6 +677,23 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
     </ul>
   </section>
 
+  <!-- ──────────────── WASD TELEOP V0 ──────────────── -->
+  <section id="wasd" class="card card-hair p-6 space-y-3">
+    <h2 class="display text-xl">WASD teleop (V0) — live cmd_vel drive of the trot</h2>
+    <p class="text-sm text-slate-300 leading-relaxed">Hold-to-walk keyboard → <code>/cmd_vel</code> → <code>wss_cmd_bridge.py</code> → gRPC <code>SetTaskParameters</code> (Cmd Active/Vx/Vy/Seq) → in-task governor (lean.cc TransitionLocked: envelope clamp, 0.08 m/s² slew, 6 s gait-arm lockout, 1.5 s settle-through-zero on W↔S flips, 1 s heartbeat watchdog, body→world yaw rotation). Envelope: W = +0.15, S = −0.10 m/s (twin-validated); A/D strafe pre-wired but <strong>governed to 0 until the V2 lateral campaign</strong>; Q/E reserved for yaw (V3). Nav2 later replaces the keyboard — same bridge, same governor.</p>
+    <pre class="text-xs"><code># T1 — deploy node (twin or real; strategy 23 = trot)
+./build/bin/h12_control_node --task "Lean H12 Magpie" --strategy 23 [--plan_trajectories 18 --plan_threads 18]
+# T2 — bridge (needs agent_pb2 on PYTHONPATH or -p proto_dir:=...)
+python3 mjpc/deploy/helper_scripts/wss_cmd_bridge.py
+# T3 — keyboard (needs `input` group; reads keys SYSTEM-WIDE, focus not required)
+python3 mjpc/deploy/helper_scripts/wasd_teleop.py</code></pre>
+    <ul class="text-xs text-slate-400 space-y-1">
+      <li>· SPACE = instant zero latch; ESC = zero ×3 + exit; kill any client → node watchdog zeroes v_des within 1 s.</li>
+      <li>· REAL (V1) checklist: gantry harness rigged w/ lateral slack, locomotion safety profile, base estimator live, 18/18 plan config.</li>
+      <li>· Gate record 2026-07-03: byte-identity 3/3 fit 9.35–9.37 (Cmd inactive); walk-knob unified in-place bench — see git log.</li>
+    </ul>
+  </section>
+
   <!-- ──────────────── STATUS ──────────────── -->
   <section class="card card-hair p-6 space-y-2" style="border-color:rgba(16,185,129,.4); background:linear-gradient(180deg, rgba(6,46,33,.28), rgba(11,17,32,.5))">
     <div class="flex items-center gap-3">
