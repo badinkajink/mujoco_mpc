@@ -95,6 +95,12 @@ ABSL_FLAG(int, plan_threads, 0,
           "the twin/safety layer). One-wave rule: plan_trajectories <= plan_threads maximizes "
           "replan rate (e.g. 18/18). Raising past 12 on the real robot trades safety-layer/"
           "estimator CPU + thermal headroom for plan rate.");
+ABSL_FLAG(double, stale_sec, 0.05,
+          "H1 stale-input watchdog threshold (s): either state stream older than this -> "
+          "damping safe-hold. DEFAULT 0.05 = the REAL-robot value (1 kHz lowstate). Loosen "
+          "ONLY for heavyweight sims whose lowstate publisher stalls on a shared sim lock "
+          "(RoboCasa's sensor renders hold it 50-60 ms -> permanent safe-hold at 0.05; "
+          "0.15 rides the stalls out while still catching a genuinely dead stream).");
 
 namespace {
 constexpr int kNU = 27;  // actuated joints on the handless H1-2
@@ -170,5 +176,6 @@ int main(int argc, char** argv) {
   cfg.arm_aware = false;
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   return h12deploy::RunDeployNode(cfg);
 }

@@ -190,7 +190,7 @@ std::atomic<bool> g_exit{false};
 //     is written only by the main loop; the stdin thread just raises g_switch_pending and sets
 //     the duration.
 std::atomic<bool> g_switch_pending{false};
-std::atomic<double> g_switch_wall{-1e9};   // wall time the active switch-blend started
+std::atomic<double> g_switch_wall{-1e9};   // PLANT time (phase_t) the active switch-blend started
 std::atomic<double> g_switch_blend{0.0};   // duration of the active switch-blend (sec)
 double g_switch_from[kMaxNU] = {0};        // captured pre-switch commanded pose
 
@@ -806,17 +806,19 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
     auto t_tick = std::chrono::steady_clock::now();
     double wall = std::chrono::duration<double>(t_tick - t0).count();
-    bool warming = wall < warmup_sec;
 
     // H1: input-freshness watchdog. If either stream is stale, damp and bail --
-    // never drive a target computed from a dead state stream.
+    // never drive a target computed from a dead state stream. Threshold =
+    // cfg.stale_sec (default kStaleSec 50ms, the REAL-robot value); heavyweight
+    // sims whose lowstate publisher stalls on a shared sim lock (RoboCasa sensor
+    // renders hold it 50-60ms) pass a looser --stale_sec.
     const double ls_age = std::chrono::duration<double>(t_tick - cur.ls_stamp).count();
     const double ss_age = std::chrono::duration<double>(t_tick - cur.ss_stamp).count();
-    if (ls_age > kStaleSec || ss_age > kStaleSec) {
+    if (ls_age > cfg.stale_sec || ss_age > cfg.stale_sec) {
       if (!stale_warned) {
         std::fprintf(stderr, "[node] WARNING: state stale (lowstate %.0fms / sportstate %.0fms > %.0fms)"
                              " -> safe-hold (damping stop)\n",
-                     ls_age * 1e3, ss_age * 1e3, kStaleSec * 1e3);
+                     ls_age * 1e3, ss_age * 1e3, cfg.stale_sec * 1e3);
         stale_warned = true;
       }
       emit_safe_hold();
@@ -830,6 +832,19 @@ int RunDeployNode(const NodeConfig& cfg) {
     if (!tick0_set && cur.have_ls) { tick0 = cur.tick; tick0_set = true; }
     double twin_time = static_cast<double>(static_cast<int64_t>(cur.tick) -
                                            static_cast<int64_t>(tick0)) * twin_dt;
+
+    // BRING-UP PHASE CLOCK (2026-07-03): the scripted phases (warmup -> ramp ->
+    // hold -> policy blend, and the live-switch settle/blend below) progress on
+    // PLANT time (lowstate tick * twin_dt), NOT wall. On any realtime plant
+    // (real robot's 1 kHz tick, the twin) plant time advances at 1.0x wall, so
+    // this is behavior-identical to the original wall clock; on a slower-than-
+    // realtime plant (RoboCasa kitchen, ~0.2-0.35x) the choreography unfolds at
+    // the speed the ROBOT experiences instead of compressing 3-5x into a jolt,
+    // and a lowstate stall PAUSES the script instead of blindly advancing it.
+    // Wall stays the clock for everything physical (publish cadence, latency
+    // comp, watchdog, telemetry).
+    const double phase_t = tick0_set ? twin_time : 0.0;
+    bool warming = phase_t < warmup_sec;
 
     fill_state(cur);
     if (!arm_init_set && cur.have_ls) {                 // latch the measured power-on pose for the ramp
@@ -929,7 +944,7 @@ int RunDeployNode(const NodeConfig& cfg) {
     //      stand<->crouch cycling is handled by the task phase machine, not here).
     if (g_switch_pending.exchange(false)) {
       for (int i = 0; i < cfg.nu; i++) g_switch_from[i] = cur.q[i];
-      g_switch_wall.store(wall);
+      g_switch_wall.store(phase_t);   // switch settle/blend run on the plant clock too
     }
 
     // per-joint commanded position target with the BRING-UP ramp: blend from the measured
@@ -940,7 +955,7 @@ int RunDeployNode(const NodeConfig& cfg) {
       double ramp_dur = ramp_eff;
       double base;
       if (ramp_dur > 0.0 && arm_init_set) {
-        double aa = std::fmin(1.0, std::fmax(0.0, wall / ramp_dur));
+        double aa = std::fmin(1.0, std::fmax(0.0, phase_t / ramp_dur));
         // SCRIPTED rise: target the stance for the whole ramp (policy steering a half-
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
         // for kRampHoldSec more so CEM converges around the STATIC operating pose
@@ -948,12 +963,12 @@ int RunDeployNode(const NodeConfig& cfg) {
         const double t_ho = ramp_dur + kRampHoldSec;
         const double pblend = kPolicyBlendSec;
         double tgt;
-        if (aa < 1.0 || warming || i >= nact || wall < t_ho) {
+        if (aa < 1.0 || warming || i >= nact || phase_t < t_ho) {
           tgt = home_q[i];                       // rising / warmup / non-policy joint / scripted hold
-        } else if (pblend > 0.0 && wall < t_ho + pblend) {
+        } else if (pblend > 0.0 && phase_t < t_ho + pblend) {
           // POLICY-BLEND: ease the scripted stance -> the LIVE policy target over pblend so a
           // cold-started non-stand task descends smoothly instead of snapping at the handoff.
-          double bb = (wall - t_ho) / pblend;    // 0..1
+          double bb = (phase_t - t_ho) / pblend;  // 0..1
           tgt = (1.0 - bb) * home_q[i] + bb * action[i];
         } else {
           // full policy authority -- UNLESS a LIVE switch just armed a blend. Mirror the proven
@@ -961,7 +976,7 @@ int RunDeployNode(const NodeConfig& cfg) {
           // pose for kSwitchSettleSec so the planner re-converges on the NEW strategy, THEN ease
           // into its target over g_switch_blend. Without the settle the robot descends mid-replan
           // and collapses past the target (the Squatter "snap": cmd blended to 0.63 but q hit 0.99).
-          double sw_dt = wall - g_switch_wall.load();
+          double sw_dt = phase_t - g_switch_wall.load();
           double settle = kSwitchSettleSec;
           double sbl = g_switch_blend.load();
           if (sw_dt >= 0.0 && sw_dt < settle) {

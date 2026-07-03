@@ -76,6 +76,12 @@ ABSL_FLAG(int, plan_trajectories, 0,
 ABSL_FLAG(int, plan_threads, 0,
           "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). One-wave "
           "rule: plan_trajectories <= plan_threads maximizes replan rate.");
+ABSL_FLAG(double, stale_sec, 0.05,
+          "H1 stale-input watchdog threshold (s): either state stream older than this -> "
+          "damping safe-hold. DEFAULT 0.05 = the REAL-robot value (1 kHz lowstate). Loosen "
+          "ONLY for heavyweight sims whose lowstate publisher stalls on a shared sim lock "
+          "(RoboCasa's sensor renders hold it 50-60 ms -> permanent safe-hold at 0.05; "
+          "0.15 rides the stalls out while still catching a genuinely dead stream).");
 ABSL_FLAG(bool, arm_aware, true,
           "ARM-AWARE balance (loco-manip): read the 15 upper-body joints (torso+arms, motor 12..26) "
           "from rt/lowstate and feed them to the planner so its CoM/dynamics model tracks where the "
@@ -142,5 +148,6 @@ int main(int argc, char** argv) {
   cfg.arm_aware = absl::GetFlag(FLAGS_arm_aware);
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   return h12deploy::RunDeployNode(cfg);
 }

@@ -274,8 +274,19 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
+  # VENDORED planner base (2026-07-03): h1_2_pos.xml / h1_2_pos_hands.xml /
+  # magpie_h12.stl come from humanoid_bench/h1_2_base/ in THIS repo, NOT from the
+  # h12 FetchContent checkout. The validated planner base had drifted from the
+  # pinned h1_mujoco ef83c84 as UNCOMMITTED edits inside the host build's
+  # _deps/h12-src (all real-robot + twin tuning ran on it, and the magpie patch
+  # below is regenerated against it) -- any fresh clone/container build fetched
+  # the wrong robot model and the patch hunk-rejected. These vendored bytes ==
+  # that validated _deps state, so every build everywhere stages the same model.
   COMMAND ${CMAKE_COMMAND} -E copy
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/magpie_h12.stl
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/magpie_h12.stl
+  COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
   # Magpie model (2026-07-02): COPY the gripperless base as the "magpie" variant FIRST,
   # so the lower-body stabilize model is derived below from the gripperless condim-4 base
@@ -299,11 +310,17 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stabilize_magpie.xml
   # NOW re-apply the magpie patch to the magpie model (grippers + forearm brace pads/
   # sites) for the Lean/reach tasks -- AFTER the gripperless stabilize model was derived
-  # above, so the stabilize/deploy model stays gripperless (tuning-safe). `|| true` keeps
-  # a FUTURE re-staleness from aborting copy_model_resources (a hard dep of libmjpc):
-  # worst case Lean would miss the pads, but the build still succeeds. The reject file
-  # (if any ankle hunk rejects against a future base) is discarded -- harmless to Lean.
-  COMMAND bash -c "patch -f --no-backup-if-mismatch ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml -i ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch || true"
+  # above, so the stabilize/deploy model stays gripperless (tuning-safe). The tolerant
+  # cmake -P wrapper keeps a FUTURE re-staleness from aborting copy_model_resources (a
+  # hard dep of libmjpc): worst case Lean would miss the pads, but the build still
+  # succeeds. (Was `bash -c "... || true"`, but CMake 3.22's Ninja generator leaks the
+  # `|| true` out of the -c string, so a patch failure aborted the whole target in the
+  # HAMS ros container; the -P script is generator/shell-proof.) The reject file (if any
+  # hunk rejects against a future base) is discarded -- harmless to Lean.
+  COMMAND ${CMAKE_COMMAND}
+        -DTARGET_FILE=${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/apply_patch_tolerant.cmake
   COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml.rej
   COMMAND ${CMAKE_COMMAND} -E make_directory
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes
@@ -316,7 +333,7 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_pos_hands.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml
   COMMAND ${CMAKE_COMMAND} -E copy
         ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_torso_skin.xml

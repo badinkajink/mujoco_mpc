@@ -103,7 +103,10 @@ def load_model_and_calibrate(scene):
 
     home = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "home")
     if home >= 0:
-        home_q = np.array(m.key_qpos[home * m.nq: home * m.nq + m.nq])
+        # key_qpos is (nkey, nq)-shaped in the python bindings -- row-index it.
+        # (Flat-slicing returned ROWS, so scenes with a "home" keyframe crashed at
+        # float(home_q[2]); the twin scene has no keyframes, which hid this.)
+        home_q = np.array(m.key_qpos[home])
     else:
         home_q = np.array(m.qpos0)
     home_base_z = float(home_q[2])
@@ -169,6 +172,19 @@ def main():
                     help="force SDK autodetermine (use for the same-host TWIN). Do NOT use "
                          "--iface lo: loopback disables multicast -> no DDS discovery.")
     ap.add_argument("--rate", type=float, default=200.0, help="publish Hz")
+    ap.add_argument("--tick-dt", type=float, default=0.0,
+                    help="PLANT-CLOCK the filter: seconds of plant time per rt/lowstate tick "
+                         "(the plant's physics timestep; e.g. 0.002 for the RoboCasa sim). "
+                         "When > 0, iterations are gated on NEW ticks and every integration "
+                         "step (EKF P growth, IMU predict, complementary alphas, odometric "
+                         "xy) uses tick-delta time instead of wall dt. On a slower-than-"
+                         "realtime plant the wall-clocked default over-integrates by 1/RTF -- "
+                         "measured: odometric xy drifted 4x faster than the robot moved, "
+                         "feeding the planner a kinematically INCONSISTENT (pos, vel) pair "
+                         "(the exact instability the odometric-xy note below describes) -- "
+                         "and re-eats each unchanged lowstate sample several times. 0 (default) "
+                         "= wall-clocked, byte-identical to the validated real/twin behavior "
+                         "(their plants run at 1x, where the two clocks agree).")
     ap.add_argument("--lowstate-topic", default="rt/lowstate")
     ap.add_argument("--out-topic", default="rt/sportmodestate",
                     help="topic to publish the estimate on (use rt/sportmodestate_est for twin compare)")
@@ -257,6 +273,8 @@ def main():
     print("[est] waiting for rt/lowstate ...", flush=True)
 
     dt = 1.0 / a.rate
+    plant_clocked = a.tick_dt > 0.0
+    last_tick = None   # plant-clock mode: last processed lowstate tick
     vz_tau = a.vel_lpf_ms * 1e-3
     ac_tau = a.imu_tau_ms * 1e-3
     v_filt = np.zeros(3)
@@ -268,7 +286,6 @@ def main():
     LOAD_IDX = [(3, 4) if "left" in nm else (9, 10) for _, nm in foot_ids]
     I3 = np.eye(3)
     P = I3 * 0.04
-    Q_ekf = (a.ekf_amax * dt) ** 2 * I3
     rej = 0
     pos_xy = np.zeros(2)   # odometric base xy = integral of the velocity estimate
     n = 0
@@ -284,8 +301,23 @@ def main():
         ls = latest["ls"]
         if ls is None:
             continue
+        # plant-clock mode: only a NEW tick is a new plant state -- re-processing an
+        # unchanged sample would re-feed the EKF the same measurement and advance the
+        # integrators through plant time that never elapsed. step_dt is the plant time
+        # this iteration covers (capped: a post-freeze tick jump must not integrate as
+        # one giant step).
+        step_dt = dt
+        if plant_clocked:
+            tick = int(ls.tick)
+            if tick == last_tick:
+                continue
+            step_dt = (a.tick_dt if last_tick is None
+                       else min(max(tick - last_tick, 1) * a.tick_dt, 0.5))
+            last_tick = tick
         if not seen:
-            print("[est] rt/lowstate up -> estimating + publishing.", flush=True)
+            print("[est] rt/lowstate up -> estimating + publishing."
+                  + (f" PLANT-CLOCKED: tick_dt={a.tick_dt:g}s" if plant_clocked else ""),
+                  flush=True)
             seen = True
             acc_sum = np.zeros(3); acc_n = 0; acc_done = False
 
@@ -330,7 +362,7 @@ def main():
             #     Mahalanobis gate rejects phantom spikes -- self-regulating because P keeps
             #     growing while rejecting, so genuine motion is re-accepted within ~0.5s.
             #     No accelerometer in the prediction (twin accel is unusable; revisit on HW). ---
-            P = P + Q_ekf
+            P = P + ((a.ekf_amax * step_dt) ** 2) * I3   # random-walk growth over this step's plant time
             for k in range(len(vfeet)):
                 i1, i2 = LOAD_IDX[k]
                 load_k = abs(tau[i1]) + abs(tau[i2])
@@ -357,11 +389,11 @@ def main():
                 bias_init = True
             a_lin = a_world - accel_bias
             if a.imu_fusion and bias_init:
-                v_filt[0:2] = v_filt[0:2] + a_lin[0:2] * dt                      # IMU predict (horizontal)
-                v_filt[0:2] += (dt / (ac_tau + dt)) * (v_lo[0:2] - v_filt[0:2])  # leg-odo correct
-                v_filt[2] += (dt / (vz_tau + dt)) * (v_lo[2] - v_filt[2])        # vertical: leg-odo LPF
+                v_filt[0:2] = v_filt[0:2] + a_lin[0:2] * step_dt                             # IMU predict (horizontal)
+                v_filt[0:2] += (step_dt / (ac_tau + step_dt)) * (v_lo[0:2] - v_filt[0:2])    # leg-odo correct
+                v_filt[2] += (step_dt / (vz_tau + step_dt)) * (v_lo[2] - v_filt[2])          # vertical: leg-odo LPF
             else:
-                v_filt += (dt / (vz_tau + dt)) * (v_lo - v_filt)                 # leg-odo only (warmup)
+                v_filt += (step_dt / (vz_tau + step_dt)) * (v_lo - v_filt)                   # leg-odo only (warmup)
 
         # ODOMETRIC xy: integrate the velocity estimate so the planner gets a kinematically
         # CONSISTENT (position, velocity) pair. Publishing a FROZEN xy with nonzero velocity
@@ -369,7 +401,7 @@ def main():
         # translates while feeling it move -> mis-corrects -> the bench fell in 1.6s).
         # Absolute drift is harmless: the task costs are translation-invariant (CoM and feet
         # translate together) and the planner replans from the instantaneous state.
-        pos_xy += v_filt[0:2] * dt
+        pos_xy += v_filt[0:2] * step_dt
 
         # pelvis -> IMU site (so the node's site->pelvis recovers the estimated base)
         roff = R @ IMU_OFFSET
