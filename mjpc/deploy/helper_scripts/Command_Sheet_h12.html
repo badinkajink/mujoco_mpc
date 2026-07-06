@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>H1-2 Deploy Command Sheet — A1 / A2 / B (Lean ‖ Stabilize)</title>
+<title>H1-2 Deploy Command Sheet — A1 / A2 / A3 / B (Lean ‖ Stabilize)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -389,6 +389,53 @@ cd ~/Desktop/h12/h1_mujoco
     </ul>
   </article>
 
+  <!-- ──────────────── A3 CARD ──────────────── -->
+  <article id="a3" class="card card-hair p-6 space-y-4 scroll-mt-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="display text-xl">A3 — RoboCasa: kitchen-physics bench</h2>
+      <span class="pill pill-sky">RoboCasa</span>
+      <span class="pill pill-amber">manual harness</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      The third sim in the chain — the robosuite kitchen — same deploy node + estimator as A2,
+      through the two-container docker bench. Physics is CPU-bound so it runs
+      <strong>~0.25–0.55×</strong> (a hardware/scene ceiling, not a throttle): use the NVIDIA
+      render path + <code>--no-sensors</code> for a smooth viewer, and drive the release off the
+      on-screen <code>★ CONTROLLER ENGAGED</code> / <code>[manual]</code> readout — RoboCasa is
+      too slow to eyeball the arm-jitter cue. Now has twin-parity manual keys (U/L · arrows ·
+      T · . · SPACE).
+    </p>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">2 containers · docker · viewer + manual harness</span>
+      </div>
+<pre class="cmd"><span class="c"># T1  RoboCasa sim (SHARED for lower + whole body) — viewer ON, manual harness (no --harness)</span>
+<span class="c">#     U/L hoist to a knee-bent crouch · arrows move anchor · T tilt-assist · . pay out · SPACE release</span>
+cd ~/Desktop/HAMS/docker/scripts &amp;&amp; __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+./docker_run.sh robocasa <span class="hl">--no-sensors</span> --twin-contact --foot-solref 0.02 --sim-dt 0.005 \
+  --task PlaceDishesBySink --seed 0
+
+<span class="c"># T2a  LOWER-BODY controller (Stabilize, nu=12) — the default bringup</span>
+cd ~/Desktop/HAMS/docker/scripts &amp;&amp; ./docker_run.sh ros
+<span class="c">#   then inside the container shell:</span>
+ros2 launch h1_bringup <span class="k">h1_sim_bringup.launch.py</span> use_skills:=false use_rviz:=false
+
+<span class="c"># T2b  WHOLE-BODY controller (Lean, nu=27) — the fullbody bench (use INSTEAD of T2a)</span>
+cd ~/Desktop/HAMS/docker/scripts &amp;&amp; ./docker_run.sh ros
+<span class="c">#   then inside the container shell:</span>
+ros2 launch h1_bringup <span class="k">h1_sim_fullbody_bench.launch.py</span></pre>
+    </div>
+    <ul class="space-y-1.5 text-xs">
+      <li class="flex items-start gap-2 text-sky-200/90"><span class="pill pill-sky mt-0.5">check</span><span class="leading-relaxed mono">node log: nu=12 = lower body · nu=27 = whole body · both read rt/sportmodestate_est</span></li>
+      <li class="flex items-start gap-2 text-emerald-200/90"><span class="pill pill-emer mt-0.5">pass</span><span class="leading-relaxed">★ CONTROLLER ENGAGED → tilt small &amp; steady → strap SLACK → press <code>.</code> then <code>SPACE</code> → stays up</span></li>
+      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">note</span><span class="leading-relaxed">whole-body can hit a planner NaN/Inf QACC on the sim (~30–40 s) — kill &amp; report if it blows up. Lower body is the validated free-stand.</span></li>
+      <li class="flex items-start gap-2 text-slate-300"><span class="pill mt-0.5" style="background:rgba(148,163,184,.15)">speed</span><span class="leading-relaxed">NVIDIA tags = smoother render, NOT faster physics. True 1× needs faster single-thread CPU or a lighter (fixture-stripped) scene.</span></li>
+    </ul>
+  </article>
+
   <!-- ──────────────── B SECTION — Lean ‖ Stabilize, side by side ──────────────── -->
   <section id="b" class="space-y-5 scroll-mt-6 relative left-1/2 -translate-x-1/2 w-[min(90rem,94vw)]">
     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -707,7 +754,7 @@ python3 mjpc/deploy/helper_scripts/wasd_teleop.py</code></pre>
       <strong>B2</strong> on OptiTrack mocap — plus the Stabilize legs-only track.
     </p>
     <p class="text-xs text-slate-500 pt-1">
-      Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a>
+      Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#a3">A3 RoboCasa</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a>
     </p>
   </section>
 

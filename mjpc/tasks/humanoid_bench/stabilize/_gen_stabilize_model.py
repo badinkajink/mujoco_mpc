@@ -20,6 +20,43 @@ import sys
 
 LEG_KEYS = ("hip", "knee", "ankle")
 
+# R2 (2026-07-04): sole = 4 corner SPHERES per foot (G1 Menagerie pattern,
+# H1-2 dimensions), mesh sole demoted to visual. The mesh foot gives a
+# NON-DETERMINISTIC support polygon (L vs R resolve different contact sets =
+# the one-knee-crouch signature; G1 abandoned mesh feet for exactly this).
+# Geometry-ONLY change: spheres inherit the validated condim 4 + friction
+# 1/0.06 (G1's 0.6/condim3 are separate parity knobs, NOT taken). Corner
+# placement measured from the mesh sole AABB (body frame: x -0.085..0.173,
+# y +-0.042, sole plane z=-0.045), corners ~2 cm inside the edges; sphere
+# bottoms sit exactly on the mesh sole plane (z center -0.040, r 0.005) so
+# the standing height is unchanged. Set False to revert to the mesh sole.
+FOOT_SPHERES = True
+_SPHERE_XY = [(-0.065, 0.038), (-0.065, -0.038), (0.15, 0.038), (0.15, -0.038)]
+
+
+def inject_foot_spheres(xml):
+    for side in ("left", "right"):
+        pat = re.compile(
+            r'^(\s*)<geom (?![^>]*contype="0")[^>]*mesh="%s_ankle_roll_link"'
+            r'[^>]*/>[ \t]*$' % side, re.M)
+        m = pat.search(xml)
+        if not m:
+            raise SystemExit(f"no colliding {side} ankle_roll sole geom found")
+        ind = m.group(1)
+        demoted = m.group(0).replace(
+            "<geom ", '<geom contype="0" conaffinity="0" ', 1)
+        spheres = "\n".join(
+            f'{ind}<geom name="{side}_foot_c{i}" type="sphere" size="0.005" '
+            f'pos="{x} {y} -0.040" contype="1" conaffinity="1" priority="1" '
+            f'condim="4" friction="1 0.06 0.0001" group="3" '
+            f'rgba="0.8 0.2 0.2 1"/>'
+            for i, (x, y) in enumerate(_SPHERE_XY))
+        rep = (demoted + "\n" + ind +
+               "<!-- R2: sole = 4 corner spheres; mesh demoted to visual -->\n"
+               + spheres)
+        xml = xml[:m.start()] + rep + xml[m.end():]
+    return xml
+
 
 def main():
     if len(sys.argv) != 3:
@@ -63,6 +100,9 @@ def main():
     if idx < 0:
         raise SystemExit("no </mujoco> in " + src)
     xml = xml[:idx] + eq_block + xml[idx:]
+
+    if FOOT_SPHERES:
+        xml = inject_foot_spheres(xml)
 
     with open(dst, "w") as f:
         f.write(xml)

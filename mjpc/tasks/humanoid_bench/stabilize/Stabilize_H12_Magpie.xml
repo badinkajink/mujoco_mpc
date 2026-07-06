@@ -391,6 +391,49 @@
              sooner; dial up if it still micro-steps while standing. -->
         <numeric name="catch_trig" data="0.12"/>
         <numeric name="catch_full" data="0.24"/>
+        <!-- catch_step_sec / catch_cooldown (2026-07-03, strategy 20 only): the
+             CATCH-MARCH episode. catch_trace.py proved the cost-side catch
+             never lifts a foot (sampling cannot discover a contact-breaking
+             swing), and a scripted SINGLE catch-step stayed a ~1-in-6 coin
+             flip (v1-v4: breaking symmetric support + swinging far + holding
+             the stance leg in 0.3 s from zero rhythm is the hard problem).
+             v5: when danger escapes catch_full, TransitionLocked latches a
+             MARCH episode -- ModifyControl plays the twin-validated 9/9
+             in-place trot (clock + cost + freeze coherent by construction)
+             for catch_step_sec with ease-in 0.25 s / ease-out 0.6 s, then
+             hands back to the quiet stand. "Push -> stumble -> settle ->
+             keep standing." catch_cooldown gaps re-latches; catch_step_sec
+             0 = feature OFF (byte-identical legacy stumble). XML-tunable,
+             no rebuild. -->
+        <numeric name="catch_step_sec" data="2.0"/>
+        <numeric name="catch_cooldown" data="0.15"/>
+        <!-- catch_march_thresh (2026-07-03): the BACKWARD capture excursion
+             (-ex, m) that latches the catch-march. Separate from catch_trig/
+             catch_full (the legacy omni cost-side overlay band, validated
+             0.12/0.24) so tuning the latch cannot collapse that band -- doing
+             so sent the cost side into a full march on any-direction danger
+             while the freeze only played backward => fwd 0.5 fell. Twin: 0.07
+             catches back 0.15-0.3 4/4. REAL-HW caution: quiet-sway danger with
+             the noisy HW velocity estimate historically exceeded 0.06 (why
+             catch_trig was raised to 0.12) -- if the real robot spuriously
+             marches while standing, RAISE this toward 0.10-0.12. -->
+        <numeric name="catch_march_thresh" data="0.07"/>
+        <!-- catch_persist_sec (R3, 2026-07-04): the backward crossing must be
+             SUSTAINED this long before a march latches. Real deploys exclude
+             base lin-vel from the loop entirely (unobservable on HW); our
+             danger's tau*vx rides the noisy EKF estimate and real quiet-sway
+             historically spiked past 0.06. Sway spikes are brief; genuine
+             backward falls stay above threshold, so 0.05 s costs ~nothing in
+             catch latency. 0 = off. XML-tunable, no rebuild. -->
+        <numeric name="catch_persist_sec" data="0.05"/>
+        <!-- catch_phase_snap (R4, 2026-07-04): 1 = at march latch, offset the
+             gait clock so the CAPTURE-side foot enters its swing window
+             immediately (the absolute clock wasted up to ~0.5 s waiting for
+             the window = why back 0.4-0.5 fell during spin-up). Offset is
+             derived from the latch state in BOTH the cost clock and the
+             ModifyControl freeze, so they stay coherent. 0 = legacy clock
+             (kill switch, no rebuild). -->
+        <numeric name="catch_phase_snap" data="1.0"/>
         <!-- stance_off_x (2026-06-20, strategy 20): feet planted this far AHEAD of
              the CoM (m). LOWER -> CoM more centred -> better BACKWARD margin; HIGHER
              -> more forward margin. XML-tunable, no rebuild. -->

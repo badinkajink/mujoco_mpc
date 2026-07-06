@@ -399,8 +399,32 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
     double kDuty = (is_trot && dty_id >= 0)
         ? model->numeric_data[model->numeric_adr[dty_id]] : kDutyRatio;
-    double ph_l = std::fmod(data->time * kCad,       1.0);  // L foot phase
-    double ph_r = std::fmod(data->time * kCad + 0.5, 1.0);  // R antiphase
+    // R4 PHASE-SNAP (2026-07-04): while a latched march episode is active,
+    // offset the clock so the CAPTURE-side foot entered its swing window at
+    // the LATCH instant -- the un-snapped absolute clock wastes up to ~0.5 s
+    // of a backward fall waiting for the right foot's window (back 0.4-0.5
+    // fell during that dead time). One offset added to BOTH feet preserves
+    // the antiphase; derived purely from catch_ep_t0_/left_ (propagated to
+    // every rollout copy) so cost and freeze agree by construction. After
+    // the episode the offset vanishes -- invisible, since amplitude is 0
+    // outside episodes. catch_phase_snap numeric: 0 = off (legacy clock).
+    double ph_snap_off = 0.0;
+    {
+      int cps2_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_phase_snap");
+      bool snap_on = (cps2_id >= 0) &&
+          model->numeric_data[model->numeric_adr[cps2_id]] > 0.5;
+      int cssn_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_step_sec");
+      double kMarchSecSn = (cssn_id >= 0)
+          ? model->numeric_data[model->numeric_adr[cssn_id]] : 2.0;
+      double t_ep_sn = data->time - catch_ep_t0_;
+      if (snap_on && !is_trot && t_ep_sn >= 0.0 && t_ep_sn < kMarchSecSn) {
+        double base = std::fmod(
+            catch_ep_t0_ * kCad + (catch_ep_left_ ? 0.0 : 0.5), 1.0);
+        ph_snap_off = kDuty - base;   // latched foot phase == kDuty at t0
+      }
+    }
+    double ph_l = std::fmod(data->time * kCad + ph_snap_off + 2.0, 1.0);
+    double ph_r = std::fmod(data->time * kCad + ph_snap_off + 2.5, 1.0);
     g_bump_l = (ph_l < kDuty) ? 0.0
         : std::sin(mjPI * (ph_l - kDuty) / (1.0 - kDuty));
     g_bump_r = (ph_r < kDuty) ? 0.0
@@ -512,6 +536,30 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
       }
       if (stepL) g_bump_l = mju_max(g_bump_l, arm * recov);
       else       g_bump_r = mju_max(g_bump_r, arm * recov);
+    }
+    // ---- v5 (2026-07-03): CATCH-MARCH cost coherence. While the latched
+    // march episode is active (TransitionLocked set catch_ep_t0_; propagated
+    // into THIS rollout copy via the ResidualLocked ctor), raise the gait
+    // amplitude to the SAME ease-in/out envelope stabilize::ModifyControl
+    // plays, so every sampled trajectory EXPECTS the march -- swing release,
+    // symmetry gate, and leg damping all follow g_amp. The g_bump_l/r swing
+    // schedule stays the CLOCK's (computed above; identical in cost and
+    // freeze by construction -- the trot's coherence property; v4's forced
+    // single-foot bump fought the clock and stayed a coin flip). The rollout
+    // clock runs ahead of the plant, so trajectories correctly predict the
+    // march easing out mid-horizon.
+    {
+      int css_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_step_sec");
+      double kMarchSec = (css_id >= 0)
+          ? model->numeric_data[model->numeric_adr[css_id]] : 2.0;
+      double t_ep = data->time - catch_ep_t0_;
+      if (kMarchSec > 1e-3 && t_ep >= 0.0 && t_ep < kMarchSec) {
+        double rin  = mju_min(t_ep / 0.25, 1.0);
+        double rout = mju_min((kMarchSec - t_ep) / 0.6, 1.0);
+        double env  = mju_max(0.0, mju_min(rin, rout));
+        env = env * env * (3.0 - 2.0 * env);
+        g_amp = mju_max(g_amp, env);
+      }
     }
     if (model->nq <= 64) {
       for (int i = 0; i < model->nq; i++)
@@ -2578,6 +2626,116 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       }
     }
   }
+  // ---- FORCED CATCH-STEP LATCH (strategy 20 quiet stand, 2026-07-03) ------ //
+  // catch_trace.py proved the cost-side catch-step NEVER lifts a foot on a
+  // backward push (feet flat 0.048 m the whole fall): 16 CEM rollouts cannot
+  // DISCOVER a contact-breaking swing -- lifting always looks worse over the
+  // short horizon, so the sampler keeps both feet planted while the CoM exits
+  // the heel edge (t=0.15 s) and topples. The trot lifts feet ONLY because
+  // stabilize::ModifyControl hard-writes the swing; here we arm that same
+  // scripted swing as a one-shot EPISODE. Detection runs HERE on the real
+  // plant state (once per plan, under the transition lock): when the capture
+  // excursion escapes catch_full, latch the episode start + the capture-side
+  // foot; ModifyControl plays the swing open-loop for catch_step_sec, then
+  // the planner owns the legs again. catch_cooldown blocks re-latch chatter;
+  // the foot-pick rule naturally alternates feet on repeated/large pushes
+  // (after a back-step the OTHER foot is the front foot). Stumble-non-trot
+  // keyframes only => stand-6 / trot-23 / lean pipeline byte-identical.
+  {
+    const std::string &kfn = residual_.residual_keyframe_.name;
+    const bool stumble_kf = kfn.rfind("stumble", 0) == 0;
+    const bool trot_kf =
+        stumble_kf && kfn.find("trot") != std::string::npos;
+    if (stumble_kf && !trot_kf && model->nu >= 11) {
+      double const *tup = SensorByName(model, data, "torso_up");
+      double const *cvel = SensorByName(model, data, "waist_lower_subcomvel");
+      int pelvis_bid = mj_name2id(model, mjOBJ_BODY, "pelvis");
+      if (pelvis_bid < 0) pelvis_bid = 1;
+      double zc = mju_max(0.5, data->subtree_com[3 * pelvis_bid + 2]);
+      double tau_c = mju_sqrt(zc / 9.81);
+      int lnx_id = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
+      double kLeanX = (lnx_id >= 0)
+          ? model->numeric_data[model->numeric_adr[lnx_id]] : 0.06;
+      double tx = (tup ? tup[0] : 0.0) - kLeanX, ty = tup ? tup[1] : 0.0;
+      double vx = cvel ? cvel[0] : 0.0, vy = cvel ? cvel[1] : 0.0;
+      double ex = zc * tx + tau_c * vx;
+      double ey = zc * ty + tau_c * vy;
+      double ey_pos = zc * ty;              // lateral: tilt only (rock-immune)
+      double danger = mju_sqrt(ex * ex + ey_pos * ey_pos);
+      // march latch threshold is its OWN numeric (v5.2): reusing catch_full
+      // coupled the latch to the legacy COST-side overlay band (trig..full)
+      // -- lowering it to 0.07 for the latch collapsed that band and sent
+      // the cost side into a full march on ANY 0.07+ danger while the freeze
+      // only played backward => fwd 0.5 fell (half-machinery again).
+      // catch_trig/catch_full stay at their validated 0.12/0.24.
+      int cmt_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_march_thresh");
+      int cf_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_full");
+      double kCatchFull = (cmt_id >= 0)
+          ? model->numeric_data[model->numeric_adr[cmt_id]]
+          : (cf_id >= 0)
+          ? model->numeric_data[model->numeric_adr[cf_id]] : 0.16;
+      int css_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_step_sec");
+      double kCatchSec = (css_id >= 0)
+          ? model->numeric_data[model->numeric_adr[css_id]] : 2.0;
+      int cco_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_cooldown");
+      double kCool = (cco_id >= 0)
+          ? model->numeric_data[model->numeric_adr[cco_id]] : 0.40;
+      double t_in_phase = data->time - residual_.keyframe_start_time_;
+      double t_ep = data->time - residual_.catch_ep_t0_;
+      // no latch during bring-up (mirror the gait arm, kArmSec 2.0 + margin);
+      // kCatchSec <= 0 disables the whole feature (byte-identical fallback).
+      // BACKWARD-DOMINANT ONLY (v5.1, 2026-07-03): the march latches solely
+      // on a backward capture escape (-ex). Backward is the one axis whose
+      // support polygon is structurally deficient (heel lever 0.035 m vs toe
+      // 0.115 m, lateral hip load/unload bulletproof); fwd/lateral already
+      // recover QUIETLY (hip-throw + capture-lateral + weight-shift), and the
+      // 8-cell matrix showed an omni latch REGRESSES them (fwd 0.5 RECOVER
+      // 6.4deg -> DRIFT 29deg; left 0.3 peak 2.2 -> 24.8deg) -- the march's
+      // own motion becomes the disturbance on axes that don't need a step.
+      // NOTE (v5.4 REVERTED): a backward-DOMINANCE condition ((-ex) >= |ey|)
+      // was tried to silence marches on lateral pushes -- it VETOED genuine
+      // backward latches instead (|ey| = zc*ty tilt-amplified sway routinely
+      // exceeds the barely-crossing -ex ~ 0.07; back 0.3 dropped 3/3 -> 1/3
+      // with legs ~16deg = march never fired) and did not change the lateral
+      // peaks it targeted. Backward-threshold-only is the validated form.
+      // R3 persistence (2026-07-04): the crossing must be SUSTAINED
+      // catch_persist_sec before it can latch -- sway/EKF noise spikes on the
+      // real robot are brief, a genuine backward fall is not. 0 = off.
+      int cps_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_persist_sec");
+      double kPersist = (cps_id >= 0)
+          ? model->numeric_data[model->numeric_adr[cps_id]] : 0.0;
+      if ((-ex) > kCatchFull) {
+        if (residual_.catch_cross_t0_ < -1.0e8)
+          residual_.catch_cross_t0_ = data->time;
+      } else {
+        residual_.catch_cross_t0_ = -1.0e9;
+      }
+      bool sustained = residual_.catch_cross_t0_ > -1.0e8 &&
+          (data->time - residual_.catch_cross_t0_) >= kPersist;
+      if (kCatchSec > 1e-3 && t_in_phase > 3.0 && sustained &&
+          t_ep > kCatchSec + kCool) {
+        double const *flp = SensorByName(model, data, "foot_left_pos");
+        double const *frp = SensorByName(model, data, "foot_right_pos");
+        bool stepL;
+        if (std::fabs(ey) > std::fabs(ex)) {
+          stepL = (ey > 0.0);                // falling LEFT -> left foot out
+        } else if (flp && frp) {
+          stepL = (ex > 0.0) ? (flp[0] <= frp[0])   // fwd -> trailing foot
+                             : (flp[0] >= frp[0]);  // back -> front foot
+        } else {
+          stepL = false;
+        }
+        residual_.catch_ep_t0_ = data->time;
+        residual_.catch_ep_left_ = stepL;
+        std::fprintf(stderr,
+                     "[stabilize] CATCH-STEP: %s foot, danger=%.3f "
+                     "(ex=%+.3f ey=%+.3f) t=%.2f\n",
+                     stepL ? "LEFT" : "RIGHT", danger, ex, ey, data->time);
+      }
+    } else if (residual_.catch_ep_t0_ > -1.0e8 && !stumble_kf) {
+      residual_.catch_ep_t0_ = -1.0e9;   // strategy left stumble: clear episode
+    }
+  }
   // ---- DEBUG: print leg stability diagnostics every ~0.5 s ---- //
   static int debug_tick = 0;
   static const bool lean_dbg = (std::getenv("LEAN_DEBUG") != nullptr);
@@ -3023,18 +3181,44 @@ void stabilize::ResetLocked(const mjModel *model) {
 void stabilize::ModifyControl(const mjModel *model, const double *qpos,
                          const double *qvel, double time, double *ctrl) const {
   const std::string &kfname = residual_.residual_keyframe_.name;
-  const bool is_trot = (kfname.rfind("stumble", 0) == 0) &&
+  const bool is_stumble_kf = (kfname.rfind("stumble", 0) == 0);
+  const bool is_trot = is_stumble_kf &&
                        (kfname.find("trot") != std::string::npos);
-  if (!is_trot || model->nu < 11) return;
+  if (!is_stumble_kf || model->nu < 11) return;
   auto clip = [](double x, double lo, double hi) {
     return x < lo ? lo : (x > hi ? hi : x);
   };
 
-  // continuous forced-march amplitude (matches the residual `arm`, kArmSec 2.0)
+  // amplitude: TROT = continuous forced-march arm-ramp (matches the residual
+  // `arm`, kArmSec 2.0). STUMBLE quiet stand (v5, 2026-07-03) = a CATCH-MARCH
+  // episode: when TransitionLocked latched danger > catch_full, run THIS SAME
+  // clock-driven march (the twin-validated 9/9 in-place trot -- clock, cost,
+  // and freeze coherent by construction) for catch_step_sec with an ease-in/
+  // out envelope, then hand back to the quiet stand. v1-v4 tried a scripted
+  // SINGLE catch-step instead and hit a ~1-in-6 coin flip: breaking symmetric
+  // double support, unloading, swinging far, and stabilising the stance leg
+  // in 0.3 s FROM ZERO RHYTHM is the hard problem; the march always has
+  // rhythm, a push only modulates its placement. "Push -> stumble (march) ->
+  // settle -> keep standing."
   constexpr double kArmSec = 2.0;
-  double t_phase = mju_max(0.0, time - residual_.keyframe_start_time_);
-  double g_amp = mju_min(t_phase / kArmSec, 1.0);
-  g_amp = g_amp * g_amp * (3.0 - 2.0 * g_amp);
+  double g_amp;
+  if (is_trot) {
+    double t_phase = mju_max(0.0, time - residual_.keyframe_start_time_);
+    g_amp = mju_min(t_phase / kArmSec, 1.0);
+    g_amp = g_amp * g_amp * (3.0 - 2.0 * g_amp);
+  } else {
+    int css_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_step_sec");
+    double kMarchSec = (css_id >= 0)
+        ? model->numeric_data[model->numeric_adr[css_id]] : 2.0;
+    double t_ep = time - residual_.catch_ep_t0_;
+    if (kMarchSec <= 1e-3 || t_ep < 0.0 || t_ep >= kMarchSec) return;
+    // ease IN fast (0.25 s -- the catch must engage quickly), ease OUT slow
+    // (0.6 s -- hand the settled stance back gently, no snap).
+    double rin  = mju_min(t_ep / 0.25, 1.0);
+    double rout = mju_min((kMarchSec - t_ep) / 0.6, 1.0);
+    double env  = mju_max(0.0, mju_min(rin, rout));
+    g_amp = env * env * (3.0 - 2.0 * env);
+  }
   if (g_amp <= 1e-4) return;                     // still settling -> planner owns
 
   // gait clock (antiphase, duty 0.60; cadence live numeric)
@@ -3045,8 +3229,23 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
   double kDuty = (dty_id >= 0) ? model->numeric_data[model->numeric_adr[dty_id]]
                                : kDutyRatio;  // matches the residual gait clock
-  double ph_l = std::fmod(time * kCad, 1.0);
-  double ph_r = std::fmod(time * kCad + 0.5, 1.0);
+  // R4 PHASE-SNAP: mirror the residual's episode clock offset EXACTLY (same
+  // derivation from catch_ep_t0_/left_) so the freeze swings the foot the
+  // cost expects. Only the non-trot march episode snaps; trot untouched.
+  double ph_snap_off = 0.0;
+  if (!is_trot) {
+    int cps2_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_phase_snap");
+    bool snap_on = (cps2_id >= 0) &&
+        model->numeric_data[model->numeric_adr[cps2_id]] > 0.5;
+    if (snap_on) {
+      double base = std::fmod(
+          residual_.catch_ep_t0_ * kCad +
+              (residual_.catch_ep_left_ ? 0.0 : 0.5), 1.0);
+      ph_snap_off = kDuty - base;   // latched foot phase == kDuty at t0
+    }
+  }
+  double ph_l = std::fmod(time * kCad + ph_snap_off + 2.0, 1.0);
+  double ph_r = std::fmod(time * kCad + ph_snap_off + 2.5, 1.0);
 
   // ---- CAPTURE POINT (instantaneous, inverted-pendulum) -------------------
   // base lin-vel (qvel[0:2], world) ~= CoM vel; step to xi = (v - v_des)*tau to

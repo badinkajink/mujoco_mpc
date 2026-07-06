@@ -1022,6 +1022,26 @@ int RunDeployNode(const NodeConfig& cfg) {
     tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
     tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
 
+    // ---- R6 (2026-07-04): bad-orientation damp fallback. Unitree's own
+    // deploy FSM does bad_orientation(1.0 rad) -> Passive; without it the
+    // planner thrashes an unrecoverable fall (the post-35deg flail in every
+    // FALL trace). Latch PERMANENTLY (restart to clear): kp=0, kd=damp,
+    // tau=0 -- same shape as their Passive state. cfg.bad_orient_rad 0 = off.
+    static bool g_bad_orient_latched = false;
+    if (cfg.bad_orient_rad > 0.0 && !g_bad_orient_latched) {
+      double bx = cur.quat[1], by = cur.quat[2];       // Unitree quat = w,x,y,z
+      double up_z = 1.0 - 2.0 * (bx * bx + by * by);   // torso up-axis z
+      up_z = std::fmax(-1.0, std::fmin(1.0, up_z));
+      if (std::acos(up_z) > cfg.bad_orient_rad) {
+        g_bad_orient_latched = true;
+        std::fprintf(stderr,
+                     "[node] !!! BAD ORIENTATION (tilt %.1f deg > %.1f deg): "
+                     "latching damp mode (kp=0, kd=3) until restart\n",
+                     std::acos(up_z) * 180.0 / M_PI,
+                     cfg.bad_orient_rad * 180.0 / M_PI);
+      }
+    }
+
     // build unitree_hg LowCmd_
     LowCmd cmd{};
     cmd.mode_pr() = 0;                       // PR mode
@@ -1029,6 +1049,14 @@ int RunDeployNode(const NodeConfig& cfg) {
     for (int i = 0; i < cfg.nu; i++) {
       auto& mc = cmd.motor_cmd().at(i);
       mc.mode() = 1;  // 1 = enable
+      if (g_bad_orient_latched) {
+        mc.q() = static_cast<float>(cur.q[i]);   // irrelevant at kp=0
+        mc.dq() = 0.0f;
+        mc.tau() = 0.0f;
+        mc.kp() = 0.0f;
+        mc.kd() = 3.0f;                          // pure damping (Passive-like)
+        continue;
+      }
       mc.q() = static_cast<float>(tgt_q[i]);
       mc.dq() = 0.0f;
       mc.tau() = static_cast<float>(tau[i]);

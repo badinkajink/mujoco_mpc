@@ -52,6 +52,11 @@ ABSL_FLAG(double, imu_pitch_offset_deg, 1.6,
           "perceived base orientation is rotated by this about the body pitch axis before planning. "
           "Validated on real (most-upright stand to date). Pass --imu_pitch_offset_deg 0 for the "
           "TWIN (no IMU mounting offset there) or to A/B against the raw IMU.");
+ABSL_FLAG(double, bad_orient_rad, 0.9,
+          "R6 bad-orientation damp fallback (rad). Base tilt beyond this latches a permanent "
+          "kp=0/kd=3/tau=0 damp command until restart (Unitree deploy parity: bad_orientation(1.0) "
+          "-> Passive) so the planner never thrashes an unrecoverable fall. 0 disables. "
+          "Default 0.9 rad (~52 deg) = engaged well past the 35 deg fall verdict.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
 ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
@@ -139,6 +144,7 @@ int main(int argc, char** argv) {
   cfg.lowcmd_topic = "rt/safety/lowcmd_lower_in";   // safety layer split-mode LOWER channel
   cfg.sportstate_topic = absl::GetFlag(FLAGS_sportstate_topic);
   cfg.imu_pitch_offset_deg = absl::GetFlag(FLAGS_imu_pitch_offset_deg);
+  cfg.bad_orient_rad = absl::GetFlag(FLAGS_bad_orient_rad);
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);

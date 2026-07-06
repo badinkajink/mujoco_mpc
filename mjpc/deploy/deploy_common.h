@@ -84,6 +84,12 @@ struct NodeConfig {
   std::string sportstate_topic;        // truth vs rt/sportmodestate_est (estimator-in-loop)
   double imu_pitch_offset_deg = 0.0;   // real H1-2 mount calib 1.6; twin 0
   double imu_roll_offset_deg = 0.0;
+  // R6 (2026-07-04): bad-orientation damp fallback (Unitree deploy parity:
+  // bad_orientation(1.0 rad) -> Passive FSM). base tilt > this [rad] latches
+  // a permanent kp=0 / kd-damp / tau=0 command until restart, so the node
+  // never thrashes an unrecoverable fall. 0 = disabled (default; lean
+  // full-body deployments byte-unchanged).
+  double bad_orient_rad = 0.0;
   double ankle_roll_offset_l_deg = 0.0;
   double ankle_roll_offset_r_deg = 0.0;
   std::string network_interface;       // "" = auto-pin 192.168.123.x, else autodetermine

@@ -45,10 +45,14 @@ class stabilize : public Task {
                         mjtNum prev_brace_force_target = 0.0,
                         int prev_posture_key_id = 0,
                         int num_phases = 1,
-                        const bool* contact_pair_is_new = nullptr)
+                        const bool* contact_pair_is_new = nullptr,
+                        mjtNum catch_ep_t0 = -1.0e9,
+                        bool catch_ep_left = false)
         : mjpc::BaseResidualFn(task),
           residual_keyframe_(kf),
           keyframe_start_time_(keyframe_start_time),
+          catch_ep_t0_(catch_ep_t0),
+          catch_ep_left_(catch_ep_left),
           prev_phase_reach_scale_(prev_reach_scale),
           prev_phase_brace_pos_scale_(prev_brace_pos_scale),
           prev_phase_posture_scale_(prev_posture_scale),
@@ -114,6 +118,33 @@ class stabilize : public Task {
     // new phase's scales, which is the WBC-style smooth handoff the robot
     // needs to avoid lurching when a contact cost switches on.
     mjtNum keyframe_start_time_ = 0.0;
+
+    // FORCED CATCH-STEP episode (strategy 20 quiet stand, 2026-07-03). The
+    // cost-side catch-step alone never lifts a foot: a sampling planner
+    // cannot DISCOVER a contact-breaking swing (every short-horizon rollout
+    // prefers both feet planted; trace-proven on the backward push). The trot
+    // already solves this with the stabilize::ModifyControl channel-freeze;
+    // these members arm the SAME scripted swing as a one-shot episode:
+    // latched in TransitionLocked (real plant state, once per plan) when the
+    // capture excursion escapes catch_full, executed open-loop by
+    // ModifyControl for catch_step_sec, then the planner owns the legs again.
+    // t0 <= -1e8 means "no episode ever". v4 (2026-07-03): ALSO propagated
+    // into every rollout residual copy (ResidualLocked ctor args) so the
+    // COST side expects the scripted swing -- same foot, same window -- in
+    // every sampled trajectory. Without this the rollout residuals re-derive
+    // their own foot pick from diverged rollout states and the Foot-Up cost
+    // fights the freeze in half the samples (the v1-v3 coin-flip catches).
+    // This mirrors WHY the trot works: its cost gait + freeze share a clock.
+    mjtNum catch_ep_t0_ = -1.0e9;   // plant time the active episode began
+    bool catch_ep_left_ = false;    // true = left foot swings
+    // R3 (2026-07-04): latch PERSISTENCE. Real Unitree deploys exclude base
+    // lin-vel from the loop entirely (unobservable on HW); our danger's tau*vx
+    // term rides the noisy EKF estimate, and quiet-stand sway historically
+    // exceeded 0.06 on real. Require the crossing to be SUSTAINED
+    // catch_persist_sec before latching a march (sway spikes are brief; a
+    // genuine backward fall stays above threshold). Canonical-only member.
+    mjtNum catch_cross_t0_ = -1.0e9;  // when -ex first exceeded the threshold
+
     mjtNum prev_phase_reach_scale_ = 0.0;
     mjtNum prev_phase_brace_pos_scale_ = 0.0;
     // Posture scale starts at 1.0 (no boost) and ramps to 3.0 during stand_up.
@@ -285,7 +316,9 @@ class stabilize : public Task {
         residual_.prev_phase_brace_force_target_,
         residual_.prev_posture_key_id_,
         residual_.num_phases_,
-        residual_.contact_pair_is_new_);
+        residual_.contact_pair_is_new_,
+        residual_.catch_ep_t0_,
+        residual_.catch_ep_left_);
   }
 
   ResidualFn *InternalResidual() override { return &residual_; }
