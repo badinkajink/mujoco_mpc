@@ -900,7 +900,11 @@ int RunDeployNode(const NodeConfig& cfg) {
     // emit is in-phase when it lands on the plant. dlt=0 during warmup -> identical to before.
     double dlt = 0.0;
     if (!warming) {
-      dlt = (lat_fixed > 0.0) ? lat_fixed : (ewma_comp + lat_extra);
+      // Scale the WALL-clock horizon to SIM time by the measured real-time factor
+      // (cfg.latency_rtf): predict_forward rolls dlt forward as SIM steps, so on a
+      // below-realtime plant an unscaled wall dlt over-leads the plant by 1/RTF.
+      // 1.0 = identity (real/twin run RTF~1); a slow sim passes its measured RTF.
+      dlt = ((lat_fixed > 0.0) ? lat_fixed : (ewma_comp + lat_extra)) * cfg.latency_rtf;
       if (dlt > lat_max) dlt = lat_max;
       predict_forward(sd, dlt, last_cmd_q);
     }

@@ -103,6 +103,13 @@ struct NodeConfig {
                                        // Loosen ONLY for sims whose lowstate publisher stalls
                                        // on a shared sim lock (RoboCasa sensor renders: 50-60ms
                                        // gaps -> permanent safe-hold at the default).
+  double latency_rtf = 1.0;            // latency-comp sim-time scale = measured real-time factor.
+                                       // The predict-forward horizon dlt is a WALL-clock duration
+                                       // but predict_forward rolls it as SIM steps; on a below-
+                                       // realtime plant (RoboCasa RTF<1) that over-leads by 1/RTF.
+                                       // Scaling dlt by RTF converts wall->sim. 1.0 = IDENTITY
+                                       // (real/twin run RTF~1 -> byte-unchanged); set to the
+                                       // measured RTF on a slow sim (RoboCasa ~0.45).
 };
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.

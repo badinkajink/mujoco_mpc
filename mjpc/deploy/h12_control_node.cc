@@ -104,6 +104,12 @@ ABSL_FLAG(double, stale_sec, 0.05,
           "ONLY for heavyweight sims whose lowstate publisher stalls on a shared sim lock "
           "(RoboCasa's sensor renders hold it 50-60 ms -> permanent safe-hold at 0.05; "
           "0.15 rides the stalls out while still catching a genuinely dead stream).");
+ABSL_FLAG(double, latency_rtf, 1.0,
+          "latency-comp sim-time scale = measured real-time factor. The predict-forward "
+          "horizon is a WALL-clock duration rolled forward as SIM steps; on a below-realtime "
+          "plant (RoboCasa RTF<1) that over-leads by 1/RTF. Scaling by RTF converts wall->sim. "
+          "1.0 = IDENTITY (real/twin run RTF~1 -> UNCHANGED); set to the measured RTF (e.g. 0.45) "
+          "only on a slow sim.");
 
 namespace {
 constexpr int kNU = 27;  // actuated joints on the handless H1-2
@@ -181,5 +187,6 @@ int main(int argc, char** argv) {
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
+  cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
   return h12deploy::RunDeployNode(cfg);
 }
