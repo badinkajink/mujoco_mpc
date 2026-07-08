@@ -67,6 +67,7 @@ class WssCmdBridge(Node):
 
         self.vx = 0.0
         self.vy = 0.0
+        self.wz = 0.0
         self.last_rx = self.get_clock().now()
         self.seq = 0
         self.timeout = float(self.get_parameter("input_timeout").value)
@@ -83,18 +84,20 @@ class WssCmdBridge(Node):
     def _on_twist(self, msg: Twist):
         self.vx = float(msg.linear.x)
         self.vy = float(msg.linear.y)
+        self.wz = float(msg.angular.z)   # yaw-rate (V3); node clamps to drive_wz_max
         self.last_rx = self.get_clock().now()
 
     def _tick(self):
-        vx, vy = self.vx, self.vy
+        vx, vy, wz = self.vx, self.vy, self.wz
         silent = (self.get_clock().now() - self.last_rx).nanoseconds * 1e-9
         if silent > self.timeout:
-            vx, vy = 0.0, 0.0
+            vx, vy, wz = 0.0, 0.0, 0.0
         self.seq += 1
         req = self.pb.SetTaskParametersRequest()
         req.parameters["Cmd Active"].numeric = 1.0
         req.parameters["Cmd Vx"].numeric = vx
         req.parameters["Cmd Vy"].numeric = vy
+        req.parameters["Cmd Wz"].numeric = wz
         req.parameters["Cmd Seq"].numeric = float(self.seq)
         try:
             self.stub.SetTaskParameters(req, timeout=0.5)
@@ -110,6 +113,7 @@ class WssCmdBridge(Node):
                 req.parameters["Cmd Active"].numeric = 0.0
                 req.parameters["Cmd Vx"].numeric = 0.0
                 req.parameters["Cmd Vy"].numeric = 0.0
+                req.parameters["Cmd Wz"].numeric = 0.0
                 self.stub.SetTaskParameters(req, timeout=0.5)
             except Exception:  # noqa: BLE001
                 pass

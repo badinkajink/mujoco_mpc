@@ -10,9 +10,8 @@ stays dumb on purpose.
 Keymap (user-locked 2026-07-03, validated envelope ONLY):
   W (hold)  vx = +0.15 m/s   (twin-validated robust forward)
   S (hold)  vx = -0.10 m/s   (twin-validated robust backward)
-  A / D     vy = +/-0.08 m/s STRAFE -- forwarded but the node governor CLAMPS
-            vy to 0 until the V2 lateral campaign passes (keys pre-wired)
-  Q / E     reserved for YAW (V3) -- currently a no-op with a console note
+  A / D     vy = +/-0.08 m/s STRAFE (V2; node clamps to drive_vy_max, strat 24)
+  Q / E     wz = +/-0.3 rad/s YAW turn-left/right (V3; node clamps to drive_wz_max)
   SPACE     zero latch: immediate 0 command, held keys ignored until all released
   ESC       publish zero Twist x3 and exit
 
@@ -39,6 +38,7 @@ except ImportError:
     sys.exit("needs python-evdev: pip install evdev  (and `input` group membership)")
 
 VX_FWD, VX_BACK, VY_STRAFE = 0.15, -0.10, 0.08   # validated envelope presets
+WZ_YAW = 0.3                                     # Q/E yaw-rate [rad/s] (node clamps)
 
 
 def pick_device(path):
@@ -59,8 +59,8 @@ def main():
     args = ap.parse_args()
 
     dev = pick_device(args.device)
-    print(f"[wasd] reading {dev.path} ({dev.name}); W/S drive, A/D strafe "
-          f"(node-clamped to 0 until V2), SPACE stop-latch, ESC quit")
+    print(f"[wasd] reading {dev.path} ({dev.name}); W/S walk, A/D strafe, "
+          f"Q/E turn, SPACE stop-latch, ESC quit  (drive = strategy 24)")
 
     rclpy.init()
     node = rclpy.create_node("wasd_teleop")
@@ -81,6 +81,10 @@ def main():
             t.linear.y = +VY_STRAFE
         elif ecodes.KEY_D in held:
             t.linear.y = -VY_STRAFE
+        if ecodes.KEY_Q in held:
+            t.angular.z = +WZ_YAW     # turn left
+        elif ecodes.KEY_E in held:
+            t.angular.z = -WZ_YAW     # turn right
         return t
 
     period = 1.0 / args.rate
@@ -99,11 +103,8 @@ def main():
                         held.clear()
                         print("[wasd] SPACE -> zero latch (release all keys to re-arm)")
                         continue
-                    if ev.code in (ecodes.KEY_Q, ecodes.KEY_E) and down:
-                        print("[wasd] Q/E = yaw, reserved for V3 (no-op)")
-                        continue
-                    if ev.code in (ecodes.KEY_W, ecodes.KEY_A,
-                                   ecodes.KEY_S, ecodes.KEY_D):
+                    if ev.code in (ecodes.KEY_W, ecodes.KEY_A, ecodes.KEY_S,
+                                   ecodes.KEY_D, ecodes.KEY_Q, ecodes.KEY_E):
                         if down:
                             if not stop_latch:
                                 held.add(ev.code)
