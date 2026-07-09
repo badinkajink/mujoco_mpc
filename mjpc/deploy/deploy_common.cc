@@ -319,17 +319,7 @@ class NodeAgentService final : public agent::Agent::Service {
 int RunDeployNode(const NodeConfig& cfg) {
   const std::string& task_id = cfg.task_id;
   const double gff = cfg.gravity_ff;
-  // FABEL (2026-07-07, env H12_CTRL_HZ): override the compiled 200 Hz control/
-  // publish rate. 500 shrinks the command-side ZOH age 5 -> 2 ms -- part of
-  // the dev-identified "close the ~10 ms gap structurally" ladder (the
-  // post-ABI-fix chain stands at rtf 0.5 and loses the release/hunt race at
-  // rtf 1 by a hair). Unset = compiled kCtrlHz (unchanged).
-  double ctrl_hz = kCtrlHz;
-  if (const char* e = std::getenv("H12_CTRL_HZ")) {
-    double v = std::atof(e);
-    if (v >= 50.0 && v <= 1000.0) ctrl_hz = v;
-    std::fprintf(stderr, "[node] FABEL H12_CTRL_HZ=%.0f\n", ctrl_hz);
-  }
+  const double ctrl_hz = kCtrlHz;
   const double ctrl_dt = 1.0 / ctrl_hz;
   // FABEL bench knob (2026-07-07): env H12_WARMUP_SEC overrides the compiled
   // 1.0 s warmup hold. On a sim bench whose plant FREEZES the pose until the
@@ -1052,38 +1042,6 @@ int RunDeployNode(const NodeConfig& cfg) {
     if (!warming) {
       g_agent.ActivePlanner().ActionFromPolicy(action.data(), g_agent.state.state().data(),
                                              g_agent.state.time());
-      // FABEL (2026-07-08, env H12_ACT_LPF_MS): 1st-order low-pass on the
-      // emitted action. The CEM elite-mean policy dithers at ~2-3 Hz
-      // (unseeded per-iteration sampling noise, +-0.05-0.1 rad on the leg
-      // targets); through the chain's ~15 ms age that dither excites the
-      // very tilt excursions that escape the recoverable envelope
-      // (post-ABI-fix hunts die at a ~1/150-300 s escape rate). An ~80 ms
-      // pole attenuates the dither hard while costing little phase at the
-      // ~0.5-1 Hz balance band. Unset/0 = unchanged.
-      {
-        static double lpf_tau = -1.0;
-        static double lpf_a[kMaxNU];
-        static bool lpf_init = false;
-        if (lpf_tau < 0.0) {
-          lpf_tau = 0.0;
-          if (const char* e = std::getenv("H12_ACT_LPF_MS")) {
-            double v = std::atof(e);
-            if (v > 0.0 && v <= 500.0) lpf_tau = v * 1e-3;
-            std::fprintf(stderr, "[node] FABEL H12_ACT_LPF_MS=%.0f\n", v);
-          }
-        }
-        if (lpf_tau > 0.0) {
-          if (!lpf_init) {
-            lpf_init = true;
-            for (int i = 0; i < nu && i < kMaxNU; i++) lpf_a[i] = action[i];
-          }
-          const double a = ctrl_dt / (lpf_tau + ctrl_dt);
-          for (int i = 0; i < nu && i < kMaxNU; i++) {
-            lpf_a[i] += a * (action[i] - lpf_a[i]);
-            action[i] = lpf_a[i];
-          }
-        }
-      }
     }
 
     // gravity feedforward: tau = gff * qfrc_bias evaluated at qvel = 0.
