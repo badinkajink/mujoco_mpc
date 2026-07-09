@@ -994,29 +994,6 @@ int RunDeployNode(const NodeConfig& cfg) {
     // called it, so every deployment planned toward keyframe 0 (straight-knee 'home',
     // z=1.028): the hand-off knee snap, the 1.028 base parking, and the inert keyframe
     // edits were all this one absence.
-    // FABEL (2026-07-07, env H12_KEY_MOCAP=1): the Stabilize residual reads
-    // data->mocap_pos as its LIVE reach/lean target; the node's sd carries
-    // raw mj_makeData mocap (XML body pos), while the validated agent-server
-    // path plans with KEYFRAME mocap (mj_resetDataKeyframe -> key_mpos).
-    // Seed sd's mocap from the bring-up keyframe once. Unset = unchanged.
-    {
-      static int km_on = -1;
-      if (km_on < 0) {
-        const char* e = std::getenv("H12_KEY_MOCAP");
-        km_on = (e && e[0] == '1') ? 1 : 0;
-        if (km_on && g_model->nmocap > 0) {
-          int hk = mj_name2id(g_model, mjOBJ_KEY, "stand");
-          if (hk < 0) hk = 0;
-          mju_copy(sd->mocap_pos, g_model->key_mpos + hk * 3 * g_model->nmocap,
-                   3 * g_model->nmocap);
-          mju_copy(sd->mocap_quat, g_model->key_mquat + hk * 4 * g_model->nmocap,
-                   4 * g_model->nmocap);
-          std::fprintf(stderr, "[node] FABEL H12_KEY_MOCAP=1: mocap seeded "
-                               "from key (%.2f %.2f %.2f)\n",
-                       sd->mocap_pos[0], sd->mocap_pos[1], sd->mocap_pos[2]);
-        }
-      }
-    }
     g_agent.ActiveTask()->Transition(g_model, sd);
     g_agent.SetState(sd);
     plan_gate.store(true);   // FABEL: task is configured -> release the planner
