@@ -30,7 +30,7 @@ LEG_KEYS = ("hip", "knee", "ankle")
 # y +-0.042, sole plane z=-0.045), corners ~2 cm inside the edges; sphere
 # bottoms sit exactly on the mesh sole plane (z center -0.040, r 0.005) so
 # the standing height is unchanged. Set False to revert to the mesh sole.
-FOOT_SPHERES = True
+FOOT_SPHERES = False
 _SPHERE_XY = [(-0.065, 0.038), (-0.065, -0.038), (0.15, 0.038), (0.15, -0.038)]
 
 
