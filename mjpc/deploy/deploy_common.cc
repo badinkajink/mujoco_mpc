@@ -1160,23 +1160,8 @@ int RunDeployNode(const NodeConfig& cfg) {
     // before converting to a position delta. Applied to the FINAL target (ramp + policy
     // uniformly); last_cmd_q below stores the clamped value so the latency predictor models
     // what was actually sent.
-    // FABEL (2026-07-07, env H12_CLAMP_URDF=1): clamp budget = the OPERATIONAL
-    // URDF limit (cfg.tau_limit) instead of 0.9 x TAU_ESTOP. Pairs with
-    // H12_FRC_PARITY=urdf (planner forceranges = URDF) so planned catches ==
-    // deliverable catches == the motor's real capability. Bench-scoped: the
-    // sim safety estop is disabled; on real HW the estop thresholds trip
-    // below URDF, so keep this OFF there. Unset = unchanged (0.9 x estop).
-    static int clamp_urdf = -1;
-    if (clamp_urdf < 0) {
-      const char* e = std::getenv("H12_CLAMP_URDF");
-      clamp_urdf = (e && e[0] == '1') ? 1 : 0;
-      if (clamp_urdf)
-        std::fprintf(stderr, "[node] FABEL H12_CLAMP_URDF=1: torque budget = "
-                             "URDF operational limits\n");
-    }
     for (int i = 0; i < cfg.nu; i++) {
-      const double budget = clamp_urdf ? cfg.tau_limit[i]
-                                       : kClampRatio * cfg.tau_estop[i];
+      const double budget = kClampRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
       const double dmax = (pd_headroom > 0.0) ? pd_headroom / cfg.kp[i] : 0.0;
       const double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;

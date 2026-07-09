@@ -145,14 +145,14 @@ int main(int argc, char** argv) {
   cfg.frc_limit = nullptr;    // no forcerange patch (legs stay at model default)
   cfg.frc_limit_begin = 0;
   if (const char* e = std::getenv("H12_FRC_PARITY"); e && e[0] != '\0') {
-    // '1'/estop = 0.9 x TAU_ESTOP (the H2 clamp's default budget);
-    // 'urdf'    = TAU_LIMIT (pair with H12_CLAMP_URDF=1 so the clamp budget
-    //             matches -- promise == deliverable == URDF).
-    cfg.frc_limit = (e[0] == 'u') ? TAU_LIMIT : FRC_PARITY;
+    // planner-model leg forceranges clamped to 0.9 x TAU_ESTOP (the H2 clamp's
+    // default budget) so a planned balance catch == the torque the deploy chain
+    // actually delivers (the in-process probe, no clamp, stood where the chain
+    // tipped). The URDF-parity branch (more authority) was falsified post-fix.
+    cfg.frc_limit = FRC_PARITY;
     cfg.frc_limit_begin = 0;
     std::fprintf(stderr, "[node] FABEL H12_FRC_PARITY=%s: planner leg "
-                         "forceranges = %s\n", e,
-                 e[0] == 'u' ? "URDF TAU_LIMIT" : "0.9 x TAU_ESTOP");
+                         "forceranges = 0.9 x TAU_ESTOP\n", e);
   }
   cfg.joint_names = JOINT_NAMES;
   cfg.telemetry = h12deploy::Telemetry::kLowerBody;
