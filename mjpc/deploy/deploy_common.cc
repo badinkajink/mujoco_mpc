@@ -987,56 +987,6 @@ int RunDeployNode(const NodeConfig& cfg) {
     g_agent.ActiveTask()->Transition(g_model, sd);
     g_agent.SetState(sd);
     plan_gate.store(true);   // FABEL: task is configured -> release the planner
-    // FABEL (2026-07-07, env H12_DUMP=1): one-shot dump of the task config
-    // ACTUALLY in effect once the policy is active -- weights + residual
-    // parameters + mode -- for the diff against the healthy agent server
-    // (get_cost_weights / get_task_parameters) on the same frozen state.
-    {
-      static int dump_on = -1;
-      if (dump_on < 0) {
-        const char* e = std::getenv("H12_DUMP");
-        dump_on = (e && e[0] == '1') ? 1 : 0;
-      }
-      if (dump_on == 1 && !warming && phase_t > 1.0) {
-        dump_on = 2;
-        const mjpc::Task* tk = g_agent.ActiveTask();
-        {
-          int nu_g = 0, nu_a = 0;
-          const mjModel* am = g_agent.GetModel();
-          for (int si = 0; si < g_model->nsensor; si++)
-            if (g_model->sensor_type[si] == mjSENS_USER) nu_g++;
-          for (int si = 0; si < am->nsensor; si++)
-            if (am->sensor_type[si] == mjSENS_USER) nu_a++;
-          std::fprintf(stderr,
-                       "DUMP sensors: g_model nsensor=%d user=%d | agent "
-                       "nsensor=%d user=%d | weights=%zu\n",
-                       g_model->nsensor, nu_g, am->nsensor, nu_a,
-                       tk->weight.size());
-        }
-        std::fprintf(stderr, "DUMP mode=%d\nDUMP weights:", tk->mode);
-        {
-          // pair each weight with its USER-sensor name (the residual term
-          // list) -- kills the name-index ambiguity of the first dump
-          size_t k = 0;
-          for (int si = 0; si < g_model->nsensor && k < tk->weight.size(); si++) {
-            if (g_model->sensor_type[si] != mjSENS_USER) continue;
-            const char* nm = mj_id2name(g_model, mjOBJ_SENSOR, si);
-            std::fprintf(stderr, " [%s]=%.4g", nm ? nm : "?", tk->weight[k]);
-            k++;
-          }
-          for (; k < tk->weight.size(); k++)
-            std::fprintf(stderr, " [pad]=%.4g", tk->weight[k]);
-        }
-        std::fprintf(stderr, "\nDUMP params:");
-        for (size_t i = 0; i < tk->parameters.size(); i++)
-          std::fprintf(stderr, " %.4g", tk->parameters[i]);
-        std::fprintf(stderr, "\nDUMP state:");
-        const auto& st = g_agent.state.state();
-        for (size_t i = 0; i < st.size(); i++)
-          std::fprintf(stderr, " %.5g", st[i]);
-        std::fprintf(stderr, "\n");
-      }
-    }
 
     // policy: target joint positions (rad). Held at measured q during warmup.
     if (!warming) {
@@ -1136,32 +1086,6 @@ int RunDeployNode(const NodeConfig& cfg) {
     // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
     tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
     tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
-
-    // ---- FABEL STREAM (2026-07-07, env H12_STREAM=1): 20 Hz machine-parse
-    // line of exactly what the planner consumed and emitted this tick --
-    // for the tick-by-tick diff against the in-process probe (the two
-    // converge to different actions on the same believed state; the first
-    // diverging field is the bug's address). Unset = silent.
-    {
-      static int fs_on = -1;
-      static int fs_i = 0;
-      if (fs_on < 0) {
-        const char* e = std::getenv("H12_STREAM");
-        fs_on = (e && e[0] == '1') ? 1 : 0;
-      }
-      if (fs_on && !warming && (++fs_i % 10 == 0)) {
-        const mjpc::Trajectory* bt = g_agent.ActivePlanner().BestTrajectory();
-        std::fprintf(stderr, "FSCOST %.5g\n",
-                     bt ? bt->total_return : -1.0);
-        std::fprintf(stderr,
-                     "FS t=%.3f z=%.4f R8=%.5f vx=%.4f vy=%.4f gy=%.4f "
-                     "q1=%.4f dq1=%.4f q3=%.4f q4=%.4f "
-                     "a1=%.4f a3=%.4f a4=%.4f tg1=%.4f\n",
-                     twin_time, meas_base_z, meas_R8, fd_vel[0], fd_vel[1],
-                     cur.gyro[1], cur.q[1], cur.dq[1], cur.q[3], cur.q[4],
-                     action[1], action[3], action[4], tgt_q[1]);
-      }
-    }
 
     // ---- R6 (2026-07-04): bad-orientation damp fallback. Unitree's own
     // deploy FSM does bad_orientation(1.0 rad) -> Passive; without it the
@@ -1289,17 +1213,6 @@ int RunDeployNode(const NodeConfig& cfg) {
                      meas_kneeL, meas_kneeR,
                      cur.q[4] * 57.29578, cur.q[10] * 57.29578,
                      prate, dlt * 1e3);
-        // FABEL discriminator (2026-07-07): raw planner action vs post-ramp
-        // target vs measured, hipP (1) + knee (3) + ankle pitch (4).
-        // Separates "the planner COMMANDS the fold" (action tracks the fold)
-        // from "the deploy transforms corrupt a good action" (action at stand,
-        // tgt/q folding).
-        std::fprintf(stderr,
-                     "[node]        FABEL act/tgt/q  hipP %+.2f/%+.2f/%+.2f  "
-                     "knee %+.2f/%+.2f/%+.2f  ankP %+.2f/%+.2f/%+.2f\n",
-                     action[1], tgt_q[1], cur.q[1],
-                     action[3], tgt_q[3], cur.q[3],
-                     action[4], tgt_q[4], cur.q[4]);
         // torque headroom (%estop) on the LEG joints that limit the stand: knee
         // (300 Nm), ankle pitch (54), ankle roll (36). M4: graded against TAU_ESTOP
         // (the threshold that actually trips). Leg nu-idx: Lknee=3 Rknee=9 LankP=4
