@@ -319,9 +319,28 @@ class NodeAgentService final : public agent::Agent::Service {
 int RunDeployNode(const NodeConfig& cfg) {
   const std::string& task_id = cfg.task_id;
   const double gff = cfg.gravity_ff;
-  const double ctrl_hz = kCtrlHz;
+  // FABEL (2026-07-07, env H12_CTRL_HZ): override the compiled 200 Hz control/
+  // publish rate. 500 shrinks the command-side ZOH age 5 -> 2 ms -- part of
+  // the dev-identified "close the ~10 ms gap structurally" ladder (the
+  // post-ABI-fix chain stands at rtf 0.5 and loses the release/hunt race at
+  // rtf 1 by a hair). Unset = compiled kCtrlHz (unchanged).
+  double ctrl_hz = kCtrlHz;
+  if (const char* e = std::getenv("H12_CTRL_HZ")) {
+    double v = std::atof(e);
+    if (v >= 50.0 && v <= 1000.0) ctrl_hz = v;
+    std::fprintf(stderr, "[node] FABEL H12_CTRL_HZ=%.0f\n", ctrl_hz);
+  }
   const double ctrl_dt = 1.0 / ctrl_hz;
-  const double warmup_sec = kWarmupSec;
+  // FABEL bench knob (2026-07-07): env H12_WARMUP_SEC overrides the compiled
+  // 1.0 s warmup hold. On a sim bench whose plant FREEZES the pose until the
+  // first stiff command (the twin's crouch rehearsal), the warmup statue is
+  // dead time during which an unsupported robot tips ~1 deg/s; a short warmup
+  // hands the policy a still-clean state. Unset = compiled default.
+  double warmup_sec = kWarmupSec;
+  if (const char* e = std::getenv("H12_WARMUP_SEC")) {
+    double v = std::atof(e);
+    if (v >= 0.0 && v <= 10.0) warmup_sec = v;
+  }
   std::signal(SIGINT, on_signal);
   std::signal(SIGTERM, on_signal);
   mju_user_error = FatalMjuError;      // headless: safe-hold + exit instead of blocking on getchar
@@ -608,7 +627,26 @@ int RunDeployNode(const NodeConfig& cfg) {
                kClampRatio);
 
   mjpc::ThreadPool plan_pool(n_plan_threads);
+  // FABEL (2026-07-07, env H12_PLAN_GATE=1): hold the planner until the ctrl
+  // loop's FIRST Transition() has configured the task (strategy JSON posture
+  // keyframe + weights). Un-gated, the free-running planner iterates on the
+  // unconfigured task and its CEM warm-start settles in the straight-knee
+  // home basin -- measured: on a bit-identical frozen stand state the node
+  // emits hipP +0.09 (home) where the once-configured probe emits -0.04
+  // (stand). The agent server never plans unconfigured; this makes the node
+  // match. Unset = unchanged.
+  std::atomic<bool> plan_gate{false};
+  const bool plan_gate_on = [] {
+    const char* e = std::getenv("H12_PLAN_GATE");
+    return e && e[0] == '1';
+  }();
+  if (plan_gate_on)
+    std::fprintf(stderr, "[node] FABEL H12_PLAN_GATE=1: planner held until "
+                         "first task Transition\n");
   std::thread planner([&] {
+    if (plan_gate_on)
+      while (!plan_gate.load() && !plan_exit.load())
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     while (!plan_exit.load()) { g_agent.PlanIteration(&plan_pool); plan_count.fetch_add(1); }
   });
 
@@ -717,7 +755,17 @@ int RunDeployNode(const NodeConfig& cfg) {
   // The planner model's <position> actuators have kp/kv == the node's KP[]/KV[] == the twin's PD,
   // so this rollout reproduces the twin's joint law; we only add the gravity tau_ff the twin also
   // applies. Object/task slots are left at home (we copy only the robot dofs back). NaN-guarded.
-  const double lat_fixed = kLatencyFixedMs * 1e-3;
+  double lat_fixed = kLatencyFixedMs * 1e-3;
+  // FABEL (2026-07-07): env H12_LAT_FIXED_MS overrides the compensation
+  // horizon. AUTO (EWMA compute + 4 ms) covers ~9 ms; the full
+  // state->plan->action->ZOH age is ~20+ ms, and the measured stability
+  // boundary of the stand policy on the twin plant is 10-25 ms of state
+  // age (probe lag sweep). Unset = compiled default.
+  if (const char* e = std::getenv("H12_LAT_FIXED_MS")) {
+    double v = std::atof(e);
+    if (v >= 0.0 && v <= 40.0) lat_fixed = v * 1e-3;
+    std::fprintf(stderr, "[node] FABEL H12_LAT_FIXED_MS=%.1f\n", v);
+  }
   const double lat_extra = kLatencyExtraMs * 1e-3;
   const double lat_max   = kLatencyMaxMs * 1e-3;
   const double pred_dt   = g_model->opt.timestep;     // native model step (0.002) == twin granularity
@@ -789,11 +837,21 @@ int RunDeployNode(const NodeConfig& cfg) {
   const double twin_dt = cfg.twin_dt;
   uint32_t tick0 = 0; bool tick0_set = false;   // zero the twin sim-clock at the first state
   // single-stream base-velocity finite-diff + LPF state (see kVelLpfMs).
-  const double vel_lpf_tau = kVelLpfMs * 1e-3;
+  // FABEL bench knob (2026-07-07): env H12_VEL_LPF_MS overrides the compiled
+  // 30 ms LPF. With a TRUTH sportstate (sim benches) the position stream is
+  // noise-free, so the LPF's only effect is ~30 ms of velocity lag -- ~10% of
+  // the inverted-pendulum divergence constant -- which erodes the planner's
+  // balance damping. Unset = compiled default (real robot unchanged).
+  double vel_lpf_ms = kVelLpfMs;
+  if (const char* e = std::getenv("H12_VEL_LPF_MS")) {
+    double v = std::atof(e);
+    if (v >= 0.0 && v <= 200.0) vel_lpf_ms = v;
+  }
+  const double vel_lpf_tau = vel_lpf_ms * 1e-3;
   double fd_prev_p[3] = {0}, fd_vel[3] = {0}, fd_prev_t = 0.0; bool fd_have = false;
   std::fprintf(stderr,
                "[node] base linvel: SINGLE-STREAM finite-diff + %.0fms LPF (drops the two-stream phantom)\n",
-               kVelLpfMs);
+               vel_lpf_ms);
   bool stale_warned = false;   // H1 watchdog: warn once per stale episode
   auto t0 = std::chrono::steady_clock::now();
   auto next = t0;
@@ -858,6 +916,22 @@ int RunDeployNode(const NodeConfig& cfg) {
       double d0 = 0.0;
       for (int i = 0; i < cfg.nu; i++) d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
       ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
+      // FABEL bench knob (2026-07-07): env H12_SKIP_BRINGUP=1 forces
+      // ramp_eff = 0.0 exactly -> the target ladder's else-branch gives
+      // tgt = action from the first post-warmup tick (no ramp/hold/blend).
+      // The measured blend-end "first tug" walk-off and the support-
+      // exploitation wind-up both live inside that ladder; a plant that
+      // freezes the pose until the first stiff command (twin crouch
+      // rehearsal) makes the ladder unnecessary: the policy inherits a
+      // clean statically-posed robot -- the condition under which the
+      // planner-only probe stood 300 s. Bench-only; unset = unchanged.
+      if (const char* e = std::getenv("H12_SKIP_BRINGUP")) {
+        if (e[0] == '1') {
+          ramp_eff = 0.0;
+          std::fprintf(stderr, "[node] FABEL H12_SKIP_BRINGUP=1: ramp/hold/"
+                               "blend ladder BYPASSED (tgt=action post-warmup)\n");
+        }
+      }
       std::fprintf(stderr, "[node] bring-up ramp: latched pose is %.2f rad from home -> "
                            "effective ramp %.1fs\n", d0, ramp_eff);
     }
@@ -920,13 +994,132 @@ int RunDeployNode(const NodeConfig& cfg) {
     // called it, so every deployment planned toward keyframe 0 (straight-knee 'home',
     // z=1.028): the hand-off knee snap, the 1.028 base parking, and the inert keyframe
     // edits were all this one absence.
+    // FABEL (2026-07-07, env H12_KEY_MOCAP=1): the Stabilize residual reads
+    // data->mocap_pos as its LIVE reach/lean target; the node's sd carries
+    // raw mj_makeData mocap (XML body pos), while the validated agent-server
+    // path plans with KEYFRAME mocap (mj_resetDataKeyframe -> key_mpos).
+    // Seed sd's mocap from the bring-up keyframe once. Unset = unchanged.
+    {
+      static int km_on = -1;
+      if (km_on < 0) {
+        const char* e = std::getenv("H12_KEY_MOCAP");
+        km_on = (e && e[0] == '1') ? 1 : 0;
+        if (km_on && g_model->nmocap > 0) {
+          int hk = mj_name2id(g_model, mjOBJ_KEY, "stand");
+          if (hk < 0) hk = 0;
+          mju_copy(sd->mocap_pos, g_model->key_mpos + hk * 3 * g_model->nmocap,
+                   3 * g_model->nmocap);
+          mju_copy(sd->mocap_quat, g_model->key_mquat + hk * 4 * g_model->nmocap,
+                   4 * g_model->nmocap);
+          std::fprintf(stderr, "[node] FABEL H12_KEY_MOCAP=1: mocap seeded "
+                               "from key (%.2f %.2f %.2f)\n",
+                       sd->mocap_pos[0], sd->mocap_pos[1], sd->mocap_pos[2]);
+        }
+      }
+    }
     g_agent.ActiveTask()->Transition(g_model, sd);
     g_agent.SetState(sd);
+    plan_gate.store(true);   // FABEL: task is configured -> release the planner
+    // FABEL (2026-07-07, env H12_DUMP=1): one-shot dump of the task config
+    // ACTUALLY in effect once the policy is active -- weights + residual
+    // parameters + mode -- for the diff against the healthy agent server
+    // (get_cost_weights / get_task_parameters) on the same frozen state.
+    {
+      static int dump_on = -1;
+      if (dump_on < 0) {
+        const char* e = std::getenv("H12_DUMP");
+        dump_on = (e && e[0] == '1') ? 1 : 0;
+      }
+      if (dump_on == 1 && !warming && phase_t > 1.0) {
+        dump_on = 2;
+        const mjpc::Task* tk = g_agent.ActiveTask();
+        {
+          int nu_g = 0, nu_a = 0;
+          const mjModel* am = g_agent.GetModel();
+          for (int si = 0; si < g_model->nsensor; si++)
+            if (g_model->sensor_type[si] == mjSENS_USER) nu_g++;
+          for (int si = 0; si < am->nsensor; si++)
+            if (am->sensor_type[si] == mjSENS_USER) nu_a++;
+          std::fprintf(stderr,
+                       "DUMP sensors: g_model nsensor=%d user=%d | agent "
+                       "nsensor=%d user=%d | weights=%zu\n",
+                       g_model->nsensor, nu_g, am->nsensor, nu_a,
+                       tk->weight.size());
+        }
+        std::fprintf(stderr, "DUMP mode=%d\nDUMP weights:", tk->mode);
+        {
+          // pair each weight with its USER-sensor name (the residual term
+          // list) -- kills the name-index ambiguity of the first dump
+          size_t k = 0;
+          for (int si = 0; si < g_model->nsensor && k < tk->weight.size(); si++) {
+            if (g_model->sensor_type[si] != mjSENS_USER) continue;
+            const char* nm = mj_id2name(g_model, mjOBJ_SENSOR, si);
+            std::fprintf(stderr, " [%s]=%.4g", nm ? nm : "?", tk->weight[k]);
+            k++;
+          }
+          for (; k < tk->weight.size(); k++)
+            std::fprintf(stderr, " [pad]=%.4g", tk->weight[k]);
+        }
+        std::fprintf(stderr, "\nDUMP params:");
+        for (size_t i = 0; i < tk->parameters.size(); i++)
+          std::fprintf(stderr, " %.4g", tk->parameters[i]);
+        std::fprintf(stderr, "\nDUMP state:");
+        const auto& st = g_agent.state.state();
+        for (size_t i = 0; i < st.size(); i++)
+          std::fprintf(stderr, " %.5g", st[i]);
+        std::fprintf(stderr, "\n");
+      }
+    }
 
     // policy: target joint positions (rad). Held at measured q during warmup.
     if (!warming) {
+      // FABEL (2026-07-07): env H12_ACTION_LEAD_MS reads the policy spline
+      // this far AHEAD of now -- feedforward compensation for the
+      // action-path delay (cmd publish -> safety ZOH -> plant apply) that
+      // the state-side predict_forward cannot cover. 0/unset = unchanged.
+      static double act_lead = -1.0;
+      if (act_lead < 0.0) {
+        act_lead = 0.0;
+        if (const char* e = std::getenv("H12_ACTION_LEAD_MS")) {
+          double v = std::atof(e);
+          if (v >= 0.0 && v <= 60.0) act_lead = v * 1e-3;
+          std::fprintf(stderr, "[node] FABEL H12_ACTION_LEAD_MS=%.1f\n", v);
+        }
+      }
       g_agent.ActivePlanner().ActionFromPolicy(action.data(), g_agent.state.state().data(),
-                                             g_agent.state.time());
+                                             g_agent.state.time() + act_lead);
+      // FABEL (2026-07-08, env H12_ACT_LPF_MS): 1st-order low-pass on the
+      // emitted action. The CEM elite-mean policy dithers at ~2-3 Hz
+      // (unseeded per-iteration sampling noise, +-0.05-0.1 rad on the leg
+      // targets); through the chain's ~15 ms age that dither excites the
+      // very tilt excursions that escape the recoverable envelope
+      // (post-ABI-fix hunts die at a ~1/150-300 s escape rate). An ~80 ms
+      // pole attenuates the dither hard while costing little phase at the
+      // ~0.5-1 Hz balance band. Unset/0 = unchanged.
+      {
+        static double lpf_tau = -1.0;
+        static double lpf_a[kMaxNU];
+        static bool lpf_init = false;
+        if (lpf_tau < 0.0) {
+          lpf_tau = 0.0;
+          if (const char* e = std::getenv("H12_ACT_LPF_MS")) {
+            double v = std::atof(e);
+            if (v > 0.0 && v <= 500.0) lpf_tau = v * 1e-3;
+            std::fprintf(stderr, "[node] FABEL H12_ACT_LPF_MS=%.0f\n", v);
+          }
+        }
+        if (lpf_tau > 0.0) {
+          if (!lpf_init) {
+            lpf_init = true;
+            for (int i = 0; i < nu && i < kMaxNU; i++) lpf_a[i] = action[i];
+          }
+          const double a = ctrl_dt / (lpf_tau + ctrl_dt);
+          for (int i = 0; i < nu && i < kMaxNU; i++) {
+            lpf_a[i] += a * (action[i] - lpf_a[i]);
+            action[i] = lpf_a[i];
+          }
+        }
+      }
     }
 
     // gravity feedforward: tau = gff * qfrc_bias evaluated at qvel = 0.
@@ -1003,8 +1196,23 @@ int RunDeployNode(const NodeConfig& cfg) {
     // before converting to a position delta. Applied to the FINAL target (ramp + policy
     // uniformly); last_cmd_q below stores the clamped value so the latency predictor models
     // what was actually sent.
+    // FABEL (2026-07-07, env H12_CLAMP_URDF=1): clamp budget = the OPERATIONAL
+    // URDF limit (cfg.tau_limit) instead of 0.9 x TAU_ESTOP. Pairs with
+    // H12_FRC_PARITY=urdf (planner forceranges = URDF) so planned catches ==
+    // deliverable catches == the motor's real capability. Bench-scoped: the
+    // sim safety estop is disabled; on real HW the estop thresholds trip
+    // below URDF, so keep this OFF there. Unset = unchanged (0.9 x estop).
+    static int clamp_urdf = -1;
+    if (clamp_urdf < 0) {
+      const char* e = std::getenv("H12_CLAMP_URDF");
+      clamp_urdf = (e && e[0] == '1') ? 1 : 0;
+      if (clamp_urdf)
+        std::fprintf(stderr, "[node] FABEL H12_CLAMP_URDF=1: torque budget = "
+                             "URDF operational limits\n");
+    }
     for (int i = 0; i < cfg.nu; i++) {
-      const double budget = kClampRatio * cfg.tau_estop[i];
+      const double budget = clamp_urdf ? cfg.tau_limit[i]
+                                       : kClampRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
       const double dmax = (pd_headroom > 0.0) ? pd_headroom / cfg.kp[i] : 0.0;
       const double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;
@@ -1021,6 +1229,103 @@ int RunDeployNode(const NodeConfig& cfg) {
     // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
     tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
     tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
+
+    // ---- FABEL AUTHORITY SLEW (2026-07-07, env-gated) ------------------
+    // H12_SLEW=<rad/s> rate-limits the emitted target for the first
+    // H12_SLEW_SEC (default 2) seconds of post-warmup authority, seeded at
+    // the measured pose. The policy's first actions on a static stand pull
+    // the knees straight / hips forward ~0.3 rad in one tick (the "first
+    // tug"); the tight in-process probe survives its own tug, the DDS
+    // chain's latency does not. Slewing the target lets the plant move with
+    // the plan instead of being yanked. Unset = byte-identical behavior.
+    {
+      static double slew_rate = -1.0, slew_sec = 2.0, slew_t0 = -1.0;
+      static double slew_q[kMaxNU];
+      static bool slew_init = false;
+      static int slew_on_motion = 0;
+      if (slew_rate < 0.0) {
+        slew_rate = 0.0;
+        if (const char* e = std::getenv("H12_SLEW")) {
+          double v = std::atof(e);
+          if (v > 0.0 && v <= 20.0) slew_rate = v;
+        }
+        if (const char* e = std::getenv("H12_SLEW_SEC")) {
+          double v = std::atof(e);
+          if (v > 0.0 && v <= 30.0) slew_sec = v;
+        }
+        // FABEL (2026-07-07, env H12_SLEW_ON_MOTION=1): seed the envelope at
+        // MOTION ONSET (release) instead of warmup end. On the freeze-hold
+        // bench the plant pins qpos with dq == 0 until release; the moment of
+        // authority is when the robot first MOVES, which is when the
+        // release-tug transient (plan equilibrium != frozen pose, CEM wobble
+        // phase) needs the clamp. Warmup-end seeding expires long before the
+        // release and covers nothing.
+        if (const char* e = std::getenv("H12_SLEW_ON_MOTION"))
+          slew_on_motion = (e[0] == '1') ? 1 : 0;
+        if (slew_rate > 0.0)
+          std::fprintf(stderr, "[node] FABEL H12_SLEW=%.2f rad/s for first "
+                               "%.1fs of authority%s\n", slew_rate, slew_sec,
+                       slew_on_motion ? " (seeded at MOTION ONSET)" : "");
+      }
+      if (slew_rate > 0.0 && !warming) {
+        bool may_seed = true;
+        if (slew_on_motion && !slew_init) {
+          double dqmax = 0.0;
+          for (int i = 0; i < cfg.nu; i++)
+            dqmax = std::fmax(dqmax, std::fabs(cur.dq[i]));
+          may_seed = dqmax > 0.05;   // plant froze dq==0; motion = release
+        }
+        if (!slew_init && may_seed) {
+          slew_init = true;
+          slew_t0 = phase_t;
+          for (int i = 0; i < cfg.nu; i++) slew_q[i] = cur.q[i];
+          std::fprintf(stderr, "[node] FABEL slew ACTIVE at phase_t=%.2fs "
+                               "(seeded at measured pose)\n", phase_t);
+        }
+        if (!slew_init) {
+          // armed, waiting for motion: leave targets untouched
+        } else
+        if (phase_t - slew_t0 < slew_sec) {
+          // ENVELOPE clamp (not a rate limiter): targets confined to a band
+          // around the SEED pose that grows at slew_rate rad/s. Fast small
+          // balance corrections are free inside the band; the 0.3-rad
+          // first-tug step is blocked; fully open once the band exceeds the
+          // plan's excursion (a pure rate limiter also throttled the
+          // CORRECTIONS -> open-loop statue -> passive topple in 2 s).
+          const double env = slew_rate * (phase_t - slew_t0) + 0.05;
+          for (int i = 0; i < cfg.nu; i++) {
+            double lo = slew_q[i] - env, hi = slew_q[i] + env;
+            tgt_q[i] = std::fmin(hi, std::fmax(lo, tgt_q[i]));
+          }
+        }
+      }
+    }
+
+    // ---- FABEL STREAM (2026-07-07, env H12_STREAM=1): 20 Hz machine-parse
+    // line of exactly what the planner consumed and emitted this tick --
+    // for the tick-by-tick diff against the in-process probe (the two
+    // converge to different actions on the same believed state; the first
+    // diverging field is the bug's address). Unset = silent.
+    {
+      static int fs_on = -1;
+      static int fs_i = 0;
+      if (fs_on < 0) {
+        const char* e = std::getenv("H12_STREAM");
+        fs_on = (e && e[0] == '1') ? 1 : 0;
+      }
+      if (fs_on && !warming && (++fs_i % 10 == 0)) {
+        const mjpc::Trajectory* bt = g_agent.ActivePlanner().BestTrajectory();
+        std::fprintf(stderr, "FSCOST %.5g\n",
+                     bt ? bt->total_return : -1.0);
+        std::fprintf(stderr,
+                     "FS t=%.3f z=%.4f R8=%.5f vx=%.4f vy=%.4f gy=%.4f "
+                     "q1=%.4f dq1=%.4f q3=%.4f q4=%.4f "
+                     "a1=%.4f a3=%.4f a4=%.4f tg1=%.4f\n",
+                     twin_time, meas_base_z, meas_R8, fd_vel[0], fd_vel[1],
+                     cur.gyro[1], cur.q[1], cur.dq[1], cur.q[3], cur.q[4],
+                     action[1], action[3], action[4], tgt_q[1]);
+      }
+    }
 
     // ---- R6 (2026-07-04): bad-orientation damp fallback. Unitree's own
     // deploy FSM does bad_orientation(1.0 rad) -> Passive; without it the
@@ -1148,6 +1453,17 @@ int RunDeployNode(const NodeConfig& cfg) {
                      meas_kneeL, meas_kneeR,
                      cur.q[4] * 57.29578, cur.q[10] * 57.29578,
                      prate, dlt * 1e3);
+        // FABEL discriminator (2026-07-07): raw planner action vs post-ramp
+        // target vs measured, hipP (1) + knee (3) + ankle pitch (4).
+        // Separates "the planner COMMANDS the fold" (action tracks the fold)
+        // from "the deploy transforms corrupt a good action" (action at stand,
+        // tgt/q folding).
+        std::fprintf(stderr,
+                     "[node]        FABEL act/tgt/q  hipP %+.2f/%+.2f/%+.2f  "
+                     "knee %+.2f/%+.2f/%+.2f  ankP %+.2f/%+.2f/%+.2f\n",
+                     action[1], tgt_q[1], cur.q[1],
+                     action[3], tgt_q[3], cur.q[3],
+                     action[4], tgt_q[4], cur.q[4]);
         // torque headroom (%estop) on the LEG joints that limit the stand: knee
         // (300 Nm), ankle pitch (54), ankle roll (36). M4: graded against TAU_ESTOP
         // (the threshold that actually trips). Leg nu-idx: Lknee=3 Rknee=9 LankP=4

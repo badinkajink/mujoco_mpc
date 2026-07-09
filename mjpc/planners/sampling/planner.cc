@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <shared_mutex>
 
@@ -209,6 +211,64 @@ void SamplingPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
 
   // stop timer
   policy_update_compute_time = GetDuration(policy_update_start);
+
+  // FABEL (2026-07-07, env H12_PDUMP=1): dump the planner internals ACTUALLY
+  // in effect at iteration time -- the node and the agent server converge to
+  // different optima on a bit-identical frozen state after every config/input
+  // channel was proven equal from the OUTSIDE; this prints the inside. Both
+  // processes link this same object (libmjpc.a), so the lines are directly
+  // diffable. One 'cfg' line on the first gated call (static planner config +
+  // model fingerprint), then an 'it' line every H12_PDUMP_EVERY-th call
+  // (default 25) with the state consumed, the winner, and the winning action
+  // at the plan time. Unset = silent, byte-identical.
+  {
+    static int pd_on = -1;
+    static long pd_n = 0;
+    static long pd_every = 25;
+    if (pd_on < 0) {
+      const char* e = std::getenv("H12_PDUMP");
+      pd_on = (e && e[0] == '1') ? 1 : 0;
+      if (const char* ev = std::getenv("H12_PDUMP_EVERY")) {
+        long v = std::atol(ev);
+        if (v > 0) pd_every = v;
+      }
+      if (pd_on) {
+        int ks = mj_name2id(model, mjOBJ_KEY, "stand");
+        double ksz = ks >= 0 ? model->key_qpos[ks * model->nq + 2] : -1.0;
+        double ksh = ks >= 0 ? model->key_qpos[ks * model->nq + 8] : 0.0;
+        double ksk = ks >= 0 ? model->key_qpos[ks * model->nq + 10] : 0.0;
+        std::fprintf(stderr,
+            "PDUMP cfg ntraj=%d nsp=%d std=%.6g std2=%.6g interp=%d slide=%d "
+            "ts=%.6g integ=%d nq=%d nu=%d nkey=%d nsensor=%d mass=%.8g "
+            "key_stand id=%d z=%.6g hipP=%.6g knee=%.6g\n",
+            num_trajectory_, policy.num_spline_points, noise_exploration[0],
+            noise_exploration[1], (int)interpolation_, (int)sliding_plan_,
+            model->opt.timestep, model->opt.integrator, model->nq, model->nu,
+            model->nkey, model->nsensor, mj_getTotalmass(model),
+            ks, ksz, ksh, ksk);
+        std::fprintf(stderr, "PDUMP weights(40):");
+        for (size_t k = 0; k < task->weight.size() && k < 40; k++)
+          std::fprintf(stderr, " %.6g", task->weight[k]);
+        std::fprintf(stderr, "\nPDUMP params:");
+        for (size_t k = 0; k < task->parameters.size(); k++)
+          std::fprintf(stderr, " %.6g", task->parameters[k]);
+        std::fprintf(stderr, "\n");
+      }
+    }
+    if (pd_on && (pd_n++ % pd_every == 0)) {
+      double act[64] = {0};
+      int na = model->nu < 64 ? model->nu : 64;
+      policy.Action(act, state.data(), time);
+      std::fprintf(stderr,
+          "PDUMP it n=%ld t=%.5f z=%.5f hipP=%.5f knee=%.5f ankP=%.5f "
+          "vz=%.5f horizon=%d winner=%d best=%.6g nom=%.6g impr=%.4g "
+          "mode=%d act_hipP=%.5f act_knee=%.5f act_ankP=%.5f nact=%d\n",
+          pd_n - 1, time, state[2], state[8], state[10], state[11],
+          state[model->nq + 2], horizon, winner,
+          trajectory[winner].total_return, trajectory[0].total_return,
+          improvement, task->mode, act[1], act[3], act[4], na);
+    }
+  }
 }
 
 // compute trajectory using nominal policy

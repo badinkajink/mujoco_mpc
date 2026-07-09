@@ -17,8 +17,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <shared_mutex>
+#include <vector>
 
 #include <absl/random/random.h>
 #include <absl/types/span.h>
@@ -298,6 +302,316 @@ void CrossEntropyPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
 
   // stop timer
   policy_update_compute_time = GetDuration(policy_update_start);
+
+  // FABEL (2026-07-07, env H12_PDUMP=1): dump the CEM internals ACTUALLY in
+  // effect at iteration time -- the deploy node and the agent server converge
+  // to different optima on a bit-identical frozen state after every
+  // config/input channel was proven equal from the OUTSIDE; this prints the
+  // inside. Both processes link this same object (libmjpc.a), so the lines
+  // are directly diffable. One 'cfg' line on the first gated call (static
+  // planner config + model fingerprint + weights/params), then an 'it' line
+  // every H12_PDUMP_EVERY-th call (default 25) with the state consumed, the
+  // winner, the LIVE elite-variance state (the CEM's only persistent
+  // history), and the elite-mean action at the plan time. Unset = silent,
+  // byte-identical.
+  {
+    static int pd_on = -1;
+    static long pd_n = 0;
+    static long pd_every = 25;
+    if (pd_on < 0) {
+      const char* e = std::getenv("H12_PDUMP");
+      pd_on = (e && e[0] == '1') ? 1 : 0;
+      if (const char* ev = std::getenv("H12_PDUMP_EVERY")) {
+        long v = std::atol(ev);
+        if (v > 0) pd_every = v;
+      }
+      if (pd_on) {
+        int ks = mj_name2id(model, mjOBJ_KEY, "stand");
+        double ksz = ks >= 0 ? model->key_qpos[ks * model->nq + 2] : -1.0;
+        double ksh = ks >= 0 ? model->key_qpos[ks * model->nq + 8] : 0.0;
+        double ksk = ks >= 0 ? model->key_qpos[ks * model->nq + 10] : 0.0;
+        std::fprintf(stderr,
+            "PDUMP cem-cfg ntraj=%d nelite=%d nsp=%d std0=%.6g stdmin=%.6g "
+            "explore=%.6g interp=%d bestact=%d ts=%.6g integ=%d nq=%d nu=%d "
+            "nkey=%d nsensor=%d mass=%.8g key_stand id=%d z=%.6g hipP=%.6g "
+            "knee=%.6g knotgrow=%.6g\n",
+            num_trajectory_, n_elite, num_spline_points, std_initial_,
+            std_min_, explore_fraction_, (int)interpolation_,
+            (int)best_action_, model->opt.timestep, model->opt.integrator,
+            model->nq, model->nu, model->nkey, model->nsensor,
+            mj_getTotalmass(model),
+            ks, ksz, ksh, ksk,
+            GetNumberOrDefault(0.0, model, "sampling_knot_var_growth"));
+        // dynamics fingerprint: checksums of every model array that shapes
+        // the rollout physics -- rollout costs explode node-side on an
+        // identical state + step-0 residual, so SOME dynamics array differs.
+        std::fprintf(stderr,
+            "PDUMP cem-fp gain=%.8g bias=%.8g frcrange=%.8g ctrlrange=%.8g "
+            "frclim=%d damp=%.8g arma=%.8g fric=%.8g ipos=%.8g inertia=%.8g "
+            "jntrange=%.8g qpos0=%.8g keyq=%.8g neq=%d eqdata=%.8g eqact=%d "
+            "grav=%.6g imprat=%.6g cone=%d solver=%d iter=%d lsiter=%d "
+            "enable=%d disable=%d dens=%.6g visc=%.6g\n",
+            mju_sum(model->actuator_gainprm, model->nu * mjNGAIN),
+            mju_sum(model->actuator_biasprm, model->nu * mjNBIAS),
+            mju_sum(model->actuator_forcerange, model->nu * 2),
+            mju_sum(model->actuator_ctrlrange, model->nu * 2),
+            [&]{ int s=0; for (int i=0;i<model->nu;i++) s+=model->actuator_forcelimited[i]; return s; }(),
+            mju_sum(model->dof_damping, model->nv),
+            mju_sum(model->dof_armature, model->nv),
+            mju_sum(model->dof_frictionloss, model->nv),
+            mju_sum(model->body_ipos, model->nbody * 3),
+            mju_sum(model->body_inertia, model->nbody * 3),
+            mju_sum(model->jnt_range, model->njnt * 2),
+            mju_sum(model->qpos0, model->nq),
+            mju_sum(model->key_qpos, model->nkey * model->nq),
+            model->neq,
+            mju_sum(model->eq_data, model->neq * mjNEQDATA),
+            [&]{ int s=0; for (int i=0;i<model->neq;i++) s+=model->eq_active0[i]; return s; }(),
+            model->opt.gravity[2], model->opt.impratio, model->opt.cone,
+            model->opt.solver, model->opt.iterations, model->opt.ls_iterations,
+            model->opt.enableflags, model->opt.disableflags,
+            model->opt.density, model->opt.viscosity);
+        std::fprintf(stderr, "PDUMP weights(40):");
+        for (size_t k = 0; k < task->weight.size() && k < 40; k++)
+          std::fprintf(stderr, " %.6g", task->weight[k]);
+        std::fprintf(stderr, "\nPDUMP params:");
+        for (size_t k = 0; k < task->parameters.size(); k++)
+          std::fprintf(stderr, " %.6g", task->parameters[k]);
+        std::fprintf(stderr, "\n");
+      }
+    }
+    if (pd_on && (pd_n++ % pd_every == 0)) {
+      // live elite-variance state (persistent across iterations)
+      double vsum = 0.0, vmax = 0.0;
+      for (int k = 0; k < num_parameters; k++) {
+        vsum += variance[k];
+        if (variance[k] > vmax) vmax = variance[k];
+      }
+      double std_avg = num_parameters > 0 ? std::sqrt(vsum / num_parameters)
+                                          : 0.0;
+      double act[64] = {0};
+      {
+        const std::shared_lock<std::shared_mutex> lock(mtx_);
+        policy.Action(act, state.data(), time);
+      }
+      std::fprintf(stderr,
+          "PDUMP cem-it n=%ld t=%.5f z=%.5f hipP=%.5f knee=%.5f ankP=%.5f "
+          "vz=%.5f horizon=%d best=%.6g nom=%.6g avg_el=%.6g impr=%.4g "
+          "stdavg=%.6g stdmax=%.6g mode=%d act_hipP=%.5f act_knee=%.5f "
+          "act_ankP=%.5f\n",
+          pd_n - 1, time, state[2], state[8], state[10], state[11],
+          state[model->nq + 2], horizon,
+          trajectory[trajectory_order[0]].total_return,
+          nominal_trajectory.total_return, avg_return, improvement,
+          std_avg, std::sqrt(vmax), task->mode, act[1], act[3], act[4]);
+      // per-term WEIGHTED cost of the best trajectory's FIRST step (= the
+      // residual of the state the planner was handed) + step-0 cost along
+      // the horizon at steps 0/25/50/100 -- names the exact term that scores
+      // differently between the node and the agent server on an identical
+      // state. Full consumed state vector too (object/task slots included).
+      const Trajectory& bt = trajectory[trajectory_order[0]];
+      if (bt.dim_residual > 0 && (int)bt.residual.size() >= bt.dim_residual) {
+        std::vector<double> terms(task->num_term, 0.0);
+        task->CostTerms(terms.data(), bt.residual.data());
+        std::fprintf(stderr, "PDUMP terms0:");
+        for (int k = 0; k < task->num_term; k++)
+          std::fprintf(stderr, " %.5g", terms[k]);
+        std::fprintf(stderr, "\nPDUMP costs h0/h25/h50/h100: %.5g %.5g %.5g "
+                     "%.5g\n",
+                     bt.costs[0],
+                     bt.horizon > 25 ? bt.costs[25] : -1.0,
+                     bt.horizon > 50 ? bt.costs[50] : -1.0,
+                     bt.horizon > 100 ? bt.costs[100] : -1.0);
+      }
+      std::fprintf(stderr, "PDUMP state:");
+      for (size_t k = 0; k < state.size(); k++)
+        std::fprintf(stderr, " %.5g", state[k]);
+      std::fprintf(stderr, "\n");
+      // contact-softness fingerprint (MakeDifferentiable mutates solimp at
+      // plan time; the static cfg fingerprint missed solref/solimp/friction)
+      std::fprintf(stderr,
+          "PDUMP soft jsolimp=%.8g gsolref=%.8g gsolimp=%.8g gfric=%.8g "
+          "psolref=%.8g npair=%d\n",
+          mju_sum(model->jnt_solimp, model->njnt * mjNIMP),
+          mju_sum(model->geom_solref, model->ngeom * mjNREF),
+          mju_sum(model->geom_solimp, model->ngeom * mjNIMP),
+          mju_sum(model->geom_friction, model->ngeom * 3),
+          model->npair > 0
+              ? mju_sum(model->pair_solref, model->npair * mjNREF) : 0.0,
+          model->npair);
+      // live policy spline knots (the CEM's warm-start content)
+      {
+        const std::shared_lock<std::shared_mutex> lock(mtx_);
+        std::fprintf(stderr, "PDUMP knots");
+        for (int k = 0; k < (int)policy.plan.Size(); k++) {
+          auto nd = policy.plan.NodeAt(k);
+          std::fprintf(stderr, " |%d t=%.3f hipP=%.4f knee=%.4f ankP=%.4f",
+                       k, nd.time(), nd.values()[1], nd.values()[3],
+                       nd.values()[4]);
+        }
+        std::fprintf(stderr, "\n");
+      }
+      // CANONICAL DETERMINISTIC ROLLOUT: same code, same inputs, run inside
+      // BOTH processes -- constant ctrl = the 'stand' key leg pose, from the
+      // CURRENT planner state, 100 steps on the planner model with a private
+      // mjData. If the two processes disagree here, the execution
+      // environment (model internals / callbacks) differs; if they agree,
+      // the divergence is in the search history/policy content.
+      {
+        static mjData* cd = nullptr;
+        if (!cd) cd = mj_makeData(model);
+        mj_resetData(model, cd);
+        mju_copy(cd->qpos, state.data(), model->nq);
+        mju_copy(cd->qvel, state.data() + model->nq, model->nv);
+        cd->time = time;
+        int ks = mj_name2id(model, mjOBJ_KEY, "stand");
+        double cctrl[64] = {0};
+        for (int j = 0; j < model->nu && j < 64; j++)
+          cctrl[j] = ks >= 0 ? model->key_qpos[ks * model->nq + 7 + j] : 0.0;
+        // PRE-STEP probe: forces at the pristine state, before any stepping
+        {
+          mju_copy(cd->ctrl, cctrl, model->nu);
+          mj_forward(model, cd);
+          std::fprintf(stderr,
+              "PDUMP prestep qact=%.6g f1=%.6g f2=%.6g f7=%.6g q8=%.6f "
+              "q9=%.6f ctrl1=%.4f qfrc_bias7=%.4g qfrc_pass=%.6g "
+              "eqlen=%.6g\n",
+              mju_norm(cd->qfrc_actuator, model->nv),
+              cd->actuator_force[1], cd->actuator_force[2],
+              cd->actuator_force[7], cd->qpos[8], cd->qpos[9], cd->ctrl[1],
+              cd->qfrc_bias[7], mju_norm(cd->qfrc_passive, model->nv),
+              mju_norm(cd->actuator_length, model->nu));
+          std::fprintf(stderr, "PDUMP trn");
+          for (int j = 0; j < model->nu && j < 12; j++) {
+            int jid = model->actuator_trnid[j * 2];
+            std::fprintf(stderr, " |%d ty=%d gear=%.4g qadr=%d len=%.5g",
+                         j, model->actuator_trntype[j],
+                         model->actuator_gear[j * 6],
+                         jid >= 0 && jid < model->njnt
+                             ? model->jnt_qposadr[jid] : -1,
+                         cd->actuator_length[j]);
+          }
+          std::fprintf(stderr, "\n");
+        }
+        double ctot = 0.0, c0 = 0.0, c50 = 0.0, c99 = 0.0;
+        double ztrace[4] = {0}, vtrace[4] = {0};
+        for (int s = 0; s < 100; s++) {
+          mju_copy(cd->ctrl, cctrl, model->nu);
+          mj_step(model, cd);
+          double cs = task->CostValue(cd->sensordata);
+          ctot += cs;
+          if (s == 0) {
+            c0 = cs;
+            // step-1 forensics: where does the kick come from?
+            int amax = 0;
+            for (int v = 1; v < model->nv; v++)
+              if (std::fabs(cd->qvel[v]) > std::fabs(cd->qvel[amax])) amax = v;
+            std::fprintf(stderr,
+                "PDUMP step1 ncon=%d qfrc_con=%.6g amax_dof=%d amax_v=%.6g "
+                "vbase=%.4g %.4g %.4g %.4g %.4g %.4g varm=%.6g vobj=%.6g\n",
+                cd->ncon, mju_norm(cd->qfrc_constraint, model->nv),
+                amax, cd->qvel[amax],
+                cd->qvel[0], cd->qvel[1], cd->qvel[2], cd->qvel[3],
+                cd->qvel[4], cd->qvel[5],
+                mju_norm(cd->qvel + 18, 15),
+                model->nv >= 39 ? mju_norm(cd->qvel + 33, 6) : 0.0);
+            std::fprintf(stderr, "PDUMP eqs");
+            for (int e = 0; e < model->neq; e++)
+              std::fprintf(stderr, " %d:%d:%.4g", e, cd->eq_active[e],
+                           model->eq_data[e * mjNEQDATA]);
+            std::fprintf(stderr, "\nPDUMP cons");
+            for (int c = 0; c < cd->ncon && c < 10; c++) {
+              const char* g1 = mj_id2name(model, mjOBJ_GEOM,
+                                          cd->contact[c].geom[0]);
+              const char* g2 = mj_id2name(model, mjOBJ_GEOM,
+                                          cd->contact[c].geom[1]);
+              std::fprintf(stderr, " |%s~%s d=%.5f", g1 ? g1 : "?",
+                           g2 ? g2 : "?", cd->contact[c].dist);
+            }
+            std::fprintf(stderr, "\nPDUMP qfrc_con_legs");
+            for (int v = 6; v < 18 && v < model->nv; v++)
+              std::fprintf(stderr, " %.3g", cd->qfrc_constraint[v]);
+            std::fprintf(stderr, "\nPDUMP qfrc_con_base");
+            for (int v = 0; v < 6; v++)
+              std::fprintf(stderr, " %.3g", cd->qfrc_constraint[v]);
+            std::fprintf(stderr, " arms:");
+            for (int v = 18; v < 33 && v < model->nv; v++)
+              std::fprintf(stderr, " %.3g", cd->qfrc_constraint[v]);
+            std::fprintf(stderr, "\nPDUMP act nefc=%d nplugin=%d "
+                         "qfrc_act=%.6g qfrc_smooth_legs:",
+                         cd->nefc, model->nplugin,
+                         mju_norm(cd->qfrc_actuator, model->nv));
+            for (int v = 6; v < 18 && v < model->nv; v++)
+              std::fprintf(stderr, " %.3g", cd->qfrc_smooth[v]);
+            std::fprintf(stderr, " ctrl:");
+            for (int j = 0; j < model->nu && j < 12; j++)
+              std::fprintf(stderr, " %.4g", cd->ctrl[j]);
+            std::fprintf(stderr, "\nPDUMP actrow");
+            for (int j = 0; j < model->nu && j < 12; j++)
+              std::fprintf(stderr, " |%d g=%.4g b1=%.4g b2=%.4g trn=%d f=%.4g",
+                           j, model->actuator_gainprm[j * mjNGAIN],
+                           model->actuator_biasprm[j * mjNBIAS + 1],
+                           model->actuator_biasprm[j * mjNBIAS + 2],
+                           model->actuator_trnid[j * 2],
+                           cd->actuator_force[j]);
+            std::fprintf(stderr, "\nPDUMP passive stiff=%.8g spring=%.8g "
+                         "qfrc_pass_legs:",
+                         mju_sum(model->jnt_stiffness, model->njnt),
+                         mju_sum(model->qpos_spring, model->nq));
+            for (int v = 6; v < 18 && v < model->nv; v++)
+              std::fprintf(stderr, " %.3g", cd->qfrc_passive[v]);
+            std::fprintf(stderr, "\n");
+          }
+          if (s == 50) c50 = cs;
+          if (s == 99) c99 = cs;
+          int ti = s == 0 ? 0 : s == 4 ? 1 : s == 9 ? 2 : s == 24 ? 3 : -1;
+          if (ti >= 0) {
+            ztrace[ti] = cd->qpos[2];
+            vtrace[ti] = mju_norm(cd->qvel, model->nv);
+          }
+        }
+        std::fprintf(stderr,
+            "PDUMP canon tot=%.6g c0=%.5g c50=%.5g c99=%.5g z=%.5f "
+            "hipP=%.5f knee=%.5f tilt_qx=%.5f\n",
+            ctot, c0, c50, c99, cd->qpos[2], cd->qpos[8], cd->qpos[10],
+            cd->qpos[4]);
+        std::fprintf(stderr,
+            "PDUMP canontrace z1=%.8f z5=%.8f z10=%.8f z25=%.8f "
+            "v1=%.8f v5=%.8f v10=%.8f v25=%.8f\n",
+            ztrace[0], ztrace[1], ztrace[2], ztrace[3],
+            vtrace[0], vtrace[1], vtrace[2], vtrace[3]);
+        // definitive model comparison: byte-sum of the fully serialized model
+        {
+          int msz = mj_sizeModel(model);
+          static std::vector<uint8_t> mbuf;
+          mbuf.resize(msz);
+          mj_saveModel(model, nullptr, mbuf.data(), msz);
+          unsigned long long bsum = 0;
+          for (int b = 0; b < msz; b++) bsum += mbuf[b] * (1ull + b % 251);
+          std::fprintf(stderr, "PDUMP mhash bytes=%d sum=%llu jac=%d tol=%.3g "
+                       "lstol=%.3g noslip=%d ccd=%d actgrpdis=%d\n",
+                       msz, bsum, model->opt.jacobian, model->opt.tolerance,
+                       model->opt.ls_tolerance, model->opt.noslip_iterations,
+                       model->opt.ccd_iterations,
+                       model->opt.disableactuator);
+          std::fprintf(stderr,
+              "PDUMP geom ngeom=%d nmesh=%d nnames=%d npaths=%d nmeshvert=%d "
+              "gsize=%.8g gpos=%.8g bpos=%.8g bquat=%.8g mvert=%.8g "
+              "gcontype=%d gmargin=%.6g gap=%.6g\n",
+              model->ngeom, model->nmesh, model->nnames, model->npaths,
+              model->nmeshvert,
+              mju_sum(model->geom_size, model->ngeom * 3),
+              mju_sum(model->geom_pos, model->ngeom * 3),
+              mju_sum(model->body_pos, model->nbody * 3),
+              mju_sum(model->body_quat, model->nbody * 4),
+              [&]{ double s=0; int n = model->nmeshvert > 1000000 ? 3000000 : model->nmeshvert * 3; for (int v=0;v<n;v++) s+=model->mesh_vert[v]; return s; }(),
+              [&]{ int s=0; for (int g=0;g<model->ngeom;g++) s+=model->geom_contype[g]+model->geom_conaffinity[g]; return s; }(),
+              mju_sum(model->geom_margin, model->ngeom),
+              mju_sum(model->geom_gap, model->ngeom));
+        }
+      }
+    }
+  }
 }
 
 // compute trajectory using nominal policy

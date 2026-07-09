@@ -18,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <sstream>
@@ -238,9 +239,17 @@ Agent::LoadModelResult Agent::LoadModel() const {
 
   if (model_override_) {
     mnew = mj_copyModel(nullptr, model_override_.get());
+    // FABEL (2026-07-07, env H12_PDUMP=1): announce the model source -- the
+    // node/agent-server divergence hunt needs certainty about WHICH model
+    // each process actually planned with. Unset = silent.
+    if (const char* e = std::getenv("H12_PDUMP"); e && e[0] == '1')
+      std::fprintf(stderr, "PDUMP xml=<model_override>\n");
   } else {
     // otherwise use the task's model
     std::string filename = tasks_[gui_task_id]->XmlPath();
+    // FABEL (2026-07-07, env H12_PDUMP=1): see the model_override note above.
+    if (const char* e = std::getenv("H12_PDUMP"); e && e[0] == '1')
+      std::fprintf(stderr, "PDUMP xml=%s\n", filename.c_str());
     // make sure filename is not empty
     if (filename.empty()) {
       return {};

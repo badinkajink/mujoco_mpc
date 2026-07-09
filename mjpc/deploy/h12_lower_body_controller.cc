@@ -121,6 +121,17 @@ const char* const JOINT_NAMES[kNU] = {
 // The B0 report grades against THIS basis; the estop trips at TAU_ESTOP (below it).
 const double TAU_LIMIT[kNU] = {200, 200, 200, 300, 60, 40,
                                200, 200, 200, 300, 60, 40};
+// FABEL (2026-07-07, env H12_FRC_PARITY=1): planner-model forceranges clamped
+// to the torque the deploy chain can ACTUALLY deliver = kClampRatio (0.9) x
+// TAU_ESTOP. The stock model believes ankle +-75 / hipY +-200 / hip +-300 Nm
+// while the node's H2 torque-budget clamp caps commands at 48.6 / 54 / 117 --
+// so every planned balance catch over-promises (ankle by 54%) and
+// under-delivers at execution; the in-process probe (no clamp) stands where
+// the chain tips. The old "forcerange tightening regressed the hold" verdict
+// predates the ABI fix (PatchActuators wrote through skewed offsets then).
+// Unset = stock forceranges (unchanged).
+const double FRC_PARITY[kNU] = {54, 117, 180, 270, 48.6, 32.4,
+                                54, 117, 180, 270, 48.6, 32.4};
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -133,6 +144,16 @@ int main(int argc, char** argv) {
   cfg.tau_limit = TAU_LIMIT;
   cfg.frc_limit = nullptr;    // no forcerange patch (legs stay at model default)
   cfg.frc_limit_begin = 0;
+  if (const char* e = std::getenv("H12_FRC_PARITY"); e && e[0] != '\0') {
+    // '1'/estop = 0.9 x TAU_ESTOP (the H2 clamp's default budget);
+    // 'urdf'    = TAU_LIMIT (pair with H12_CLAMP_URDF=1 so the clamp budget
+    //             matches -- promise == deliverable == URDF).
+    cfg.frc_limit = (e[0] == 'u') ? TAU_LIMIT : FRC_PARITY;
+    cfg.frc_limit_begin = 0;
+    std::fprintf(stderr, "[node] FABEL H12_FRC_PARITY=%s: planner leg "
+                         "forceranges = %s\n", e,
+                 e[0] == 'u' ? "URDF TAU_LIMIT" : "0.9 x TAU_ESTOP");
+  }
   cfg.joint_names = JOINT_NAMES;
   cfg.telemetry = h12deploy::Telemetry::kLowerBody;
   cfg.upper_count = 15;       // read torso+arms (motor 12..26) for arm-aware balance
