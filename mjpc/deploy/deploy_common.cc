@@ -1050,21 +1050,8 @@ int RunDeployNode(const NodeConfig& cfg) {
 
     // policy: target joint positions (rad). Held at measured q during warmup.
     if (!warming) {
-      // FABEL (2026-07-07): env H12_ACTION_LEAD_MS reads the policy spline
-      // this far AHEAD of now -- feedforward compensation for the
-      // action-path delay (cmd publish -> safety ZOH -> plant apply) that
-      // the state-side predict_forward cannot cover. 0/unset = unchanged.
-      static double act_lead = -1.0;
-      if (act_lead < 0.0) {
-        act_lead = 0.0;
-        if (const char* e = std::getenv("H12_ACTION_LEAD_MS")) {
-          double v = std::atof(e);
-          if (v >= 0.0 && v <= 60.0) act_lead = v * 1e-3;
-          std::fprintf(stderr, "[node] FABEL H12_ACTION_LEAD_MS=%.1f\n", v);
-        }
-      }
       g_agent.ActivePlanner().ActionFromPolicy(action.data(), g_agent.state.state().data(),
-                                             g_agent.state.time() + act_lead);
+                                             g_agent.state.time());
       // FABEL (2026-07-08, env H12_ACT_LPF_MS): 1st-order low-pass on the
       // emitted action. The CEM elite-mean policy dithers at ~2-3 Hz
       // (unseeded per-iteration sampling noise, +-0.05-0.1 rad on the leg
