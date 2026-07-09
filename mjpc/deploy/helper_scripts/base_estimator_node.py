@@ -53,20 +53,58 @@ ROBOT_SUBNET = "192.168.123."
 _DEFAULT_SCENE = "~/Desktop/h12/h1_mujoco/unitree_robots/h1_2/scene_handless.xml"
 
 
+def _ipv4_ifaces():
+    """[(name, ipv4)] for every up interface, via getifaddrs-equivalent ioctls.
+    `ip -o -4 addr show` is absent in some containers, which silently degraded
+    the auto-pin below to "twin only" while the C++ core (getifaddrs) bound the
+    robot link fine. Keep the subprocess as a fallback for exotic libc setups."""
+    out = []
+    try:
+        import fcntl
+        import socket
+        import struct
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            for _, name in socket.if_nameindex():
+                try:
+                    packed = fcntl.ioctl(s.fileno(), 0x8915,  # SIOCGIFADDR
+                                         struct.pack("256s", name[:15].encode()))
+                    out.append((name, socket.inet_ntoa(packed[20:24])))
+                except OSError:
+                    pass                                       # no IPv4 on this NIC
+        finally:
+            s.close()
+    except Exception:
+        pass
+    if out:
+        return out
+    try:
+        raw = subprocess.run(["ip", "-o", "-4", "addr", "show"],
+                             capture_output=True, text=True, timeout=4).stdout
+    except Exception:
+        raw = ""
+    for line in raw.splitlines():
+        p = line.split()
+        if len(p) >= 4:
+            out.append((p[1], p[3].split("/")[0]))
+    return out
+
+
 def _pick_iface(explicit):
     """Auto-pin the 192.168.123.x robot-subnet NIC (so empty binds the robot link,
     not WiFi/Tailscale), mirroring dds_topic_check/dds_live_recorder."""
+    ifaces = _ipv4_ifaces()
     if explicit:
-        return explicit, "explicit --iface"
-    try:
-        out = subprocess.run(["ip", "-o", "-4", "addr", "show"],
-                             capture_output=True, text=True, timeout=4).stdout
-    except Exception:
-        out = ""
-    for line in out.splitlines():
-        p = line.split()
-        if len(p) >= 4 and p[1] != "lo" and p[3].split("/")[0].startswith(ROBOT_SUBNET):
-            return p[1], f"auto-detected ({p[3].split('/')[0]} on robot subnet)"
+        names = [n for n, _ in ifaces]
+        if not names or explicit in names:
+            return explicit, "explicit --iface"
+        # A NIC name baked into a config is host-specific; don't take the whole
+        # node down on a machine that names its robot link something else.
+        print(f"[est] WARNING: --iface '{explicit}' not present (have: "
+              f"{', '.join(names)}) -> ignoring, falling back to auto-detect")
+    for name, ip in ifaces:
+        if name != "lo" and ip.startswith(ROBOT_SUBNET):
+            return name, f"auto-detected ({ip} on robot subnet)"
     return None, "no robot-subnet NIC -> SDK autodetermine (twin only)"
 
 
