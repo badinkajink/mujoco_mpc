@@ -46,7 +46,10 @@ int DefaultDomainId() {
 ABSL_FLAG(std::string, task, "Lean H12 Magpie", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
           "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left "
-          "16=counterbalance 18=squatter 20=stumble 21=reach 23=trot 31-35=lean pipeline ...)");
+          "16=counterbalance 18=squatter 20=stumble 21=reach 23=trot "
+          "25=straighten/bring-up 31-35=lean pipeline ...). For harness-release "
+          "bring-up boot with --strategy 25 (wide-basin drive-to-upright from a "
+          "leaning release), then live-switch to 6 once stable.");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables. "
           "REAL robot: 0.85. TWIN bench: 0 (the twin's gravcomp over-lightens the legs "
