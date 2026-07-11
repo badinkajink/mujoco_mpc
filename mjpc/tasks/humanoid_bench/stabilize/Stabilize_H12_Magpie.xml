@@ -26,8 +26,22 @@
     <option integrator="implicitfast" cone="pyramidal" impratio="100"/>
 
     <keyframe>
+        <!-- ★ R1 FLAT-FOOT FIX (2026-07-10): ankle_roll = -hip_roll (∓0.12 rad) in the
+             stand-family keys. hip_roll ±6.88° about the x-axis rolls the FOOT with the
+             leg; with ankle_roll 0 the reference pose rests on a 9.6mm-wide INNER-HEEL
+             corner (25/2006 sole verts, 11% of sole width — measured 2026-07-09). The
+             Posture cost pulled toward that impossible pose forever -> edge rocking,
+             shuffling, L/R asymmetry (real: LhipR 5.61° / RankR 6.18° vs mirrors 1.36°/
+             0.88°). Cancelling at the ankle -> 83mm patch (91% of sole). Scope: home /
+             stand / stand_up ONLY (counterbalance_standing + stumble/crouch/squat keys
+             untouched — separately validated strategies). Full analysis:
+             h12/stabilize_stand_robustness_research_2026-07-09.md §2.4. -->
+        <!-- ★ 06-30 BASELINE TEMPORARILY RESTORED (2026-07-10, user A/B vs the still-stand
+             era). R1 flat-foot values to restore after the A/B:
+             home     z 1.022, ankle_roll -0.12/+0.12
+             stand(x2) z 1.017, ankle_roll -0.12/+0.12 -->
         <key name="home"
-        qpos="0.19 0 1.028 1 0 0 0 0 0 0.12 0 0 0 0 0 -0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        qpos="0.19 0 1.022 1 0 0 0 0 0 0.12 0 0 -0.12 0 0 -0.12 0 0 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- soft-knee stand (2026-06-09): stand (strategy 6, phase "stand_up") and the
              squat top (strategy 17, phase "stand") previously fell back to home with knee
              target 0.0 — sitting 0.12 rad from the knee lock-out floor (-0.12), so one knee
@@ -40,8 +54,12 @@
              Routed by the name-match at lean.cc:210; HOME stays byte-identical so the
              table-lean tasks 0-5 (which also fall back to home) are unchanged. Revert: delete
              these two keys -> stand/squat-top fall back to home (straight-knee) again. -->
-        <key name="stand_up" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
-        <key name="stand"    qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- z retuned with the flat sole (R1): the old 1.028/1.020 were set when the
+             INNER-HEEL corner was the lowest point; flat feet float 5.7/3.1 mm at
+             those heights (measured), biasing the Base Height anchor. 1.022/1.017 =
+             measured touch heights. -->
+        <key name="stand_up" qpos="0.19 0 1.017 1 0 0 0 0 -0.25 0.12 0.35 -0.21 -0.12 0 -0.25 -0.12 0.35 -0.21 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stand"    qpos="0.19 0 1.017 1 0 0 0 0 -0.25 0.12 0.35 -0.21 -0.12 0 -0.25 -0.12 0.35 -0.21 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- counterbalance_standing (strategy 16): MUST exist so 16's Posture targets a
              BENT-knee stand (knees 0.35) instead of falling back to home (key 0 = STRAIGHT
              knees), which — with the JSON "Knees Straight" weight — drove 16's legs straight
@@ -438,6 +456,12 @@
              the CoM (m). LOWER -> CoM more centred -> better BACKWARD margin; HIGHER
              -> more forward margin. XML-tunable, no rebuild. -->
         <numeric name="stance_off_x" data="0.13"/>
+        <!-- Stance-Width barrier position [m] (R6 2026-07-10): lateral foot
+             separation below this pays cost (see the "Stance Width" <user>
+             sensor). 0.35 = comfortably under the 0.516 nominal stance and
+             above qpos0's 0.326, so the quiet stand NEVER pays; only a
+             disturbance-driven narrowing/crossing does. Runtime-read. -->
+        <numeric name="stance_min_sep" data="0.35"/>
         <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
              torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
              is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
@@ -675,6 +699,14 @@
         <user name="Gait" dim="2" user="0 0.0 0.0 100.0"/>
         <user name="Step Place" dim="4" user="0 0.0 0.0 100.0"/>
         <user name="Foot Slip" dim="2" user="0 0.0 0.0 100.0"/>
+        <!-- Stance Width (R6 2026-07-10): one-sided lateral foot-separation
+             barrier (heading frame), residual = 10*max(0, stance_min_sep - sep).
+             0 at the nominal 0.516 m stance; the stand JSON opts in (100) to
+             stop the sampler criss-crossing the legs under lateral pushes
+             (nothing else in the cost regulates stance width). MUST stay the
+             LAST <user> sensor: it was appended after Foot Slip so no existing
+             residual index moved. Barrier position = numeric stance_min_sep. -->
+        <user name="Stance Width" dim="1" user="0 0.0 0.0 300.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

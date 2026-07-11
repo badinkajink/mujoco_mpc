@@ -2470,8 +2470,48 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = 0.0;  // Step Place Ly
     residual[counter++] = 0.0;  // Step Place Rx
     residual[counter++] = 0.0;  // Step Place Ry
-    residual[counter++] = 0.0;  // Foot Slip L
-    residual[counter++] = 0.0;  // Foot Slip R
+    // R7 (2026-07-10, stand anti-shuffle): Foot Slip was gait-only; the free
+    // STAND wrote 0 here, so sliding a planted foot was a FREE extra DoF the
+    // sampler used to null CoM error every correction cycle -- the measured
+    // real-robot shuffling (research doc 2026-07-09 §2.7/§3). Write the real
+    // tangential speed of BOTH feet (double support: both are stance). Cost
+    // stays 0 for every strategy whose JSON does not set "Foot Slip" (XML
+    // default weight 0) -> placeholders/lean phases byte-identical; the stand
+    // JSON opts in at 25 (same weight the stumble/trot/walk JSONs use).
+    double const *vfl = SensorByName(model, data, "foot_left_velocity");
+    double const *vfr = SensorByName(model, data, "foot_right_velocity");
+    residual[counter++] = mju_sqrt(vfl[0]*vfl[0] + vfl[1]*vfl[1]);  // Foot Slip L
+    residual[counter++] = mju_sqrt(vfr[0]*vfr[0] + vfr[1]*vfr[1]);  // Foot Slip R
+  }
+
+  // ---- Stance Width (dim 1, R6 2026-07-10): one-sided soft barrier on the
+  //      LATERAL foot separation, in the pelvis HEADING frame. NOTHING else in
+  //      the cost regulates stance width, so under a lateral disturbance the
+  //      sampler can drive the feet toward/past the midline ("legs criss-
+  //      crossed", real 2026-07-09) at zero cost until the geoms collide.
+  //      residual = 10 * max(0, stance_min_sep - lateral_sep): identically 0 at
+  //      the nominal 0.516 m stance and for ANY separation above the barrier
+  //      (0.35 default, numeric `stance_min_sep`) -> quiet stand pays nothing;
+  //      crossing (sep < 0) pays 10*(0.35+|sep|) amplified by the JSON weight.
+  //      10x scale matches Base Height / Lateral Center. XML weight 0 default
+  //      -> every strategy byte-identical unless its JSON opts in ("Stance
+  //      Width": stand=100). Appended as the LAST <user> sensor so no existing
+  //      residual index moves. Winter 1996: M/L balance is the hip-abductor
+  //      channel; Koptev 2024: self-collision as a sampling rollout cost. ---- //
+  {
+    int sms_id = mj_name2id(model, mjOBJ_NUMERIC, "stance_min_sep");
+    double min_sep = (sms_id >= 0)
+        ? model->numeric_data[model->numeric_adr[sms_id]] : 0.35;
+    int sw_pelvis = mj_name2id(model, mjOBJ_BODY, "pelvis");
+    if (sw_pelvis < 0) sw_pelvis = 1;  // floating-base root fallback
+    const mjtNum *pq = data->xquat + 4 * sw_pelvis;
+    double yaw = std::atan2(2.0 * (pq[0] * pq[3] + pq[1] * pq[2]),
+                            1.0 - 2.0 * (pq[2] * pq[2] + pq[3] * pq[3]));
+    double dx = foot_left_pos[0] - foot_right_pos[0];
+    double dy = foot_left_pos[1] - foot_right_pos[1];
+    // lateral (heading-frame y) separation; left foot is +y at yaw 0
+    double sep = -std::sin(yaw) * dx + std::cos(yaw) * dy;
+    residual[counter++] = 10.0 * mju_max(0.0, min_sep - sep);
   }
 
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
@@ -3368,6 +3408,22 @@ std::map<std::string, double> stabilize::PlannerNumericOverrides(int strategy) c
   // marginality was a SAMPLING-BUDGET limit, not a controller flaw. NOTE: 36 ~=
   // 2.25x compute -> verify real-time on the deploy CPU (or use a GPU/more cores);
   // on the lockstep twin it's free. Keyed by NAME (Lean_H12 + Hands trot slots).
+  // STAND (slot 6) planner-resolution override: TESTED AND REJECTED 2026-07-10.
+  // Theory (research doc h12/stabilize_stand_robustness_research_2026-07-09.md):
+  // the task-default 3 knots over the 1.0s horizon = 0.495s ZERO-ORDER-HOLD
+  // blocks (CEM is hard-wired kZeroSpline, cross_entropy/planner.h:148) = 1.65x
+  // the pendulum time constant -> can't represent small fast corrections ->
+  // overcorrection sway. Twin A/B (3x30s, plan-hz 80, flat-foot keyframes):
+  //   spline 3 / elite 6 (default): fwd pk-pk 2.4deg, shuffle 0.04m  <- BEST
+  //   spline 5 / elite 3:           fwd pk-pk 3.2deg, shuffle 0.15m
+  //   spline 5 / elite 6:           fwd pk-pk 3.8deg
+  // At 10 rollouts the extra knot dimensions cost more sampling variance than
+  // the resolution buys -- the same lesson as the 2026-06-18 "spline 8
+  // destabilises even a plain stand" note above. NO override for the stand.
+  // The knot-coarseness theory may still hold on REAL (23-60Hz replan makes a
+  // committed ZOH block live 2-4x longer than on the 80Hz twin) but that must
+  // be tested on real WITH a rollout bump (e.g. spline 5 + trajectories 36 like
+  // the trot below), not shipped twin-regressed.
   if (name == "stabilize_simple_trot" || name == "stabilize_simple_walk") {
     return {{"sampling_spline_points", 5.0},
             {"sampling_exploration", 0.05},
