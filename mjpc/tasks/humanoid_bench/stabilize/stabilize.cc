@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <random>
 
@@ -9,6 +10,18 @@
 #include "mjpc/tasks/humanoid/interact/contact_keyframe.h"
 
 namespace mjpc {
+// DC baseline of the MEASURED capture excursion (see stand_recover_washout_sec).
+// File-scope: written once per plan under the transition lock (TransitionLocked),
+// read by rollout workers in Residual (benign double read; changes on a seconds
+// timescale). Used by the DC-blind hip recovery tier.
+static double s_cap_ex_dc = 0.0, s_cap_ey_dc = 0.0, s_cap_dc_t = -1.0;
+// T1 REFERENCE TRIM (2026-07-11 pivot: trim the reference to the robot). Slow
+// integrator on the DC capture excursion -> added to the Balance capture-point
+// fore-aft offset (same knob as the manual com_x_offset sysid, automated). A
+// zero-error park (ex_dc > 0) grows the trim until the planner holds the CoM
+// far enough back that the park returns to the DESIGNED nominal (ex_dc = 0).
+// stand_trim_tau numeric (s): 0 = OFF (trim forced 0, byte-identical).
+static double s_trim_x = 0.0;
 
 namespace {
 // Target (post-ramp) reach + brace + posture scales for each named phase. Kept
@@ -994,6 +1007,11 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   {
     int com_off_id = mj_name2id(model, mjOBJ_NUMERIC, "com_x_offset");
     if (com_off_id >= 0) capture_point[0] += model->numeric_data[model->numeric_adr[com_off_id]];
+    // T1 AUTO-TRIM (2026-07-11): the integrator in TransitionLocked automates the
+    // manual com_x_offset sysid above -- the DC park distance is integrated into
+    // this same forward-CoM bias until the park returns to nominal. 0 when
+    // stand_trim_tau is 0/absent (byte-identical).
+    capture_point[0] += s_trim_x;
     // reach_com_back (strat 21, 2026-06-23): the REACH adds its own forward-CoM
     // creep ON TOP of the global com_x_offset gap -- the ~4 kg magpie arm reaching
     // forward pulls the CoM toward the ankle's forward limit, and on the REAL chain
@@ -1646,6 +1664,26 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // ----- control ----- //
   mju_sub(&residual[counter], data->ctrl, posture_target + 7,
           model->nu);  // because of pos control (tracks pose-library key)
+  // ANKLE-ACTION TAX (2026-07-11, hip-strategy rebalance): the free-standing cost
+  // set prices a hip correction ~50x above an ankle one (AngMom + linear Pelvis
+  // Tilt + the 3.5x hip-pitch Posture anchor all tax the hip throw; NOTHING taxes
+  // ankle action while the foot stays flat), so the sampler does ALL fore-aft
+  // correction on the ankle channel -- exactly the joint with the per-power-on
+  // zero-lottery error and the 60/54 Nm rail (real stand parks forward, hunts,
+  // rails LankP at 80-89%). Multiply ONLY the ankle rows (nu-idx 4/5 L, 10/11 R)
+  // of the Control residual: sustained ankle targets get expensive, correction
+  // authority shifts to the hips. kCosh is ~quadratic near 0 -> effective ankle
+  // control weight scales ~gain^2. <numeric name="ankle_ctrl_gain"> 1.0 = OFF
+  // (byte-identical). Free-standing STAND-family only: brace tasks 0-5 unchanged,
+  // trot/stumble keep free ankles for stepping.
+  if (!arm_contact_or_lean && !is_trot && !is_stumble) {
+    double ankle_gain = GetNumberOrDefault(1.0, model, "ankle_ctrl_gain");
+    // PITCH rows only (4/10): taxing ROLL too made the sampler widen the stance
+    // as the cheap lateral stabilizer (07-11 real: progressive leg-spreading).
+    // Roll stays free -- lateral balance keeps its normal ankle channel.
+    if (ankle_gain != 1.0)
+      for (int ai : {4, 10}) residual[counter + ai] *= ankle_gain;
+  }
   counter += model->nu;
 
   // ----- bracing hand position on table ----- //
@@ -2205,8 +2243,25 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
           ? model->numeric_data[model->numeric_adr[rpg_id]] : 0.0;
       double kRecRoll = (rrg_id >= 0)
           ? model->numeric_data[model->numeric_adr[rrg_id]] : 0.0;
-      Ly_tgt = kRecPitch * g_cap_ex;   // fore-aft fall -> pitch counter-momentum
-      Lx_tgt = kRecRoll  * g_cap_ey;   // lateral fall  -> roll counter-momentum
+      double ex_t = g_cap_ex, ey_t = g_cap_ey;
+      if (!is_stumble) {
+        // DC-blind (2026-07-11): subtract the measured-state baseline (EMA set in
+        // TransitionLocked, stand_recover_washout_sec) so a zero-error PARK is
+        // invisible and only ESCAPES from it trigger counter-momentum.
+        ex_t -= s_cap_ex_dc;
+        ey_t -= s_cap_ey_dc;
+        // EXCURSION DEADBAND (2026-07-11): the 07-08 gain-300 A/B failed because
+        // g_cap_ex is NOT ~0 at the nominal stance (XML:484 post-mortem) -- the
+        // gain made a PERSISTENT angmom target -> continuous hip pumping + fwd
+        // drift. Only the excursion BEYOND the deadband commands counter-momentum;
+        // inside it the target is exactly 0, so the calm stand is byte-identical
+        // to gain 0. stumble keeps its tuned catch-march path unchanged.
+        double db = GetNumberOrDefault(0.0, model, "stand_recover_deadband");
+        ex_t = (mju_abs(ex_t) > db) ? ex_t - (ex_t > 0 ? db : -db) : 0.0;
+        ey_t = (mju_abs(ey_t) > db) ? ey_t - (ey_t > 0 ? db : -db) : 0.0;
+      }
+      Ly_tgt = kRecPitch * ex_t;   // fore-aft fall -> pitch counter-momentum
+      Lx_tgt = kRecRoll  * ey_t;   // lateral fall  -> roll counter-momentum
     }
     // TROT-WALK PITCH/YAW CATCH (2026-06-29, the "active torso-pitch catch"): the
     // forward-walk failure is a forward-PITCH runaway -- angmom[1] is the lateral-
@@ -2628,6 +2683,95 @@ void stabilize::ResidualFn::ContactResidual(const mjModel *model, const mjData *
 // of net body weight on each foot, enough friction to hold against the
 // soft cost gradients without artificial pins).
 void stabilize::TransitionLocked(mjModel *model, mjData *data) {
+  // ---- DC-BLIND HIP RECOVERY baseline (2026-07-11) ------------------------- //
+  // With an ankle zero error the robot PARKS off-vertical (+4..6 deg fwd = cap
+  // excursion ~0.09 m), so an ABSOLUTE-excursion recover tier sees the park as a
+  // permanent "falling" signal and throws counter-momentum continuously -- the
+  // 07-11 real A/B: backward overshoot (CoM_margin -0.165) -> fwd flail -> crouch
+  // jam. Fix: EMA the MEASURED excursion here (real state, once per plan) and let
+  // the recovery tier react only to the deviation FROM that baseline (escapes),
+  // never the standing offset. stand_recover_washout_sec = EMA tau; 0 = off.
+  {
+    int ws_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_recover_washout_sec");
+    double wtau = (ws_id >= 0)
+        ? model->numeric_data[model->numeric_adr[ws_id]] : 0.0;
+    int tt_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_tau");
+    double ttau = (tt_id >= 0)
+        ? model->numeric_data[model->numeric_adr[tt_id]] : 0.0;
+    double const *tup = SensorByName(model, data, "torso_up");
+    double const *cvel = SensorByName(model, data, "waist_lower_subcomvel");
+    int pid = mj_name2id(model, mjOBJ_BODY, "pelvis");
+    // the DC EMA feeds BOTH the washout (recover tier) and the T1 trim; run it
+    // if either is enabled (trim-only uses a 4 s EMA).
+    double ema_tau = (wtau > 0.0) ? wtau : ((ttau > 0.0) ? 4.0 : 0.0);
+    if (ema_tau > 0.0 && tup && cvel && pid >= 0) {
+      const mjtNum *com = data->subtree_com + 3 * pid;
+      double zc = mju_max(0.5, com[2]);
+      double tau_c = mju_sqrt(zc / 9.81);
+      int lnx = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
+      double kLX = (lnx >= 0) ? model->numeric_data[model->numeric_adr[lnx]] : 0.06;
+      double ex = zc * (tup[0] - kLX) + tau_c * cvel[0];
+      double ey = zc * tup[1] + tau_c * cvel[1];
+      double dt = (s_cap_dc_t >= 0.0) ? mju_max(0.0, data->time - s_cap_dc_t) : 0.0;
+      double a = (dt > 0.0) ? mju_min(1.0, dt / ema_tau) : 1.0;  // first call: snap
+      s_cap_ex_dc += a * (ex - s_cap_ex_dc);
+      s_cap_ey_dc += a * (ey - s_cap_ey_dc);
+      s_cap_dc_t = data->time;
+      if (ttau > 0.0) {
+        // T1 trim: lean park_dc -> Balance fore-aft bias. C2pure live: symmetric
+        // ±stand_trim_max let bring-up wind trim_x to -0.08 and leave it there
+        // after park_dc~0 -> permanent "hold CoM forward" (operator push from front).
+        // Asymmetric: +side still uses stand_trim_max; -side uses stand_trim_neg_max.
+        int td_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_delay");
+        double tdelay = (td_id >= 0)
+            ? model->numeric_data[model->numeric_adr[td_id]] : 0.0;
+        const bool trim_armed = (tdelay <= 0.0) || (data->time >= tdelay);
+        int tm_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_max");
+        double tmax_pos = (tm_id >= 0)
+            ? model->numeric_data[model->numeric_adr[tm_id]] : 0.08;
+        int tn_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_neg_max");
+        double tmax_neg = (tn_id >= 0)
+            ? model->numeric_data[model->numeric_adr[tn_id]] : tmax_pos;
+        if (trim_armed) {
+          s_trim_x += (dt / ttau) * s_cap_ex_dc;
+          s_trim_x = mju_min(tmax_pos, mju_max(-tmax_neg, s_trim_x));
+        } else {
+          s_trim_x = 0.0;
+        }
+        static double last_print = -1.0e9;
+        if (data->time - last_print > 5.0) {
+          last_print = data->time;
+          std::printf("[trim] t=%.1f park_dc=%+.3f m trim_x=%+.3f m armed=%d\n",
+                      data->time, s_cap_ex_dc, s_trim_x, trim_armed ? 1 : 0);
+          // #region agent log
+          {
+            std::ofstream lf(
+                "/home/the2xman/Desktop/h12/.cursor/debug-c2ebbf.log",
+                std::ios::app);
+            if (lf) {
+              lf << "{\"sessionId\":\"c2ebbf\",\"runId\":\"packC2n\","
+                    "\"hypothesisId\":\"H_NEG_TRIM_CAP\",\"location\":"
+                    "\"stabilize.cc:trim\",\"message\":\"trim_tick\","
+                    "\"data\":{\"t\":" << data->time
+                 << ",\"park_dc\":" << s_cap_ex_dc
+                 << ",\"trim_x\":" << s_trim_x
+                 << ",\"ttau\":" << ttau
+                 << ",\"tmax_neg\":" << tmax_neg
+                 << ",\"armed\":" << (trim_armed ? 1 : 0)
+                 << "},\"timestamp\":" << static_cast<long long>(data->time * 1000)
+                 << "}\n";
+            }
+          }
+          // #endregion
+        }
+      } else {
+        s_trim_x = 0.0;
+      }
+    } else if (ema_tau <= 0.0) {
+      s_cap_ex_dc = 0.0; s_cap_ey_dc = 0.0; s_cap_dc_t = -1.0;  // off = raw
+      s_trim_x = 0.0;
+    }
+  }
   // ---- F1-A (2026-07-02): ARM-AWARE-IN-ROLLOUT ---------------------------- //
   // Retarget the arm equality locks to the MEASURED upper-body pose (data->qpos
   // == the SetState'd real state) so EVERY sampled rollout holds the arms where
