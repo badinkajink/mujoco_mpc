@@ -103,6 +103,8 @@ add_library(
   tasks/humanoid_bench/lean/lean.h
   tasks/humanoid_bench/stabilize/stabilize.cc
   tasks/humanoid_bench/stabilize/stabilize.h
+  tasks/humanoid_bench/upper/upper.cc
+  tasks/humanoid_bench/upper/upper.h
   tasks/humanoid_bench/avoid/avoid.cc
   tasks/humanoid_bench/avoid/avoid.h
   tasks/humanoid_bench/avoid/offline_obstacles.h
@@ -331,6 +333,30 @@ if(MJPC_BUILD_DEPLOY)
     BUILD_RPATH "${_dds_libdir}"
     INSTALL_RPATH "${_dds_libdir}")
   message(STATUS "MJPC deploy: h12_lower_body_controller ENABLED (legs-only nu=12)")
+
+  # Upper-body (nu=15) controller: the sampling-MPC replacement for the FrameTask
+  # IK. Drives the Upper task (torso + arms = motor rows 12..26) and publishes to
+  # the safety layer's split UPPER channel; goals arrive over its gRPC port.
+  add_executable(h12_upper_body_controller deploy/h12_upper_body_controller.cc deploy/deploy_common.cc)
+  target_link_libraries(
+    h12_upper_body_controller
+    absl::flags
+    absl::flags_parse
+    absl::log
+    libmjpc
+    mujoco::mujoco
+    threadpool
+    Threads::Threads
+    unitree_sdk2
+  )
+  target_include_directories(h12_upper_body_controller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_compile_options(h12_upper_body_controller PUBLIC ${MJPC_COMPILE_OPTIONS})
+  target_link_options(h12_upper_body_controller PRIVATE ${MJPC_LINK_OPTIONS})
+  target_compile_definitions(h12_upper_body_controller PRIVATE MJSIMULATE_STATIC)
+  set_target_properties(h12_upper_body_controller PROPERTIES
+    BUILD_RPATH "${_dds_libdir}"
+    INSTALL_RPATH "${_dds_libdir}")
+  message(STATUS "MJPC deploy: h12_upper_body_controller ENABLED (torso+arms nu=15)")
 endif()
 
 add_subdirectory(tasks)
@@ -355,7 +381,7 @@ FetchContent_MakeAvailable(json)
 # h12_control_node was wired -- the lower-body binary's #ifdef H12_NODE_GRPC
 # blocks were dead code and it had no monitor server.)
 if(MJPC_BUILD_DEPLOY AND MJPC_BUILD_GRPC_SERVICE)
-  foreach(_node h12_control_node h12_lower_body_controller)
+  foreach(_node h12_control_node h12_lower_body_controller h12_upper_body_controller)
     if(TARGET ${_node})
       target_link_libraries(${_node} mjpc_agent_service)
       target_compile_definitions(${_node} PRIVATE H12_NODE_GRPC)

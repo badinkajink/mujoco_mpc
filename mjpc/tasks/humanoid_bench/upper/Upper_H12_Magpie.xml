@@ -1,0 +1,61 @@
+<mujoco model="Upper H12 Magpie">
+    <include file="../h1_2/h1_2_upper_magpie.xml"/>
+    <include file="../../common.xml" />
+    <include file="../assets/floor.xml" />
+
+    <!-- Upper-body MPC controller (nu=15) — sampling-MPC FrameTask
+         replacement. Plan: h12/upper_body_mpc_controller_plan_2026-07-09.md.
+         Legs eq-locked + pelvis welded (retargeted to the measured pose every
+         plan by upper::TransitionLocked). Joint-space goals via the Goal*
+         params (hybrid default post-P0-probe); the residual tracks a min-jerk
+         moving target so Goal Sec is REAL trajectory time. -->
+
+    <keyframe>
+        <!-- robot-only stand (34 dof: base 7 + legs 12 + torso + arms 14),
+             copied from stabilize 'stand' — bench init pose. -->
+        <key name="stand" qpos="0.19 0 1.017 1 0 0 0 0 -0.25 0.12 0.35 -0.21 -0.12 0 -0.25 -0.12 0.35 -0.21 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"/>
+    </keyframe>
+
+    <custom>
+        <numeric name="agent_planner" data="5"/>
+        <numeric name="agent_horizon" data="0.8"/>
+        <numeric name="agent_timestep" data="0.010"/>
+        <!-- finer knots than the stabilize default: arm transport needs a
+             smooth spline (stand-robustness research: 0.495 s ZOH knots are a
+             1.65-pendulum-tau staircase; here 0.8 s / 6 knots = 0.16 s). -->
+        <numeric name="sampling_spline_points" data="6"/>
+        <numeric name="sampling_exploration" data="0.05"/>
+        <numeric name="sampling_trajectories" data="10"/>
+
+        <!-- goal seam (indices = kUpper*ParameterIndex in upper.h):
+             Goal Active (0) rising edge latches a min-jerk segment from the
+             measured upper pose to Goal J0..J14 over Goal Sec (1).
+             J0=torso, J1-7=L arm (sh_p sh_r sh_y elbow wr_r wr_p wr_y),
+             J8-14=R arm. -->
+        <numeric name="residual_Goal Active" data="0 0 1" />
+        <numeric name="residual_Goal Sec" data="1.5 0.2 5.0" />
+        <numeric name="residual_Goal J0" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J1" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J2" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J3" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J4" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J5" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J6" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J7" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J8" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J9" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J10" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J11" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J12" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J13" data="0 -3.2 3.2" />
+        <numeric name="residual_Goal J14" data="0 -3.2 3.2" />
+    </custom>
+
+    <sensor>
+        <!-- cost terms (order == upper::ResidualFn::Residual) -->
+        <!-- weight 200 (was 50): probe A/B 2026-07-10 — joint bias 0.056 ->
+             0.009 rad, EE bias 15 mm (gate <=20 mm PASSES at 200). -->
+        <user name="Joint Goal" dim="15" user="0 200.0 0.0 400.0"/>
+        <user name="Joint Vel" dim="15" user="0 0.5 0.0 10.0"/>
+    </sensor>
+</mujoco>

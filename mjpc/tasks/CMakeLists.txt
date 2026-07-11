@@ -308,6 +308,24 @@ add_custom_target(
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stabilize/_gen_stabilize_model.py
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stabilize_magpie.xml
+  # Upper-body "upper" robot (2026-07-10): derive the nu=15 upper-only variant
+  # from the SAME gripperless base (before the gripper re-patch below) -- keep
+  # the 15 torso+arm actuators, eq-lock the 12 legs, weld the pelvis. Mirror of
+  # the stabilize derivation; plan h12/upper_body_mpc_controller_plan_2026-07-09.md.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/upper/_gen_upper_model.py
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_upper_magpie.xml
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/upper/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/upper/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/upper/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/upper/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/upper/h1_2
   # NOW re-apply the magpie patch to the magpie model (grippers + forearm brace pads/
   # sites) for the Lean/reach tasks -- AFTER the gripperless stabilize model was derived
   # above, so the stabilize/deploy model stays gripperless (tuning-safe). The tolerant

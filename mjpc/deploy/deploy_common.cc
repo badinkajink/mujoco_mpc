@@ -163,8 +163,10 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
 // Plain, copyable snapshot of the latest robot state.
 struct StateData {
   bool have_ls = false, have_ss = false;
-  double q[kMaxNU] = {0}, dq[kMaxNU] = {0};
-  double qu[15] = {0}, dqu[15] = {0};  // arm-aware: the 15 UPPER joints (torso+arms, motor 12..26)
+  double q[kMaxNU] = {0}, dq[kMaxNU] = {0};       // the cfg.nu ACTUATED joints (motor_offset + i)
+  double qu[15] = {0}, dqu[15] = {0};  // complement joints (X-aware): arm-aware = the 15 upper
+                                       // (motor 12..26, legs-only node); leg-aware = the 12 legs
+                                       // (motor 0..11, upper-body node)
   double quat[4] = {1, 0, 0, 0}, gyro[3] = {0};  // rt/lowstate IMU (wxyz, body gyro)
   double site_p[3] = {0}, site_v[3] = {0};       // rt/sportmodestate (IMU-site world pose)
   uint8_t mode_machine = 0;
@@ -398,6 +400,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   PatchActuators(g_model, cfg);   // latency-comp rollout model (the planner model was patched at LoadModel above)
   mjData* data = mj_makeData(g_model);
   int home = mj_name2id(g_model, mjOBJ_KEY, "home");
+  if (home < 0) home = mj_name2id(g_model, mjOBJ_KEY, "stand");  // upper task has only "stand"
   if (home >= 0) mj_resetDataKeyframe(g_model, data, home);
   mjcb_sensor = residual_sensor_callback;
   g_agent.SetState(data);
@@ -485,22 +488,25 @@ int RunDeployNode(const NodeConfig& cfg) {
   RobotState rs;
 
   const int n_upper = cfg.upper_count;
+  const int moff = cfg.motor_offset;       // actuated joint i <-> motor (moff + i)
+  const int coff = cfg.comp_motor_offset;  // complement joint i <-> motor (coff + i)
   ChannelSubscriberPtr<LowState> ls_sub(
       new ChannelSubscriber<LowState>(cfg.lowstate_topic));
   ls_sub->InitChannel(
-      [&rs, &cfg, n_upper](const void* msg) {
+      [&rs, &cfg, n_upper, moff, coff](const void* msg) {
         const LowState* s = static_cast<const LowState*>(msg);
         std::lock_guard<std::mutex> lk(rs.mu);
         for (int i = 0; i < cfg.nu; i++) {
-          rs.d.q[i] = s->motor_state().at(i).q();
-          rs.d.dq[i] = s->motor_state().at(i).dq();
+          rs.d.q[i] = s->motor_state().at(moff + i).q();
+          rs.d.dq[i] = s->motor_state().at(moff + i).dq();
         }
-        // arm-aware (legs-only node): also latch the upper joints (motor 12..26) so the
-        // planner CoM can track them. motor_state() is a fixed-size array on the H1-2
-        // (>=27); guard defensively.
-        for (int i = 0; i < n_upper && static_cast<size_t>(12 + i) < s->motor_state().size(); i++) {
-          rs.d.qu[i] = s->motor_state().at(12 + i).q();
-          rs.d.dqu[i] = s->motor_state().at(12 + i).dq();
+        // X-aware: also latch the COMPLEMENT joints (arm-aware: motor 12..26 on the
+        // legs-only node; leg-aware: motor 0..11 on the upper-body node) so the
+        // planner CoM/eq-locks can track them. motor_state() is a fixed-size array
+        // on the H1-2 (>=27); guard defensively.
+        for (int i = 0; i < n_upper && static_cast<size_t>(coff + i) < s->motor_state().size(); i++) {
+          rs.d.qu[i] = s->motor_state().at(coff + i).q();
+          rs.d.dqu[i] = s->motor_state().at(coff + i).dq();
         }
         for (int k = 0; k < 4; k++) rs.d.quat[k] = s->imu_state().quaternion().at(k);
         for (int k = 0; k < 3; k++) rs.d.gyro[k] = s->imu_state().gyroscope().at(k);
@@ -533,7 +539,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   // ---- H1/M5 safe-hold: damping stop (kp=0, small kd, tau=0) at the last measured
   // pose (harmless with kp=0). Callable from the control loop (stale state) or from
   // FatalMjuError; snapshots the state under the mutex.
-  auto emit_safe_hold = [&rs, &cmd_pub, &cfg]() {
+  auto emit_safe_hold = [&rs, &cmd_pub, &cfg, moff]() {
     StateData snap;
     {
       std::lock_guard<std::mutex> lk(rs.mu);
@@ -543,7 +549,7 @@ int RunDeployNode(const NodeConfig& cfg) {
     cmd.mode_pr() = 0;
     cmd.mode_machine() = snap.mode_machine;
     for (int i = 0; i < cfg.nu; i++) {
-      auto& mc = cmd.motor_cmd().at(i);
+      auto& mc = cmd.motor_cmd().at(moff + i);
       mc.mode() = 1;
       mc.q() = snap.have_ls ? static_cast<float>(snap.q[i]) : 0.0f;
       mc.dq() = 0.0f;
@@ -556,26 +562,30 @@ int RunDeployNode(const NodeConfig& cfg) {
   };
   g_emit_safe_hold = emit_safe_hold;   // M5: mju_error path publishes this before exiting
 
-  // ---- ARM-AWARE balance (legs-only node): map each equality lock -> the upper-joint
-  //      index it holds (qposadr-7), so fill_state can retarget the lock to the MEASURED
-  //      arm pose every tick. The planner then balances against the real arm CoM with the
-  //      legs; it still has NO upper-body actuator. ----
+  // ---- X-AWARE balance: map each equality lock -> the COMPLEMENT-joint index it
+  //      holds (qposadr-7), so fill_state can retarget the lock to the MEASURED
+  //      pose every tick. Legs-only node = ARM-aware (locks hold torso+arms);
+  //      upper-body node = LEG-aware (locks hold the 12 legs, plus the pelvis
+  //      world-weld follows the measured base). The planner never actuates the
+  //      complement joints. ----
   const bool arm_aware = (n_upper > 0) && cfg.arm_aware;
-  std::vector<int> eq_motor(g_model->neq, -1);   // eq e -> upper motor idx (12..26), -1 otherwise
+  std::vector<int> eq_motor(g_model->neq, -1);   // eq e -> complement motor idx, -1 otherwise
+  std::vector<char> eq_weld(g_model->neq, 0);    // eq e is a world-weld (upper node: pelvis)
   if (arm_aware) {
     for (int e = 0; e < g_model->neq; e++) {
+      if (g_model->eq_type[e] == mjEQ_WELD) { eq_weld[e] = 1; continue; }
       if (g_model->eq_type[e] != mjEQ_JOINT) continue;
       int midx = g_model->jnt_qposadr[g_model->eq_obj1id[e]] - 7;  // joint/motor index (0..26)
-      if (midx >= 12 && midx <= 26) eq_motor[e] = midx;
+      if (midx >= coff && midx < coff + n_upper) eq_motor[e] = midx;
     }
     int n = 0; for (int e = 0; e < g_model->neq; e++) if (eq_motor[e] >= 0) n++;
-    std::fprintf(stderr, "[node] ARM-AWARE ON: reading %d upper joints from rt/lowstate; %d equality "
-                         "locks retargeted to the measured arm pose each tick (legs still nu=%d; the "
-                         "node NEVER commands the arms -- FrameTask IK owns lowcmd_upper_in)\n",
-                 n_upper, n, cfg.nu);
+    std::fprintf(stderr, "[node] %s-AWARE ON: reading %d complement joints (motor %d..%d) from "
+                         "rt/lowstate; %d equality locks retargeted to the measured pose each tick "
+                         "(node actuates only its own nu=%d rows)\n",
+                 coff == 12 ? "ARM" : "LEG", n_upper, coff, coff + n_upper - 1, n, cfg.nu);
   } else if (n_upper > 0) {
-    std::fprintf(stderr, "[node] arm-aware OFF: upper joints held at home in the planner (validated "
-                         "home-locked stand). Pass --arm_aware for loco-manip with the IK.\n");
+    std::fprintf(stderr, "[node] X-aware OFF: complement joints held at home in the planner "
+                         "(validated home-locked stand). Pass --arm_aware to track the measured pose.\n");
   }
 
   // ---- wait for the first full state ----
@@ -685,28 +695,46 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
     mju_normalize4(bq);
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];
-    for (int i = 0; i < cfg.nu; i++) sd->qpos[7 + i] = cur.q[i];
+    for (int i = 0; i < cfg.nu; i++) sd->qpos[7 + moff + i] = cur.q[i];
     // ankle-roll zero-offset calibration: the planner sees the CORRECTED roll (idx 5=L, 11=R
     // ankle_roll) so it doesn't chase a foot only the encoder thinks is rolled. Pairs with the
-    // command shift before publish below. 0 = no-op.
-    sd->qpos[7 + 5]  -= ankle_off_l;
-    sd->qpos[7 + 11] -= ankle_off_r;
+    // command shift before publish below. 0 = no-op. LEG indices -> nodes that actuate the
+    // legs only (motor_offset 0); on the upper node idx 5/11 are ARM joints.
+    if (moff == 0) {
+      sd->qpos[7 + 5]  -= ankle_off_l;
+      sd->qpos[7 + 11] -= ankle_off_r;
+    }
     for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
-    for (int i = 0; i < cfg.nu; i++) sd->qvel[6 + i] = cur.dq[i];
-    // arm-aware (legs-only node): inject the MEASURED upper-body pose so the planner's
-    // CoM/dynamics track the arms, and retarget the equality locks to HOLD them there during
-    // each rollout (instead of snapping to home). The planner has no upper-body actuator ->
-    // it cannot command the arms; it only balances against them with the legs. eq_data is
-    // retargeted on BOTH models (g_model = Transition + latency rollout; g_agent_model = the
-    // planner's rollout model). No-op when the arms are at home.
+    for (int i = 0; i < cfg.nu; i++) sd->qvel[6 + moff + i] = cur.dq[i];
+    // X-aware: inject the MEASURED complement pose so the planner's CoM/dynamics track it,
+    // and retarget the equality locks to HOLD it there during each rollout (instead of
+    // snapping to home). The planner has no actuator on these joints -> it cannot command
+    // them; it only plans its own rows against them. eq_data is retargeted on BOTH models
+    // (g_model = Transition + latency rollout; g_agent_model = the planner's rollout model).
+    // No-op when the complement is at home.
     if (arm_aware) {
       for (int i = 0; i < n_upper; i++) {
-        sd->qpos[7 + 12 + i] = cur.qu[i];     // qpos[19..33] = torso + 14 arm joints
-        sd->qvel[6 + 12 + i] = cur.dqu[i];    // qvel[18..32]
+        sd->qpos[7 + coff + i] = cur.qu[i];
+        sd->qvel[6 + coff + i] = cur.dqu[i];
       }
       for (int e = 0; e < g_model->neq; e++) {
+        if (eq_weld[e]) {
+          // pelvis world-weld (upper node): relpose (eq_data[3..9]) = measured base
+          // pos+quat, so every rollout pins the base where it ACTUALLY is (the lower
+          // MPC owns balance; this model only believes the result). Mirrors the
+          // task-side retarget in upper.cc TransitionLocked onto the PLANNER model.
+          for (int k = 0; k < 3; k++) {
+            g_model->eq_data[e * mjNEQDATA + 3 + k] = sd->qpos[k];
+            const_cast<mjtNum*>(g_agent_model->eq_data)[e * mjNEQDATA + 3 + k] = sd->qpos[k];
+          }
+          for (int k = 0; k < 4; k++) {
+            g_model->eq_data[e * mjNEQDATA + 6 + k] = sd->qpos[3 + k];
+            const_cast<mjtNum*>(g_agent_model->eq_data)[e * mjNEQDATA + 6 + k] = sd->qpos[3 + k];
+          }
+          continue;
+        }
         if (eq_motor[e] < 0) continue;
-        mjtNum v = cur.qu[eq_motor[e] - 12];
+        mjtNum v = cur.qu[eq_motor[e] - coff];
         g_model->eq_data[e * mjNEQDATA + 0] = v;
         const_cast<mjtNum*>(g_agent_model->eq_data)[e * mjNEQDATA + 0] = v;
       }
@@ -723,7 +751,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   const double pred_dt   = g_model->opt.timestep;     // native model step (0.002) == twin granularity
   double ewma_comp = 1.0 / ctrl_hz;                   // measured per-tick compute time (EWMA), seeded
   double last_cmd_q[kMaxNU];
-  for (int i = 0; i < cfg.nu; i++) last_cmd_q[i] = sd->qpos[7 + i];   // home target until first publish
+  for (int i = 0; i < cfg.nu; i++) last_cmd_q[i] = sd->qpos[7 + moff + i];   // home target until first publish
   // ---- bring-up ramp state: blend ALL joints from the measured power-on pose to the
   //      home/policy target over kStartRampSec so the warmup->policy switch never snaps.
   const double start_ramp_sec = kStartRampSec;
@@ -738,7 +766,7 @@ int RunDeployNode(const NodeConfig& cfg) {
     if (hk < 0) hk = 0;
     std::fprintf(stderr, "[node] bring-up ramp destination keyframe: '%s'\n",
                  mj_id2name(g_model, mjOBJ_KEY, hk));
-    for (int i = 0; i < cfg.nu; i++) home_q[i] = g_model->key_qpos[hk * nq + 7 + i]; }
+    for (int i = 0; i < cfg.nu; i++) home_q[i] = g_model->key_qpos[hk * nq + 7 + moff + i]; }
   double arm_q_init[kMaxNU];
   for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
   bool arm_init_set = false;
@@ -755,18 +783,19 @@ int RunDeployNode(const NodeConfig& cfg) {
       mju_copy(gd->qpos, s->qpos, nq);
       mju_zero(gd->qvel, nv);
       mj_forward(g_model, gd);
-      for (int i = 0; i < cfg.nu; i++) pdat->qfrc_applied[6 + i] = gff * gd->qfrc_bias[6 + i];
+      for (int i = 0; i < cfg.nu; i++)
+        pdat->qfrc_applied[6 + moff + i] = gff * gd->qfrc_bias[6 + moff + i];
     }
     for (int k = 0; k < nsub; k++) {
       for (int i = 0; i < nact; i++) pdat->ctrl[i] = cmd_q[i];   // position-actuator target = in-flight cmd
       mj_step(g_model, pdat);
     }
     bool ok = true;                                     // discard a blown-up rollout, keep measured state
-    for (int k = 0; ok && k < 7 + cfg.nu; k++) if (!std::isfinite(pdat->qpos[k])) ok = false;
-    for (int k = 0; ok && k < 6 + cfg.nu; k++) if (!std::isfinite(pdat->qvel[k])) ok = false;
+    for (int k = 0; ok && k < 7 + moff + cfg.nu; k++) if (!std::isfinite(pdat->qpos[k])) ok = false;
+    for (int k = 0; ok && k < 6 + moff + cfg.nu; k++) if (!std::isfinite(pdat->qvel[k])) ok = false;
     if (!ok) return;
-    for (int k = 0; k < 7 + cfg.nu; k++) s->qpos[k] = pdat->qpos[k];
-    for (int k = 0; k < 6 + cfg.nu; k++) s->qvel[k] = pdat->qvel[k];
+    for (int k = 0; k < 7 + moff + cfg.nu; k++) s->qpos[k] = pdat->qpos[k];
+    for (int k = 0; k < 6 + moff + cfg.nu; k++) s->qvel[k] = pdat->qvel[k];
   };
   std::fprintf(stderr, "[node] latency-comp ON: predict-forward %s%s (extra %.1fms, cap %.0fms); "
                "plan + policy read at the landing time\n",
@@ -939,7 +968,7 @@ int RunDeployNode(const NodeConfig& cfg) {
       mju_copy(gd->qpos, sd->qpos, nq);
       mju_zero(gd->qvel, nv);
       mj_forward(g_model, gd);
-      for (int i = 0; i < cfg.nu; i++) tau[i] = gff * gd->qfrc_bias[6 + i];
+      for (int i = 0; i < cfg.nu; i++) tau[i] = gff * gd->qfrc_bias[6 + moff + i];
     }
 
     // ---- live strategy-switch blend: on a pending switch, snapshot the CURRENT measured pose
@@ -1019,12 +1048,16 @@ int RunDeployNode(const NodeConfig& cfg) {
     // ankle-roll zero-offset: shift the COMMAND by the calibration so the physical joint reaches
     // the planner's intended (corrected) angle. Pairs with the belief correction in fill_state;
     // applied to tgt_q so mc.q() AND last_cmd_q (latency model) stay consistent. 0 = no-op.
-    tgt_q[5]  += ankle_off_l;
-    tgt_q[11] += ankle_off_r;
-    // SAFETY: the offset is applied after the torque clamp, so hard-clamp the ankle_roll command
-    // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
-    tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
-    tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
+    // LEG indices 5/11 -> gated to leg-actuating nodes (motor_offset 0): on the upper node those
+    // rows are ARM joints and the +-0.26 hard clamp would destroy their commands.
+    if (moff == 0) {
+      tgt_q[5]  += ankle_off_l;
+      tgt_q[11] += ankle_off_r;
+      // SAFETY: the offset is applied after the torque clamp, so hard-clamp the ankle_roll command
+      // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
+      tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
+      tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
+    }
 
     // ---- R6 (2026-07-04): bad-orientation damp fallback. Unitree's own
     // deploy FSM does bad_orientation(1.0 rad) -> Passive; without it the
@@ -1046,12 +1079,15 @@ int RunDeployNode(const NodeConfig& cfg) {
       }
     }
 
-    // build unitree_hg LowCmd_
+    // build unitree_hg LowCmd_. The node writes ONLY its own motor rows
+    // (moff..moff+nu-1); the safety layer's split merge reads exactly those
+    // rows from this channel (upper node: rows 12..26 of lowcmd_upper_in),
+    // so the untouched default-zero rows are never applied.
     LowCmd cmd{};
     cmd.mode_pr() = 0;                       // PR mode
     cmd.mode_machine() = cur.mode_machine;   // echo (required by the real robot)
     for (int i = 0; i < cfg.nu; i++) {
-      auto& mc = cmd.motor_cmd().at(i);
+      auto& mc = cmd.motor_cmd().at(moff + i);
       mc.mode() = 1;  // 1 = enable
       if (g_bad_orient_latched) {
         mc.q() = static_cast<float>(cur.q[i]);   // irrelevant at kp=0
@@ -1142,6 +1178,30 @@ int RunDeployNode(const NodeConfig& cfg) {
                      100 * tau_now[20] / cfg.tau_estop[20], 100 * tau_now[23] / cfg.tau_estop[23],
                      100 * tau_now[10] / cfg.tau_estop[10], 100 * tau_now[13] / cfg.tau_estop[13],
                      100 * tau_now[16] / cfg.tau_estop[16], 100 * tau_now[4] / cfg.tau_estop[4]);
+      } else if (cfg.telemetry == Telemetry::kUpperBody) {
+        // UPPER-BODY node (nu=15, actuator order: torso, L arm 1..7, R arm 8..14).
+        // Torso + shoulder-pitch cmd/measured (the reach DoFs), elbows, base tilt
+        // (believed via IMU/weld -- the LOWER node owns balancing it).
+        std::fprintf(stderr,
+                     "[node] t=%5.1fs(twin=%5.1f) %s tilt=%4.1f "
+                     "torso(cmd/ms)=%+.0f/%+.0f LshP=%+.0f/%+.0f RshP=%+.0f/%+.0f "
+                     "Lelb=%+.0f/%+.0f Relb=%+.0f/%+.0f deg  plan=%.0f/s lat=%.0fms\n",
+                     wall, twin_time, warming ? "WARMUP" : "policy", tilt,
+                     tgt_q[0] * 57.29578, cur.q[0] * 57.29578,
+                     tgt_q[1] * 57.29578, cur.q[1] * 57.29578,
+                     tgt_q[8] * 57.29578, cur.q[8] * 57.29578,
+                     tgt_q[4] * 57.29578, cur.q[4] * 57.29578,
+                     tgt_q[11] * 57.29578, cur.q[11] * 57.29578,
+                     prate, dlt * 1e3);
+        // torque headroom (%estop) on the arm joints that limit us (shoulder-pitch
+        // estop 32 Nm, elbow 14.4, wrist-pitch 9.5). nu-idx: LshP=1 Lelb=4 LwrP=6 |
+        // RshP=8 Relb=11 RwrP=13.
+        std::fprintf(stderr,
+                     "[node]        tau%%estop  LshP=%.0f Lelb=%.0f LwrP=%.0f | "
+                     "RshP=%.0f Relb=%.0f RwrP=%.0f  (>90 = near-trip)\n",
+                     100 * tau_now[1] / cfg.tau_estop[1], 100 * tau_now[4] / cfg.tau_estop[4],
+                     100 * tau_now[6] / cfg.tau_estop[6], 100 * tau_now[8] / cfg.tau_estop[8],
+                     100 * tau_now[11] / cfg.tau_estop[11], 100 * tau_now[13] / cfg.tau_estop[13]);
       } else {
         std::fprintf(stderr,
                      "[node] t=%5.1fs(twin=%5.1f) %s z=%.3f tilt=%4.1f lean(fwd/lat)=%+.1f/%+.1f "

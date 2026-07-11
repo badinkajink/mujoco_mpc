@@ -57,9 +57,10 @@ inline constexpr float  kSafeHoldKd = 2.0f;       // damping-stop kd on safe-hol
 inline constexpr double kImuOffset[3] = {-0.04452, -0.01891, 0.27756};
 
 // Which per-second telemetry block the status line prints (the ONLY cosmetic
-// divergence between the two nodes: shoulders for the full-body node, ankle
-// pitch + knees for the legs-only node).
-enum class Telemetry { kFullBody, kLowerBody };
+// divergence between the nodes: shoulders for the full-body node, ankle
+// pitch + knees for the legs-only node, torso+shoulders/elbows for the
+// upper-body node).
+enum class Telemetry { kFullBody, kLowerBody, kUpperBody };
 
 struct NodeConfig {
   // ---- per-node compile-time tables (point at static arrays in the main) ----
@@ -72,7 +73,19 @@ struct NodeConfig {
   int frc_limit_begin = 0;             // first index to patch (13 = arms only, full-body node)
   const char* const* joint_names = nullptr;  // [nu]
   Telemetry telemetry = Telemetry::kFullBody;
-  int upper_count = 0;                 // 15 = read torso+arms from lowstate (legs-only node)
+  // ---- actuated-block placement (UPPER-BODY node, 2026-07-10; additive) ----
+  // Actuated joint i lives at lowstate/lowcmd motor (motor_offset + i) and at
+  // planner qpos[7 + motor_offset + i] / dof[6 + motor_offset + i]. 0 = the
+  // existing full-body / legs-only nodes (byte-identical); 12 = the upper-body
+  // node (torso+arms = motor rows 12..26, the safety layer's upper split).
+  int motor_offset = 0;
+  // ---- COMPLEMENT joints ("X-aware" balance/eq retarget) ----
+  // upper_count joints read from lowstate starting at motor comp_motor_offset
+  // and injected into the planner state + equality-lock retargets each tick.
+  //   legs-only node:  upper_count=15, comp_motor_offset=12 (ARM-aware: torso+arms)
+  //   upper-body node: upper_count=12, comp_motor_offset=0  (LEG-aware: the 12 legs)
+  int upper_count = 0;                 // count of complement joints to read (0 = off)
+  int comp_motor_offset = 12;          // first complement motor idx (12 = historical arm-aware)
 
   // ---- surviving CLI flags (differ between plants / missions) ----
   std::string task_id;                 // MJPC task name
