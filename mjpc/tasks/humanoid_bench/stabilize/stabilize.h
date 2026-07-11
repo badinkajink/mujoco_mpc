@@ -24,6 +24,13 @@ constexpr int kStabilizeStrategyParameterIndex = 1;
 // would reset to keyframe 0 and snap the body back through stand_up).
 constexpr int kStabilizePhaseParameterIndex = 2;
 
+// ARM_PLAN mode-2 preview seam (2026-07-10): gRPC-settable plan = trigger +
+// duration + 14 joint goals (motor idx 13..26, L sh_p/sh_r/sh_y/elbow/wr_r/
+// wr_p/wr_y then R same). XML order after residual_Phase fixes the indices.
+constexpr int kStabilizeArmPlanActiveParameterIndex = 3;
+constexpr int kStabilizeArmPlanSecParameterIndex = 4;
+constexpr int kStabilizeArmGoalParameterIndex0 = 5;   // J0..J13 -> 5..18
+
 constexpr char kStabilizeStrategyFilePath[] =
     SOURCE_DIR "/mjpc/tasks/humanoid_bench/stabilize/strategies/";
 
@@ -233,6 +240,12 @@ class stabilize : public Task {
                      const double* qvel, double time,
                      double* ctrl) const override;
 
+  // ARM_PLAN mode-2 rollout injection: per-worker eq-disable + qfrc PD toward
+  // the min-jerk segment latched in TransitionLocked, so every rollout
+  // physically replays the commanded future arm motion (preview). Pristine
+  // process (plan never armed) = first-branch return = byte-identical.
+  void ModifyRolloutState(const mjModel* model, mjData* data) const override;
+
   // Slider layout (Lean H12) — user's 6-phase decomposition:
   //   0  stand            — stand_up
   //   1  arm_extend       — stand → arm_extend_standing (arm out, body upright)
@@ -328,6 +341,19 @@ class stabilize : public Task {
   std::array<double, 3> target_position_;
   mjpc::humanoid::MotionStrategy motion_strategy_;
   int current_strategy_;
+
+  // ARM_PLAN mode-2 state. Written ONLY in TransitionLocked (once per plan,
+  // under the transition lock, before rollout workers fan out -- same
+  // guarantee the F1-A shared-eq_data write relies on); read from
+  // ModifyRolloutState on the worker threads. arm_plan_touched_ stays true
+  // for the process lifetime once a plan has armed: reused worker mjData may
+  // carry stale eq_active/qfrc_applied, so the restore path must keep running.
+  bool arm_plan_active_ = false;
+  bool arm_plan_touched_ = false;
+  double arm_plan_t0_ = 0.0;
+  double arm_plan_T_ = 1.0;
+  double arm_plan_q0_[14] = {0};
+  double arm_plan_qg_[14] = {0};
 
   // Weight-ramp state (parallel to ResidualFn::prev_phase_*_scale_):
   //   xml_default_weights_  -- per-residual default from sensor user data,

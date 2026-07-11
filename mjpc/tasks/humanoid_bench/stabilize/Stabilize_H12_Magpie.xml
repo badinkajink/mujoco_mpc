@@ -554,6 +554,30 @@
              slide Phase 3→4→5) without the body snapping back to
              stand_up on every strategy switch. -->
         <numeric name="residual_Phase" data="-1 -1 5" />
+        <!-- ARM_PLAN mode-2 preview seam (2026-07-10, plan doc
+             h12/arm_plan_merge_plan_2026-07-09.md): gRPC-settable min-jerk arm
+             segment consumed when numeric arm_aware_plan >= 2. "Arm Plan
+             Active" rising edge latches (t0, start pose) in TransitionLocked;
+             "Arm Plan Sec" = segment duration; "Arm Goal J0..J13" = target
+             pose, motor idx 13..26 (L sh_p sh_r sh_y elbow wr_r wr_p wr_y,
+             then R same). Defaults 0 -> latch never arms -> byte-identical.
+             Indices 3/4/5..18 = kStabilizeArmPlan* in stabilize.h. -->
+        <numeric name="residual_Arm Plan Active" data="0 0 1" />
+        <numeric name="residual_Arm Plan Sec" data="1.0 0.2 5.0" />
+        <numeric name="residual_Arm Goal J0" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J1" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J2" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J3" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J4" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J5" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J6" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J7" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J8" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J9" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J10" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J11" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J12" data="0 -3.2 3.2" />
+        <numeric name="residual_Arm Goal J13" data="0 -3.2 3.2" />
     </custom>
 
     <sensor>

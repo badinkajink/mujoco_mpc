@@ -113,6 +113,18 @@ class Task {
                              const double* qvel, double time,
                              double* ctrl) const {}
 
+  // Per-rollout-step mutable-mjData hook, called in Trajectory::NoisyRollout
+  // right before mj_step on the WORKER's own mjData (never the shared model).
+  // Unlike ModifyControl (ctrl-only) this can drive UNACTUATED dofs inside
+  // imagined futures: disable per-data equality locks (data->eq_active is
+  // per-mjData since MuJoCo 3.0) and write qfrc_applied PD toward a scripted
+  // time-indexed trajectory, so rollouts contain the true reaction torques of
+  // known future motion (arm_plan preview). Both eq_active and qfrc_applied
+  // PERSIST across mj_step and worker mjData is REUSED across rollouts -- an
+  // override that activates them MUST also restore them when inactive.
+  // Default no-op -> byte-identical for every task that does not override.
+  virtual void ModifyRolloutState(const mjModel* model, mjData* data) const {}
+
   // get information from model
   // calls ResetLocked and InternalResidual()->Update() while holding a lock
   void Reset(const mjModel* model);

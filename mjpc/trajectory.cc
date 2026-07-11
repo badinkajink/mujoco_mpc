@@ -149,6 +149,10 @@ void Trajectory::NoisyRollout(
     if (task) task->ModifyControl(model, data->qpos, data->qvel, data->time,
                                   data->ctrl);
 
+    // per-step mutable-mjData hook (default no-op): scripted physical motion
+    // of unactuated dofs inside this rollout (arm_plan preview -- see task.h).
+    if (task) task->ModifyRolloutState(model, data);
+
     // apply perturbation
     if (xfrc_std > 0) {
       // convert rate and scale to discrete time (Ornstein–Uhlenbeck)

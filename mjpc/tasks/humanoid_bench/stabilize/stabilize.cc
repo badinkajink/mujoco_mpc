@@ -2665,6 +2665,61 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
         }
       }
     }
+    // ---- ARM_PLAN mode 2 (2026-07-10): trajectory-preview latch ---------- //
+    // arm_aware_plan >= 2 upgrades F1-A/F1b from "one pose per plan" to a full
+    // min-jerk TRAJECTORY the rollouts replay physically (ModifyRolloutState:
+    // per-worker eq-disable + qfrc PD -> rollouts feel the true reaction torque
+    // of the commanded swing, the disturbance F1b's linear lead cannot carry).
+    // Latch runs HERE, once per plan under the transition lock, BEFORE the
+    // rollout workers fan out. Plan = ("Arm Plan Active" rising edge, "Arm Plan
+    // Sec" duration, "Arm Goal J0..J13" gRPC params, motor idx 13..26). While
+    // live, shared eq_data is retargeted to the plan ENDPOINT (irrelevant to
+    // workers while their eq is disabled, but correct the instant the plan
+    // completes and eq re-enables); on completion the latch clears and plain
+    // F1-A resumes (hold at goal == hold at measured). Default 0/1 -> latch
+    // never arms -> byte-identical.
+    {
+      double aap_mode = (aap_id >= 0)
+          ? model->numeric_data[model->numeric_adr[aap_id]] : 1.0;
+      bool params_ok =
+          (int)parameters.size() > kStabilizeArmGoalParameterIndex0 + 13;
+      if (aap_mode >= 1.5 && params_ok) {
+        bool want = parameters[kStabilizeArmPlanActiveParameterIndex] > 0.5;
+        if (want && !arm_plan_active_) {
+          arm_plan_t0_ = data->time;
+          arm_plan_T_ = std::max(0.2,
+              (double)parameters[kStabilizeArmPlanSecParameterIndex]);
+          for (int e = 0; e < model->neq; e++) {
+            if (model->eq_type[e] != mjEQ_JOINT) continue;
+            int jid = model->eq_obj1id[e];
+            int midx = model->jnt_qposadr[jid] - 7;
+            if (midx >= 13 && midx <= 26) {
+              arm_plan_q0_[midx - 13] = data->qpos[model->jnt_qposadr[jid]];
+              arm_plan_qg_[midx - 13] =
+                  parameters[kStabilizeArmGoalParameterIndex0 + (midx - 13)];
+            }
+          }
+          arm_plan_active_ = true;
+          arm_plan_touched_ = true;  // workers run restore hygiene from now on
+        } else if (!want && arm_plan_active_) {
+          arm_plan_active_ = false;
+        }
+        if (arm_plan_active_ && data->time >= arm_plan_t0_ + arm_plan_T_) {
+          arm_plan_active_ = false;  // complete: F1-A holds at goal
+        }
+        if (arm_plan_active_) {
+          for (int e = 0; e < model->neq; e++) {
+            if (model->eq_type[e] != mjEQ_JOINT) continue;
+            int jid = model->eq_obj1id[e];
+            int midx = model->jnt_qposadr[jid] - 7;
+            if (midx >= 13 && midx <= 26)
+              model->eq_data[e * mjNEQDATA + 0] = arm_plan_qg_[midx - 13];
+          }
+        }
+      } else if (arm_plan_active_) {
+        arm_plan_active_ = false;    // mode dropped below 2 mid-plan
+      }
+    }
   }
   // ---- FORCED CATCH-STEP LATCH (strategy 20 quiet stand, 2026-07-03) ------ //
   // catch_trace.py proved the cost-side catch-step NEVER lifts a foot on a
@@ -3218,6 +3273,69 @@ void stabilize::ResetLocked(const mjModel *model) {
 // target for qpos[7+i] (position-servo). FK-measured gains (twin model): +hip_
 // pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both legs.
 // ============================================================================
+// ARM_PLAN mode-2 rollout injection (2026-07-10). Called per rollout step on
+// the WORKER's own mjData (Trajectory::NoisyRollout, before mj_step). While a
+// plan is live: disable that worker's arm eq-locks (data->eq_active is
+// per-mjData, MuJoCo 3.x -- thread-safe vs the shared const model) and drive
+// the 14 arm dofs with PD torque via qfrc_applied toward the min-jerk segment
+// latched in TransitionLocked. A PHYSICAL torque, so the pelvis feels the true
+// shoulder reaction of the commanded swing -- rollouts score leg candidates
+// against the coming disturbance (APA preview). Never runs both eq-lock and PD
+// on one joint (soft equality + applied torque fight through the solver).
+// HYGIENE (mandatory): qfrc_applied and eq_active both PERSIST across mj_step
+// and worker mjData is REUSED across rollouts, so once a plan has ever run
+// (arm_plan_touched_) the inactive path must restore eq_active=1 / qfrc=0
+// every step. Pristine processes (plan never armed) return at the first
+// branch -> byte-identical for mode 0/1 and every other strategy.
+// Gains = official H1-2 arm_sdk servo values (sh_p/sh_r 120/2, sh_y 80/1.5,
+// elbow+wrists 50/1); tau clamps = per-joint URDF effort limits (40/40/18/18/
+// 19/19/19 Nm) -- the distal five joints have <half the shoulder motor.
+// Explicit-PD stability at agent_timestep h=0.010: kp*h^2 < 4*m_eff and
+// kd*h < 2*m_eff -> worst case needs m_eff > 3e-3 (shoulder) / 5e-3 (kd=1)
+// kg*m^2; H1-2 arm dofs incl. armature satisfy this (bench-verified via
+// rollout-divergence watch, CheckWarnings backstop in trajectory.cc).
+void stabilize::ModifyRolloutState(const mjModel *model, mjData *data) const {
+  if (!arm_plan_active_ && !arm_plan_touched_) return;  // pristine: no-op
+  static const double kArmKp[7]  = {120, 120, 80, 50, 50, 50, 50};
+  static const double kArmKd[7]  = {2.0, 2.0, 1.5, 1.0, 1.0, 1.0, 1.0};
+  static const double kArmTau[7] = {40, 40, 18, 18, 19, 19, 19};
+  // min-jerk evaluation at this worker's rollout time
+  double s = 0.0, sd = 0.0;
+  bool live = arm_plan_active_;
+  if (live) {
+    double tau = (data->time - arm_plan_t0_) / arm_plan_T_;
+    if (tau <= 0.0) { s = 0.0; sd = 0.0; }
+    else if (tau >= 1.0) { s = 1.0; sd = 0.0; }
+    else {
+      s  = tau * tau * tau * (10.0 + tau * (-15.0 + 6.0 * tau));
+      sd = tau * tau * (30.0 + tau * (-60.0 + 30.0 * tau)) / arm_plan_T_;
+    }
+  }
+  for (int e = 0; e < model->neq; e++) {
+    if (model->eq_type[e] != mjEQ_JOINT) continue;
+    int jid = model->eq_obj1id[e];
+    int qadr = model->jnt_qposadr[jid];
+    int midx = qadr - 7;
+    if (midx < 13 || midx > 26) continue;
+    int j = midx - 13;            // 0..13; per-arm joint class = j % 7
+    int dadr = model->jnt_dofadr[jid];
+    if (live) {
+      double dq = arm_plan_qg_[j] - arm_plan_q0_[j];
+      double q_ref  = arm_plan_q0_[j] + dq * s;
+      double qd_ref = dq * sd;
+      int c = j % 7;
+      double tau_cmd = kArmKp[c] * (q_ref - data->qpos[qadr]) +
+                       kArmKd[c] * (qd_ref - data->qvel[dadr]);
+      tau_cmd = mju_clip(tau_cmd, -kArmTau[c], kArmTau[c]);
+      data->eq_active[e] = 0;
+      data->qfrc_applied[dadr] = tau_cmd;
+    } else {
+      data->eq_active[e] = 1;     // restore (values = model defaults ->
+      data->qfrc_applied[dadr] = 0.0;  // behavior identical to never-touched)
+    }
+  }
+}
+
 void stabilize::ModifyControl(const mjModel *model, const double *qpos,
                          const double *qvel, double time, double *ctrl) const {
   const std::string &kfname = residual_.residual_keyframe_.name;
