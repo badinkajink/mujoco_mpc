@@ -104,10 +104,10 @@
       "Leg Clearance": 0.0,
       "Torso Forward Tilt": 0.0,
       "Posture": 12.0,
-      "Balance": 2.5,
-      "Symmetry": 200.0,
-      "Base Height": 450.0,
-      "Angular Momentum": 5.0,
+      "Balance": 50.0,
+      "Symmetry": 150.0,
+      "Base Height": 275.0,
+      "Angular Momentum": 10.0,
       "Lateral Center": 150.0,
       "Height": 100.0,
       "CoM Vel.": 10.0,
@@ -124,7 +124,9 @@
       "Control": 0.05,
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
-      "Knees Straight": 40.0
+      "Knees Straight": 40.0,
+      "Foot Slip": 25.0,
+      "Stance Width": 100.0
     },
     "brace_force_target": 0.0
   }
