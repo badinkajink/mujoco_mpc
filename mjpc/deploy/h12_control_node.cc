@@ -47,9 +47,13 @@ ABSL_FLAG(std::string, task, "Lean H12 Magpie", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
           "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left "
           "16=counterbalance 18=squatter 20=stumble 21=reach 23=trot "
-          "25=straighten/bring-up 31-35=lean pipeline ...). For harness-release "
-          "bring-up boot with --strategy 25 (wide-basin drive-to-upright from a "
-          "leaning release), then live-switch to 6 once stable.");
+          "25=straighten/bring-up 31-35=lean pipeline ...). For slumped/leaning "
+          "power-on boot with --strategy 25: phase 0 drives to upright+centered "
+          "from the measured pose, then a basin gate (tilt<=3deg, z>=1.00, "
+          "knees<=0.50rad i.e. legs actually extended, quiescent, 1.5s "
+          "sustained) AUTO-ADVANCES into a stand phase running "
+          "strat-6 weights/keyframe -- no manual switch needed; live-switch to "
+          "other strategies as usual afterward.");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables. "
           "REAL robot: 0.85. TWIN bench: 0 (the twin's gravcomp over-lightens the legs "
@@ -80,6 +84,11 @@ ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
 ABSL_FLAG(double, ankle_roll_offset_r_deg, 0.0,
           "RIGHT ankle-roll zero-offset calibration (deg); see --ankle_roll_offset_l_deg. The "
           "free-hang showed the RIGHT foot resting ~6 deg more rolled (edge) than the left.");
+ABSL_FLAG(double, ankle_pitch_offset_l_deg, 0.0,
+          "LEFT ankle-pitch zero-offset calibration (deg), off = encoder - true; same "
+          "belief/command pairing as the roll offsets. Measure with ankle_zero_snap.py.");
+ABSL_FLAG(double, ankle_pitch_offset_r_deg, 0.0,
+          "RIGHT ankle-pitch zero-offset calibration (deg); see --ankle_pitch_offset_l_deg.");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = auto-pin the 192.168.123.x robot NIC when present, "
           "else autodetermine/loopback for the twin)");
@@ -183,6 +192,8 @@ int main(int argc, char** argv) {
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
+  cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
+  cfg.ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
   cfg.network_interface = absl::GetFlag(FLAGS_network_interface);
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);

@@ -105,6 +105,8 @@ struct NodeConfig {
   double bad_orient_rad = 0.0;
   double ankle_roll_offset_l_deg = 0.0;
   double ankle_roll_offset_r_deg = 0.0;
+  double ankle_pitch_offset_l_deg = 0.0;  // per-ankle PITCH zero calib; same belief/command
+  double ankle_pitch_offset_r_deg = 0.0;  // pairing as the roll offsets (H1-2 stores no zero)
   std::string network_interface;       // "" = auto-pin 192.168.123.x, else autodetermine
   int domain_id = 0;                   // default read from $ROS_DOMAIN_ID in the mains
   int grpc_port = 10000;               // monitor server; 0 disables

@@ -17,6 +17,7 @@
 
 #include "mjpc/deploy/deploy_common.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -669,6 +670,15 @@ int RunDeployNode(const NodeConfig& cfg) {
                 cfg.imu_pitch_offset_deg, cfg.imu_roll_offset_deg);
   const double ankle_off_l = cfg.ankle_roll_offset_l_deg * M_PI / 180.0;
   const double ankle_off_r = cfg.ankle_roll_offset_r_deg * M_PI / 180.0;
+  const double ankle_poff_l = cfg.ankle_pitch_offset_l_deg * M_PI / 180.0;
+  const double ankle_poff_r = cfg.ankle_pitch_offset_r_deg * M_PI / 180.0;
+  const bool ankle_calib_on = (ankle_off_l != 0.0 || ankle_off_r != 0.0 ||
+                               ankle_poff_l != 0.0 || ankle_poff_r != 0.0);
+  if (ankle_calib_on)
+    std::printf("[node] ankle zero-offset calibration ON (deg, off = encoder - true): "
+                "pitch L%+.2f R%+.2f  roll L%+.2f R%+.2f\n",
+                cfg.ankle_pitch_offset_l_deg, cfg.ankle_pitch_offset_r_deg,
+                cfg.ankle_roll_offset_l_deg, cfg.ankle_roll_offset_r_deg);
 
   auto fill_state = [&](const StateData& cur) {
     double roff[3];
@@ -696,12 +706,15 @@ int RunDeployNode(const NodeConfig& cfg) {
     mju_normalize4(bq);
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];
     for (int i = 0; i < cfg.nu; i++) sd->qpos[7 + moff + i] = cur.q[i];
-    // ankle-roll zero-offset calibration: the planner sees the CORRECTED roll (idx 5=L, 11=R
-    // ankle_roll) so it doesn't chase a foot only the encoder thinks is rolled. Pairs with the
-    // command shift before publish below. 0 = no-op. LEG indices -> nodes that actuate the
-    // legs only (motor_offset 0); on the upper node idx 5/11 are ARM joints.
+    // ankle zero-offset calibration: the planner sees the CORRECTED angles (idx 4/10 =
+    // ankle_pitch L/R, 5/11 = ankle_roll L/R) so it doesn't chase a foot only the encoder
+    // thinks is tilted. off = encoder - true. Pairs with the wire-command shift before
+    // publish below. 0 = no-op. LEG indices -> nodes that actuate the legs only
+    // (motor_offset 0); on the upper node these rows are ARM joints.
     if (moff == 0) {
+      sd->qpos[7 + 4]  -= ankle_poff_l;
       sd->qpos[7 + 5]  -= ankle_off_l;
+      sd->qpos[7 + 10] -= ankle_poff_r;
       sd->qpos[7 + 11] -= ankle_off_r;
     }
     for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
@@ -1028,14 +1041,29 @@ int RunDeployNode(const NodeConfig& cfg) {
       tgt_q[i] = base;
     }
 
+    // ankle zero-offset: shift the WIRE command by the calibration so the physical joint
+    // reaches the planner's intended (corrected) angle. Pairs with the belief correction in
+    // fill_state. Applied BEFORE the torque clamp so the clamp bounds the delta the motor PD
+    // actually sees (encoder frame) -- the old shift-after-clamp order left a kp*off hole in
+    // the estop guarantee. tgt_q is ENCODER/wire frame from here on; last_cmd_q un-shifts it
+    // back to the true frame below (2026-07-10: storing the shifted value double-counted the
+    // offset in the latency prediction -> feet-wide/backward-lean on the real A/B). 0 = no-op.
+    // LEG indices 4/5/10/11 -> gated to leg-actuating nodes (motor_offset 0): on the upper
+    // node those rows are ARM joints and the ankle range clamps would destroy their commands.
+    if (moff == 0 && ankle_calib_on) {
+      tgt_q[4]  += ankle_poff_l;
+      tgt_q[5]  += ankle_off_l;
+      tgt_q[10] += ankle_poff_r;
+      tgt_q[11] += ankle_off_r;
+    }
+
     // H2 torque-budget clamp: bound the emitted position target so the FULL commanded torque
     // the onboard/safety PD applies -- tau_ff + KP*(tgt-q) + KV*(0-dq) -- stays within
     // kClampRatio x the safety estop. The old clamp only bounded the KP*(tgt-q) term and
     // ignored the gravity feedforward tau_ff and the KV*dq transient, so the "estop
     // impossible" guarantee was false. The PD headroom is reduced by |tau_ff| and KV*|dq|
     // before converting to a position delta. Applied to the FINAL target (ramp + policy
-    // uniformly); last_cmd_q below stores the clamped value so the latency predictor models
-    // what was actually sent.
+    // uniformly).
     for (int i = 0; i < cfg.nu; i++) {
       const double budget = kClampRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
@@ -1045,16 +1073,11 @@ int RunDeployNode(const NodeConfig& cfg) {
       else if (tgt_q[i] > hi) tgt_q[i] = hi;
     }
 
-    // ankle-roll zero-offset: shift the COMMAND by the calibration so the physical joint reaches
-    // the planner's intended (corrected) angle. Pairs with the belief correction in fill_state;
-    // applied to tgt_q so mc.q() AND last_cmd_q (latency model) stay consistent. 0 = no-op.
-    // LEG indices 5/11 -> gated to leg-actuating nodes (motor_offset 0): on the upper node those
-    // rows are ARM joints and the +-0.26 hard clamp would destroy their commands.
-    if (moff == 0) {
-      tgt_q[5]  += ankle_off_l;
-      tgt_q[11] += ankle_off_r;
-      // SAFETY: the offset is applied after the torque clamp, so hard-clamp the ankle_roll command
-      // to the joint's ctrl range (+-0.26 rad == +-14.9 deg) -> the offset can NEVER drive past limit.
+    // SAFETY: hard-clamp the ankle commands to the joint ctrl range so the zero-offset can
+    // NEVER drive past a limit (pitch [-0.897, 0.524] rad, roll +-0.262 rad).
+    if (moff == 0 && ankle_calib_on) {
+      tgt_q[4]  = std::fmin(0.524, std::fmax(-0.897, tgt_q[4]));
+      tgt_q[10] = std::fmin(0.524, std::fmax(-0.897, tgt_q[10]));
       tgt_q[5]  = std::fmin(0.26, std::fmax(-0.26, tgt_q[5]));
       tgt_q[11] = std::fmin(0.26, std::fmax(-0.26, tgt_q[11]));
     }
@@ -1108,8 +1131,19 @@ int RunDeployNode(const NodeConfig& cfg) {
 
     // latency-comp bookkeeping: this command is the in-flight target during the NEXT prediction
     // window; and (AUTO mode) fold this tick's compute time tick-start->post-write into the EWMA Δ.
+    // The ankle rows are un-shifted back to the TRUE frame: fill_state hands predict_forward a
+    // belief-corrected (true-frame) model, so feeding it the encoder-frame wire command would
+    // double-count the zero offset in every prediction (exactly off = up to 5 deg of phantom
+    // ankle target -- the 2026-07-10 feet-wide/backward-lean failure). wire - off is exact even
+    // after the clamps above.
     for (int i = 0; i < cfg.nu; i++)
       last_cmd_q[i] = tgt_q[i];
+    if (moff == 0 && ankle_calib_on) {
+      last_cmd_q[4]  -= ankle_poff_l;
+      last_cmd_q[5]  -= ankle_off_l;
+      last_cmd_q[10] -= ankle_poff_r;
+      last_cmd_q[11] -= ankle_off_r;
+    }
     if (lat_fixed <= 0.0) {
       double comp = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_tick).count();
       ewma_comp = 0.9 * ewma_comp + 0.1 * comp;
@@ -1245,6 +1279,44 @@ int RunDeployNode(const NodeConfig& cfg) {
                      "[node]        Rhand_fwd=%+.2fm  CoM_margin=%+.3fm "
                      "(+=CoM ahead of feet=fwd-tip risk)\n",
                      rhand_fwd, com_margin);
+      }
+      // Cost-term dump (debug, 2026-07-11): once/sec, every residual term on the
+      // live planning state (sd->sensordata already filled by residual_sensor_callback
+      // during mj_forward). Sorted by weighted contribution so the terms driving the
+      // planner jump out right before a tip/fall. Does NOT change any weights.
+      {
+        const mjpc::Task* task = g_agent.ActiveTask();
+        double terms_u[mjpc::kMaxCostTerms];
+        double terms_w[mjpc::kMaxCostTerms];
+        task->UnweightedCostTerms(terms_u, sd->sensordata);
+        task->CostTerms(terms_w, sd->sensordata);
+        struct CostRow {
+          const char* name;
+          double w, r, c;
+        };
+        std::vector<CostRow> rows;
+        rows.reserve(static_cast<size_t>(task->num_term));
+        double total = 0.0;
+        for (int i = 0; i < task->num_term; ++i) {
+          const char* nm =
+              (i < static_cast<int>(task->weight_names.size()) &&
+               !task->weight_names[i].empty())
+                  ? task->weight_names[i].c_str()
+                  : (g_model->names + g_model->name_sensoradr[i]);
+          rows.push_back(CostRow{nm, task->weight[i], terms_u[i], terms_w[i]});
+          total += terms_w[i];
+        }
+        std::sort(rows.begin(), rows.end(),
+                  [](const CostRow& a, const CostRow& b) { return a.c > b.c; });
+        std::fprintf(stderr,
+                     "[cost] t=%.1fs total=%.4f  "
+                     "(sorted by weighted contrib; w=weight r=norm c=weighted)\n",
+                     wall, total);
+        for (const CostRow& row : rows) {
+          std::fprintf(stderr,
+                       "[cost]   %-22s  w=%8.3f  r=%10.5f  c=%10.5f\n",
+                       row.name, row.w, row.r, row.c);
+        }
       }
     }
 

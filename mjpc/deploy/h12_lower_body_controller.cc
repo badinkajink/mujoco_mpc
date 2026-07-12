@@ -66,6 +66,14 @@ ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
 ABSL_FLAG(double, ankle_roll_offset_r_deg, 0.0,
           "RIGHT ankle-roll zero-offset calibration (deg); see --ankle_roll_offset_l_deg. The "
           "free-hang showed the RIGHT foot resting ~6 deg more rolled (edge) than the left.");
+ABSL_FLAG(double, ankle_pitch_offset_l_deg, 0.0,
+          "LEFT ankle-pitch zero-offset calibration (deg), off = encoder - true: SUBTRACTED from "
+          "the perceived pitch AND ADDED to the wire command (same pairing as the roll offsets). "
+          "The H1-2 stores NO ankle zero -- zero = wherever the A/B linkage sat at power-on -- so "
+          "a common-mode pitch error tilts the whole body -> steady lean / slow fore-aft hunt. "
+          "Measure with ankle_zero_snap.py over a LOADED quiet-stand recording. 0 = off.");
+ABSL_FLAG(double, ankle_pitch_offset_r_deg, 0.0,
+          "RIGHT ankle-pitch zero-offset calibration (deg); see --ankle_pitch_offset_l_deg.");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = auto-pin the 192.168.123.x robot NIC when present, "
           "else autodetermine/loopback for the twin)");
@@ -164,6 +172,8 @@ int main(int argc, char** argv) {
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
+  cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
+  cfg.ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
   cfg.network_interface = absl::GetFlag(FLAGS_network_interface);
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);
