@@ -18,6 +18,7 @@
 #include "mjpc/deploy/deploy_common.h"
 
 #include <algorithm>
+#include <limits>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -148,7 +149,25 @@ uint32_t Crc32Core(uint32_t* ptr, uint32_t len) {
 // estop bound clamped the planner's hip/ankle balance authority and regressed
 // the hold). <position>: gainprm[0]=kp, biasprm[1]=-kp, biasprm[2]=-kv. Call on
 // the loaded model BEFORE Agent::Initialize (it is const after GetModel()).
+//
+// ACTUATOR-AUTHORITY PARITY (frc_parity, 2026-07-11): see the NodeConfig::frc_parity
+// comment for the full diagnosis. When ON, EVERY actuator's forcerange is tightened to
+// the torque the node can actually emit -- kClampRatio * tau_estop, the exact H2 clamp
+// budget -- so the sampler stops planning single-support balance on phantom ankle/torso
+// authority. It only ever TIGHTENS (never loosens) an existing limit, so the arm patch
+// above still binds where it is stricter. This is a MODEL-PARITY fix, not a control law:
+// the planner keeps sampling, it just samples inside the envelope it will really get.
 void PatchActuators(mjModel* m, const NodeConfig& cfg) {
+  // Task-side default lives in the model as the `deploy_frc_parity` numeric (set by
+  // Task::PlannerNumericOverrides, applied by the caller BEFORE this runs). CLI wins.
+  bool parity = false;
+  if (cfg.frc_parity >= 0) {
+    parity = cfg.frc_parity > 0;
+  } else {
+    int pid = mj_name2id(m, mjOBJ_NUMERIC, "deploy_frc_parity");
+    parity = (pid >= 0) && (m->numeric_data[m->numeric_adr[pid]] > 0.5);
+  }
+
   for (int i = 0; i < cfg.nu && i < m->nu; i++) {
     m->actuator_gainprm[i * mjNGAIN + 0] = cfg.kp[i];
     m->actuator_biasprm[i * mjNBIAS + 1] = -cfg.kp[i];
@@ -158,6 +177,38 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
       m->actuator_forcerange[i * 2 + 0] = -cfg.frc_limit[i];
       m->actuator_forcerange[i * 2 + 1] = cfg.frc_limit[i];
     }
+  }
+  // PatchActuators runs on BOTH the planner model and the latency-comp rollout model (they
+  // must agree, else predict-forward simulates torque the planner/node cannot produce).
+  // Only narrate the first pass so the log stays readable.
+  static bool narrated = false;
+  const bool say = !narrated;
+  narrated = true;
+  if (!parity) {
+    if (say)
+      std::fprintf(stderr,
+                   "[node] actuator-authority parity OFF: the planner may plan torque the "
+                   "H2 clamp will not emit (legacy model; --frc_parity=1 to enable)\n");
+    return;
+  }
+  if (say)
+    std::fprintf(stderr,
+                 "[node] actuator-authority parity ON (planner + latency models): forcerange "
+                 "-> the REAL emitted budget (%.2f x tau_estop = the H2 clamp). Tightened:\n",
+                 kClampRatio);
+  for (int i = 0; i < cfg.nu && i < m->nu; i++) {
+    const double budget = kClampRatio * cfg.tau_estop[i];
+    const double had = m->actuator_forcelimited[i]
+                           ? m->actuator_forcerange[i * 2 + 1]
+                           : std::numeric_limits<double>::infinity();
+    if (!(budget < had)) continue;             // never LOOSEN an existing limit
+    m->actuator_forcelimited[i] = 1;
+    m->actuator_forcerange[i * 2 + 0] = -budget;
+    m->actuator_forcerange[i * 2 + 1] = budget;
+    if (say)
+      std::fprintf(stderr, "[node]   %-7s %7.1f -> %6.1f Nm  (planner was %.2fx over)\n",
+                   cfg.joint_names ? cfg.joint_names[i] : "?", had, budget,
+                   budget > 0.0 ? had / budget : 0.0);
   }
 }
 
@@ -324,7 +375,15 @@ int RunDeployNode(const NodeConfig& cfg) {
   const double gff = cfg.gravity_ff;
   const double ctrl_hz = kCtrlHz;
   const double ctrl_dt = 1.0 / ctrl_hz;
-  const double warmup_sec = kWarmupSec;
+  // STRAIGHTEN boot holds for kStraightenWarmupSec, NOT kWarmupSec: pinning a slumped robot
+  // on a fixed PD target is not a neutral wait -- the pose is statically unholdable, so the
+  // robot creeps for the whole hold and the planner inherits the damage (see deploy_common.h).
+  const double straighten_warmup =
+      cfg.straighten_warmup_sec >= 0.0 ? cfg.straighten_warmup_sec : kStraightenWarmupSec;
+  const double straighten_ramp =
+      cfg.straighten_ramp_sec >= 0.0 ? cfg.straighten_ramp_sec : kStraightenRampSec;
+  const double warmup_sec =
+      cfg.straighten_boot ? straighten_warmup : kWarmupSec;
   std::signal(SIGINT, on_signal);
   std::signal(SIGTERM, on_signal);
   mju_user_error = FatalMjuError;      // headless: safe-hold + exit instead of blocking on getchar
@@ -606,13 +665,56 @@ int RunDeployNode(const NodeConfig& cfg) {
   // documented run and were removed in the 2026-07-02 flag diet). ----
   std::atomic<bool> plan_exit{false};
   std::atomic<long> plan_count{0};  // REAL planner-iteration counter (PlanSteps() is the HORIZON, not iters)
+  const int hw_threads = mjpc::NumAvailableHardwareThreads();
   const int n_plan_threads =
-      cfg.plan_threads > 0 ? cfg.plan_threads
-      : (kPlanThreads > 0 ? kPlanThreads : mjpc::NumAvailableHardwareThreads());
-  std::fprintf(stderr, "[node] planner ThreadPool: %d threads (%d hw available; %s "
-                       "leaves CPU for the twin/safety layer)\n",
-               n_plan_threads, mjpc::NumAvailableHardwareThreads(),
-               cfg.plan_threads > 0 ? "--plan_threads CLI" : "compiled kPlanThreads");
+      cfg.plan_threads > 0
+          ? cfg.plan_threads
+          : (kPlanThreads > 0
+                 ? kPlanThreads
+                 : std::max(kPlanThreadsMin, hw_threads - kPlanThreadsReserve));
+  std::fprintf(stderr,
+               "[node] planner ThreadPool: %d threads (%d hw available; %s; reserve %d for "
+               "control/DDS/safety)\n",
+               n_plan_threads, hw_threads,
+               cfg.plan_threads > 0 ? "--plan_threads CLI"
+                                    : (kPlanThreads > 0 ? "compiled kPlanThreads"
+                                                        : "AUTO = hw - reserve"),
+               kPlanThreadsReserve);
+
+  // ---- ONE-WAVE CHECK (2026-07-11) -----------------------------------------------
+  // CEM Rollouts schedules num_trajectory + 1 jobs (the NOMINAL rollout rides along --
+  // cross_entropy/planner.cc:469 waits for count + num_trajectory + 1) and blocks on ALL
+  // of them, so one plan iteration costs ceil((N+1)/threads) thread-WAVES and the replan
+  // rate divides by that. This was silent, and it starved every stepping strategy on real
+  // for two weeks (trot 36 traj / 12 threads = 4 waves = 27-30 plans/s, vs the 50-100 Hz
+  // band real legged sampling-MPC needs). Never let it be silent again.
+  {
+    int ntraj = 0;
+    int tid = mj_name2id(g_agent.GetModel(), mjOBJ_NUMERIC, "sampling_trajectories");
+    if (tid >= 0) {
+      const mjModel* am = g_agent.GetModel();
+      ntraj = static_cast<int>(am->numeric_data[am->numeric_adr[tid]]);
+    }
+    if (ntraj > 0) {
+      const int jobs = ntraj + 1;   // + the nominal rollout
+      const int waves = (jobs + n_plan_threads - 1) / n_plan_threads;
+      if (waves > 1) {
+        std::fprintf(stderr,
+                     "[node] ** PLAN-RATE WARNING: %d trajectories + 1 nominal = %d jobs on %d "
+                     "threads = %d WAVES -> replan rate is ~1/%d of one-wave. Real legged "
+                     "sampling-MPC needs 50-100 plans/s; the open-loop swing is rate-independent "
+                     "but the stance-leg weight shift is SAMPLER-owned and starves first "
+                     "(feet cycle, never unload). Fix: --plan_trajectories <= %d, or "
+                     "--plan_threads >= %d.\n",
+                     ntraj, jobs, n_plan_threads, waves, waves, n_plan_threads - 1, jobs);
+      } else {
+        std::fprintf(stderr,
+                     "[node] plan schedule: %d traj + 1 nominal = %d jobs on %d threads = 1 wave "
+                     "(optimal: replan rate is not divided)\n",
+                     ntraj, jobs, n_plan_threads);
+      }
+    }
+  }
   std::fprintf(stderr,
                "[node] torque-budget clamp ON (audit H2): |tau_ff + kp*(tgt-q) + kv*dq| <= %.1f x "
                "tau-estop per joint (command-side estops impossible for ANY planner output)\n",
@@ -768,6 +870,13 @@ int RunDeployNode(const NodeConfig& cfg) {
   // ---- bring-up ramp state: blend ALL joints from the measured power-on pose to the
   //      home/policy target over kStartRampSec so the warmup->policy switch never snaps.
   const double start_ramp_sec = kStartRampSec;
+  if (cfg.straighten_boot) {
+    std::fprintf(stderr,
+                 "[node] STRAIGHTEN bring-up: scripted stand-pose rise BYPASSED -- the PLANNER "
+                 "owns the legs from t=%.1fs (hold measured -> blend to policy over %.1fs -> full "
+                 "authority). The straighten costs compute the rise under balance instead of a "
+                 "blind joint lerp.\n", straighten_warmup, straighten_ramp);
+  }
   std::fprintf(stderr, "[node] bring-up ramp ON: ALL joints measured->home/policy over %.1fs "
                        "(no-op if already at home)\n", start_ramp_sec);
   double home_q[kMaxNU];
@@ -825,6 +934,12 @@ int RunDeployNode(const NodeConfig& cfg) {
   double m_tau_sum[kMaxNU] = {0}, m_tau_max[kMaxNU] = {0};
   double m_z_sum = 0, m_z_sq = 0, m_z_min = 1e9, m_tilt_sum = 0, m_tilt_max = 0;
   long m_sat_count[kMaxNU] = {0};   // ticks where |tau| exceeds the real H1-2 limit
+  // ticks where the H2 clamp actually BIT (the emitted target was cut back because the
+  // full torque budget kClampRatio*tau_estop was exhausted). A joint pinned here is OUT OF
+  // AUTHORITY: the planner is asking for torque the node will not emit, and whatever the
+  // plan wanted from that joint did not happen. This was the invisible failure in the real
+  // trot runs -- the stance ankle sat at 100% and nothing reported it. 2026-07-11.
+  long m_clamp_count[kMaxNU] = {0};
   bool m_sat_warned = false;
 
   // ---- control loop @ ctrl_hz (mirrors app.cc physics thread) ----
@@ -998,7 +1113,11 @@ int RunDeployNode(const NodeConfig& cfg) {
     // from off-home starts).
     double tgt_q[kMaxNU];
     for (int i = 0; i < cfg.nu; i++) {
-      double ramp_dur = ramp_eff;
+      // STRAIGHTEN boot: short measured->PLANNER blend instead of the 5s scripted rise +
+      // 3s hold. The straighten phase's costs (Balance / Pelvis Tilt / CoM Vel / Base
+      // Height) ARE the bring-up controller -- muzzling them for 9s while a blind lerp
+      // extends the knees is what produced the REAL forward lean (2026-07-11).
+      double ramp_dur = cfg.straighten_boot ? straighten_ramp : ramp_eff;
       double base;
       if (ramp_dur > 0.0 && arm_init_set) {
         double aa = std::fmin(1.0, std::fmax(0.0, phase_t / ramp_dur));
@@ -1006,11 +1125,26 @@ int RunDeployNode(const NodeConfig& cfg) {
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
         // for kRampHoldSec more so CEM converges around the STATIC operating pose
         // before getting authority (kills the hand-off "first tug" toward the old basin).
-        const double t_ho = ramp_dur + kRampHoldSec;
-        const double pblend = kPolicyBlendSec;
+        // Straighten boot: no scripted hold -- authority passes at the end of warmup.
+        const double t_ho =
+            cfg.straighten_boot ? warmup_sec : (ramp_dur + kRampHoldSec);
+        // Straighten boot has no scripted stance to ease OUT of -- the measured->policy
+        // blend above already carried the handover, so the cold-start policy-blend is
+        // disabled (leaving it on would drag the target back toward the blind stand pose
+        // for kPolicyBlendSec, re-creating the very lean this fix removes).
+        const double pblend = cfg.straighten_boot ? 0.0 : kPolicyBlendSec;
         double tgt;
         if (aa < 1.0 || warming || i >= nact || phase_t < t_ho) {
-          tgt = home_q[i];                       // rising / warmup / non-policy joint / scripted hold
+          if (cfg.straighten_boot && i < nact) {
+            // The PLANNER is the bring-up destination: hold the LATCHED power-on pose
+            // through warmup (CEM converging), then blend -> live policy over ramp_dur.
+            // Hold arm_q_init, NOT the live cur.q: commanding the live measurement makes
+            // the target follow the robot's own sag (compliant droop, no stiffness against
+            // gravity) -- twin-caught 2026-07-12.
+            tgt = warming ? arm_q_init[i] : action[i];
+          } else {
+            tgt = home_q[i];                     // rising / warmup / non-policy joint / scripted hold
+          }
         } else if (pblend > 0.0 && phase_t < t_ho + pblend) {
           // POLICY-BLEND: ease the scripted stance -> the LIVE policy target over pblend so a
           // cold-started non-stand task descends smoothly instead of snapping at the handoff.
@@ -1069,8 +1203,10 @@ int RunDeployNode(const NodeConfig& cfg) {
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
       const double dmax = (pd_headroom > 0.0) ? pd_headroom / cfg.kp[i] : 0.0;
       const double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;
-      if (tgt_q[i] < lo) tgt_q[i] = lo;
-      else if (tgt_q[i] > hi) tgt_q[i] = hi;
+      // clamp-BIT telemetry: the plan asked for more than this joint's real budget, so the
+      // emitted command is NOT what the planner planned (see m_clamp_count).
+      if (tgt_q[i] < lo) { tgt_q[i] = lo; if (!warming) m_clamp_count[i]++; }
+      else if (tgt_q[i] > hi) { tgt_q[i] = hi; if (!warming) m_clamp_count[i]++; }
     }
 
     // SAFETY: hard-clamp the ankle commands to the joint ctrl range so the zero-offset can
@@ -1338,23 +1474,41 @@ int RunDeployNode(const NodeConfig& cfg) {
                  "[B0] base_z mean=%.3f sd=%.3f min=%.3f m | tilt mean=%.1f max=%.1f deg\n",
                  zmean, zsd, m_z_min, m_tilt_sum * inv, m_tilt_max);
     std::fprintf(stderr,
-                 "[B0] joint   trackRMSE trackMax |tau|mean |tau|peak  limit  peak%%  sat%%\n");
+                 "[B0] joint   trackRMSE trackMax |tau|mean |tau|peak  limit  peak%%  sat%%  "
+                 "budget clamp%%\n");
     std::fprintf(stderr,
-                 "[B0]          (deg)    (deg)     (Nm)     (Nm)      (Nm)\n");
-    int n_over = 0;
+                 "[B0]          (deg)    (deg)     (Nm)     (Nm)      (Nm)              (Nm)\n");
+    int n_over = 0, n_starved = 0;
     for (int i = 0; i < cfg.nu; i++) {
       double pk = m_tau_max[i], lim = cfg.tau_limit[i];
       double pkpct = 100.0 * pk / lim, satpct = 100.0 * m_sat_count[i] * inv;
+      double budget = kClampRatio * cfg.tau_estop[i];
+      double clpct = 100.0 * m_clamp_count[i] * inv;
       if (pk > lim) n_over++;
-      std::fprintf(stderr, "[B0] %-7s %8.2f %8.2f %8.1f %9.1f %6.0f %6.0f %5.1f%s\n",
+      const bool starved = clpct >= 5.0;   // out of authority for >=5% of the run
+      if (starved) n_starved++;
+      std::fprintf(stderr,
+                   "[B0] %-7s %8.2f %8.2f %8.1f %9.1f %6.0f %6.0f %5.1f %7.1f %5.1f%s%s\n",
                    cfg.joint_names[i], std::sqrt(m_err_sq[i] * inv) * 57.29577951308232,
                    m_err_max[i] * 57.29577951308232, m_tau_sum[i] * inv, pk, lim, pkpct, satpct,
+                   budget, clpct, starved ? "  <<OUT-OF-AUTHORITY" : "",
                    pk > lim ? "  <<OVER-LIMIT" : "");
     }
     std::fprintf(stderr,
                  "[B0] torque headroom: %d/%d joints exceed the real H1-2 limit%s\n",
                  n_over, cfg.nu,
                  n_over == 0 ? " -> torque-safe for hardware" : " <-- ADDRESS before deploy");
+    // clamp% is the authority read: a joint pinned at its budget did NOT do what the plan
+    // asked. On the 2026-07-11 real trot the stance ankle + torso sat at 100% of budget for
+    // 6 s and the stance knee locked to a passive prop -- that is what this row now exposes.
+    std::fprintf(stderr,
+                 "[B0] authority: %d/%d joints hit the H2 torque budget >=5%% of ticks%s\n",
+                 n_starved, cfg.nu,
+                 n_starved == 0
+                     ? " -> the planner got the torque it planned"
+                     : " <-- OUT OF AUTHORITY: the plan asked for torque the node cannot emit."
+                       " Enable --frc_parity=1 so the PLANNER knows (else it keeps planning"
+                       " motions that physically cannot execute), and/or reduce the demand.");
     std::fprintf(stderr, "[B0] (run the SAME node on the real robot -> per-row sim2real delta)\n");
   }
 #ifdef H12_NODE_GRPC

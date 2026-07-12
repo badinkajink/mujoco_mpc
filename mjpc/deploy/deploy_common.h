@@ -40,9 +40,51 @@ inline constexpr double kWarmupSec = 1.0;         // hold measured pose while pl
 inline constexpr double kStartRampSec = 5.0;      // all-joint measured->stance bring-up ramp
 inline constexpr double kRampHoldSec = 3.0;       // scripted hold after ramp (CEM converges)
 inline constexpr double kPolicyBlendSec = 4.5;    // ease scripted stance -> live policy target
+// STRAIGHTEN boot (strategy 25) ONLY: the scripted stand-pose rise above is a joint-space
+// lerp with NO balance term -- from a slumped/leaning power-on it extends the knees on a
+// fixed schedule while the torso pitches wherever physics takes it, and hands the planner a
+// LEANED robot ~9s in (REAL 2026-07-11: "knees extended, torso kept leaning forward"; no
+// phase-0 weight can fight it because action[] is not even read during the ramp). Straighten's
+// whole purpose is to COMPUTE that bring-up trajectory under balance costs, so there the
+// planner is the destination from the end of warmup: hold measured -> blend measured->policy
+// over this window -> full authority. The phase-0 C3 residual ramp (target_ramp_sec) starts its
+// reference AT the measured pose, so the action is near-identity at handover = no snap.
+// TWIN-TUNED 2026-07-12 (straighten_basin --deploy-ramp straighten, realboot slump + harness):
+// the scripted HOLD is itself the enemy. A slumped pose is NOT statically holdable under the
+// deploy PD (~15% gravity droop, proven 07-11), so every extra second the node pins the robot
+// on a fixed target it creeps and gains momentum -- the planner then inherits a worse, MOVING
+// robot. Measured settle vs hold length (3 reps each, same slump/rope):
+//     warmup 1.0s -> 20-36 deg (fails)   0.5s -> 9-18 deg   0.3s -> 1/2 fail
+//     warmup 0.2s + 0.2s blend -> 3/3 RECOVERED, 2.1-4.3 deg, hip -0.23..-0.25 (clean handoff)
+//     warmup 0.1s + no blend   -> 5/5 RECOVERED, 2.4-4.0 deg
+// 0.2 keeps ~20 CEM iterations of convergence (planner runs at 90-100/s on real, and the C3
+// reference is seeded AT the measured pose so the initial optimal action is ~"hold" = safe even
+// under-converged), while staying inside the survivable hold window. BENCH CAVEAT: the twin
+// pre-converges the planner before every run, so it can prove the hold must be SHORT but says
+// nothing about how many CEM iterations the real planner needs -- hence 0.2 not 0.1.
+inline constexpr double kStraightenWarmupSec = 0.2;  // hold the latched pose (vs kWarmupSec 1.0)
+inline constexpr double kStraightenRampSec = 0.2;    // measured -> PLANNER blend on a straighten boot
 inline constexpr double kSwitchSettleSec = 2.0;   // hold pose after a live strategy switch
 inline constexpr bool   kUseTwinTime = true;      // planner clock = lowstate tick * twin_dt
-inline constexpr int    kPlanThreads = 12;        // planner ThreadPool (leaves cores for twin/safety)
+// Planner ThreadPool size. 0 = AUTO = hw_threads - kPlanThreadsReserve.
+//
+// WAS a hard 12 ("leaves cores for twin/safety"), which silently starved every STEPPING
+// strategy on the real robot: CEM schedules num_trajectory + 1 jobs (the nominal rollout
+// rides along, cross_entropy/planner.cc:469) and WAITS for all of them, so a plan iteration
+// costs ceil((N+1)/threads) thread-WAVES. Trot's 36 trajectories on 12 threads = 4 waves =
+// 27-30 plans/s measured on real -- below the 50-100 Hz band every real deployment needs
+// (CMU Go1 MPPI: 30 samples @ 100 Hz, CPU-only, "limited computing is much better spent on
+// achieving a ~100 Hz policy than additional sample evaluations"; Unitree's own H1-2 RL
+// deploys decide at 50 Hz). The open-loop swing (lean::ModifyControl) is rate-INDEPENDENT
+// so the legs still alternated -- but the stance-leg weight shift is SAMPLER-owned, so it
+// starved: feet never unloaded. AUTO-sizing gives 18 on the dev laptop (24 hw threads),
+// which measured 45-52 plans/s on the real robot -- in band.
+// Reserve covers: control/publish thread, DDS rx/tx, safety layer, OS.
+// BENCH NOTE: when co-running the PYTHON twin on the same box, pass --plan_threads 12 --
+// 18 planner threads starve the twin to ~0.5x real-time (measured 2026-07-03).
+inline constexpr int    kPlanThreads = 0;         // 0 = AUTO (see kPlanThreadsReserve)
+inline constexpr int    kPlanThreadsReserve = 6;  // hw threads held back from the planner
+inline constexpr int    kPlanThreadsMin = 4;      // never auto-size below this
 inline constexpr bool   kLatencyComp = true;      // predict-forward by the measured loop delay
 inline constexpr double kLatencyFixedMs = 0.0;    // 0 = AUTO (EWMA of compute time + extra)
 inline constexpr double kLatencyExtraMs = 4.0;    // transport + plant zero-order-hold (AUTO mode)
@@ -71,6 +113,26 @@ struct NodeConfig {
   const double* tau_limit = nullptr;   // [nu] operational URDF limits (B0 report basis)
   const double* frc_limit = nullptr;   // [nu] planner forcerange patch, or nullptr = none
   int frc_limit_begin = 0;             // first index to patch (13 = arms only, full-body node)
+  // ---- ACTUATOR-AUTHORITY PARITY (2026-07-11): the planner must not plan with torque
+  // the node will never emit. The H2 clamp bounds the EMITTED command to
+  // kClampRatio * tau_estop, but the PLANNER model's forceranges were left at the MJCF
+  // defaults for legs/torso -- so the sampler plans single-support balance believing it
+  // has authority it does not have:
+  //     joint    planner sees   node actually emits   over-estimate
+  //     ankleP     +/-75 Nm          48.6 Nm             1.54x
+  //     ankleR     +/-75 Nm          32.4 Nm             2.31x
+  //     torso     +/-200 Nm          36.0 Nm             5.56x
+  //     hipY      +/-200 Nm          54.0 Nm             3.70x
+  // REAL 2026-07-11 (strat 23, plan rate healthy at 45-52/s): the stance ankle pitch railed
+  // at EXACTLY 48.6 Nm and the torso at EXACTLY 36.0 Nm for 6 s while the stance knee locked
+  // to -0.05 rad (a passive prop) AGAINST a weight-200 anti-strut cost -- the classic
+  // weak-ankle crutch. The plan was valid in the planner's model and unexecutable in the
+  // node's. Same bug CLASS as the phantom-table parity bug that faked the "forward walk needs
+  // RL" verdict: the planner was solving the wrong physics.
+  // -1 = task default (Task::PlannerNumericOverrides may set the `deploy_frc_parity` numeric;
+  //      the lean task turns it ON for the stepping strategies only), 0 = force OFF (legacy
+  //      model, byte-identical), 1 = force ON. Kill switch: --frc_parity=0.
+  int frc_parity = -1;
   const char* const* joint_names = nullptr;  // [nu]
   Telemetry telemetry = Telemetry::kFullBody;
   // ---- actuated-block placement (UPPER-BODY node, 2026-07-10; additive) ----
@@ -107,6 +169,16 @@ struct NodeConfig {
   double ankle_roll_offset_r_deg = 0.0;
   double ankle_pitch_offset_l_deg = 0.0;  // per-ankle PITCH zero calib; same belief/command
   double ankle_pitch_offset_r_deg = 0.0;  // pairing as the roll offsets (H1-2 stores no zero)
+  // STRAIGHTEN boot: bypass the scripted stand-pose rise and hand the planner authority
+  // right after warmup (see kStraightenRampSec). Set by the node when --strategy 25 boots
+  // (and --straighten_planner_bringup is on). false everywhere else -> every other
+  // strategy's bring-up choreography is byte-unchanged.
+  bool straighten_boot = false;
+  // <0 = use the compiled kStraightenWarmupSec / kStraightenRampSec. Exposed as CLI flags so the
+  // hold-vs-convergence tradeoff can be A/B'd on the REAL robot (the twin pre-converges its
+  // planner, so it can prove the hold must be short but not how many CEM iterations real needs).
+  double straighten_warmup_sec = -1.0;
+  double straighten_ramp_sec = -1.0;
   std::string network_interface;       // "" = auto-pin 192.168.123.x, else autodetermine
   int domain_id = 0;                   // default read from $ROS_DOMAIN_ID in the mains
   int grpc_port = 10000;               // monitor server; 0 disables
