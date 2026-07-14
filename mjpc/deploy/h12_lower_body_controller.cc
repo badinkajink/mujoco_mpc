@@ -138,6 +138,15 @@ ABSL_FLAG(int, plan_trajectories, 0,
 ABSL_FLAG(int, plan_threads, 0,
           "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). One-wave "
           "rule: plan_trajectories <= plan_threads maximizes replan rate.");
+ABSL_FLAG(int, frc_parity, -1,
+          "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to the "
+          "torque the node can actually emit (0.9 x tau_estop = the H2 clamp budget), so the "
+          "sampler stops planning balance it cannot execute. The stabilize planner model ships "
+          "the ankle at +/-75 Nm while the node emits at most 48.6 -- a 1.54x overestimate on "
+          "the joint that OWNS fore-aft balance, so the sampler buys sway correction with ankle "
+          "torque that the clamp then eats (real stand: LankP railed at 48.2/48.6, clamp 6.9%). "
+          "-1 = task default (the `deploy_frc_parity` numeric; absent on stabilize -> OFF), "
+          "0 = OFF (legacy model, byte-identical), 1 = force ON. Real-robot A/B: --frc_parity=0.");
 ABSL_FLAG(double, stale_sec, 0.05,
           "H1 stale-input watchdog threshold (s): either state stream older than this -> "
           "damping safe-hold. DEFAULT 0.05 = the REAL-robot value (1 kHz lowstate). Loosen "
@@ -286,6 +295,7 @@ int main(int argc, char** argv) {
   cfg.arm_aware = absl::GetFlag(FLAGS_arm_aware);
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg.frc_parity = absl::GetFlag(FLAGS_frc_parity);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
   // PHASE-A start-pose align: kLowerStartPose is the R^12 stance at the top of this file.
