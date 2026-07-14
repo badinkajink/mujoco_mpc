@@ -4166,7 +4166,7 @@ std::map<std::string, double> stabilize::PlannerNumericOverrides(int strategy) c
       name == "stabilize_simple_drive") {
     return {{"sampling_spline_points", 5.0},
             {"sampling_exploration", 0.05},
-            {"sampling_trajectories", 36.0}};
+            {"sampling_trajectories", 17.0}};
   }
   if (name == "stabilize_simple_stumble") {
     // foot-lift fix (2026-06-24): spline 5 (the stand-tuned 3 cannot represent the
