@@ -42,24 +42,15 @@
              stand(x2) z 1.017, ankle_roll -0.12/+0.12 -->
         <key name="home"
         qpos="0.19 0 1.022 1 0 0 0 0 0 0.12 0 0 -0.12 0 0 -0.12 0 0 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
-        <!-- soft-knee stand (2026-06-09): stand (strategy 6, phase "stand_up") and the
-             squat top (strategy 17, phase "stand") previously fell back to home with knee
-             target 0.0 — sitting 0.12 rad from the knee lock-out floor (-0.12), so one knee
-             cheaply slid into a passive straight-leg strut. Crouch never struts because its
-             0.7 knee target is 0.82 rad from the floor (enabler = target proximity to the
-             floor, not the lean which is only the trigger). These two keys replicate crouch's
-             immunity for stand/squat-top: a mild bent-knee target (hip -0.1 / knee 0.175 /
-             ankle -0.075 = the validated squat_q1 leg triad; z 1.028->1.024 keeps feet flat
-             so the Base Height anchor doesn't re-pull the legs straight into the strut).
-             Routed by the name-match at lean.cc:210; HOME stays byte-identical so the
-             table-lean tasks 0-5 (which also fall back to home) are unchanged. Revert: delete
-             these two keys -> stand/squat-top fall back to home (straight-knee) again. -->
-        <!-- z retuned with the flat sole (R1): the old 1.028/1.020 were set when the
-             INNER-HEEL corner was the lowest point; flat feet float 5.7/3.1 mm at
-             those heights (measured), biasing the Base Height anchor. 1.022/1.017 =
-             measured touch heights. -->
-        <key name="stand_up" qpos="0.19 0 1.017 1 0 0 0 0 -0.25 0.12 0.35 -0.21 -0.12 0 -0.25 -0.12 0.35 -0.21 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
-        <key name="stand"    qpos="0.19 0 1.017 1 0 0 0 0 -0.25 0.12 0.35 -0.21 -0.12 0 -0.25 -0.12 0.35 -0.21 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- soft-knee stand (strategy 6 phase "stand_up" + squat-top "stand"):
+             ★ 2026-07-14 SECTION 1: CoM-centered triad from lean `straighten`
+             (hip -0.15 / knee 0.35 / ankle -0.28). Prior stand_up (hip -0.25 /
+             knee 0.35 / ankle -0.21) planted the feet ahead of the CoM
+             (backward-tippy basin; lean Magpie comments ~68 mm). Keep R1
+             flat-foot ankle_roll = -hip_roll (∓0.12). z retuned by mesh-sole
+             FK so sole_zmin≈0 (1.017 → 1.016). HOME unchanged. -->
+        <key name="stand_up" qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stand"    qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- counterbalance_standing (strategy 16): MUST exist so 16's Posture targets a
              BENT-knee stand (knees 0.35) instead of falling back to home (key 0 = STRAIGHT
              knees), which — with the JSON "Knees Straight" weight — drove 16's legs straight
@@ -584,7 +575,7 @@
         <numeric name="stand_recover_roll_gain"  data="0.0"/> <!-- lateral (roll) recovery; 0 = off. Fore-aft (pitch) is the reported failure; roll untested, enable + tune if lateral configs (t_pose/arms_asym) need it. -->
         <numeric name="stand_recover_deadband" data="0.03"/> <!-- 2026-07-11: THE excursion deadband the 484 post-mortem asked for (meters of capture excursion, stabilize.cc recovery tier). Only |excursion|>this commands counter-momentum; inside it the target is exactly 0 -> calm stand byte-identical to gain 0. Inert while the gains above are 0. Re-enable pitch gain at 150 WITH this. stumble path unaffected. -->
         <numeric name="stand_recover_washout_sec" data="4.0"/> <!-- 2026-07-11 DC-BLIND fix: EMA tau (s) of the MEASURED capture excursion (TransitionLocked), subtracted before the deadband -> a zero-error PARK (+4-6deg fwd ~0.09m excursion) is INVISIBLE to the recover tier; only ESCAPES from the parked equilibrium trigger counter-momentum. The absolute-excursion 150-gain version drove the park backward (CoM_margin -0.165) then fwd-flailed -> crouch jam (07-11 real A/B). 0 = off (raw excursion). -->
-        <numeric name="stand_trim_tau" data="8.0"/> <!-- T1 REFERENCE TRIM (2026-07-11 pivot): integrator tau (s) folding the DC park distance into the Balance forward-CoM bias (= automated com_x_offset sysid, stabilize.cc TransitionLocked + Balance residual). Forward park -> trim grows -> planner holds CoM back until park returns to the designed nominal (lean_nominal_x). 0 = OFF byte-identical. Recommended 15. Prints "[trim] park_dc/trim_x" every 5 s when on. -->
+        <numeric name="stand_trim_tau" data="0.0"/> <!-- T1 REFERENCE TRIM (2026-07-11 pivot): integrator tau (s) folding the DC park distance into the Balance forward-CoM bias (= automated com_x_offset sysid, stabilize.cc TransitionLocked + Balance residual). Forward park -> trim grows -> planner holds CoM back until park returns to the designed nominal (lean_nominal_x). 0 = OFF byte-identical. Recommended 15. Prints "[trim] park_dc/trim_x" every 5 s when on. -->
         <numeric name="stand_trim_delay" data="0.0"/> <!-- 2026-07-11 pack-C2 live: freeze trim_x=0 until data->time >= this (s). Bring-up ramp (~5s) parks BACKWARD; integrating then saturates trim_x negative and later HOLDS the CoM FORWARD (+5..7deg park). EMA still runs so arm-time park_dc is current. 0 = integrate from t=0 (legacy). -->
         <numeric name="stand_trim_max" data="0.08"/> <!-- trim saturation (m) for POSITIVE trim (hold CoM back vs forward park). -->
         <numeric name="stand_trim_neg_max" data="0.03"/> <!-- 2026-07-11 C2pure live: |negative| trim cap. Bring-up was saturating at -stand_trim_max (-0.08) and STAYING there after park_dc~0, permanently biasing CoM forward (operator had to push from the front). 0.03 keeps a little bring-up help without locking the +3..5deg park. -->
