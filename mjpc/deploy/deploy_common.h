@@ -40,30 +40,6 @@ inline constexpr double kWarmupSec = 1.0;         // hold measured pose while pl
 inline constexpr double kStartRampSec = 5.0;      // all-joint measured->stance bring-up ramp
 inline constexpr double kRampHoldSec = 3.0;       // scripted hold after ramp (CEM converges)
 inline constexpr double kPolicyBlendSec = 4.5;    // ease scripted stance -> live policy target
-// STRAIGHTEN boot (strategy 25) ONLY: the scripted stand-pose rise above is a joint-space
-// lerp with NO balance term -- from a slumped/leaning power-on it extends the knees on a
-// fixed schedule while the torso pitches wherever physics takes it, and hands the planner a
-// LEANED robot ~9s in (REAL 2026-07-11: "knees extended, torso kept leaning forward"; no
-// phase-0 weight can fight it because action[] is not even read during the ramp). Straighten's
-// whole purpose is to COMPUTE that bring-up trajectory under balance costs, so there the
-// planner is the destination from the end of warmup: hold measured -> blend measured->policy
-// over this window -> full authority. The phase-0 C3 residual ramp (target_ramp_sec) starts its
-// reference AT the measured pose, so the action is near-identity at handover = no snap.
-// TWIN-TUNED 2026-07-12 (straighten_basin --deploy-ramp straighten, realboot slump + harness):
-// the scripted HOLD is itself the enemy. A slumped pose is NOT statically holdable under the
-// deploy PD (~15% gravity droop, proven 07-11), so every extra second the node pins the robot
-// on a fixed target it creeps and gains momentum -- the planner then inherits a worse, MOVING
-// robot. Measured settle vs hold length (3 reps each, same slump/rope):
-//     warmup 1.0s -> 20-36 deg (fails)   0.5s -> 9-18 deg   0.3s -> 1/2 fail
-//     warmup 0.2s + 0.2s blend -> 3/3 RECOVERED, 2.1-4.3 deg, hip -0.23..-0.25 (clean handoff)
-//     warmup 0.1s + no blend   -> 5/5 RECOVERED, 2.4-4.0 deg
-// 0.2 keeps ~20 CEM iterations of convergence (planner runs at 90-100/s on real, and the C3
-// reference is seeded AT the measured pose so the initial optimal action is ~"hold" = safe even
-// under-converged), while staying inside the survivable hold window. BENCH CAVEAT: the twin
-// pre-converges the planner before every run, so it can prove the hold must be SHORT but says
-// nothing about how many CEM iterations the real planner needs -- hence 0.2 not 0.1.
-inline constexpr double kStraightenWarmupSec = 0.2;  // hold the latched pose (vs kWarmupSec 1.0)
-inline constexpr double kStraightenRampSec = 0.2;    // measured -> PLANNER blend on a straighten boot
 inline constexpr double kSwitchSettleSec = 2.0;   // hold pose after a live strategy switch
 inline constexpr bool   kUseTwinTime = true;      // planner clock = lowstate tick * twin_dt
 // Planner ThreadPool size. 0 = AUTO = hw_threads - kPlanThreadsReserve.
@@ -169,16 +145,40 @@ struct NodeConfig {
   double ankle_roll_offset_r_deg = 0.0;
   double ankle_pitch_offset_l_deg = 0.0;  // per-ankle PITCH zero calib; same belief/command
   double ankle_pitch_offset_r_deg = 0.0;  // pairing as the roll offsets (H1-2 stores no zero)
-  // STRAIGHTEN boot: bypass the scripted stand-pose rise and hand the planner authority
-  // right after warmup (see kStraightenRampSec). Set by the node when --strategy 25 boots
-  // (and --straighten_planner_bringup is on). false everywhere else -> every other
-  // strategy's bring-up choreography is byte-unchanged.
-  bool straighten_boot = false;
-  // <0 = use the compiled kStraightenWarmupSec / kStraightenRampSec. Exposed as CLI flags so the
-  // hold-vs-convergence tradeoff can be A/B'd on the REAL robot (the twin pre-converges its
-  // planner, so it can prove the hold must be short but not how many CEM iterations real needs).
-  double straighten_warmup_sec = -1.0;
-  double straighten_ramp_sec = -1.0;
+  // ---- PHASE-A START-POSE ALIGN (2026-07-13) ----
+  // Power-on leg geometry is arbitrary (twisted / fore-aft / one knee folded), and the operator
+  // was hand-straightening the legs before every run. With align_start the node does it itself:
+  // BEFORE the planner is ever consulted it drags the legs from the measured power-on pose to
+  // align_pose on a min-jerk profile, holds until they arrive, then RE-LATCHES the bring-up so
+  // MJPC always takes over from the same stance (d0~0 -> the scripted rise collapses to nothing
+  // and only the policy blend runs -- exactly the near-home start the full-body node always had).
+  // WALL-clocked on purpose: the bring-up choreography runs on plant time (tick*twin_dt), so with
+  // --twin_dt 0.001 on this 200 Hz plant it dilates 5x; the align must not inherit that.
+  // false = byte-identical to the pre-2026-07-13 node.
+  bool align_start = false;
+  double align_pose[kMaxNU] = {0};     // target stance (rad, motor order); filled by the node
+  bool align_pose_set = false;         // false -> fall back to the model's `stand` keyframe
+  double align_sec = 4.0;              // min-jerk drive duration [s, WALL]
+  double align_tol = 0.08;             // converged when max|q - align_pose| < this [rad] (~4.6 deg)
+  double align_timeout = 8.0;          // hard ceiling [s, WALL]; the robot is load-bearing and
+                                       // sags, so convergence is best-effort -- never block on it
+  // ANTI-STICTION PUSH. A pure position PD stalls wherever breakaway friction exceeds kp*err:
+  // at kp=200 a 3 deg residual is only 10 Nm, which a harmonic drive will happily sit on, so the
+  // legs stop short of the stance. align_ki winds an integrator into the COMMANDED target once
+  // the min-jerk reference has arrived, so kp*(tgt - q) keeps GROWING until the joint breaks
+  // loose. The head-room is real -- the H2 clamp permits |tgt - q| up to
+  // (0.9*tau_estop - |tau_ff| - kv*|dq|)/kp = 0.36..1.35 rad on these joints -- and that SAME
+  // clamp is the backstop: the emitted torque still cannot exceed 0.9 x the safety estop, so
+  // this pushes hard but never leaves the safety envelope. 0 = off (pure PD, may stall short).
+  double align_ki = 1.0;               // integral gain [rad/s per rad of error]
+  double align_i_max = 0.25;           // windup limit [rad]: the most extra command any one joint
+                                       // may accumulate (kp*this = the extra torque it can add;
+                                       // e.g. knee kp=200 -> up to +50 Nm of breakaway push)
+  bool align_wait = true;              // after the drag, PARK on the stance and hold it until the
+                                       // operator presses Enter (stdin). The legs stay stiff and
+                                       // the node keeps publishing at 200 Hz while it waits, so
+                                       // the planner never inherits a robot that is still being
+                                       // handled. Only consulted when align_start is on.
   std::string network_interface;       // "" = auto-pin 192.168.123.x, else autodetermine
   int domain_id = 0;                   // default read from $ROS_DOMAIN_ID in the mains
   int grpc_port = 10000;               // monitor server; 0 disables

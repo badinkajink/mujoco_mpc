@@ -27,6 +27,43 @@ int DefaultDomainId() {
   const char* e = std::getenv("ROS_DOMAIN_ID");
   return e ? std::atoi(e) : 0;
 }
+
+// ---------------------------------------------------------------------------
+// START POSE (--align_start): the stance the node drags the legs into BEFORE
+// handing the robot to MJPC. R^12, radians, in DDS motor order (rows 0..11 of
+// lowcmd -- the same rows this node publishes to rt/safety/lowcmd_lower_in).
+//
+// PROVENANCE (2026-07-13). Derived from the only long good stand on record,
+// logs/stand_cost_3_20260711_175521: averaging the MEASURED pose over its 164 s
+// of stable standing (70 s -> 234 s after hand-off) gives
+//     { 0.011,-0.276, 0.173, 0.370,-0.154,-0.133,
+//      -0.006,-0.269,-0.108, 0.371,-0.233, 0.221 }
+// i.e. feet 0.549 m apart, knees bent 21.2/21.3 deg, pelvis 1.017 m. Every joint
+// of that lands within 5.8 deg of the model's `stand` keyframe, so the keyframe
+// was already right; the run just confirms it on hardware.
+//
+// What is shipped below is that result SYMMETRISED: knee (0.37) and hip_pitch
+// (-0.27) are taken from the measured hold, everything else keeps the keyframe's
+// symmetric values. The two joints where the good run deviated most -- R ankle
+// roll (+5.8 deg) and L hip roll (+3.0 deg) -- are exactly where the per-power-on
+// ankle/encoder zero draw shows up, so copying them verbatim would freeze ONE
+// power-on's zero lottery into the source. Edit freely; this is the knob.
+//
+//                          feet ~0.516 m apart, knees ~21 deg bent
+constexpr double kLowerStartPose[12] = {
+     0.00,   // [ 0] left_hip_yaw_joint       0 deg  -- toes forward, no splay
+    -0.27,   // [ 1] left_hip_pitch_joint   -15.5 deg -- thigh back (measured hold)
+     0.12,   // [ 2] left_hip_roll_joint     +6.9 deg -- opens the stance
+     0.37,   // [ 3] left_knee_joint        +21.2 deg -- bent (measured hold)
+    -0.21,   // [ 4] left_ankle_pitch_joint -12.0 deg -- sole flat under the shin
+    -0.12,   // [ 5] left_ankle_roll_joint   -6.9 deg -- sole flat laterally
+     0.00,   // [ 6] right_hip_yaw_joint      0 deg
+    -0.27,   // [ 7] right_hip_pitch_joint  -15.5 deg
+    -0.12,   // [ 8] right_hip_roll_joint    -6.9 deg  (mirror of left)
+     0.37,   // [ 9] right_knee_joint       +21.2 deg
+    -0.21,   // [10] right_ankle_pitch_joint-12.0 deg
+     0.12,   // [11] right_ankle_roll_joint  +6.9 deg  (mirror of left)
+};
 }  // namespace
 
 ABSL_FLAG(std::string, task, "Stabilize H12 Magpie",
@@ -124,6 +161,63 @@ ABSL_FLAG(bool, arm_aware, true,
           "(2026-07-02: strictly better on the F6 bench -- arm45 ankle margin 2x; also feeds the "
           "task-side arm_aware_plan retarget). --noarm_aware = legacy home-locked isolation mode.");
 
+// ---- PHASE-A START-POSE ALIGN (2026-07-13) ----
+ABSL_FLAG(bool, align_start, false,
+          "GO-TO-START-POSE before the planner runs. The H1-2 powers on with arbitrary leg "
+          "geometry (twisted, fore-aft, a knee folded) and the operator was hand-straightening "
+          "the legs before every launch; whether the stand survived then depended on where the "
+          "hands left it. With this on, the node drags the legs from the measured power-on pose "
+          "to kLowerStartPose (top of this file -- feet ~0.52 m apart, knees ~21 deg bent, taken "
+          "from the 164 s stable hold in logs/stand_cost_3_20260711_175521) on a min-jerk profile, "
+          "holds until they arrive, and only THEN hands over -- so MJPC always inherits the same "
+          "stance instead of a lottery. Because the robot is then AT the stance, the scripted "
+          "bring-up rise that follows collapses to ~0 (d0~0) and only the policy blend runs, which "
+          "is exactly the near-home hand-off the full-body node always had. WALL-clocked, so "
+          "--twin_dt does not dilate it. Default false = byte-identical to the old node.");
+ABSL_FLAG(double, align_sec, 4.0,
+          "--align_start: min-jerk drive duration [s, WALL]. Zero velocity AND acceleration at "
+          "both ends, and the target starts AT the measured pose, so nothing is yanked. RAISE "
+          "this to drag more gently (it is the gentleness knob); the gains are untouched.");
+ABSL_FLAG(double, align_tol, 0.08,
+          "--align_start: QUALITY WARNING threshold [rad] (0.08 = 4.6 deg), NOT the exit gate. "
+          "The align exits when the legs SETTLE (|dq| < 0.05 rad/s), because the robot is "
+          "load-bearing and a knee commanded to 0.37 comes to rest nearer 0.55 under the deploy "
+          "PD's gravity droop (the good run: cmd 0.35 vs measured 0.568 -- and it stood fine). "
+          "Gating on |q - target| would never fire. If the settled residual exceeds this, the "
+          "node prints a NOTE -- harmless if the droop is spread across the legs, worth a look "
+          "if ONE joint is far off (a foot jammed on the floor).");
+ABSL_FLAG(double, align_ki, 1.0,
+          "--align_start: ANTI-STICTION PUSH gain [rad/s per rad of error]. A pure position PD "
+          "stalls wherever breakaway friction beats kp*err -- at kp=200 a 3 deg residual is only "
+          "10 Nm, which a harmonic drive will just sit on, so the legs stop short of the stance. "
+          "This integrates the residual into the COMMANDED target once the drag profile has "
+          "arrived, so kp*(tgt-q) keeps GROWING until the joint breaks loose. The head-room is "
+          "real: the H2 clamp allows |tgt-q| up to 0.36-1.35 rad on these joints. And that same "
+          "clamp is the backstop -- emitted torque still cannot exceed 0.9 x the safety estop, so "
+          "this pushes HARD but never outside the safety envelope. Raise it if the legs still "
+          "stall; 0 = off (pure PD).");
+ABSL_FLAG(double, align_i_max, 0.25,
+          "--align_start: windup limit [rad] on the anti-stiction push -- the most extra command "
+          "any ONE joint may accumulate. kp * this = the extra breakaway torque available (knee "
+          "kp=200 -> up to +50 Nm). Bounds how hard a genuinely JAMMED joint gets shoved: it "
+          "parks at this and the node reports it, rather than winding up forever. The torque "
+          "clamp still caps the real output regardless.");
+ABSL_FLAG(bool, align_wait, true,
+          "--align_start: after the legs reach the start pose, PARK there and hold it until you "
+          "press ENTER (bare Enter, or 'g'/'go', on the node's stdin). Nothing else changes: the "
+          "legs stay stiff and the node keeps publishing at 200 Hz the whole time it waits, so "
+          "the safety layer never sees a stale command and the stance does not drift. This is the "
+          "point of the whole feature -- MJPC must not inherit the robot while you are still "
+          "handling it. Press Enter only once you have let go and it is settled. 'q'+Enter quits "
+          "without ever engaging the planner. --noalign_wait = hand over the instant the legs "
+          "settle (no operator in the loop).");
+ABSL_FLAG(double, align_timeout, 15.0,
+          "--align_start: hard ceiling [s, WALL] on the drag+push. Reached => stop pushing and "
+          "move on (to the operator ENTER gate, if --align_wait). Generous by default so the "
+          "anti-stiction integral has time to break a sticky joint loose; the align normally "
+          "exits earlier via REACHED or STALLED. This ceiling is NOT optional -- a joint that "
+          "cannot arrive must never block the node forever.");
+
 namespace {
 constexpr int kNU = 12;  // LEGS-ONLY lower-body controller: the 12 actuated
                          // joints below the pelvis (L/R hip yaw/pitch/roll,
@@ -194,5 +288,15 @@ int main(int argc, char** argv) {
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
+  // PHASE-A start-pose align: kLowerStartPose is the R^12 stance at the top of this file.
+  cfg.align_start = absl::GetFlag(FLAGS_align_start);
+  cfg.align_sec = absl::GetFlag(FLAGS_align_sec);
+  cfg.align_tol = absl::GetFlag(FLAGS_align_tol);
+  cfg.align_timeout = absl::GetFlag(FLAGS_align_timeout);
+  cfg.align_wait = absl::GetFlag(FLAGS_align_wait);
+  cfg.align_ki = absl::GetFlag(FLAGS_align_ki);
+  cfg.align_i_max = absl::GetFlag(FLAGS_align_i_max);
+  for (int i = 0; i < kNU; i++) cfg.align_pose[i] = kLowerStartPose[i];
+  cfg.align_pose_set = true;
   return h12deploy::RunDeployNode(cfg);
 }

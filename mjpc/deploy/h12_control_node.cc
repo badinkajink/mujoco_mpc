@@ -54,25 +54,6 @@ ABSL_FLAG(int, strategy, 6,
           "sustained) AUTO-ADVANCES into a stand phase running "
           "strat-6 weights/keyframe -- no manual switch needed; live-switch to "
           "other strategies as usual afterward.");
-ABSL_FLAG(bool, straighten_planner_bringup, true,
-          "STRAIGHTEN boot (--strategy 25) ONLY: bypass the scripted stand-pose bring-up rise "
-          "and hand the legs to the PLANNER right after warmup (hold measured -> blend to "
-          "policy over 2s -> full authority). The scripted rise is a joint-space lerp with no "
-          "balance term: from a slumped power-on it extends the knees on a fixed schedule while "
-          "the torso pitches forward, and no straighten cost can fight it because the planner's "
-          "action is not read during the ramp (REAL 2026-07-11). Set false to A/B against the "
-          "old blind-rise behavior without a rebuild.");
-ABSL_FLAG(double, straighten_warmup_sec, -1.0,
-          "STRAIGHTEN boot: seconds to hold the latched power-on pose before the planner gets "
-          "the legs (<0 = compiled kStraightenWarmupSec = 0.2). The hold is NOT free: a slumped "
-          "pose is statically unholdable under the PD, so the robot creeps for its whole duration "
-          "and the planner inherits the damage (twin: 1.0s -> 20-36deg settle, 0.2s -> 2-4deg). "
-          "Longer = more CEM convergence before authority; shorter = less creep. REAL is the oracle.");
-ABSL_FLAG(double, straighten_ramp_sec, -1.0,
-          "STRAIGHTEN boot: measured->policy blend window (s) after the warmup hold "
-          "(<0 = compiled kStraightenRampSec = 0.2). During the blend the wire target is a lerp "
-          "between the planner's action and the power-on pose, i.e. the planner is partly ignored "
-          "-- 0 hands it full authority the instant the hold ends.");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables. "
           "REAL robot: 0.85. TWIN bench: 0 (the twin's gravcomp over-lightens the legs "
@@ -230,10 +211,6 @@ int main(int argc, char** argv) {
   cfg.arm_aware = false;
   // STRAIGHTEN boot (strategy 25): let the planner, not the scripted stand-pose lerp, drive
   // the rise. Only on a strat-25 boot -> every other strategy keeps its proven choreography.
-  cfg.straighten_boot = (absl::GetFlag(FLAGS_strategy) == 25) &&
-                        absl::GetFlag(FLAGS_straighten_planner_bringup);
-  cfg.straighten_warmup_sec = absl::GetFlag(FLAGS_straighten_warmup_sec);
-  cfg.straighten_ramp_sec = absl::GetFlag(FLAGS_straighten_ramp_sec);
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   cfg.frc_parity = absl::GetFlag(FLAGS_frc_parity);

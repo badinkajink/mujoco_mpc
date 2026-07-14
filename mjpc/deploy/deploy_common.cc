@@ -248,6 +248,14 @@ std::atomic<double> g_switch_wall{-1e9};   // PLANT time (phase_t) the active sw
 std::atomic<double> g_switch_blend{0.0};   // duration of the active switch-blend (sec)
 double g_switch_from[kMaxNU] = {0};        // captured pre-switch commanded pose
 
+// ---- PHASE-A start-pose align: operator GO gate (--align_wait) ----
+// The node parks on the aligned stance and holds it (still publishing at 200 Hz, so the safety
+// layer stays fed and the legs stay stiff) until the operator presses Enter. That is the moment
+// the operator lets go / settles the robot -- the planner must not inherit the robot mid-handling.
+// g_align_waiting is written only by the main loop; the stdin thread only raises g_align_go.
+std::atomic<bool> g_align_waiting{false};  // main loop -> stdin thread: "a bare Enter means GO"
+std::atomic<bool> g_align_go{false};       // stdin thread -> main loop: "hand over now"
+
 void residual_sensor_callback(const mjModel* m, mjData* d, int stage) {
   if (m == g_agent_model || m == g_model) {
     if (stage == mjSTAGE_ACC) {
@@ -375,15 +383,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   const double gff = cfg.gravity_ff;
   const double ctrl_hz = kCtrlHz;
   const double ctrl_dt = 1.0 / ctrl_hz;
-  // STRAIGHTEN boot holds for kStraightenWarmupSec, NOT kWarmupSec: pinning a slumped robot
-  // on a fixed PD target is not a neutral wait -- the pose is statically unholdable, so the
-  // robot creeps for the whole hold and the planner inherits the damage (see deploy_common.h).
-  const double straighten_warmup =
-      cfg.straighten_warmup_sec >= 0.0 ? cfg.straighten_warmup_sec : kStraightenWarmupSec;
-  const double straighten_ramp =
-      cfg.straighten_ramp_sec >= 0.0 ? cfg.straighten_ramp_sec : kStraightenRampSec;
-  const double warmup_sec =
-      cfg.straighten_boot ? straighten_warmup : kWarmupSec;
+  const double warmup_sec = kWarmupSec;
   std::signal(SIGINT, on_signal);
   std::signal(SIGTERM, on_signal);
   mju_user_error = FatalMjuError;      // headless: safe-hold + exit instead of blocking on getchar
@@ -731,7 +731,13 @@ int RunDeployNode(const NodeConfig& cfg) {
     std::string line;
     while (std::getline(std::cin, line)) {
       if (line == "q" || line == "quit") { g_exit.store(true); break; }
-      if (line.empty()) continue;
+      // A bare Enter (or "go") releases the start-pose hold. Only meaningful while the main loop
+      // is actually parked on the aligned stance; otherwise it stays the harmless no-op it was.
+      if (line.empty() || line == "g" || line == "go") {
+        if (g_align_waiting.load() && !g_align_go.exchange(true))
+          std::fprintf(stderr, "[node] >>> GO: releasing the start-pose hold -> MJPC takes over\n");
+        continue;
+      }
       try {
         int s = std::stoi(line);
         // Any strategy (incl. 18 = native Squatter, 19 = native Jab) loads the same way: set the
@@ -870,13 +876,6 @@ int RunDeployNode(const NodeConfig& cfg) {
   // ---- bring-up ramp state: blend ALL joints from the measured power-on pose to the
   //      home/policy target over kStartRampSec so the warmup->policy switch never snaps.
   const double start_ramp_sec = kStartRampSec;
-  if (cfg.straighten_boot) {
-    std::fprintf(stderr,
-                 "[node] STRAIGHTEN bring-up: scripted stand-pose rise BYPASSED -- the PLANNER "
-                 "owns the legs from t=%.1fs (hold measured -> blend to policy over %.1fs -> full "
-                 "authority). The straighten costs compute the rise under balance instead of a "
-                 "blind joint lerp.\n", straighten_warmup, straighten_ramp);
-  }
   std::fprintf(stderr, "[node] bring-up ramp ON: ALL joints measured->home/policy over %.1fs "
                        "(no-op if already at home)\n", start_ramp_sec);
   double home_q[kMaxNU];
@@ -893,6 +892,42 @@ int RunDeployNode(const NodeConfig& cfg) {
   for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
   bool arm_init_set = false;
   double ramp_eff = start_ramp_sec;   // rescaled at latch by distance-from-home (see loop)
+
+  // ---- PHASE A: start-pose align (Cfg::align_start) ----
+  double align_q[kMaxNU];
+  for (int i = 0; i < cfg.nu; i++)
+    align_q[i] = cfg.align_pose_set ? cfg.align_pose[i] : home_q[i];
+  bool   align_active = cfg.align_start;
+  bool   align_reported = false;      // one-shot drag-done banner (the GO gate can hold for long)
+  double align_t0 = -1.0;             // WALL stamp of the first live lowstate
+  double align_i[kMaxNU] = {0};       // anti-stiction integral, added to the commanded target
+  double align_cmd[kMaxNU] = {0};     // LAST target emitted during the align (= align_q + integral).
+                                      // The hand-over must re-latch the ramp to THIS, not to the
+                                      // measured pose: the emitted command is deliberately
+                                      // OVER-DRIVEN (it carries the gravity droop error plus the
+                                      // whole anti-stiction integral), so re-latching to cur.q
+                                      // would drop the target by err+I in a single 5 ms tick --
+                                      // on the knee that is 0.43 rad = an 86 Nm torque step, i.e.
+                                      // the legs going soft the instant the operator presses Enter.
+  bool   align_cmd_set = false;
+  double align_next_print = 0.0;      // progress ticker (names the joint that is refusing)
+  uint32_t align_tick0 = 0;           // lowstate tick at align start -> lets us MEASURE the phase
+                                      // clock rate (tick_hz * twin_dt) and print the hand-over
+                                      // schedule in REAL seconds instead of dilated plant seconds
+  if (align_active) {
+    std::fprintf(stderr,
+                 "[node] START-POSE ALIGN ON (%s): min-jerk drag over %.1fs (WALL), then hold "
+                 "until the legs SETTLE (|dq|<0.05 rad/s) or %.1fs. %s The planner is NOT "
+                 "consulted until hand-over. Residual >%.1f deg prints a NOTE.\n",
+                 cfg.align_pose_set ? "explicit vector" : "model 'stand' keyframe",
+                 cfg.align_sec, cfg.align_timeout,
+                 cfg.align_wait ? "Then it PARKS on the stance and waits for you to press ENTER."
+                                : "Then it hands over immediately (--noalign_wait).",
+                 cfg.align_tol * 180.0 / M_PI);
+    std::fprintf(stderr, "[node] align target (rad):");
+    for (int i = 0; i < cfg.nu; i++) std::fprintf(stderr, " %.3f", align_q[i]);
+    std::fprintf(stderr, "\n");
+  }
 
   auto predict_forward = [&](mjData* s, double dt_ahead, const double* cmd_q) {
     int nsub = static_cast<int>(std::lround(dt_ahead / pred_dt));
@@ -1017,6 +1052,8 @@ int RunDeployNode(const NodeConfig& cfg) {
       ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
       std::fprintf(stderr, "[node] bring-up ramp: latched pose is %.2f rad from home -> "
                            "effective ramp %.1fs\n", d0, ramp_eff);
+      // PHASE A: stamp the align clock on the first live state (WALL, not plant time).
+      if (align_active) { align_t0 = wall; align_tick0 = cur.tick; }
     }
     // SINGLE-STREAM base linvel: replace the cross-stream (site_v - gyro x r) value with a finite
     // diff of the reconstructed pelvis position over the sim-clock + LPF. Updates only when the twin
@@ -1108,16 +1145,174 @@ int RunDeployNode(const NodeConfig& cfg) {
       g_switch_wall.store(phase_t);   // switch settle/blend run on the plant clock too
     }
 
+    double tgt_q[kMaxNU];
+
+    // ================= PHASE A: START-POSE ALIGN (2026-07-13) =================
+    // Runs BEFORE the planner is ever consulted (action[] is not read here). Drags the legs
+    // from whatever geometry the robot powered on with -- twisted, fore-aft, one knee folded --
+    // into a known stance, so MJPC always inherits the SAME basin instead of a lottery.
+    // Everything here is WALL-clocked: the bring-up choreography below runs on plant time
+    // (tick*twin_dt), which with --twin_dt 0.001 on this 200 Hz plant dilates 5x. The align
+    // must not inherit that dilation.
+    bool in_align = false;
+    if (align_active && align_t0 >= 0.0) {
+      constexpr double kAlignSettleDq = 0.05;   // rad/s: "the legs have stopped moving"
+      const double at = wall - align_t0;
+      double err = 0.0, vmax = 0.0;
+      for (int i = 0; i < cfg.nu; i++) {
+        err  = std::fmax(err,  std::fabs(cur.q[i] - align_q[i]));
+        vmax = std::fmax(vmax, std::fabs(cur.dq[i]));
+      }
+      // The exit gate is SETTLED, not "reached". The robot is LOAD-BEARING during the align, so
+      // a knee commanded to 0.37 comes to rest nearer 0.55 under the deploy PD's gravity droop
+      // (measured in the good run: cmd 0.35 vs q 0.568 -- a 13 deg standing sag, and that pose
+      // stands perfectly well). Gating on |q - target| would therefore NEVER fire and the align
+      // would always burn its full timeout. The legs having stopped moving is the physically
+      // reachable signal that the drag is done. align_tol is a QUALITY WARNING, not a blocker.
+      // Exit when the legs have either ARRIVED (every joint inside align_tol) or STALLED (they
+      // have stopped moving and the anti-stiction integral can push no further). Distinguishing
+      // the two matters: "reached" is a clean start; "stalled" means a joint is jammed and the
+      // operator should look before handing the robot to the planner.
+      const bool arrived = (at >= cfg.align_sec) && (err < cfg.align_tol);
+      const bool stalled = (at >= cfg.align_sec) && (vmax < kAlignSettleDq);
+      const bool drag_done = arrived || stalled || at >= cfg.align_timeout;
+
+      // one-shot report the instant the drag finishes (the GO gate below may hold us here for
+      // minutes afterwards, and the operator must not have to scroll for this line).
+      if (drag_done && !align_reported) {
+        align_reported = true;
+        int worst = 0;
+        for (int i = 0; i < cfg.nu; i++)
+          if (std::fabs(cur.q[i] - align_q[i]) > std::fabs(cur.q[worst] - align_q[worst]))
+            worst = i;
+        std::fprintf(stderr,
+                     "[node] START-POSE ALIGN %s after %.1fs -- worst joint %s err %.1f deg "
+                     "(push %+.3f rad), |dq|max %.3f rad/s\n",
+                     arrived ? "REACHED" :
+                     stalled ? "STALLED (legs stopped short -- check for a jam)" : "TIMED OUT",
+                     at,
+                     cfg.joint_names ? cfg.joint_names[worst] : "?",
+                     err * 180.0 / M_PI, align_i[worst], vmax);
+        if (err > cfg.align_tol)
+          std::fprintf(stderr,
+                       "[node]   NOTE residual %.1f deg > --align_tol %.1f deg. Expected if the "
+                       "robot is bearing its own weight (gravity droop); a problem only if a "
+                       "SINGLE joint is far off (a leg jammed on the floor).\n",
+                       err * 180.0 / M_PI, cfg.align_tol * 180.0 / M_PI);
+        if (cfg.align_wait) {
+          g_align_waiting.store(true);   // from here a bare Enter on stdin means GO
+          std::fprintf(stderr,
+              "[node] ==============================================================\n"
+              "[node]  HOLDING the start pose. The planner is NOT driving the robot.\n"
+              "[node]  Settle it / let go, then press ENTER to hand over to MJPC.\n"
+              "[node]  (q + Enter quits without ever engaging the planner.)\n"
+              "[node] ==============================================================\n");
+        }
+      }
+
+      // GO gate: park on the aligned stance until the operator says the robot is settled. The
+      // legs stay stiff and we keep publishing at 200 Hz throughout, so the safety layer never
+      // sees a stale command and the pose does not drift while we wait.
+      const bool go = !cfg.align_wait || g_align_go.load();
+      if (drag_done && go) {
+        g_align_waiting.store(false);
+        align_active = false;
+        // Re-latch the bring-up FROM THE ALIGN'S OWN LAST COMMAND -- NOT from cur.q. The ramp
+        // below starts at arm_q_init (aa=0 => base = arm_q_init), so whatever we put here IS the
+        // command emitted on the very next tick. The align was emitting align_q + integral, an
+        // OVER-DRIVEN target holding the legs against gravity and friction; re-latching to the
+        // measured pose would drop the command by (droop err + integral) in one 5 ms tick -- on
+        // the knee ~0.43 rad = an 86 Nm torque step, i.e. the legs go SOFT the moment the operator
+        // presses Enter (observed on real, 2026-07-13). Latching the last emitted command instead
+        // makes the hand-over C0-continuous: the ramp then eases that over-drive out gradually as
+        // it walks the target to home_q, and the existing policy blend takes it into MJPC.
+        tick0 = cur.tick;
+        for (int i = 0; i < cfg.nu; i++)
+          arm_q_init[i] = align_cmd_set ? align_cmd[i] : cur.q[i];
+        double d0 = 0.0;
+        for (int i = 0; i < cfg.nu; i++)
+          d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
+        ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
+        // Print the hand-over schedule in REAL seconds. The choreography below runs on PLANT time
+        // (tick * twin_dt), which only equals wall time if twin_dt == 1/lowstate_hz. On this robot
+        // the tick is 200 Hz, so --twin_dt 0.001 makes plant time run at 0.20x wall and every
+        // stage below is 5x longer than its constant reads. Measure it rather than assume it.
+        const double dtick = static_cast<double>(static_cast<int64_t>(cur.tick) -
+                                                 static_cast<int64_t>(align_tick0));
+        const double prate = (at > 0.5 && dtick > 0.0)
+                                 ? (dtick * cfg.twin_dt) / at : 1.0;   // plant sec per wall sec
+        const double r2w = (prate > 1e-6) ? 1.0 / prate : 1.0;
+        std::fprintf(stderr,
+                     "[node] bring-up re-latched to the align's LAST COMMAND (%.3f rad from home) "
+                     "-> no command step at hand-over.\n"
+                     "[node] hand-over schedule [phase clock measured at %.2fx wall]: "
+                     "warmup %.0fs -> ramp %.0fs -> hold %.0fs -> POLICY BLEND %.0fs "
+                     "-> full MJPC authority ~%.0fs from now (REAL seconds).\n",
+                     d0, prate,
+                     warmup_sec * r2w, ramp_eff * r2w, kRampHoldSec * r2w,
+                     kPolicyBlendSec * r2w,
+                     (warmup_sec + ramp_eff + kRampHoldSec + kPolicyBlendSec) * r2w);
+      } else {
+        in_align = true;
+      }
+    }
+
+    if (in_align) {
+      // min-jerk 10s^3 - 15s^4 + 6s^5: zero velocity AND zero acceleration at BOTH ends, so a
+      // twisted leg is dragged into place, never yanked. At s=0 the target is exactly the
+      // measured pose, so there is no step at t=0 either. Gravity feedforward (tau) and the H2
+      // torque clamp below still apply, so a leg that jams on the floor cannot be forced.
+      const double at = wall - align_t0;
+      const double s = (cfg.align_sec > 1e-6)
+                           ? std::fmin(1.0, std::fmax(0.0, at / cfg.align_sec))
+                           : 1.0;
+      const double mjk = s * s * s * (10.0 + s * (-15.0 + 6.0 * s));
+      const double dt_i = 1.0 / kCtrlHz;
+      for (int i = 0; i < cfg.nu; i++) {
+        const double ref = (1.0 - mjk) * arm_q_init[i] + mjk * align_q[i];
+        // ANTI-STICTION PUSH (see Cfg::align_ki). Once the reference has ARRIVED (mjk==1, so we
+        // never fight the drag profile), integrate the residual into the commanded target: the
+        // motor PD then applies kp*(tgt - q), which keeps GROWING until the joint breaks its
+        // static friction. Deadbanded by align_tol so an arrived joint stops being pushed, and
+        // hard-limited by align_i_max so a genuinely jammed joint parks a bounded target rather
+        // than winding up forever. The H2 torque clamp below still bounds what actually reaches
+        // the motor to 0.9 x the safety estop -- this cannot exceed the safety envelope.
+        if (mjk >= 1.0 && cfg.align_ki > 0.0) {
+          const double e = align_q[i] - cur.q[i];
+          if (std::fabs(e) > cfg.align_tol) {
+            align_i[i] += cfg.align_ki * e * dt_i;
+            align_i[i] = std::fmin(cfg.align_i_max,
+                                   std::fmax(-cfg.align_i_max, align_i[i]));
+          }
+        }
+        tgt_q[i] = ref + align_i[i];
+      }
+      // remember what we actually emitted: the GO hand-over re-latches the bring-up ramp to THIS
+      // (see align_cmd), so the command never steps when the operator presses Enter.
+      for (int i = 0; i < cfg.nu; i++) align_cmd[i] = tgt_q[i];
+      align_cmd_set = true;
+      // progress ticker: name the joint that is refusing to arrive, and how hard we are pushing
+      // it. If the same joint sits at the windup limit for seconds, it is mechanically stuck.
+      if (wall >= align_next_print) {
+        align_next_print = wall + 2.0;
+        int worst = 0;
+        for (int i = 0; i < cfg.nu; i++)
+          if (std::fabs(cur.q[i] - align_q[i]) > std::fabs(cur.q[worst] - align_q[worst]))
+            worst = i;
+        std::fprintf(stderr,
+                     "[node]   align t=%4.1fs  worst %s err %5.1f deg  push %+.3f rad"
+                     " (%.0f%% of windup limit)\n",
+                     at, cfg.joint_names ? cfg.joint_names[worst] : "?",
+                     std::fabs(cur.q[worst] - align_q[worst]) * 180.0 / M_PI, align_i[worst],
+                     cfg.align_i_max > 0.0
+                         ? 100.0 * std::fabs(align_i[worst]) / cfg.align_i_max : 0.0);
+      }
+    } else {
     // per-joint commanded position target with the BRING-UP ramp: blend from the measured
     // power-on pose to the home/policy target on ALL joints (kills the warmup->policy SNAP
     // from off-home starts).
-    double tgt_q[kMaxNU];
     for (int i = 0; i < cfg.nu; i++) {
-      // STRAIGHTEN boot: short measured->PLANNER blend instead of the 5s scripted rise +
-      // 3s hold. The straighten phase's costs (Balance / Pelvis Tilt / CoM Vel / Base
-      // Height) ARE the bring-up controller -- muzzling them for 9s while a blind lerp
-      // extends the knees is what produced the REAL forward lean (2026-07-11).
-      double ramp_dur = cfg.straighten_boot ? straighten_ramp : ramp_eff;
+      double ramp_dur = ramp_eff;
       double base;
       if (ramp_dur > 0.0 && arm_init_set) {
         double aa = std::fmin(1.0, std::fmax(0.0, phase_t / ramp_dur));
@@ -1125,26 +1320,11 @@ int RunDeployNode(const NodeConfig& cfg) {
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
         // for kRampHoldSec more so CEM converges around the STATIC operating pose
         // before getting authority (kills the hand-off "first tug" toward the old basin).
-        // Straighten boot: no scripted hold -- authority passes at the end of warmup.
-        const double t_ho =
-            cfg.straighten_boot ? warmup_sec : (ramp_dur + kRampHoldSec);
-        // Straighten boot has no scripted stance to ease OUT of -- the measured->policy
-        // blend above already carried the handover, so the cold-start policy-blend is
-        // disabled (leaving it on would drag the target back toward the blind stand pose
-        // for kPolicyBlendSec, re-creating the very lean this fix removes).
-        const double pblend = cfg.straighten_boot ? 0.0 : kPolicyBlendSec;
+        const double t_ho = ramp_dur + kRampHoldSec;
+        const double pblend = kPolicyBlendSec;
         double tgt;
         if (aa < 1.0 || warming || i >= nact || phase_t < t_ho) {
-          if (cfg.straighten_boot && i < nact) {
-            // The PLANNER is the bring-up destination: hold the LATCHED power-on pose
-            // through warmup (CEM converging), then blend -> live policy over ramp_dur.
-            // Hold arm_q_init, NOT the live cur.q: commanding the live measurement makes
-            // the target follow the robot's own sag (compliant droop, no stiffness against
-            // gravity) -- twin-caught 2026-07-12.
-            tgt = warming ? arm_q_init[i] : action[i];
-          } else {
-            tgt = home_q[i];                     // rising / warmup / non-policy joint / scripted hold
-          }
+          tgt = home_q[i];                       // rising / warmup / non-policy joint / scripted hold
         } else if (pblend > 0.0 && phase_t < t_ho + pblend) {
           // POLICY-BLEND: ease the scripted stance -> the LIVE policy target over pblend so a
           // cold-started non-stand task descends smoothly instead of snapping at the handoff.
@@ -1174,6 +1354,8 @@ int RunDeployNode(const NodeConfig& cfg) {
       }
       tgt_q[i] = base;
     }
+    }   // end !in_align
+
 
     // ankle zero-offset: shift the WIRE command by the calibration so the physical joint
     // reaches the planner's intended (corrected) angle. Pairs with the belief correction in
