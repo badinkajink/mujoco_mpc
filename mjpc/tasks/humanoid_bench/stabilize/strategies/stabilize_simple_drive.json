@@ -83,7 +83,7 @@
             }
         ],
         "facing_target": [],
-        "name": "stumble_trot_walk",
+        "name": "stumble_trot_drive",
         "success_sustain_time": 9999.0,
         "target_ramp_sec": 6.0,
         "target_distance_tolerance": 0.3,

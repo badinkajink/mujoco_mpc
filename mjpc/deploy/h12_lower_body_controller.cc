@@ -32,8 +32,20 @@ int DefaultDomainId() {
 ABSL_FLAG(std::string, task, "Stabilize H12 Magpie",
           "MJPC task id (lower-body nu=12 stabilize task)");
 ABSL_FLAG(int, strategy, 6,
-          "Stabilize Strategy parameter (6=stand; 0-5=placeholders). The stabilize "
-          "task is lower-body-only, so the lean reach/lean/crouch slots are absent.");
+          "Stabilize Strategy parameter. The stabilize task is lower-body-only "
+          "(nu=12), so the lean reach/lean/crouch slots are absent. Slots:\n"
+          "    6  = stand   (free-standing balance hold -- the validated default)\n"
+          "   20  = stumble (balance-gated march + catch-march push recovery)\n"
+          "   22  = walk    (trot + a baked forward v_des; walk_des_vel_x)\n"
+          "   23  = trot    (capture-point in-place trot; lifts ~5-8 cm)\n"
+          "   24  = drive   (WSS teleop: stand<->trot FSM on live cmd_vel; idle "
+          "plants the feet and stands, a command engages the gait, release settles "
+          "upright. Set Cmd Active/Vx/Vy/Wz/Seq over gRPC -- Seq is a heartbeat and "
+          "MUST keep changing or the watchdog stops the robot after 1 s.)\n"
+          "  20/22/23/24 are the STEPPING family: they share the gait clock and the "
+          "ModifyControl swing forcer, and get spline 5 / 17 trajectories via "
+          "PlannerNumericOverrides (17+1 = one thread wave -- see the plan-rate note "
+          "in stabilize.cc; 36 traj starved the planner to 27-30 plans/s on real).");
 ABSL_FLAG(double, gravity_ff, 0.85,
           "joint gravity feedforward scale (tau = scale * qfrc_bias); 0 disables. "
           "REAL robot: 0.85. TWIN bench: 0 (the twin's gravcomp over-lightens the legs "

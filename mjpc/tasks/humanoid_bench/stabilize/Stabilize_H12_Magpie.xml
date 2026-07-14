@@ -151,6 +151,19 @@
              The phase name must begin with "stumble" (the lean.cc name-gate). -->
         <key name="stumble_march" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <key name="stumble_trot"  qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- WSS port 2026-07-12. Both are byte-copies of stumble_trot: the gait
+             POSE is the same, only the velocity/amplitude machinery differs. The
+             distinct NAMES are what carry the strategy identity -- stabilize.cc
+             gates is_trot / is_walk / is_drive off substrings of the keyframe
+             name, and ModifyControl looks the pose up by that same name (a
+             missing key silently falls back to key 0 = "home", which would swing
+             the legs around a straight-leg pose). So these keys are REQUIRED, not
+             cosmetic.
+               stumble_trot_walk  (strat 22): trot + a baked forward v_des.
+               stumble_trot_drive (strat 24): trot whose amplitude is latched by
+                                              the live cmd_vel FSM (idle = stand). -->
+        <key name="stumble_trot_walk"  qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stumble_trot_drive" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
     </keyframe>
     
     <!-- 0.03 0.03 are the gripper pos for parallel jaw -->
@@ -267,16 +280,69 @@
              forward-fall catch). Robust 24 s forward NOT yet cracked (joint CMA-ES /
              RL next). Default below = in-place (robust). -->
         <numeric name="trot_cap_gain" data="2.2"/>
-        <numeric name="trot_walk_gain" data="0.0"/>
-        <numeric name="trot_vel_w" data="1.0"/>
-        <numeric name="trot_lat_w" data="1.0"/>
-        <numeric name="trot_bal_scale" data="1.0"/>
+        <!-- ★ trot_walk_gain = gain on the Raibert NEUTRAL (velocity-MAINTAINING) step
+             (T_st/2)*v_des. WAS 0.0 = THE WALK COULD NOT WALK. With kw=0 the foot is
+             placed at the full capture point xi = v*tau, which is a COME-TO-REST
+             target: every step deliberately kills forward momentum, so the robot can
+             never sustain a velocity. It then tries to satisfy CoM Vel. the only way
+             left to it -- by pitching the torso forward -- which is exactly the +20 deg
+             forward lean / sinking base / zero forward travel the twin showed.
+             1.0 = the theoretically velocity-sustaining placement.
+             SAFE FOR THE IN-PLACE TROT BY CONSTRUCTION: the whole term is multiplied by
+             v_des, so v_des=0 (strat 23) makes it vanish regardless of kw. -->
+        <numeric name="trot_walk_gain" data="1.0"/>
+        <!-- TELEOP UNIFIED CONFIG (WSS port 2026-07-12): the walk knobs are baked
+             as DEFAULTS so drive can slew in-place<->walk without a config swap.
+             These were 1/1/1 here (stale pre-WSS defaults). The in-place trot is
+             UNAFFECTED by the change: v_des=0 gates every walk term off, which is
+             exactly why they can be defaulted on. Re-gate strat 23 after any edit. -->
+        <!-- ★★★ trot_vel_w IS THE SUSTAINED-WALK CEILING KNOB (measured 2026-07-12 on the
+             FAITHFUL twin, drive_metrics.py, free-standing, vx=0.10, "walk survival" =
+             seconds of commanded walking before the robot goes over):
+                 vel_w 12 (default): 8.3 / 9.1 s
+                 vel_w  8:          11.9 / 13.9 / 8.7 s
+                 vel_w  4:          29.7 / 10.5 / 31.9 s  <- but travels only ~0.012 m/s
+             ROOT CAUSE the sweep exposed: the gait only achieves ~30-40% of the commanded
+             speed by FOOT PLACEMENT, so the velocity-tracking error NEVER closes. The
+             planner then buys the missing velocity the only other way it can -- by LEANING
+             the torso forward. Pitch creeps 2->5->7->8 deg, passes the point of no return,
+             and gravity finishes it (vx runs away to 1.5 m/s = 15x the command; that is a
+             FALL, not a walk). vel_w scales the size of that unsatisfiable demand, hence
+             the monotone trade: LESS velocity demand = less lean = longer survival = less
+             actual walking. It is a DIAL BETWEEN SPEED AND STAYING UP, not a fix.
+             ⚠ Anti-LEAN knobs are all NULL (they treat the symptom): trot_bal_scale 1.0
+             (no demotion) = 7.9/9.8 s, trot_angmom_w 12 = 6.0/7.0 s -- both within noise of
+             the 8.3/9.1 baseline. Lateral knobs likewise null: trot_step_width 0.05 =
+             6.2/5.4 s, 0.08 = 5.7 s; trot_cap_gain_lat 1.0 = 5.4/6.4 s, 3.5 = 6.0/5.4 s.
+             ⇒ THE REAL FIX IS PROPULSION (make the gait actually push the body at the
+             commanded speed -- stance-leg/ankle push-off), NOT a cost weight. Until then
+             every weight here just picks a point on the speed-vs-survival curve.
+             Left at 12 = lean-parity + the validated in-place trot (v_des=0 gates it off). -->
+        <numeric name="trot_vel_w" data="12.0"/>
+        <numeric name="trot_lat_w" data="6.0"/>
+        <numeric name="trot_bal_scale" data="0.5"/>
         <numeric name="trot_des_vel_x" data="0.0"/>
         <numeric name="trot_des_vel_y" data="0.0"/>
+        <!-- WALK (strat 22) forward speed [m/s]. Applied ONLY when the trot_des_vel
+             numerics are still 0, so a manual trot_des_vel_x sweep always wins.
+             0.15 = the twin-validated forward envelope (8/8); 0.20 is fast-marginal. -->
+        <numeric name="walk_des_vel_x" data="0.15"/>
+        <!-- WSS drive (strat 24) teleop envelopes: strafe + yaw-rate. The governor
+             clamps live lateral to +/-drive_vy_max and yaw to +/-drive_wz_max.
+             Both are the biped's WEAK axes -- twin-campaign before raising. -->
+        <numeric name="drive_vy_max" data="0.06"/>
+        <numeric name="drive_wz_max" data="0.3"/>
+        <!-- drive_settle_thresh (strat 24 ONLY): the R6 reactive settle governor,
+             drive-scoped so strat 23's trot_settle_thresh stays 0 (byte-identical).
+             Capture-error band [m] on |v-v_des|*tau; beyond it v_des fades to 0 ->
+             auto-revert to the in-place trot until the walk re-stabilises. This is
+             what makes a stop settle upright instead of planting with momentum. -->
+        <numeric name="drive_settle_thresh" data="0.12"/>
         <!-- trot_angmom_w = trot-WALK angular-momentum (forward-pitch-runaway) catch
-             gain; gated to trot-walk in lean.cc (0 = the prior no-catch behavior).
-             WALK ~3. Pairs with the Angular Momentum carrier weight above. -->
-        <numeric name="trot_angmom_w" data="0.0"/>
+             gain; gated to trot-WALK only (is_trot && v_des!=0) in stabilize.cc, so
+             the in-place trot and every other strategy stay at 0 = byte-identical.
+             WAS 0 here (the catch was never armed). WALK ~3. -->
+        <numeric name="trot_angmom_w" data="3.0"/>
         <!-- STEP-AND-SETTLE: pulse v_des -> walk for trot_step_walk s, then SETTLE
              (v_des=0 = robust in-place trot, all walk terms gate off) for the rest
              of trot_step_period s. Decomposes continuous walk (bistable) into
@@ -284,6 +350,39 @@
              trot_step_period=0 => continuous (no pulse). e.g. period 4 / walk 1. -->
         <numeric name="trot_step_period" data="0.0"/>
         <numeric name="trot_step_walk" data="0.0"/>
+        <!-- ROBUSTIFICATION R4-R6. ALL default-0 = OFF = byte-identical:
+             trot_release       = fraction of the swing over which the scripted swing
+                                  fades BACK to the sampler before touchdown, so the
+                                  landing leg is LOAD-driven, not POSITION-driven
+                                  (the real-robot "pushes off fine, lands weak"
+                                  asymmetry). Try 0.15-0.25.
+             trot_step_width    = per-leg lateral placement DELTA [m] from the home
+                                  stance width (L +w/2 out, R -w/2 out): a lateral
+                                  limit-cycle reference + anti-scissor. step_y alone
+                                  is a SHARED catch term (same sign both legs), so it
+                                  cannot widen. Try 0.02-0.06.
+             trot_settle_thresh = strat 23's own settle band; drive uses
+                                  drive_settle_thresh instead. Try 0.08-0.15.
+             trot_duty / trot_swing_h / trot_cap_gain_lat: read by both the cost gait
+             clock and ModifyControl (they MUST see the same value). Absent numerics
+             fall back to the in-code defaults (0.60 / 1.0 / = trot_cap_gain), so
+             these are pinned here to make them tunable without a rebuild. -->
+        <numeric name="trot_release" data="0.0"/>
+        <numeric name="trot_step_width" data="0.0"/>
+        <numeric name="trot_settle_thresh" data="0.0"/>
+        <!-- ★ trot_heading_lock (1 = ON, default): aim the Body Yaw reference at the
+             LATCHED/commanded heading instead of at reach_dir. reach_dir points at the
+             mocap reach target, which the task constructor RANDOMIZES (y in [-0.3,0.3]
+             at x~1.5 => up to +/-11 deg of random heading bias, re-rolled per process)
+             -- and Body Yaw is weight 40 in every stepping JSON. That random yaw demand
+             made walk CRAB (world-frame v_des vs a yawed body) and gave the in-place
+             trot its lateral wander. 0 = the legacy random-reach-axis behaviour, kept
+             purely so this can be A/B'd without a rebuild. Applies to the whole trot
+             family (trot/walk/drive); stumble + all pose strategies are untouched. -->
+        <numeric name="trot_heading_lock" data="1.0"/>
+        <numeric name="trot_duty" data="0.60"/>
+        <numeric name="trot_swing_h" data="1.0"/>
+        <numeric name="trot_cap_gain_lat" data="2.2"/>
         <!-- reach_hand (2026-06-20, strategy 21 only): which hand reaches the
              target. 0 = AUTO (nearer hand by target side), 1 = force LEFT,
              2 = force RIGHT (keeps the other arm free for a future brace/grasp).
@@ -585,6 +684,20 @@
         <numeric name="residual_Arm Goal J11" data="0 -3.2 3.2" />
         <numeric name="residual_Arm Goal J12" data="0 -3.2 3.2" />
         <numeric name="residual_Arm Goal J13" data="0 -3.2 3.2" />
+        <!-- LIVE cmd_vel teleop (WSS port 2026-07-12) = the drive (strat 24) seam.
+             gRPC-settable via SetTaskParameters. Vx/Vy are BODY-frame m/s; the
+             TransitionLocked governor clamps/slews/rotates them before the trot
+             sees anything. Seq is a client heartbeat: if it stops changing for
+             >1 s the watchdog zeroes the command (dead-client stop).
+             ORDER IS THE ABI: these are APPENDED after Arm Goal J13 on purpose --
+             parameter indices are assigned by XML order, so appending keeps
+             0..18 (incl. Strategy=1, Phase=2) exactly where the perfected stand
+             expects them. Never insert above this line; only append below. -->
+        <numeric name="residual_Cmd Active" data="0 0 1" />
+        <numeric name="residual_Cmd Vx" data="0 -0.2 0.2" />
+        <numeric name="residual_Cmd Vy" data="0 -0.2 0.2" />
+        <numeric name="residual_Cmd Seq" data="0 0 1000000" />
+        <numeric name="residual_Cmd Wz" data="0 -1 1" />
     </custom>
 
     <sensor>

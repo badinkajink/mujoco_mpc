@@ -315,6 +315,22 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // (below) to match stabilize::ModifyControl, which hard-writes the swing leg in ctrl.
   const bool is_trot =
       is_stumble && (residual_keyframe_.name.find("trot") != std::string::npos);
+  // WSS DRIVE (strat 24, phase "stumble_trot_drive"): a trot whose gait
+  // AMPLITUDE is command-latched (idle => plant the feet => stand; commanded =>
+  // full trot). is_drive implies is_trot -- the keyframe name carries both
+  // tokens -- so every velocity/step/capture machine below works unchanged and
+  // ONLY g_amp differs. Also swaps the settle-governor numeric (drive_settle_
+  // thresh) so turning the governor on for drive leaves strat 23 untouched.
+  const bool is_drive =
+      is_stumble && (residual_keyframe_.name.find("drive") != std::string::npos);
+  // WALK (strat 22, phase "stumble_trot_walk"): the in-place trot with a BAKED
+  // forward v_des. Same reason the keyframe carries "trot": walk is not a new
+  // controller, it is the trot with a nonzero velocity target, which is what
+  // switches on the Raibert neutral step + the trot-walk angular-momentum catch.
+  // Without a distinct keyframe token, walk and trot would be the same strategy
+  // (the des-vel numerics are GLOBAL, not per-strategy).
+  const bool is_walk =
+      is_stumble && (residual_keyframe_.name.find("walk") != std::string::npos);
   // gait parameters (constexpr -> tune by edit+rebuild; nav drives only kDesVel*)
   constexpr double kCadenceHz  = 1.1;   // 0.8->1.1 FOOT-LIFT CLUSTER 2026-06-24 (Unitree H1-2
                                         // rl_gym 1.25). steps/s per foot (slower -> swing fits
@@ -340,6 +356,36 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int dvy_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_des_vel_y");
     if (dvx_id >= 0) kDesVelX = model->numeric_data[model->numeric_adr[dvx_id]];
     if (dvy_id >= 0) kDesVelY = model->numeric_data[model->numeric_adr[dvy_id]];
+    // WALK (strat 22): its OWN forward v_des, so walk differs from the in-place
+    // trot WITHOUT the operator having to set a global numeric (which would also
+    // change strat 23). Only applied when the trot_des_vel numerics are still at
+    // their 0 default, so setting trot_des_vel_x by hand always wins (that is the
+    // existing sweep/tuning path and it must keep working).
+    if (is_walk && kDesVelX == 0.0 && kDesVelY == 0.0) {
+      int wdx_id = mj_name2id(model, mjOBJ_NUMERIC, "walk_des_vel_x");
+      double wv = (wdx_id >= 0)
+          ? model->numeric_data[model->numeric_adr[wdx_id]] : 0.15;
+      // ...along the LATCHED HEADING, not along world +x. kDesVel is a WORLD
+      // vector (it is differenced against qvel[0:2]), so a body that yaws away
+      // from world +x would be commanded to CRAB -- it walks one way while the
+      // velocity target points another, the capture step fights the drive, and
+      // the walk pitches over. drive_yaw_des_ is latched when the gait arms
+      // (TransitionLocked), so this is "walk forward along the heading you
+      // started with" -- and the Body Yaw lock below holds the body to it.
+      kDesVelX = wv * std::cos(drive_yaw_des_);
+      kDesVelY = wv * std::sin(drive_yaw_des_);
+    }
+    // LIVE teleop override (WSS cmd_vel seam) -- MUST match the same override in
+    // stabilize::ModifyControl: the governed WORLD-frame v_des computed once per
+    // plan by the TransitionLocked governor replaces the static numerics whenever
+    // a client is live. cmd_active_ is propagated into every rollout copy
+    // (ResidualLocked), so the sampled cost and the open-loop swing agree on the
+    // SAME velocity target -- which is exactly what stops the sampler from
+    // spending its rollouts cancelling the walk drive.
+    if (cmd_active_) {
+      kDesVelX = cmd_vdes_world_[0];
+      kDesVelY = cmd_vdes_world_[1];
+    }
     // STEP-AND-SETTLE pulse: walk for trot_step_walk s, then SETTLE (v_des=0) for
     // the rest of trot_step_period s. v_des=0 gates OFF every walk term -> reverts
     // to the validated-ROBUST in-place trot (the recovery is the thing that already
@@ -353,6 +399,30 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     double Tw = (tw_id >= 0) ? model->numeric_data[model->numeric_adr[tw_id]] : 0.0;
     if (Tp > 1e-6 && std::fmod(mju_max(0.0, data->time), Tp) >= Tw) {
       kDesVelX = 0.0; kDesVelY = 0.0;   // settle window -> robust in-place trot
+    }
+    // R6 REACTIVE SETTLE GOVERNOR -- MUST match stabilize::ModifyControl's copy
+    // (same qpos/qvel inputs -> deterministic cost/swing agreement, exactly the
+    // step-pulse pattern above). When the capture error |v - v_des|*tau leaves
+    // the band, v_des FADES to 0 -- every walk term gates off and the controller
+    // auto-reverts to the in-place trot (the thing that already recovers) until
+    // the error re-enters the band. This is what makes a walk STOP upright
+    // instead of planting the feet with forward momentum.
+    // drive (strat 24) reads drive_settle_thresh, so the governor can be ON for
+    // drive while strat 23's trot_settle_thresh stays 0 = byte-identical.
+    const char *st_name = is_drive ? "drive_settle_thresh" : "trot_settle_thresh";
+    int st_id = mj_name2id(model, mjOBJ_NUMERIC, st_name);
+    double kSettle = (st_id >= 0)
+        ? model->numeric_data[model->numeric_adr[st_id]] : 0.0;
+    if (kSettle > 1e-6 && (kDesVelX != 0.0 || kDesVelY != 0.0)) {
+      double zg = mju_max(0.5, data->qpos[2]);
+      double tg = mju_sqrt(zg / 9.81);
+      double gex = (data->qvel[0] - kDesVelX) * tg;
+      double gey = (data->qvel[1] - kDesVelY) * tg;
+      double gerr = mju_sqrt(gex * gex + gey * gey);
+      double gg = mju_max(0.0, mju_min(1.0,
+          (1.5 * kSettle - gerr) / (0.5 * kSettle)));
+      gg = gg * gg * (3.0 - 2.0 * gg);
+      kDesVelX *= gg; kDesVelY *= gg;
     }
   }
   // swing-leg JOINT-space lift offsets [rad] at full bump (added to the keyframe
@@ -523,6 +593,14 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
       // swing fold + Tier-A swing-release apply continuously and the Posture cost
       // EXPECTS the lifted swing leg (no spurious penalty fighting the freeze).
       g_amp = arm;
+      // DRIVE (strat 24): the stand<->trot latch SCALES the march instead.
+      //   idle      (drive_gait_amp_ = 0) -> g_amp = arm * recov = the strat-20
+      //                                      balance-gated stand: feet planted,
+      //                                      but it still steps to catch a push.
+      //   commanded (drive_gait_amp_ = 1) -> g_amp = arm = the full trot.
+      // drive_gait_amp_ arrives via the plan snapshot (ResidualLocked), so the
+      // cost and stabilize::ModifyControl's swing ramp together, in lockstep.
+      if (is_drive) g_amp = arm * mju_max(drive_gait_amp_, recov);
     }
     // --- TROT STARTER (opt-in, strategy 20 only): a deliberate in-place march
     // over the window [trot_delay, trot_delay+trot_sec] after engage, then HAND
@@ -2034,6 +2112,43 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // onto the xy-plane and check alignment there. Pitch drops out because
   // pitching down shortens torso_forward's xy length without changing
   // its xy direction.
+  //
+  // ★ STEPPING HEADING LOCK (trot 23 / walk 22 / drive 24) -----------------
+  // Retarget the Body Yaw REFERENCE (reach_dir) to the latched/commanded heading.
+  //
+  // WHY THIS IS A BUG FIX, not just a drive feature: reach_dir is
+  // normalize(reach_target - torso_pos), and reach_target is the mocap target =
+  // target_position_, which the constructor RANDOMIZES to x in [1.4,1.6],
+  // y in [-0.3,0.3]. Body Yaw carries weight 40 in every stepping strategy's
+  // JSON. So a stepping controller was being told to yaw toward a RANDOM point
+  // up to +/-0.3 m off-axis at 1.5 m = up to +/-11 deg of heading bias, freshly
+  // re-rolled every process. The body obeys and yaws -- and because kDesVel is a
+  // WORLD vector, the walk then CRABS (it walks along its own nose while the
+  // velocity target points down the old world axis), the capture step fights the
+  // drive, and it pitches over. Measured on the twin before this fix: walk drifted
+  // ~0.9 m sideways with +20 deg of forward pitch; the in-place trot showed the
+  // same disease as 4-6 deg of lateral wander with Lateral Center pinned as the
+  // dominant cost.
+  //
+  // drive_yaw_des_ = the commanded heading for drive (integrated yaw-rate), or the
+  // heading latched when the gait armed for trot/walk (TransitionLocked). It is
+  // propagated into every rollout copy by ResidualLocked.
+  //
+  // trot_heading_lock numeric: 1 = on (default), 0 = the legacy random-reach-axis
+  // behaviour (A/B without a rebuild). Gated on is_trot, which is TRUE for the
+  // whole trot family (trot/walk/drive keyframes all carry the "trot" token) and
+  // FALSE for stumble + every pose strategy -- and the reach-alignment residual
+  // above has already consumed the original reach_dir, so overwriting it is safe.
+  if (is_trot) {
+    int hl_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_heading_lock");
+    bool hl = (hl_id < 0) ||
+              (model->numeric_data[model->numeric_adr[hl_id]] > 0.5);
+    if (hl) {
+      reach_dir[0] = std::cos(drive_yaw_des_);
+      reach_dir[1] = std::sin(drive_yaw_des_);
+      reach_dir[2] = 0.0;
+    }
+  }
   double tf_xy_len = mju_sqrt(torso_forward[0] * torso_forward[0] +
                               torso_forward[1] * torso_forward[1]);
   double rd_xy_len = mju_sqrt(reach_dir[0] * reach_dir[0] +
@@ -3130,12 +3245,228 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
   }
   mju_copy3(data->mocap_pos, target_position_.data());
 
+  // ---- LIVE cmd_vel GOVERNOR (WSS teleop port, 2026-07-12) ----------------
+  // The single safety authority for live velocity commands: heartbeat watchdog,
+  // gait-arm lockout, envelope clamp, settle-through-zero on sign flips, slew
+  // limit, then ONE body->world yaw rotation. The result is stored on residual_
+  // so BOTH v_des readers (Residual + stabilize::ModifyControl) consume the SAME
+  // world vector -- the mirrored-agreement requirement then holds by
+  // construction rather than by two copies of the same arithmetic.
+  //
+  // Runs once per plan under the transition lock, BEFORE the rollout workers fan
+  // out (same guarantee the arm-plan block relies on). Inactive => members zeroed
+  // + cmd_active_=false => both readers take the legacy trot_des_vel numeric
+  // path, byte-identical to the validated static configs. The perfected stand
+  // (strat 6) never reaches any of this: its keyframe is not a stumble/trot.
+  {
+    const bool cmd_on =
+        (int)parameters.size() > kStabilizeCmdSeqParameterIndex &&
+        parameters[kStabilizeCmdActiveParameterIndex] > 0.5;
+    if (cmd_on) {
+      double now = data->time;
+      double vx = parameters[kStabilizeCmdVxParameterIndex];  // BODY-frame m/s
+      double vy = parameters[kStabilizeCmdVyParameterIndex];
+      double seq = parameters[kStabilizeCmdSeqParameterIndex];
+      if (seq != residual_.cmd_last_seq_) {
+        residual_.cmd_last_seq_ = seq;
+        residual_.cmd_seq_time_ = now;
+      }
+      // client-heartbeat watchdog: Seq frozen > 1 s = dead client -> stop.
+      bool starved = (now - residual_.cmd_seq_time_) > 1.0;
+      // gait-arm lockout: kArmSec(2.0) swing arm-in + margin. Acting on v_des
+      // during the bring-up transient topples the robot -- the R6 lesson.
+      bool locked = (now - residual_.keyframe_start_time_) < 6.0;
+      if (starved || locked) { vx = 0.0; vy = 0.0; }
+      // envelope = the twin-validated speeds: fwd 0.15, back 0.10. 0.20 is
+      // fast-marginal and deliberately excluded.
+      vx = mju_min(0.15, mju_max(-0.10, vx));
+      // strafe: the DRIVE strategy accepts lateral, clamped to the (weak-axis)
+      // drive_vy_max envelope; EVERY other strategy keeps vy = 0.
+      const int strat_g =
+          (int)std::round(parameters[kStabilizeStrategyParameterIndex]);
+      const auto snames_g = GetStrategyNames();
+      const bool drive_g = strat_g >= 0 && strat_g < (int)snames_g.size() &&
+          snames_g[strat_g].find("drive") != std::string::npos;
+      {
+        double vy_max = 0.0;
+        if (drive_g) {
+          int vym_id = mj_name2id(model, mjOBJ_NUMERIC, "drive_vy_max");
+          vy_max = (vym_id >= 0)
+              ? model->numeric_data[model->numeric_adr[vym_id]] : 0.06;
+        }
+        vy = mju_min(vy_max, mju_max(-vy_max, vy));
+      }
+      // yaw-rate: drive only; clamp to drive_wz_max and slew into cmd_wz_ (the
+      // FSM below integrates it into a desired heading).
+      {
+        double wz = 0.0;
+        if (drive_g &&
+            (int)parameters.size() > kStabilizeCmdWzParameterIndex &&
+            !starved && !locked) {
+          int wzm = mj_name2id(model, mjOBJ_NUMERIC, "drive_wz_max");
+          double wzmax = (wzm >= 0)
+              ? model->numeric_data[model->numeric_adr[wzm]] : 0.3;
+          wz = mju_min(wzmax,
+                       mju_max(-wzmax, parameters[kStabilizeCmdWzParameterIndex]));
+        }
+        double dtw = (residual_.cmd_prev_time_ > 0.0)
+                         ? mju_max(0.0, now - residual_.cmd_prev_time_) : 0.0;
+        double dwz = 1.0 * dtw;   // slew 1 rad/s^2
+        residual_.cmd_wz_ += mju_min(dwz, mju_max(-dwz, wz - residual_.cmd_wz_));
+      }
+      // settle-through-zero: a fwd<->back flip dwells at 0 for 1.5 s (~1.6 gait
+      // cycles) so the capture catch kills momentum before the reversal.
+      if (vx * residual_.cmd_filt_[0] < -1e-9)
+        residual_.cmd_settle_until_ = now + 1.5;
+      if (now < residual_.cmd_settle_until_) vx = 0.0;
+      // slew 0.08 m/s^2 (0 -> 0.15 in ~1.9 s).
+      double dt = residual_.cmd_prev_time_ > 0.0
+                      ? mju_max(0.0, now - residual_.cmd_prev_time_)
+                      : 0.0;
+      double dv = 0.08 * dt;
+      double tgt[2] = {vx, vy};
+      for (int a = 0; a < 2; a++) {
+        double d = tgt[a] - residual_.cmd_filt_[a];
+        residual_.cmd_filt_[a] += mju_min(dv, mju_max(-dv, d));
+      }
+      residual_.cmd_prev_time_ = now;
+      // body->world (yaw only; identity at yaw 0 => the twin-validated behaviour
+      // is bit-unchanged). Also keeps "forward = robot-forward" under IMU yaw
+      // drift, which is what the yaw-relative reach fix taught us.
+      double qw = data->qpos[3], qx = data->qpos[4], qy = data->qpos[5],
+             qz = data->qpos[6];
+      double yaw = std::atan2(2.0 * (qw * qz + qx * qy),
+                              1.0 - 2.0 * (qy * qy + qz * qz));
+      double cy = std::cos(yaw), sy = std::sin(yaw);
+      residual_.cmd_vdes_world_[0] =
+          cy * residual_.cmd_filt_[0] - sy * residual_.cmd_filt_[1];
+      residual_.cmd_vdes_world_[1] =
+          sy * residual_.cmd_filt_[0] + cy * residual_.cmd_filt_[1];
+      if (!residual_.cmd_active_)
+        std::fprintf(stderr, "[stabilize] cmd governor: ACTIVE (vx=%.3f)\n", vx);
+      else if (starved && !residual_.cmd_starved_)
+        std::fprintf(stderr, "[stabilize] cmd governor: starved=1 -> zeroing\n");
+      residual_.cmd_starved_ = starved;
+      residual_.cmd_active_ = true;
+    } else if (residual_.cmd_active_) {
+      residual_.cmd_active_ = false;
+      residual_.cmd_filt_[0] = residual_.cmd_filt_[1] = 0.0;
+      residual_.cmd_vdes_world_[0] = residual_.cmd_vdes_world_[1] = 0.0;
+      residual_.cmd_prev_time_ = -1.0;
+      std::fprintf(stderr, "[stabilize] cmd governor: OFF -> legacy numerics\n");
+    }
+  }
+
   // strategy-based contact keyframe progression
   const auto kStrategyNames = GetStrategyNames();
   int requested_strategy =
       (int)std::round(parameters[kStabilizeStrategyParameterIndex]);
   requested_strategy = std::max(
       0, std::min(requested_strategy, (int)kStrategyNames.size() - 1));
+
+  // ---- WSS DRIVE stand<->trot FSM (strat 24) ------------------------------
+  // Gait-enable latch: no command -> drive_gait_amp_ ramps to 0 (feet plant = a
+  // real stand; the balance gate still steps to catch a push); any command ->
+  // ramps to 1 (full trot). Hysteresis (engage fast, release only after a dwell)
+  // keeps it from chattering between stand and walk at the command boundary.
+  // Stored on residual_; ResidualLocked copies it into the plan snapshot so the
+  // cost agrees with ModifyControl. Drive-only -> every other strategy is
+  // byte-identical (drive_gait_amp_ stays 0 and is never read outside is_drive).
+  {
+    const bool is_drive_strat =
+        kStrategyNames[requested_strategy].find("drive") != std::string::npos;
+    if (is_drive_strat) {
+      double now = data->time;
+      // command magnitude: the governor's slewed body command when a client is
+      // live; no client -> 0 (static trot_des_vel default 0 => idle => stand).
+      double cvx = residual_.cmd_active_ ? residual_.cmd_filt_[0] : 0.0;
+      double cvy = residual_.cmd_active_ ? residual_.cmd_filt_[1] : 0.0;
+      double cwz = residual_.cmd_active_ ? residual_.cmd_wz_ : 0.0;
+      // yaw contributes to engage (so a pure yaw command spins in place = a
+      // rotational in-place trot); 0.15 converts rad/s to a translation scale.
+      double m = std::sqrt(cvx * cvx + cvy * cvy) + 0.15 * std::fabs(cwz);
+      constexpr double kEngage = 0.02, kRelease = 0.01, kReleaseDwell = 1.2;
+      if (m > kEngage) {
+        if (!residual_.drive_walk_)
+          std::fprintf(stderr,
+                       "[stabilize] drive: WALK (m=%.3f) -> gait ramping up\n", m);
+        residual_.drive_walk_ = true;
+        residual_.drive_idle_since_ = -1.0;
+      } else if (m < kRelease) {
+        if (residual_.drive_idle_since_ < 0.0) residual_.drive_idle_since_ = now;
+        // R2 VELOCITY-GATED DISENGAGE: do NOT release on the dwell timer alone --
+        // hold the gait until the base has actually SLOWED (step-to-rest: track
+        // velocity to zero WHILE still stepping), so we never plant the feet with
+        // forward momentum, which is the faceplant. kReleaseDwell is the MINIMUM
+        // dwell; then release once |base_vel| drops below kReleaseSpeed, or after
+        // kMaxReleaseDwell as a backstop (R1's capture catch-step handles any
+        // residual velocity if we do end up planting).
+        double bspd = std::sqrt(data->qvel[0] * data->qvel[0] +
+                                data->qvel[1] * data->qvel[1]);
+        constexpr double kReleaseSpeed = 0.08, kMaxReleaseDwell = 3.0;
+        double idle_for = now - residual_.drive_idle_since_;
+        if (residual_.drive_walk_ && idle_for > kReleaseDwell &&
+            (bspd < kReleaseSpeed || idle_for > kMaxReleaseDwell)) {
+          residual_.drive_walk_ = false;
+          std::fprintf(stderr,
+                       "[stabilize] drive: STAND -> gait ramping down (v=%.2f)\n",
+                       bspd);
+        }
+      }
+      // ramp drive_gait_amp_ toward the latch over kDriveRampSec.
+      constexpr double kDriveRampSec = 1.5;
+      double tgt = residual_.drive_walk_ ? 1.0 : 0.0;
+      double dt = (residual_.drive_ramp_prev_ > 0.0)
+                      ? std::max(0.0, now - residual_.drive_ramp_prev_)
+                      : 0.0;
+      double da = dt / kDriveRampSec;
+      double d = tgt - residual_.drive_gait_amp_;
+      residual_.drive_gait_amp_ += std::min(da, std::max(-da, d));
+      residual_.drive_gait_amp_ =
+          std::min(1.0, std::max(0.0, residual_.drive_gait_amp_));
+      // heading integrator: idle + no yaw cmd -> track the current heading (no
+      // rotation demand); else integrate cmd_wz_ into the desired WORLD yaw.
+      double qw = data->qpos[3], qx = data->qpos[4],
+             qy = data->qpos[5], qz = data->qpos[6];
+      double cur_yaw = std::atan2(2.0 * (qw * qz + qx * qy),
+                                  1.0 - 2.0 * (qy * qy + qz * qz));
+      if (!residual_.drive_walk_ && std::fabs(residual_.cmd_wz_) < 1e-4)
+        residual_.drive_yaw_des_ = cur_yaw;
+      else
+        residual_.drive_yaw_des_ += residual_.cmd_wz_ * dt;
+      residual_.drive_ramp_prev_ = now;
+    } else {
+      residual_.drive_gait_amp_ = 0.0;
+      residual_.drive_walk_ = false;
+      residual_.drive_idle_since_ = -1.0;
+      residual_.drive_ramp_prev_ = -1.0;
+      residual_.cmd_wz_ = 0.0;
+      // ★ HEADING LATCH for the non-drive stepping strategies (trot 23, walk 22).
+      // They have no yaw command, so the heading they should hold is simply the
+      // one they had when the gait armed. TRACK the live yaw while the gait is
+      // still ramping in (< kArmSec, the same 2 s the swing amplitude uses), then
+      // FREEZE it -- from then on Body Yaw holds that heading and walk's v_des
+      // points along it. Without this, drive_yaw_des_ stays 0 for these two, which
+      // is only accidentally right (the keyframe quat happens to be yaw 0) and
+      // would silently break the moment the robot starts from any other heading --
+      // exactly the sort of "0 is secretly load-bearing" bug that the
+      // PhaseTargetScales default cost us before.
+      const bool is_step_strat =
+          kStrategyNames[requested_strategy].find("trot") != std::string::npos ||
+          kStrategyNames[requested_strategy].find("walk") != std::string::npos;
+      if (is_step_strat) {
+        double qw = data->qpos[3], qx = data->qpos[4],
+               qy = data->qpos[5], qz = data->qpos[6];
+        double cur_yaw = std::atan2(2.0 * (qw * qz + qx * qy),
+                                    1.0 - 2.0 * (qy * qy + qz * qz));
+        constexpr double kArmSec = 2.0;   // matches the gait amplitude ramp
+        if (data->time - residual_.keyframe_start_time_ < kArmSec)
+          residual_.drive_yaw_des_ = cur_yaw;   // track, then hold
+      } else {
+        residual_.drive_yaw_des_ = 0.0;
+      }
+    }
+  }
 
   // Helper: diff old vs new keyframe contact-pair activity and mark which
   // pairs just appeared (active now, inactive before). ContactResidual
@@ -3506,6 +3837,11 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   const bool is_stumble_kf = (kfname.rfind("stumble", 0) == 0);
   const bool is_trot = is_stumble_kf &&
                        (kfname.find("trot") != std::string::npos);
+  // WSS drive (strat 24) / walk (strat 22): both are trots -- the keyframe name
+  // carries the extra token. Mirrors the residual's gates EXACTLY; any drift
+  // between these two name tests desynchronises cost from swing.
+  const bool is_drive = is_trot && (kfname.find("drive") != std::string::npos);
+  const bool is_walk  = is_trot && (kfname.find("walk")  != std::string::npos);
   if (!is_stumble_kf || model->nu < 11) return;
   auto clip = [](double x, double lo, double hi) {
     return x < lo ? lo : (x > hi ? hi : x);
@@ -3528,6 +3864,44 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
     double t_phase = mju_max(0.0, time - residual_.keyframe_start_time_);
     g_amp = mju_min(t_phase / kArmSec, 1.0);
     g_amp = g_amp * g_amp * (3.0 - 2.0 * g_amp);
+    // R1 DRIVE AMPLITUDE GATE (strat 24): the stand<->trot latch gates the
+    // open-loop swing -- BUT the balance CATCH-STEP has to survive a disengage.
+    // Gating on drive_gait_amp_ ALONE kills the forcer the instant the walk latch
+    // ramps to 0 on release, while the COST (g_amp = arm*max(drive_gait_amp_,
+    // recov)) still wants the catch. The sampler by itself will not lift the
+    // catch foot, so any leftover forward momentum topples the robot -- that is
+    // precisely the walk->stop faceplant. So mirror the cost: gate on
+    // max(drive_gait_amp_, recov), recomputing the SAME signed capture-point
+    // danger the residual uses. ModifyControl gets no mjData/sensors, so derive
+    // the tilt from the base quaternion and the velocity from base qvel -- which
+    // is what the capture step below already does, so it stays consistent.
+    // Quiet idle: danger < catch_trig -> recov 0 -> g_amp 0 -> early return, i.e.
+    // the idle stand is byte-identical. A push (or a come-to-rest tip) -> recov>0
+    // -> the swing fires the capture step and catches the fall.
+    if (is_drive) {
+      double zc = mju_max(0.5, qpos[2]);
+      double tauc = mju_sqrt(zc / 9.81);
+      // base up-axis (x,y) from the pelvis free-joint quat qpos[3:7]=(w,x,y,z);
+      // same convention as the up_z = 1-2(x^2+y^2) standing gate further down.
+      double qw = qpos[3], qxx = qpos[4], qyy = qpos[5], qzz = qpos[6];
+      double up_x = 2.0 * (qxx * qzz + qw * qyy);
+      double up_y = 2.0 * (qyy * qzz - qw * qxx);
+      int lnx = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
+      double kLeanX =
+          (lnx >= 0) ? model->numeric_data[model->numeric_adr[lnx]] : 0.06;
+      double tx = up_x - kLeanX, ty = up_y;          // tilt rel. the steady lean
+      double ex = zc * tx + tauc * qvel[0];          // signed fore-aft capture
+      double eyp = zc * ty;                          // lateral: tilt only
+      double danger = mju_sqrt(ex * ex + eyp * eyp);
+      int ct = mj_name2id(model, mjOBJ_NUMERIC, "catch_trig");
+      int cf = mj_name2id(model, mjOBJ_NUMERIC, "catch_full");
+      double kCT = (ct >= 0) ? model->numeric_data[model->numeric_adr[ct]] : 0.085;
+      double kCF = (cf >= 0) ? model->numeric_data[model->numeric_adr[cf]] : 0.16;
+      double recov = mju_min(
+          1.0, mju_max(0.0, (danger - kCT) / mju_max(1e-3, kCF - kCT)));
+      recov = recov * recov * (3.0 - 2.0 * recov);   // smoothstep (matches cost)
+      g_amp *= mju_max(residual_.drive_gait_amp_, recov);
+    }
   } else {
     int css_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_step_sec");
     double kMarchSec = (css_id >= 0)
@@ -3578,6 +3952,22 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   int dvy_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_des_vel_y");
   double dvx = (dvx_id >= 0) ? model->numeric_data[model->numeric_adr[dvx_id]] : 0.0;
   double dvy = (dvy_id >= 0) ? model->numeric_data[model->numeric_adr[dvy_id]] : 0.0;
+  // WALK (strat 22) baked v_des, along the LATCHED HEADING -- MUST match the
+  // residual's identical block (same drive_yaw_des_ off residual_, so the cost
+  // and the swing forcer aim the walk at the same world direction).
+  if (is_walk && dvx == 0.0 && dvy == 0.0) {
+    int wdx_id = mj_name2id(model, mjOBJ_NUMERIC, "walk_des_vel_x");
+    double wv = (wdx_id >= 0)
+        ? model->numeric_data[model->numeric_adr[wdx_id]] : 0.15;
+    dvx = wv * std::cos(residual_.drive_yaw_des_);
+    dvy = wv * std::sin(residual_.drive_yaw_des_);
+  }
+  // LIVE teleop override -- MUST match the residual's override. Both sides read
+  // the SAME governed world vector off residual_, so cost and swing cannot drift.
+  if (residual_.cmd_active_) {
+    dvx = residual_.cmd_vdes_world_[0];
+    dvy = residual_.cmd_vdes_world_[1];
+  }
   // STEP-AND-SETTLE pulse (MUST match the residual's pulse, same data time): walk
   // for trot_step_walk s, settle (v_des=0 -> robust in-place trot) the rest of
   // trot_step_period s. Tp<=0 => continuous (byte-identical).
@@ -3587,6 +3977,25 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
     double Tp = (tp_id >= 0) ? model->numeric_data[model->numeric_adr[tp_id]] : 0.0;
     double Tw = (tw_id >= 0) ? model->numeric_data[model->numeric_adr[tw_id]] : 0.0;
     if (Tp > 1e-6 && std::fmod(mju_max(0.0, time), Tp) >= Tw) { dvx = 0.0; dvy = 0.0; }
+  }
+  // R6 SETTLE GOVERNOR -- the reactive twin of the pulse above, and the exact
+  // mirror of the residual-side governor (same qpos/qvel/time -> deterministic
+  // agreement). Beyond the capture-error band, v_des fades to 0 and the walk
+  // auto-reverts to the in-place trot. Smooth fade (1 below thresh -> 0 at 1.5x)
+  // so there is no command chatter at the boundary. Default 0 = off.
+  {
+    const char *st_name = is_drive ? "drive_settle_thresh" : "trot_settle_thresh";
+    int st_id = mj_name2id(model, mjOBJ_NUMERIC, st_name);
+    double st = (st_id >= 0) ? model->numeric_data[model->numeric_adr[st_id]] : 0.0;
+    if (st > 1e-6 && (dvx != 0.0 || dvy != 0.0)) {
+      double zs = mju_max(0.5, qpos[2]);
+      double ts = mju_sqrt(zs / 9.81);
+      double gex = (qvel[0] - dvx) * ts, gey = (qvel[1] - dvy) * ts;
+      double gerr = mju_sqrt(gex * gex + gey * gey);
+      double gg = clip((1.5 * st - gerr) / (0.5 * st), 0.0, 1.0);
+      gg = gg * gg * (3.0 - 2.0 * gg);
+      dvx *= gg; dvy *= gg;
+    }
   }
   // capture gain (live numeric, default 1.0 = deadbeat one-step capture): >1
   // over-steps (catches harder, kills velocity faster), <1 under-steps. LATERAL
@@ -3631,8 +4040,25 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   // disturbance = stabler trot (trades visible clearance for hold-rate).
   int sh_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_swing_h");
   double sh = (sh_id >= 0) ? model->numeric_data[model->numeric_adr[sh_id]] : 1.0;
+  // R4 TOUCHDOWN RELEASE (trot_release, default 0 = off = byte-identical): fade
+  // the swing script's authority over the LAST `rel` fraction of the swing, so
+  // the SAMPLER loads the landing leg instead of the script holding a position
+  // target straight through touchdown. A landing foot that is POSITION-driven
+  // cannot absorb -- it lands stiff and skates (the real-robot "pushes off fine,
+  // lands weak" asymmetry). Try 0.15-0.25.
+  int rl_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_release");
+  double rel = (rl_id >= 0) ? model->numeric_data[model->numeric_adr[rl_id]] : 0.0;
+  rel = clip(rel, 0.0, 0.5);
+  // R5 STEP WIDTH (trot_step_width, default 0 = off = byte-identical): a per-leg
+  // lateral placement DELTA from the home stance width (left +w/2 outward, right
+  // -w/2 outward). step_y alone is a SHARED catch term -- the SAME sign on both
+  // legs -- so it can walk the feet toward each other under a lateral catch; the
+  // per-leg widening is what gives the lateral axis a limit-cycle reference and
+  // stops the feet scissoring. Try 0.02-0.06.
+  int swd_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_step_width");
+  double w2 = 0.5 * ((swd_id >= 0)
+      ? model->numeric_data[model->numeric_adr[swd_id]] : 0.0);
   double dHipP = clip(-step_x / 0.80, -0.45, 0.45);  // foot FWD -> less hip_pitch
-  double dHipR = clip( step_y / 0.79, -0.25, 0.25);  // foot +y  -> more hip_roll
 
   // home stand pose = the "stumble_trot" keyframe (fallback home).
   int pk = mj_name2id(model, mjOBJ_KEY, kfname.c_str());
@@ -3642,15 +4068,23 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
 
   // ONE foot swings at a time (antiphase/duty): lift (clearance bell, peaks
   // mid-swing) + place (capture ramp -> foot at xi by touchdown). Blend in over
-  // the first 15% so liftoff is smooth; held to s=1 so the foot lands placed,
-  // then the next phase makes it stance and the planner takes the planted leg.
+  // the first 15% so liftoff is smooth; held to s=1 -- or released over the last
+  // trot_release fraction (R4) -- so the foot lands placed, then the next phase
+  // makes it stance and the planner takes the planted leg. ysign carries the
+  // per-leg step-width direction (R5): +1 left (outward = +y), -1 right.
   // ctrl[i] == joint target for qpos[7+i]. L: hipP1 hipR2 knee3 ankP4; R:7 8 9 10
-  auto do_leg = [&](double ph, int iHipP, int iHipR, int iKnee, int iAnkP) {
+  auto do_leg = [&](double ph, int iHipP, int iHipR, int iKnee, int iAnkP,
+                    double ysign) {
     if (ph < kDuty) return;                        // stance -> planner owns
     double s = (ph - kDuty) / (1.0 - kDuty);       // swing progress 0..1
     double cl = SwingBell(s);       // clearance bell 0..1..0 (lands at zero rate)
     double pl = s * s * (3.0 - 2.0 * s);                // placement smoothstep
     double w = mju_min(s / 0.15, 1.0) * g_amp;          // blend-in weight
+    if (rel > 1e-6) {                              // R4: hand back before landing
+      double r = mju_min((1.0 - s) / rel, 1.0);    // 1 until s=1-rel, 0 at s=1
+      w *= r * r * (3.0 - 2.0 * r);                // smooth release
+    }
+    double dHipR = clip((step_y + ysign * w2) / 0.79, -0.25, 0.25);  // R5 widen
     double tHipP = q0[7 + iHipP] - kSwingHip * sh * cl * g_amp + dHipP * pl * g_amp;
     double tHipR = q0[7 + iHipR] + dHipR * pl * g_amp;
     double tKnee = q0[7 + iKnee] + kSwingKnee * sh * cl * g_amp;
@@ -3660,8 +4094,8 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
     ctrl[iKnee] += w * (tKnee - ctrl[iKnee]);
     ctrl[iAnkP] += w * (tAnkP - ctrl[iAnkP]);
   };
-  do_leg(ph_l, 1, 2, 3, 4);    // LEFT  swing window ph_l in [duty,1]
-  do_leg(ph_r, 7, 8, 9, 10);   // RIGHT swing window ph_r in [duty,1]
+  do_leg(ph_l, 1, 2, 3, 4, +1.0);    // LEFT  swing window ph_l in [duty,1]
+  do_leg(ph_r, 7, 8, 9, 10, -1.0);   // RIGHT swing window ph_r in [duty,1]
 }
 
 // ============================================================================
@@ -3706,7 +4140,30 @@ std::map<std::string, double> stabilize::PlannerNumericOverrides(int strategy) c
   // committed ZOH block live 2-4x longer than on the 80Hz twin) but that must
   // be tested on real WITH a rollout bump (e.g. spline 5 + trajectories 36 like
   // the trot below), not shipped twin-regressed.
-  if (name == "stabilize_simple_trot" || name == "stabilize_simple_walk") {
+  // ===== STEPPING STRATEGIES (walk 22, trot 23, drive 24): the DEPLOY-REAL budget =====
+  // spline 5: the stand-tuned 3 knots cannot represent the leg oscillation.
+  //
+  // trajectories 17 (WAS 36 -- and 36 was WRONG on the real robot). 36 came from
+  // the LOCKSTEP twin (16 traj = 1/5 hold, 36 = 5/5), but the lockstep twin is
+  // STRUCTURALLY BLIND to plan rate: it waits for physics, so rollouts are free.
+  // On hardware they are not. CEM schedules trajectories + 1 jobs (the nominal
+  // rollout rides along) and blocks on ALL of them, so one plan iteration costs
+  // ceil((N+1)/threads) thread-WAVES. 36 traj on a 12-thread pool = 4 waves =
+  // 27-30 plans/s MEASURED on the robot -- far below the 50-100 Hz band every
+  // real legged sampling-MPC deployment needs (CMU's Go1 whole-body MPPI runs 30
+  // samples at 100 Hz on CPU and says outright that limited compute is much
+  // better spent reaching a ~100 Hz policy than on more samples; Unitree's own
+  // H1-2 RL deploys decide at 50 Hz). Re-measured at 18 traj / 18 threads: 45-52
+  // plans/s = in band. 17 and not 18 because the nominal is scheduled alongside:
+  // 17 + 1 = 18 jobs = exactly ONE wave on the auto-sized 18-thread pool, where
+  // 18 + 1 = 19 spills a second wave the whole pool then waits on for a single
+  // straggler. The deploy node prints a PLAN-RATE WARNING when (traj+1) > threads.
+  //
+  // Rate beats samples here because the swing is FORCED open-loop by
+  // stabilize::ModifyControl (rate-independent) -- the sampler only has to
+  // BALANCE, and the stance-leg weight shift is exactly what starves first.
+  if (name == "stabilize_simple_trot" || name == "stabilize_simple_walk" ||
+      name == "stabilize_simple_drive") {
     return {{"sampling_spline_points", 5.0},
             {"sampling_exploration", 0.05},
             {"sampling_trajectories", 36.0}};

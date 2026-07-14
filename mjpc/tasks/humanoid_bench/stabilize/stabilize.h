@@ -31,6 +31,19 @@ constexpr int kStabilizeArmPlanActiveParameterIndex = 3;
 constexpr int kStabilizeArmPlanSecParameterIndex = 4;
 constexpr int kStabilizeArmGoalParameterIndex0 = 5;   // J0..J13 -> 5..18
 
+// LIVE cmd_vel teleop (WSS port, 2026-07-12) — the drive (strat 24) seam.
+// gRPC-settable via SetTaskParameters exactly like the arm-plan block above.
+// Vx/Vy are BODY-frame m/s; the TransitionLocked governor clamps/slews/rotates
+// them before the trot sees anything. Seq is a client heartbeat counter:
+// unchanged for > 1 s means the client died -> the watchdog zeroes the command.
+// APPENDED after Arm Goal J13 (18) on purpose: indices 0..18 keep their meaning,
+// so the perfected stand (strat 6) reads exactly the parameters it always did.
+constexpr int kStabilizeCmdActiveParameterIndex = 19;
+constexpr int kStabilizeCmdVxParameterIndex = 20;
+constexpr int kStabilizeCmdVyParameterIndex = 21;
+constexpr int kStabilizeCmdSeqParameterIndex = 22;
+constexpr int kStabilizeCmdWzParameterIndex = 23;   // yaw-rate (drive strat only)
+
 constexpr char kStabilizeStrategyFilePath[] =
     SOURCE_DIR "/mjpc/tasks/humanoid_bench/stabilize/strategies/";
 
@@ -151,6 +164,46 @@ class stabilize : public Task {
     // catch_persist_sec before latching a march (sway spikes are brief; a
     // genuine backward fall stays above threshold). Canonical-only member.
     mjtNum catch_cross_t0_ = -1.0e9;  // when -ex first exceeded the threshold
+
+    // ----- LIVE cmd_vel teleop (WSS port, 2026-07-12) ---------------------
+    // Written ONLY by the TransitionLocked governor (once per plan, under the
+    // transition lock, before the rollout workers fan out); read by Residual()
+    // and by stabilize::ModifyControl. cmd_active_=false => both readers take
+    // the legacy trot_des_vel numeric path => byte-identical to the validated
+    // static-numeric configs, so a process that never gets a command behaves
+    // exactly as before.
+    //
+    // ★ cmd_active_ + cmd_vdes_world_ ARE propagated into every rollout copy by
+    // ResidualLocked (unlike lean.cc, which propagates only drive_gait_amp_/
+    // drive_yaw_des_ -- so ITS rollout residuals silently see cmd_active_=false
+    // and cost the gait as an IN-PLACE trot while ModifyControl drives the swing
+    // FORWARD at the governed v_des). That disagreement makes the sampler fight
+    // the open-loop walk drive on every rollout, which is the same signature as
+    // the documented "free-twin ~6s walk ceiling". Propagating them is what the
+    // "MUST match ModifyControl" comments in the residual actually require.
+    bool   cmd_active_ = false;
+    double cmd_vdes_world_[2] = {0.0, 0.0};  // governed v_des, WORLD frame
+    // --- canonical-only bookkeeping (never read from a rollout copy) ---
+    double cmd_filt_[2] = {0.0, 0.0};        // slew-limited BODY-frame command
+    bool   cmd_starved_ = false;             // log-once latch, heartbeat watchdog
+    double cmd_last_seq_ = -1.0;
+    double cmd_seq_time_ = -1.0;
+    double cmd_prev_time_ = -1.0;
+    double cmd_settle_until_ = -1.0;         // settle-through-zero dwell
+    double cmd_wz_ = 0.0;                    // governed yaw-rate [rad/s]
+
+    // ----- WSS drive FSM (strat 24 stand<->trot teleop) --------------------
+    // drive_gait_amp_ (0..1): gait-enable multiplier. 0 => feet plant => the
+    // balance-gated stand (still steps to catch a push); 1 => full trot.
+    // Written by the TransitionLocked latch, propagated into the plan snapshot
+    // by ResidualLocked so the COST gates g_amp exactly the way ModifyControl
+    // does. drive_yaw_des_ = integrated desired WORLD heading [rad] (Body Yaw
+    // reference). The latch bookkeeping below stays canonical-only.
+    double drive_gait_amp_ = 0.0;
+    double drive_yaw_des_ = 0.0;
+    bool   drive_walk_ = false;
+    double drive_idle_since_ = -1.0;
+    double drive_ramp_prev_ = -1.0;
 
     mjtNum prev_phase_reach_scale_ = 0.0;
     mjtNum prev_phase_brace_pos_scale_ = 0.0;
@@ -290,11 +343,11 @@ class stabilize : public Task {
         "stabilize_placeholder",     // 17
         "stabilize_placeholder",     // 18
         "stabilize_placeholder",     // 19
-        "stabilize_simple_stumble",  // 20  gait-clock stepping in place (from lean; TUNE for stabilize)
+        "stabilize_simple_stumble",  // 20  balance-gated march + catch-march (push recovery)
         "stabilize_placeholder",     // 21
-        "stabilize_placeholder",     // 22
-        "stabilize_simple_trot",     // 23  capture-point in-place trot (from lean; TUNE for stabilize)
-        "stabilize_simple_walk",     // 24  forward walk = trot + velocity (seeded from trot; TUNE)
+        "stabilize_simple_walk",     // 22  forward walk = trot + a baked v_des (walk_des_vel_x)
+        "stabilize_simple_trot",     // 23  capture-point in-place trot
+        "stabilize_simple_drive",    // 24  WSS teleop drive: stand<->trot FSM on live cmd_vel
     };
   }
 
@@ -320,7 +373,7 @@ class stabilize : public Task {
     // Copy the phase-transition timing state along with the keyframe so
     // freshly-spawned residuals (one per rollout thread) see the same ramp
     // progress as the canonical residual_.
-    return std::make_unique<ResidualFn>(
+    auto rfn = std::make_unique<ResidualFn>(
         this, residual_.residual_keyframe_,
         residual_.keyframe_start_time_,
         residual_.prev_phase_reach_scale_,
@@ -332,6 +385,19 @@ class stabilize : public Task {
         residual_.contact_pair_is_new_,
         residual_.catch_ep_t0_,
         residual_.catch_ep_left_);
+    // WSS drive: propagate the FSM gait-enable + heading into this plan's
+    // snapshot so the rollout COST gates g_amp (and aims Body Yaw) exactly the
+    // way stabilize::ModifyControl does. Non-drive strategies leave these 0.
+    rfn->drive_gait_amp_ = residual_.drive_gait_amp_;
+    rfn->drive_yaw_des_ = residual_.drive_yaw_des_;
+    // ★ AND the governed command itself -- without this the rollouts cost an
+    // IN-PLACE trot (cmd_active_=false -> v_des from the static numerics = 0)
+    // while ModifyControl forces the swing FORWARD, so the sampler spends every
+    // rollout cancelling the walk drive. See the note on cmd_active_ above.
+    rfn->cmd_active_ = residual_.cmd_active_;
+    rfn->cmd_vdes_world_[0] = residual_.cmd_vdes_world_[0];
+    rfn->cmd_vdes_world_[1] = residual_.cmd_vdes_world_[1];
+    return rfn;
   }
 
   ResidualFn *InternalResidual() override { return &residual_; }
