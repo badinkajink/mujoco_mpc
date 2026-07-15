@@ -348,6 +348,8 @@ class stabilize : public Task {
         "stabilize_simple_walk",     // 22  forward walk = trot + a baked v_des (walk_des_vel_x)
         "stabilize_simple_trot",     // 23  capture-point in-place trot
         "stabilize_simple_drive",    // 24  WSS teleop drive: stand<->trot FSM on live cmd_vel
+        "stabilize_placeholder",     // 25  reserved (lean slot 25 = straighten; kept clear here)
+        "stabilize_lockstand",       // 26  locked-knee wide-stance balance hold (strut stand)
     };
   }
 

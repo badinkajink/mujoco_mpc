@@ -66,6 +66,27 @@ constexpr double kLowerStartPose[12] = {
     -0.28,   // [10] right_ankle_pitch_joint-16.0 deg
      0.12,   // [11] right_ankle_roll_joint  +6.9 deg  (mirror of left)
 };
+
+// LOCKSTAND (strategy 26) align target = the 'lockstand' keyframe legs: LOCKED knee
+// + WIDE stance. Used ONLY when --strategy 26, so the bring-up places the feet apart
+// and the knees straight BEFORE handover (a balance hold cannot widen PLANTED feet --
+// they must start wide). Matches the own-sim-validated pose (held 3/3), so the robot
+// lands at lockstand's target instead of straightening under load after handover.
+//                          feet ~0.635 m apart, knees ~4.6 deg (locked strut)
+constexpr double kLockstandStartPose[12] = {
+     0.00,   // [ 0] left_hip_yaw_joint       0 deg
+    -0.03,   // [ 1] left_hip_pitch_joint    -1.7 deg -- thigh near-vertical (straight leg)
+     0.19,   // [ 2] left_hip_roll_joint    +10.9 deg -- WIDE splay
+     0.08,   // [ 3] left_knee_joint         +4.6 deg -- LOCKED strut
+    -0.14,   // [ 4] left_ankle_pitch_joint  -8.0 deg -- sole flat under straight shin
+    -0.19,   // [ 5] left_ankle_roll_joint  -10.9 deg -- sole flat laterally at the wide stance
+     0.00,   // [ 6] right_hip_yaw_joint      0 deg
+    -0.03,   // [ 7] right_hip_pitch_joint   -1.7 deg
+    -0.19,   // [ 8] right_hip_roll_joint   -10.9 deg  (mirror of left)
+     0.08,   // [ 9] right_knee_joint        +4.6 deg
+    -0.14,   // [10] right_ankle_pitch_joint -8.0 deg
+     0.19,   // [11] right_ankle_roll_joint +10.9 deg  (mirror of left)
+};
 }  // namespace
 
 ABSL_FLAG(std::string, task, "Stabilize H12 Magpie",
@@ -308,7 +329,12 @@ int main(int argc, char** argv) {
   cfg.align_wait = absl::GetFlag(FLAGS_align_wait);
   cfg.align_ki = absl::GetFlag(FLAGS_align_ki);
   cfg.align_i_max = absl::GetFlag(FLAGS_align_i_max);
-  for (int i = 0; i < kNU; i++) cfg.align_pose[i] = kLowerStartPose[i];
+  // Strategy 26 (lockstand) aligns to the wide+locked pose; every other strategy
+  // keeps the tested bent-knee stand bring-up. Feet must START wide (a hold can't
+  // slide planted feet outward), so the align pose owns the stance width.
+  const bool lockstand = absl::GetFlag(FLAGS_strategy) == 26;
+  const double* start_pose = lockstand ? kLockstandStartPose : kLowerStartPose;
+  for (int i = 0; i < kNU; i++) cfg.align_pose[i] = start_pose[i];
   cfg.align_pose_set = true;
   return h12deploy::RunDeployNode(cfg);
 }

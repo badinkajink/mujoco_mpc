@@ -51,6 +51,13 @@
              FK so sole_zmin≈0 (1.017 → 1.016). HOME unchanged. -->
         <key name="stand_up" qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <key name="stand"    qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- lockstand (strategy 26): LOCKED-KNEE, WIDE-STANCE strut stand. Posture target for
+             the lockstand JSON. Legs vs stand_up: knee 0.35->0.08 (locked strut, off the -0.12
+             floor), hip_roll 0.12->0.19 + ankle_roll 0.12->0.19 (stance 0.517->0.635 m), hip_pitch
+             -0.15->-0.03 + ankle_pitch -0.28->-0.14 (torso vertical, foot flat under the straight
+             leg). FK-verified: feet grounded, CoM centered laterally (+0.001) and +0.017 m over
+             midfoot; base z stays 1.016 (wide splay offsets the straighter knee). -->
+        <key name="lockstand" qpos="0.19 0 1.016 1 0 0 0 0 -0.03 0.19 0.08 -0.14 -0.19 0 -0.03 -0.19 0.08 -0.14 0.19 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- counterbalance_standing (strategy 16): MUST exist so 16's Posture targets a
              BENT-knee stand (knees 0.35) instead of falling back to home (key 0 = STRAIGHT
              knees), which — with the JSON "Knees Straight" weight — drove 16's legs straight
