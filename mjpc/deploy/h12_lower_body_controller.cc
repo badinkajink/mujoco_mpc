@@ -42,26 +42,28 @@ int DefaultDomainId() {
 // of that lands within 5.8 deg of the model's `stand` keyframe, so the keyframe
 // was already right; the run just confirms it on hardware.
 //
-// What is shipped below is that result SYMMETRISED: knee (0.37) and hip_pitch
-// (-0.27) are taken from the measured hold, everything else keeps the keyframe's
-// symmetric values. The two joints where the good run deviated most -- R ankle
-// roll (+5.8 deg) and L hip roll (+3.0 deg) -- are exactly where the per-power-on
-// ankle/encoder zero draw shows up, so copying them verbatim would freeze ONE
-// power-on's zero lottery into the source. Edit freely; this is the knob.
+// SHIPPED below == the 'stand_up'/'stand' keyframe legs EXACTLY (2026-07-14, user
+// request): the align target now equals what strategy-6 Posture pulls toward, so
+// there is NO pose discontinuity at handover. (Previously knee 0.37 / hip_pitch
+// -0.27 / ankle_pitch -0.21 were taken from a measured good-stand HOLD -- droop-
+// aware -- which differed from the keyframe by up to 7 deg and caused a small jump
+// at handover.) Under load the robot droops FROM this commanded pose; the align
+// exits on SETTLED (not q==target), so it rests slightly off and reports a residual
+// -- expected. Edit freely; this is the knob.
 //
-//                          feet ~0.516 m apart, knees ~21 deg bent
+//                          feet ~0.516 m apart, knees ~20 deg bent (== keyframe)
 constexpr double kLowerStartPose[12] = {
-     0.00,   // [ 0] left_hip_yaw_joint       0 deg  -- toes forward, no splay
-    -0.27,   // [ 1] left_hip_pitch_joint   -15.5 deg -- thigh back (measured hold)
+     0.00,   // [ 0] left_hip_yaw_joint        0 deg
+    -0.15,   // [ 1] left_hip_pitch_joint    -8.6 deg -- == 'stand_up' keyframe
      0.12,   // [ 2] left_hip_roll_joint     +6.9 deg -- opens the stance
-     0.37,   // [ 3] left_knee_joint        +21.2 deg -- bent (measured hold)
-    -0.21,   // [ 4] left_ankle_pitch_joint -12.0 deg -- sole flat under the shin
+     0.35,   // [ 3] left_knee_joint        +20.1 deg -- bent (== keyframe, was 0.37)
+    -0.28,   // [ 4] left_ankle_pitch_joint -16.0 deg -- sole flat (== keyframe, was -0.21)
     -0.12,   // [ 5] left_ankle_roll_joint   -6.9 deg -- sole flat laterally
      0.00,   // [ 6] right_hip_yaw_joint      0 deg
-    -0.27,   // [ 7] right_hip_pitch_joint  -15.5 deg
+    -0.15,   // [ 7] right_hip_pitch_joint   -8.6 deg
     -0.12,   // [ 8] right_hip_roll_joint    -6.9 deg  (mirror of left)
-     0.37,   // [ 9] right_knee_joint       +21.2 deg
-    -0.21,   // [10] right_ankle_pitch_joint-12.0 deg
+     0.35,   // [ 9] right_knee_joint       +20.1 deg
+    -0.28,   // [10] right_ankle_pitch_joint-16.0 deg
      0.12,   // [11] right_ankle_roll_joint  +6.9 deg  (mirror of left)
 };
 }  // namespace
