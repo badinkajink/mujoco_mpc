@@ -535,6 +535,17 @@ int RunDeployNode(const NodeConfig& cfg) {
   // crouch on its own. The cold-start ramp + policy_blend eases into phase 0 (stand) just like
   // strat 6, then the first crouch fires once stand is achieved + sustained (success_sustain_time).
   g_agent.SetParamByName("residual_Strategy", static_cast<double>(cfg.strategy));
+  // --straighten_start: DISARM the strategy's live-seed funnel until the ENTER
+  // hand-over reaches FULL planner authority -- else the target glide
+  // (target_ramp_sec) burns down during the operator hold + settle/blend and
+  // the planner faces the full posture gap at handover (real-run forensics
+  // 2026-07-15: Posture residual plateaued at 4.79 before GO -> CoM launch ->
+  // toe-park at the ankle budget). The task re-pins its seed + phase clocks
+  // each tick while disarmed; the hand-over-complete branch below arms it.
+  // SetParamByName returns -1 harmlessly on tasks without the param (Lean
+  // keeps its boot-seeded funnel until the same fix is ported there).
+  if (cfg.straighten_start)
+    g_agent.SetParamByName("residual_Funnel Arm", 0.0);
 
   const int nq = g_model->nq, nv = g_model->nv, nu = g_model->nu;
   const int nact = nu < cfg.nu ? nu : cfg.nu;
@@ -1007,12 +1018,24 @@ int RunDeployNode(const NodeConfig& cfg) {
   for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
   bool arm_init_set = false;
   double ramp_eff = start_ramp_sec;   // rescaled at latch by distance-from-home (see loop)
+  bool handover_active = false;       // align GO -> settle+policy-blend into MJPC (not a cold re-run)
+  double handover_t0 = 0.0;           // WALL time at which the align hand-over began
 
   // ---- PHASE A: start-pose align (Cfg::align_start) ----
   double align_q[kMaxNU];
   for (int i = 0; i < cfg.nu; i++)
     align_q[i] = cfg.align_pose_set ? cfg.align_pose[i] : home_q[i];
   bool   align_active = cfg.align_start;
+  // PHASE A': --straighten_start reuses align_start's ENTER->handover but with NO drag: hold the
+  // measured (slumped) pose, wait for ENTER, then hand to the planner from the slump via the same
+  // handover_active SETTLE->BLEND. Mutually exclusive with align_start (straighten wins). The align
+  // drag and the shared cold-start lerp are untouched when the flag is off.
+  bool   straighten_active = cfg.straighten_start;
+  bool   straighten_armed  = false;   // one-way: set at the GO that arms the handover
+  bool   straighten_funnel_wait = cfg.straighten_start;  // funnel disarmed at boot; arm at blend-complete
+  double straighten_hold_q[kMaxNU] = {0};   // FIXED hold target latched at the first hold tick, so
+  bool   straighten_hold_set = false;       // the PD RESISTS the gravity sag instead of tracking it
+  if (straighten_active) align_active = false;
   bool   align_reported = false;      // one-shot drag-done banner (the GO gate can hold for long)
   double align_t0 = -1.0;             // WALL stamp of the first live lowstate
   double align_i[kMaxNU] = {0};       // anti-stiction integral, added to the commanded target
@@ -1026,9 +1049,6 @@ int RunDeployNode(const NodeConfig& cfg) {
                                       // the legs going soft the instant the operator presses Enter.
   bool   align_cmd_set = false;
   double align_next_print = 0.0;      // progress ticker (names the joint that is refusing)
-  uint32_t align_tick0 = 0;           // lowstate tick at align start -> lets us MEASURE the phase
-                                      // clock rate (tick_hz * twin_dt) and print the hand-over
-                                      // schedule in REAL seconds instead of dilated plant seconds
   if (align_active) {
     std::fprintf(stderr,
                  "[node] START-POSE ALIGN ON (%s): min-jerk drag over %.1fs (WALL), then hold "
@@ -1165,10 +1185,14 @@ int RunDeployNode(const NodeConfig& cfg) {
       double d0 = 0.0;
       for (int i = 0; i < cfg.nu; i++) d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
       ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
+      if (straighten_active) ramp_eff = 0.0;   // straighten-start: the planner drives the rise;
+                                               // the scripted bring-up ramp/muzzle is bypassed
+                                               // (hold slump -> ENTER -> handover -> full authority),
+                                               // so the post-handover path lands on full authority.
       std::fprintf(stderr, "[node] bring-up ramp: latched pose is %.2f rad from home -> "
                            "effective ramp %.1fs\n", d0, ramp_eff);
       // PHASE A: stamp the align clock on the first live state (WALL, not plant time).
-      if (align_active) { align_t0 = wall; align_tick0 = cur.tick; }
+      if (align_active) { align_t0 = wall; }
     }
     // SINGLE-STREAM base linvel: replace the cross-stream (site_v - gyro x r) value with a finite
     // diff of the reconstructed pelvis position over the sim-clock + LPF. Updates only when the twin
@@ -1332,47 +1356,81 @@ int RunDeployNode(const NodeConfig& cfg) {
       if (drag_done && go) {
         g_align_waiting.store(false);
         align_active = false;
-        // Re-latch the bring-up FROM THE ALIGN'S OWN LAST COMMAND -- NOT from cur.q. The ramp
-        // below starts at arm_q_init (aa=0 => base = arm_q_init), so whatever we put here IS the
-        // command emitted on the very next tick. The align was emitting align_q + integral, an
-        // OVER-DRIVEN target holding the legs against gravity and friction; re-latching to the
-        // measured pose would drop the command by (droop err + integral) in one 5 ms tick -- on
-        // the knee ~0.43 rad = an 86 Nm torque step, i.e. the legs go SOFT the moment the operator
-        // presses Enter (observed on real, 2026-07-13). Latching the last emitted command instead
-        // makes the hand-over C0-continuous: the ramp then eases that over-drive out gradually as
-        // it walks the target to home_q, and the existing policy blend takes it into MJPC.
-        tick0 = cur.tick;
+        // HAND-OVER = a live strategy switch FROM the aligned pose, NOT a re-run of the cold-start
+        // choreography. Latch the align's LAST command (= align_q + anti-stiction integral, an
+        // OVER-DRIVEN stiff hold) as the from-pose: re-latching to the measured q would drop the
+        // command by (droop + integral) in one tick and the legs go SOFT (observed real 2026-07-13).
+        // The OLD path then reset the phase clock and re-ran warmup -> ramp -> 3 s HOLD at home_q ->
+        // blend, which walks the legs OFF the aligned stance toward home_q and holds them there
+        // statically (no active balance) -- and under the dilated plant clock that hold is ~5x
+        // longer in wall time, so the robot droops and "loses the point of align_start". INSTEAD:
+        // hold the aligned command briefly (SETTLE -- the planner has been converging on this exact
+        // pose throughout the align hold, so it is already warm) then ease into the LIVE policy over
+        // kPolicyBlendSec -- the same settle->blend a mid-run strategy switch uses. Runs on WALL time
+        // (see the target loop) so MJPC engages promptly on the real robot regardless of the
+        // twin_dt/tick dilation. tick0 is deliberately NOT reset (keeps the base-vel finite-diff and
+        // latency comp continuous through the hand-over).
         for (int i = 0; i < cfg.nu; i++)
           arm_q_init[i] = align_cmd_set ? align_cmd[i] : cur.q[i];
+        handover_active = true;
+        handover_t0 = wall;   // WALL clock: dilation-immune, snappy on the real robot
         double d0 = 0.0;
         for (int i = 0; i < cfg.nu; i++)
           d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
-        ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
-        // Print the hand-over schedule in REAL seconds. The choreography below runs on PLANT time
-        // (tick * twin_dt), which only equals wall time if twin_dt == 1/lowstate_hz. On this robot
-        // the tick is 200 Hz, so --twin_dt 0.001 makes plant time run at 0.20x wall and every
-        // stage below is 5x longer than its constant reads. Measure it rather than assume it.
-        const double dtick = static_cast<double>(static_cast<int64_t>(cur.tick) -
-                                                 static_cast<int64_t>(align_tick0));
-        const double prate = (at > 0.5 && dtick > 0.0)
-                                 ? (dtick * cfg.twin_dt) / at : 1.0;   // plant sec per wall sec
-        const double r2w = (prate > 1e-6) ? 1.0 / prate : 1.0;
         std::fprintf(stderr,
-                     "[node] bring-up re-latched to the align's LAST COMMAND (%.3f rad from home) "
-                     "-> no command step at hand-over.\n"
-                     "[node] hand-over schedule [phase clock measured at %.2fx wall]: "
-                     "warmup %.0fs -> ramp %.0fs -> hold %.0fs -> POLICY BLEND %.0fs "
-                     "-> full MJPC authority ~%.0fs from now (REAL seconds).\n",
-                     d0, prate,
-                     warmup_sec * r2w, ramp_eff * r2w, kRampHoldSec * r2w,
-                     kPolicyBlendSec * r2w,
-                     (warmup_sec + ramp_eff + kRampHoldSec + kPolicyBlendSec) * r2w);
+                     "[node] HAND-OVER from the aligned pose (%.3f rad from home, C0-continuous): "
+                     "SETTLE %.1fs -> POLICY BLEND %.1fs -> full MJPC authority ~%.1fs from now "
+                     "(WALL seconds). No cold-start re-run -> the legs stay on the aligned stance.\n",
+                     d0, kSwitchSettleSec, kPolicyBlendSec,
+                     kSwitchSettleSec + kPolicyBlendSec);
       } else {
         in_align = true;
       }
     }
 
-    if (in_align) {
+    // ============= PHASE A': STRAIGHTEN-START hold + ENTER gate (2026-07-15) =============
+    // --straighten_start reuses align_start's ENTER->handover with NO drag: hold the measured
+    // (slumped) pose until the operator presses ENTER, then arm the SAME handover_active SETTLE->
+    // BLEND (below) FROM the slump so the planner (straighten strat) drives the recovery. ramp_eff
+    // was zeroed at latch for this mode, so once the handover finishes the normal branch lands on
+    // full planner authority (no scripted muzzle). Guarded by straighten_active -> flag off is
+    // byte-identical. straighten_armed is one-way: once armed, this block never re-engages.
+    bool straighten_hold = false;
+    if (straighten_active && !straighten_armed && arm_init_set) {
+      if (cfg.align_wait && !g_align_waiting.load() && !g_align_go.load()) {
+        g_align_waiting.store(true);   // from here a bare Enter on stdin means GO
+        std::fprintf(stderr,
+            "[node] =============================================================\n"
+            "[node]  STRAIGHTEN-START: holding the measured pose. Planner NOT driving.\n"
+            "[node]  Set/confirm the harness, then press ENTER to hand to the planner.\n"
+            "[node]  (q + Enter quits without ever engaging the planner.)\n"
+            "[node] =============================================================\n");
+      }
+      if (!cfg.align_wait || g_align_go.load()) {
+        g_align_waiting.store(false);
+        straighten_armed = true;
+        handover_active = true;
+        handover_t0 = wall;   // WALL clock (dilation-immune), like the align hand-over
+        for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = cur.q[i];   // hand over FROM the slump
+        std::fprintf(stderr,
+            "[node] STRAIGHTEN-START HAND-OVER from the measured slump: SETTLE %.1fs -> POLICY "
+            "BLEND %.1fs -> full planner authority (WALL seconds).\n",
+            kSwitchSettleSec, kPolicyBlendSec);
+      } else {
+        straighten_hold = true;   // still waiting for ENTER: hold the slump this tick
+      }
+    }
+
+    if (straighten_hold) {
+      // Latch the pose ONCE and hold that FIXED target, so the motor PD resists the gravity sag.
+      // (Tracking cur.q every tick = zero position error = no restoring torque -> the robot slowly
+      //  collapses into a deeper toes-up crouch during the wait -- observed on real 2026-07-15.)
+      if (!straighten_hold_set) {
+        for (int i = 0; i < cfg.nu; i++) straighten_hold_q[i] = cur.q[i];
+        straighten_hold_set = true;
+      }
+      for (int i = 0; i < cfg.nu; i++) tgt_q[i] = straighten_hold_q[i];   // FIXED -> resists sag
+    } else if (in_align) {
       // min-jerk 10s^3 - 15s^4 + 6s^5: zero velocity AND zero acceleration at BOTH ends, so a
       // twisted leg is dragged into place, never yanked. At s=0 the target is exactly the
       // measured pose, so there is no step at t=0 either. Gravity feedforward (tau) and the H2
@@ -1429,7 +1487,24 @@ int RunDeployNode(const NodeConfig& cfg) {
     for (int i = 0; i < cfg.nu; i++) {
       double ramp_dur = ramp_eff;
       double base;
-      if (ramp_dur > 0.0 && arm_init_set) {
+      if (handover_active) {
+        // ALIGN HAND-OVER (WALL clock): hold the aligned command (SETTLE) while the already-
+        // converged planner stays warm on this pose, then ease into the live policy over
+        // kPolicyBlendSec -- the same ramp a live strategy switch uses, but FROM the aligned pose
+        // so the legs never walk back toward home_q and droop (the old warmup->ramp->hold sag).
+        // Wall time (not the dilated plant clock) keeps this a snappy few seconds on the real robot.
+        const double hd = wall - handover_t0;
+        if (i >= nact) {
+          base = cur.q[i];                                         // non-actuated (arm) rows: hold
+        } else if (hd < kSwitchSettleSec) {
+          base = arm_q_init[i];                                   // SETTLE: stiff hold of aligned cmd
+        } else if (hd < kSwitchSettleSec + kPolicyBlendSec) {
+          const double bb = (hd - kSwitchSettleSec) / kPolicyBlendSec;
+          base = (1.0 - bb) * arm_q_init[i] + bb * action[i];     // POLICY BLEND aligned pose -> MJPC
+        } else {
+          base = action[i];                                       // full MJPC authority
+        }
+      } else if (ramp_dur > 0.0 && arm_init_set) {
         double aa = std::fmin(1.0, std::fmax(0.0, phase_t / ramp_dur));
         // SCRIPTED rise: target the stance for the whole ramp (policy steering a half-
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
@@ -1468,6 +1543,23 @@ int RunDeployNode(const NodeConfig& cfg) {
         base = (warming || i >= nact) ? cur.q[i] : action[i];
       }
       tgt_q[i] = base;
+    }
+    // hand-over done: drop back to the normal full-authority path (which also handles future
+    // live strategy switches). C0-continuous -- both branches were already emitting `action`.
+    if (handover_active && (wall - handover_t0) >= kSwitchSettleSec + kPolicyBlendSec) {
+      handover_active = false;
+      // --straighten_start: FULL planner authority just landed -- arm the
+      // strategy's live-seed funnel NOW. Arming at GO would burn the glide
+      // during SETTLE+BLEND (the same bug at smaller scale); arming here means
+      // the target glides from the pose the robot actually holds at this
+      // moment, exactly while the planner can act on it.
+      if (straighten_armed && straighten_funnel_wait) {
+        straighten_funnel_wait = false;
+        g_agent.SetParamByName("residual_Funnel Arm", 1.0);
+        std::fprintf(stderr,
+                     "[node] straighten funnel ARMED (full planner authority) -> the "
+                     "strategy's target glide starts from the pose held right now\n");
+      }
     }
     }   // end !in_align
 
@@ -1717,7 +1809,8 @@ int RunDeployNode(const NodeConfig& cfg) {
       // live planning state (sd->sensordata already filled by residual_sensor_callback
       // during mj_forward). Sorted by weighted contribution so the terms driving the
       // planner jump out right before a tip/fall. Does NOT change any weights.
-      {
+      // Gated behind --cost (cfg.cost_log); OFF by default so the terminal stays quiet.
+      if (cfg.cost_log) {
         const mjpc::Task* task = g_agent.ActiveTask();
         double terms_u[mjpc::kMaxCostTerms];
         double terms_w[mjpc::kMaxCostTerms];

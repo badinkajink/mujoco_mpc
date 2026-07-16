@@ -43,6 +43,13 @@ constexpr int kStabilizeCmdVxParameterIndex = 20;
 constexpr int kStabilizeCmdVyParameterIndex = 21;
 constexpr int kStabilizeCmdSeqParameterIndex = 22;
 constexpr int kStabilizeCmdWzParameterIndex = 23;   // yaw-rate (drive strat only)
+// STRAIGHTEN funnel arm (2026-07-15): 1 (default) = the live-seed funnel seeds +
+// its target_ramp_sec glide clock starts at strategy load (GUI/twin behaviour).
+// 0 = DISARMED: the task re-pins the seed to the live pose and freezes the phase
+// clocks every tick. The deploy node sets 0 at boot under --straighten_start and
+// 1 when the ENTER hand-over reaches full planner authority, so the glide runs
+// WHILE the planner rises instead of burning down during the operator hold.
+constexpr int kStabilizeFunnelArmParameterIndex = 24;
 
 constexpr char kStabilizeStrategyFilePath[] =
     SOURCE_DIR "/mjpc/tasks/humanoid_bench/stabilize/strategies/";
@@ -67,7 +74,10 @@ class stabilize : public Task {
                         int num_phases = 1,
                         const bool* contact_pair_is_new = nullptr,
                         mjtNum catch_ep_t0 = -1.0e9,
-                        bool catch_ep_left = false)
+                        bool catch_ep_left = false,
+                        const mjtNum* straighten_start_qpos = nullptr,
+                        double straighten_start_tilt = 0.0,
+                        bool straighten_seeded = false)
         : mjpc::BaseResidualFn(task),
           residual_keyframe_(kf),
           keyframe_start_time_(keyframe_start_time),
@@ -78,10 +88,16 @@ class stabilize : public Task {
           prev_phase_posture_scale_(prev_posture_scale),
           prev_phase_brace_force_target_(prev_brace_force_target),
           prev_posture_key_id_(prev_posture_key_id),
-          num_phases_(num_phases) {
+          num_phases_(num_phases),
+          straighten_start_tilt_(straighten_start_tilt),
+          straighten_seeded_(straighten_seeded) {
       for (int i = 0; i < 5; ++i) {
         contact_pair_is_new_[i] =
             contact_pair_is_new ? contact_pair_is_new[i] : false;
+      }
+      for (int i = 0; i < 64; ++i) {
+        straighten_start_qpos_[i] =
+            straighten_start_qpos ? straighten_start_qpos[i] : 0.0;
       }
     }
 
@@ -228,6 +244,24 @@ class stabilize : public Task {
     // never enter the ramp branch -- byte-identical to before. This is the
     // per-strategy gate the 2026-06-08 revert note (stabilize.cc) said the ramp needed.
     int num_phases_ = 1;
+    // STRAIGHTEN (strat 25) live-seed funnel state (ported from lean 2026-07-15):
+    //   straighten_start_qpos_ : full qpos at straighten entry (posture ramp FROM)
+    //   straighten_start_tilt_ : pelvis tilt [rad] at entry (upright ramp FROM)
+    //   straighten_seeded_     : true once captured (else fall back to static target)
+    mjtNum straighten_start_qpos_[64] = {0};
+    double straighten_start_tilt_ = 0.0;
+    bool straighten_seeded_ = false;
+    // STRAIGHTEN (strat 25) foot anchor (2026-07-15): "Foot Stability" anchors
+    // the feet to WORLD-frame home constants -- correct in the twin/GUI (robot
+    // spawns at the origin), garbage on real where "world" is the estimator's
+    // drifting ODOMETRIC frame (real --cost run: r~21 while standing still and
+    // flat-footed, creeping upward with drift = a ~320-unit bias + an
+    // arbitrary-direction foot-drag gradient, the #1 cost term all run).
+    // While strat 25 is active the residual anchors to THESE captured
+    // positions instead: seeded at strategy load and re-pinned while the
+    // funnel is deploy-held, so at hand-over the anchor == where the feet
+    // actually stand. Default = the home constants (benign if never seeded).
+    double straighten_foot_anchor_[4] = {0.2196, -0.163, 0.2196, 0.163};  // Rx,Ry,Lx,Ly
 
     // Per-contact-pair "is new this phase" flags. true when a contact pair
     // went from inactive (body1=-1) in the previous keyframe to active in
@@ -348,7 +382,7 @@ class stabilize : public Task {
         "stabilize_simple_walk",     // 22  forward walk = trot + a baked v_des (walk_des_vel_x)
         "stabilize_simple_trot",     // 23  capture-point in-place trot
         "stabilize_simple_drive",    // 24  WSS teleop drive: stand<->trot FSM on live cmd_vel
-        "stabilize_placeholder",     // 25  reserved (lean slot 25 = straighten; kept clear here)
+        "stabilize_straighten",      // 25  pre-stand slump recovery (legs-only port of lean strat 25)
         "stabilize_lockstand",       // 26  locked-knee wide-stance balance hold (strut stand)
     };
   }
@@ -386,7 +420,10 @@ class stabilize : public Task {
         residual_.num_phases_,
         residual_.contact_pair_is_new_,
         residual_.catch_ep_t0_,
-        residual_.catch_ep_left_);
+        residual_.catch_ep_left_,
+        residual_.straighten_start_qpos_,
+        residual_.straighten_start_tilt_,
+        residual_.straighten_seeded_);
     // WSS drive: propagate the FSM gait-enable + heading into this plan's
     // snapshot so the rollout COST gates g_amp (and aims Body Yaw) exactly the
     // way stabilize::ModifyControl does. Non-drive strategies leave these 0.
@@ -399,6 +436,11 @@ class stabilize : public Task {
     rfn->cmd_active_ = residual_.cmd_active_;
     rfn->cmd_vdes_world_[0] = residual_.cmd_vdes_world_[0];
     rfn->cmd_vdes_world_[1] = residual_.cmd_vdes_world_[1];
+    // STRAIGHTEN foot anchor: rollout copies must cost the same captured
+    // anchor as the canonical residual_ (else workers fall back to the
+    // world-home constants the real odometric frame invalidates).
+    for (int i = 0; i < 4; i++)
+      rfn->straighten_foot_anchor_[i] = residual_.straighten_foot_anchor_[i];
     return rfn;
   }
 
@@ -418,6 +460,8 @@ class stabilize : public Task {
   // carry stale eq_active/qfrc_applied, so the restore path must keep running.
   bool arm_plan_active_ = false;
   bool arm_plan_touched_ = false;
+  // STRAIGHTEN funnel deploy-hold latch (log-once edges; see TransitionLocked)
+  bool straighten_funnel_pinned_ = false;
   double arm_plan_t0_ = 0.0;
   double arm_plan_T_ = 1.0;
   double arm_plan_q0_[14] = {0};

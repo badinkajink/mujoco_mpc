@@ -161,6 +161,12 @@ ABSL_FLAG(int, plan_trajectories, 0,
 ABSL_FLAG(int, plan_threads, 0,
           "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). One-wave "
           "rule: plan_trajectories <= plan_threads maximizes replan rate.");
+ABSL_FLAG(bool, straighten_start, false,
+          "hold the measured (slumped) pose, wait for ENTER, then hand authority to the planner "
+          "from the slump (SETTLE->BLEND, no drag). Pair with --strategy 25 (straighten). OFF by default.");
+ABSL_FLAG(bool, cost, false,
+          "dump the per-term cost breakdown to stderr once/sec (debug). OFF by default -- the "
+          "concise [node] status line is unaffected.");
 ABSL_FLAG(int, frc_parity, -1,
           "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to the "
           "torque the node can actually emit (0.9 x tau_estop = the H2 clamp budget), so the "
@@ -334,6 +340,8 @@ int main(int argc, char** argv) {
   cfg.arm_aware = absl::GetFlag(FLAGS_arm_aware);
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg.cost_log = absl::GetFlag(FLAGS_cost);
+  cfg.straighten_start = absl::GetFlag(FLAGS_straighten_start);
   cfg.frc_parity = absl::GetFlag(FLAGS_frc_parity);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);

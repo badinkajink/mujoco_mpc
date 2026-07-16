@@ -51,6 +51,18 @@
              FK so sole_zmin≈0 (1.017 → 1.016). HOME unchanged. -->
         <key name="stand_up" qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <key name="stand"    qpos="0.19 0 1.016 1 0 0 0 0 -0.15 0.12 0.35 -0.28 -0.12 0 -0.15 -0.12 0.35 -0.28 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- straighten (strategy 25): pre-stand slump-recovery target == the CoM-centered stand
+             pose (identical qpos to stand). Phase-0 of stabilize_straighten.json drives toward
+             this at high authority; the name-gated basin gate hands off to the stand phase once
+             upright + tall + quiet + knees-extended (see stabilize.cc TransitionLocked). -->
+        <!-- 2026-07-15 RETARGET to the EMPIRICALLY-STABLE stand (real runs 3+4: clean
+             stands at knee ~0.4, z ~0.99, ankles 7-14% of budget -- while the old knee-0.35
+             target's final extension re-launched the CoM forward every cycle). FK-solved
+             (retarget_key.py): foot pitch + CoM-to-foot offset preserved to 4 decimals vs
+             the original CoM-centered key. hold_stand = phase-1 copy (stand_up key is
+             SHARED with squatter etc -- never edit it for this strategy). -->
+        <key name="straighten" qpos="0.19 0 1.009 1 0 0 0 0 -0.20 0.12 0.44 -0.32 -0.12 0 -0.20 -0.12 0.44 -0.32 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="hold_stand" qpos="0.19 0 1.009 1 0 0 0 0 -0.20 0.12 0.44 -0.32 -0.12 0 -0.20 -0.12 0.44 -0.32 0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- lockstand (strategy 26): LOCKED-KNEE, WIDE-STANCE strut stand. Posture target for
              the lockstand JSON. Legs vs stand_up: knee 0.35->0.08 (locked strut, off the -0.12
              floor), hip_roll 0.12->0.19 + ankle_roll 0.12->0.19 (stance 0.517->0.635 m), hip_pitch
@@ -696,6 +708,10 @@
         <numeric name="residual_Cmd Vy" data="0 -0.2 0.2" />
         <numeric name="residual_Cmd Seq" data="0 0 1000000" />
         <numeric name="residual_Cmd Wz" data="0 -1 1" />
+        <!-- STRAIGHTEN funnel arm: 1=armed (seed+glide from strategy load; GUI/twin default).
+             0=deploy-held: seed+phase clocks re-pinned to the live pose each tick until the
+             --straighten_start hand-over completes. See kStabilizeFunnelArmParameterIndex. -->
+        <numeric name="residual_Funnel Arm" data="1 0 1" />
     </custom>
 
     <sensor>
@@ -849,6 +865,8 @@
              LAST <user> sensor: it was appended after Foot Slip so no existing
              residual index moved. Barrier position = numeric stance_min_sep. -->
         <user name="Stance Width" dim="1" user="0 0.0 0.0 300.0"/>
+        <user name="Foot Flat" dim="2" user="0 0.0 0.0 800.0"/>
+        <user name="CoM Cap" dim="1" user="0 0.0 0.0 600.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

@@ -276,7 +276,29 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   //   every snap phase (target_ramp_sec==0) pay nothing -- the unconditional version
   //   that ran for EVERY residual call of EVERY strategy is what got reverted.
   mjtNum ramped_posture_target[64];
-  if (num_phases_ > 1 && prev_posture_key_id_ != posture_key_id &&
+  // STRAIGHTEN (strat 25) live-seed posture ramp (ported from lean 2026-07-15): glide the posture
+  // target from the CAPTURED release qpos (the measured slump at engage) -> the centered
+  // `straighten` keyframe over target_ramp_sec (min-jerk). The FROM pose is the robot's ACTUAL
+  // measured pose, so the cost minimum stays one sampleable step from the state -- it straightens
+  // "from any launch configuration" instead of chasing a static target too far to reach (the
+  // topple-in-2s, knee-never-bends failure). Name-gated -> every other strategy byte-identical.
+  const bool is_straighten_ramp =
+      residual_keyframe_.name.rfind("straighten", 0) == 0;
+  if (is_straighten_ramp && straighten_seeded_ && model->nq <= 64) {
+    double ramp_dur = (residual_keyframe_.target_ramp_sec >= 0.0)
+                          ? residual_keyframe_.target_ramp_sec
+                          : kPhaseRampSeconds;
+    if (ramp_dur > 1e-9 && time_in_phase < ramp_dur) {
+      double ra_lin = mju_min(time_in_phase / ramp_dur, 1.0);
+      double ra = ra_lin * ra_lin * (3.0 - 2.0 * ra_lin);  // min-jerk smoothstep
+      for (int i = 0; i < model->nq; i++) {
+        ramped_posture_target[i] =
+            straighten_start_qpos_[i] +
+            ra * (posture_target[i] - straighten_start_qpos_[i]);
+      }
+      posture_target = ramped_posture_target;
+    }
+  } else if (num_phases_ > 1 && prev_posture_key_id_ != posture_key_id &&
       model->nq <= 64) {
     double ramp_dur = (residual_keyframe_.target_ramp_sec >= 0.0)
                           ? residual_keyframe_.target_ramp_sec
@@ -1894,10 +1916,20 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // stay grounded (the `is_leg_lift_stage ? 0.0 : ...` below always takes the
   // anchored branch). WBC may still nudge foot placement to hold balance.
   double right_foot_scale = arm_contact_or_lean ? 4.0 : 1.0;
-  residual[counter++] = is_leg_lift_stage ? 0.0 : right_foot_scale * (foot_right_pos[0] - kRightFootHomeXY[0]);
-  residual[counter++] = is_leg_lift_stage ? 0.0 : right_foot_scale * (foot_right_pos[1] - kRightFootHomeXY[1]);
-  residual[counter++] = left_foot_scale * (foot_left_pos[0] - kLeftFootHomeXY[0]);
-  residual[counter++] = left_foot_scale * (foot_left_pos[1] - kLeftFootHomeXY[1]);
+  // STRAIGHTEN (strat 25): anchor to the CAPTURED foot positions, not the
+  // world-home constants -- on real hardware "world" is the estimator's
+  // drifting odometric frame, and the constants read as a huge constant
+  // residual + an arbitrary-direction foot-drag (see straighten_foot_anchor_).
+  const double *rf_home = kRightFootHomeXY;
+  const double *lf_home = kLeftFootHomeXY;
+  if (straighten_seeded_) {
+    rf_home = straighten_foot_anchor_;
+    lf_home = straighten_foot_anchor_ + 2;
+  }
+  residual[counter++] = is_leg_lift_stage ? 0.0 : right_foot_scale * (foot_right_pos[0] - rf_home[0]);
+  residual[counter++] = is_leg_lift_stage ? 0.0 : right_foot_scale * (foot_right_pos[1] - rf_home[1]);
+  residual[counter++] = left_foot_scale * (foot_left_pos[0] - lf_home[0]);
+  residual[counter++] = left_foot_scale * (foot_left_pos[1] - lf_home[1]);
 
   // ----- hip clearance from table front face ----- //
   // table body is at world x=0.9, half-size 0.5 → front face at x=0.40.
@@ -2702,6 +2734,59 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // lateral (heading-frame y) separation; left foot is +y at yaw 0
     double sep = -std::sin(yaw) * dx + std::cos(yaw) * dy;
     residual[counter++] = 10.0 * mju_max(0.0, min_sep - sep);
+  }
+
+  // ---- Foot Flat (dim 2, 2026-07-16): keep each sole LEVEL so the straighten
+  //      rise cannot cheat height by rocking onto the toes (heel-lift) or rock
+  //      back onto the heel. foot_*_forward[2] is the z-comp of the foot body's
+  //      forward (x) axis = sin(foot pitch); it is yaw-invariant and reads
+  //      +0.0808 (a 4.6 deg frame offset) when the sole is FLAT on the floor
+  //      (measured at the 'straighten' keyframe). Residual = deviation from that
+  //      flat reference: heel-lift (toe-down) drives it negative, a backward
+  //      heel-rock drives it positive -> the quadratic norm keeps the CoP
+  //      centred in the foot, resisting BOTH the forward toe-lean limit cycle
+  //      and the backward escape. When the ankle-pitch saturates this converts
+  //      "toe-stand for height" into "keep the CoM back so the ankle doesn't
+  //      saturate". Foot pitch is unaffected by normal ankle balancing (the
+  //      shank rotates while a planted foot stays flat), so it does not fight a
+  //      legitimate flat-footed rise. XML weight 0 default -> every other
+  //      strategy byte-identical unless its JSON opts in (straighten only).
+  //      Appended as the LAST <user> sensor so no existing residual index moves.
+  {
+    static constexpr double kFootFlatRefZ = 0.0808;   // flat-sole foot_forward[2]
+    static constexpr double kFootFlatMargin = 0.08;   // free band ~4.6 deg either way
+    double *foot_flat_l = SensorByName(model, data, "foot_left_forward");
+    double *foot_flat_r = SensorByName(model, data, "foot_right_forward");
+    double ff_dev_l = foot_flat_l[2] - kFootFlatRefZ;
+    double ff_dev_r = foot_flat_r[2] - kFootFlatRefZ;
+    // DEADBAND: 0 while the sole is within ~4.6 deg of flat (normal rise micro-
+    // pitch is free, so the term never fights the dynamic rise), quadratic
+    // beyond -> only a GENUINE heel-lift / backward heel-rock is charged. The
+    // raw (no-deadband) form at w500 over-constrained the rise (twin sagged
+    // 2/3); the deadband keeps the anti-toe-stand intent without that.
+    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_l) - kFootFlatMargin);  // Foot Flat L
+    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_r) - kFootFlatMargin);  // Foot Flat R
+  }
+
+  // ---- CoM Cap (dim 1, 2026-07-16): one-sided FORWARD barrier on the CAPTURE
+  //      POINT relative to the mid-foot. Rising from a deep crouch the planner
+  //      otherwise whips the knee straight and LAUNCHES the CoM over the toes
+  //      (real run 8: CoM_margin +0.22 m, both ankles pinned 89%), then swings
+  //      back and twists. This caps the forward excursion so the ONLY rise it
+  //      allows is the gradual, hips-back one where the capture point never
+  //      passes the foot -> the robot stays balanced at every step instead of
+  //      lurching then over-correcting backward. Velocity-aware (capture_point =
+  //      CoM + 0.3*CoM_vel, and for straighten both fore-aft trims are 0 so it ==
+  //      the node's CoM_margin telemetry + a velocity lookahead) so it reacts to
+  //      the impending launch EARLY. Free while the CP sits within kComCapMargin
+  //      of the mid-foot (a normal stand is ~+0.03-0.07). 10x scale matches
+  //      Stance Width / the barriers. XML weight 0 default -> every other
+  //      strategy byte-identical. Appended as the LAST <user> sensor.
+  {
+    static constexpr double kComCapMargin = 0.12;  // CP may sit 12cm fwd of midfoot
+    double cc_midfoot_x = 0.5 * (foot_left_pos[0] + foot_right_pos[0]);
+    residual[counter++] =
+        10.0 * mju_max(0.0, capture_point[0] - cc_midfoot_x - kComCapMargin);  // CoM Cap
   }
 
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
@@ -3550,6 +3635,40 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
                               motion_strategy_.GetCurrentKeyframe());
     residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
     residual_.keyframe_start_time_ = data->time;
+    // STRAIGHTEN (strat 25) live-seed (ported from lean 2026-07-15): capture the release pose ONCE
+    // here on the TRUE agent state (never per-rollout), so Residual ramps the posture target FROM
+    // it to the centered keyframe along a min-jerk -- the funnel that keeps the corrective force
+    // small and prevents the static-target overshoot. Fires on cold boot into straighten AND on a
+    // live switch into it. Every other strategy leaves straighten_seeded_ = false -> byte-identical.
+    if (residual_.residual_keyframe_.name.rfind("straighten", 0) == 0) {
+      int nq_cap = mju_min(model->nq, 64);
+      for (int i = 0; i < nq_cap; i++)
+        residual_.straighten_start_qpos_[i] = data->qpos[i];
+      double *pu = SensorByName(model, data, "pelvis_up");
+      double up_z = pu ? mju_max(-1.0, mju_min(1.0, pu[2])) : 1.0;
+      residual_.straighten_start_tilt_ = std::acos(up_z);
+      residual_.straighten_seeded_ = true;
+      // Anchor "Foot Stability" to where the feet ACTUALLY are (odometric
+      // frame safe); re-pinned each disarmed tick below, frozen at hand-over.
+      {
+        double *frp = SensorByName(model, data, "foot_right_pos");
+        double *flp = SensorByName(model, data, "foot_left_pos");
+        if (frp && flp) {
+          residual_.straighten_foot_anchor_[0] = frp[0];
+          residual_.straighten_foot_anchor_[1] = frp[1];
+          residual_.straighten_foot_anchor_[2] = flp[0];
+          residual_.straighten_foot_anchor_[3] = flp[1];
+        }
+      }
+      std::fprintf(stderr,
+                   "[stabilize-straighten] seeded release: tilt=%.1fdeg base_z=%.3f "
+                   "foot anchors R(%.2f,%.2f) L(%.2f,%.2f)\n",
+                   residual_.straighten_start_tilt_ * 180.0 / M_PI, data->qpos[2],
+                   residual_.straighten_foot_anchor_[0], residual_.straighten_foot_anchor_[1],
+                   residual_.straighten_foot_anchor_[2], residual_.straighten_foot_anchor_[3]);
+    } else {
+      residual_.straighten_seeded_ = false;
+    }
     if (cold_start) {
       // First load: no history to ramp from. Snap to the first phase's
       // targets (prev scales = 0, posture = 1.0 "no-boost", brace_force = 0),
@@ -3571,6 +3690,59 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
     }
     ApplyRampedWeights(model, data);
     return;
+  }
+
+  // ----- STRAIGHTEN funnel arm/hold (deploy conduit sync, 2026-07-15) ---- //
+  // Real-run forensics (--cost dump): the funnel seed + target_ramp_sec glide
+  // clock start at strategy load (boot), but under --straighten_start the
+  // operator can hold for tens of seconds before ENTER -- the glide finished
+  // during the hold (Posture residual 0.02 -> 4.79 plateau BEFORE hand-over)
+  // and the planner faced the FULL posture gap at handover: CoM launch ->
+  // toe-park at the ankle budget -> uncontrolled backward escape. Fix: while
+  // "Funnel Arm" (param 24, default 1=armed) is 0, re-pin the seed to the
+  // CURRENT pose and freeze the phase clocks every tick; the deploy node arms
+  // it when full planner authority lands, so the glide runs WHILE the planner
+  // rises. Default-armed => GUI / twin / every other flow byte-identical.
+  if (residual_.straighten_seeded_ &&
+      residual_.residual_keyframe_.name.rfind("straighten", 0) == 0) {
+    double funnel_arm =
+        ((int)parameters.size() > kStabilizeFunnelArmParameterIndex)
+            ? parameters[kStabilizeFunnelArmParameterIndex]
+            : 1.0;  // stale build-tree XML without the param: behave as armed
+    if (funnel_arm < 0.5) {
+      int nq_cap = mju_min(model->nq, 64);
+      for (int i = 0; i < nq_cap; i++)
+        residual_.straighten_start_qpos_[i] = data->qpos[i];
+      double *pu = SensorByName(model, data, "pelvis_up");
+      double up_z = pu ? mju_max(-1.0, mju_min(1.0, pu[2])) : 1.0;
+      residual_.straighten_start_tilt_ = std::acos(up_z);
+      // re-pin the Foot Stability anchor to the live foot positions too, so
+      // at hand-over the anti-slide anchor == where the feet actually stand
+      double *frp = SensorByName(model, data, "foot_right_pos");
+      double *flp = SensorByName(model, data, "foot_left_pos");
+      if (frp && flp) {
+        residual_.straighten_foot_anchor_[0] = frp[0];
+        residual_.straighten_foot_anchor_[1] = frp[1];
+        residual_.straighten_foot_anchor_[2] = flp[0];
+        residual_.straighten_foot_anchor_[3] = flp[1];
+      }
+      motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+      motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
+      residual_.keyframe_start_time_ = data->time;
+      if (!straighten_funnel_pinned_) {
+        straighten_funnel_pinned_ = true;
+        std::fprintf(stderr,
+                     "[stabilize-straighten] funnel DISARMED by the deploy conduit: seed + "
+                     "glide clock pinned to the live pose until the hand-over arms it\n");
+      }
+    } else if (straighten_funnel_pinned_) {
+      straighten_funnel_pinned_ = false;
+      std::fprintf(stderr,
+                   "[stabilize-straighten] funnel ARMED at tilt=%.1fdeg base_z=%.3f -> the "
+                   "%.1fs glide starts NOW\n",
+                   residual_.straighten_start_tilt_ * 180.0 / M_PI, data->qpos[2],
+                   residual_.residual_keyframe_.target_ramp_sec);
+    }
   }
 
   // ----- Manual phase scrubber ---------------------------------------- //
@@ -3613,6 +3785,31 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
         motion_strategy_.CalculateTotalKeyframeDistance(
             data, mjpc::humanoid::ContactKeyframeErrorType::kNorm);
 
+    // STRAIGHTEN->stand basin-containment gate (ported from lean.cc 2026-07-15): the straighten
+    // keyframe carries no contact pairs so total_distance==0 and the bare rule would advance the
+    // bring-up phase on a pure timer. Instead require the robot to actually BE inside the stand
+    // basin -- upright (pelvis tilt), tall (base z, i.e. unslumped knees), quiescent (base speed) --
+    // sustained success_sustain_time like any other phase, re-armed on violation. Name-gated on the
+    // straighten keyframe so every other Stabilize strategy's advance logic is byte-identical.
+    bool straighten_gate_ok = true;
+    if (current_kf.name.rfind("straighten", 0) == 0) {
+      double *pu = SensorByName(model, data, "pelvis_up");
+      double up_z = pu ? mju_max(-1.0, mju_min(1.0, pu[2])) : 1.0;
+      double tilt_deg = std::acos(up_z) * 180.0 / M_PI;
+      double base_spd = std::sqrt(data->qvel[0] * data->qvel[0] +
+                                  data->qvel[1] * data->qvel[1] +
+                                  data->qvel[2] * data->qvel[2]);
+      // 2026-07-15 real-run relax: a load-bearing robot sags -- the real rise
+      // hovered at z 0.999 / knee 0.55 for 6s (stable, tilt<3) and the gate
+      // never fired, leaving the rise-phase costs running at the top (toe
+      // park at the ankle budget). Tall/unslumped thresholds now admit the
+      // real sagged near-stand; tilt + quiescence stay strict.
+      straighten_gate_ok = tilt_deg <= 3.0 && data->qpos[2] >= 0.985 &&
+                           base_spd <= 0.15 &&
+                           data->qpos[10] <= 0.60 &&   // left knee
+                           data->qpos[16] <= 0.60;     // right knee
+    }
+
     if (data->time - motion_strategy_.GetCurrentKeyframeStartTime() >
             current_kf.time_limit &&
         total_distance > current_kf.target_distance_tolerance) {
@@ -3628,7 +3825,8 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance <= current_kf.target_distance_tolerance &&
+    } else if (straighten_gate_ok &&
+               total_distance <= current_kf.target_distance_tolerance &&
                data->time -
                        motion_strategy_.GetCurrentKeyframeSuccessStartTime() >
                    current_kf.success_sustain_time) {
@@ -3644,7 +3842,10 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance > current_kf.target_distance_tolerance) {
+    } else if (total_distance > current_kf.target_distance_tolerance ||
+               !straighten_gate_ok) {
+      // Re-arm the success clock: outside tolerance, or (straighten only) the
+      // basin gate is violated -- sustain must be CONSECUTIVE.
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
     }
   }

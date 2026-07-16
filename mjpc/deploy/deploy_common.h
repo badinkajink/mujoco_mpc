@@ -218,6 +218,14 @@ struct NodeConfig {
                                        // 45-52/s and a plan is ~90 KB of JSON, so we
                                        // SKIP iterations to hit this (never sleep the
                                        // planner thread -- that would cost plan rate).
+  bool cost_log = false;               // --cost: dump the per-term cost breakdown to stderr
+                                       // once/sec. OFF by default; the concise [node] status
+                                       // line is unaffected. Debug aid only -- changes no weights.
+  bool straighten_start = false;       // --straighten_start: hold the measured (slumped) pose,
+                                       // wait for operator ENTER, then hand authority to the
+                                       // planner (straighten strat) from the slump via the SAME
+                                       // SETTLE->BLEND as align_start. NO drag. Default off ->
+                                       // the cold-start + align paths are byte-identical.
 };
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.

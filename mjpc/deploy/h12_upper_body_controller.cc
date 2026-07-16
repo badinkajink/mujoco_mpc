@@ -74,6 +74,12 @@ ABSL_FLAG(int, plan_trajectories, 0,
 ABSL_FLAG(int, plan_threads, 0,
           "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). For a co-run "
           "with the lower node on one PC, split the cores (e.g. 6/6) -- see the P6.4 gate.");
+ABSL_FLAG(bool, straighten_start, false,
+          "hold the measured (slumped) pose, wait for ENTER, then hand authority to the planner "
+          "from the slump (SETTLE->BLEND, no drag). Pair with --strategy 25 (straighten). OFF by default.");
+ABSL_FLAG(bool, cost, false,
+          "dump the per-term cost breakdown to stderr once/sec (debug). OFF by default -- the "
+          "concise [node] status line is unaffected.");
 ABSL_FLAG(double, stale_sec, 0.05,
           "H1 stale-input watchdog threshold (s): either state stream older than this -> "
           "damping safe-hold. 0.05 = the REAL-robot value; loosen only for heavyweight sims.");
@@ -150,6 +156,8 @@ int main(int argc, char** argv) {
   cfg.arm_aware = absl::GetFlag(FLAGS_leg_aware);   // X-aware machinery, LEG flavor here
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg.cost_log = absl::GetFlag(FLAGS_cost);
+  cfg.straighten_start = absl::GetFlag(FLAGS_straighten_start);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
   return h12deploy::RunDeployNode(cfg);
