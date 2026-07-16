@@ -1,0 +1,5 @@
+# These are bind-mounted from CL_Assets at container runtime
+# (see docker/docker-compose.yml, `ros` service) — never commit them into the
+# submodule; CL_Assets is the single source of truth.
+h1_2_magpie.xml
+meshes/

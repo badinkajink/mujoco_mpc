@@ -1,0 +1,31 @@
+<mujoco model="H1-2 Lowerbody">
+  <!-- Robot + scene model.
+
+       h1_2_magpie.xml is NOT committed into the submodule: it is bind-mounted
+       from CL_Assets/mujoco_assets/h1_2_magpie.xml into this task directory at
+       container start (see docker/docker-compose.yml, the `ros` service). It is a
+       complete model (floor, lights, materials, 12+ leg/arm actuators).
+
+       MESH NOTE: h1_2_magpie.xml sets its own `compiler meshdir="../meshes"`,
+       which — once inlined here — resolves relative to THIS directory, i.e.
+       mjpc/tasks/meshes. The meshes live in CL_Assets/meshes/{h1_2,magpie}, so
+       they must also be made resolvable (e.g. an additional bind mount, or a
+       meshdir override) for the model to actually compile. Not wired yet. -->
+  <include file="h1_2_magpie.xml"/>
+
+  <size memory="1M"/>
+
+  <!-- MJPC planner defaults. Tune as the lower-body controller is implemented. -->
+  <custom>
+    <numeric name="agent_planner" data="0" />
+    <numeric name="agent_horizon" data="0.35" />
+    <numeric name="agent_timestep" data="0.01" />
+    <numeric name="sampling_trajectories" data="60" />
+    <numeric name="sampling_spline_points" data="3" />
+    <numeric name="sampling_exploration" data="0.1" />
+  </custom>
+
+  <!-- Cost terms: add one mjpc <user> sensor per residual term here as the
+       h12_lowerbody residual is written (see e.g. mjpc/tasks/op3/task.xml).
+       Empty for now — this scaffold only loads the model. -->
+</mujoco>
