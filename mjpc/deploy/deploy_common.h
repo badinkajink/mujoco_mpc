@@ -197,6 +197,27 @@ struct NodeConfig {
                                        // Scaling dlt by RTF converts wall->sim. 1.0 = IDENTITY
                                        // (real/twin run RTF~1 -> byte-unchanged); set to the
                                        // measured RTF on a slow sim (RoboCasa ~0.45).
+  // ---- DEBUG PLAN PUBLISH (2026-07-15; additive, off by default) ----
+  // Serialize the ACTIVE planner's best trajectory (qpos rows only) to JSON and
+  // publish it as std_msgs::msg::dds_::String_ -- the same wire type ROS 2 uses for
+  // std_msgs/msg/String, so DDS 'rt/mjpc/plan' surfaces as ROS topic '/mjpc/plan'
+  // with no bridge (the mechanism that already makes rt/lowstate visible as
+  // /lowstate). Feeds the mjpc_debug_visualizer's blue ghost.
+  //
+  // WHERE: the PLANNER thread, right after PlanIteration() returns -- the only
+  // race-free point. CrossEntropyPlanner::BestTrajectory() hands back
+  // &nominal_trajectory WITHOUT taking mtx_, and that buffer is written by a pool
+  // worker; but PlanIteration internally WaitCount()s every rollout job including
+  // the nominal one, so on return no worker is touching it and the only thread that
+  // rewrites it is the one serializing. The 200 Hz control loop is never involved.
+  //
+  // "" = OFF (default): no publisher constructed, no serialization, ZERO added work
+  // -> real-robot deployments byte-unchanged. Wired ON for the sim only.
+  std::string plan_pub_topic;          // "" = OFF (default); e.g. "rt/mjpc/plan"
+  double plan_pub_hz = 20.0;           // publish rate cap; the planner free-runs at
+                                       // 45-52/s and a plan is ~90 KB of JSON, so we
+                                       // SKIP iterations to hit this (never sleep the
+                                       // planner thread -- that would cost plan rate).
 };
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.

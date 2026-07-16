@@ -250,6 +250,22 @@ ABSL_FLAG(double, align_timeout, 15.0,
           "exits earlier via REACHED or STALLED. This ceiling is NOT optional -- a joint that "
           "cannot arrive must never block the node forever.");
 
+// ---- DEBUG PLAN PUBLISH (2026-07-15) ----
+ABSL_FLAG(std::string, plan_topic, "",
+          "DEBUG: publish the active planner's best trajectory (qpos rows, JSON) to this DDS "
+          "topic for the mjpc_debug_visualizer's blue ghost. The payload is a "
+          "std_msgs::msg::dds_::String_, which is byte-identical on the wire to ROS 2's "
+          "std_msgs/msg/String -- so 'rt/mjpc/plan' here surfaces as ROS topic '/mjpc/plan' with "
+          "no bridge node (the same DDS<->ROS name mangling that already makes rt/lowstate visible "
+          "as /lowstate). Serialized on the PLANNER thread right after PlanIteration returns (the "
+          "one race-free point -- BestTrajectory() does NOT lock), so the 200 Hz control loop is "
+          "untouched. EMPTY = OFF (default): no publisher, no serialization, zero added work. "
+          "Debug only -- nothing in the control path reads this.");
+ABSL_FLAG(double, plan_hz, 20.0,
+          "--plan_topic publish rate cap [Hz]. The planner free-runs at 45-52 iters/s and a plan "
+          "is ~90 KB of JSON; iterations are SKIPPED to hit this rate (the planner thread is never "
+          "slept -- that would cost real plan rate). Ignored when --plan_topic is empty.");
+
 namespace {
 constexpr int kNU = 12;  // LEGS-ONLY lower-body controller: the 12 actuated
                          // joints below the pelvis (L/R hip yaw/pitch/roll,
@@ -321,6 +337,8 @@ int main(int argc, char** argv) {
   cfg.frc_parity = absl::GetFlag(FLAGS_frc_parity);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
+  cfg.plan_pub_topic = absl::GetFlag(FLAGS_plan_topic);   // "" = OFF (debug only)
+  cfg.plan_pub_hz = absl::GetFlag(FLAGS_plan_hz);
   // PHASE-A start-pose align: kLowerStartPose is the R^12 stance at the top of this file.
   cfg.align_start = absl::GetFlag(FLAGS_align_start);
   cfg.align_sec = absl::GetFlag(FLAGS_align_sec);

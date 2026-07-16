@@ -55,6 +55,10 @@
 #include <unitree/idl/hg/LowCmd_.hpp>
 #include <unitree/idl/hg/LowState_.hpp>
 #include <unitree/idl/go2/SportModeState_.hpp>
+// std_msgs::msg::dds_::String_ -- byte-identical on the wire to ROS 2's
+// std_msgs/msg/String (same DDS typename "std_msgs.msg.dds_.String_"), so the
+// debug plan topic is a real ROS topic without a bridge. See cfg.plan_pub_topic.
+#include <unitree/idl/ros2/String_.hpp>
 
 #ifdef H12_NODE_GRPC
 // Optional in-process MJPC gRPC server so the existing monitor can attach
@@ -375,6 +379,66 @@ class NodeAgentService final : public agent::Agent::Service {
   std::mutex mu_;
 };
 #endif  // H12_NODE_GRPC
+
+// ---- DEBUG PLAN PUBLISH: serialize a Trajectory's qpos rows to JSON ----
+// Hand-rolled rather than nlohmann: libmjpc links nlohmann_json but the colcon
+// package that actually builds this binary (core_ws/src/h12_deploy_mjpc/
+// CMakeLists.txt) does not put _deps/json-src/include on the include path, so
+// <nlohmann/json.hpp> would not compile here. It is also far faster to append
+// ~4k doubles into one reserved buffer than to build a DOM and dump it.
+//
+// Emits qpos ONLY (not the full nq+nv+na state): the visualizer's ghost needs
+// nothing else and it halves the payload (~180 KB -> ~90 KB).
+//
+// LANDMINE: traj->states is Allocate()d to kMaxTrajectoryHorizon (512) but only
+// traj->horizon rows are valid -- Rollout overwrites `horizon` with the actual
+// step count. Iterate horizon (101 for this task), never states.size().
+void AppendPlanJson(const mjpc::Trajectory* traj, int nq, std::int64_t plan_iter,
+                    std::string* out) {
+  char buf[40];
+  auto num = [&](double v) {
+    // %.6g keeps rad-scale qpos well inside double round-trip needs for a
+    // debug view while holding the payload to ~90 KB.
+    int n = std::snprintf(buf, sizeof(buf), "%.6g", v);
+    out->append(buf, n > 0 ? n : 0);
+  };
+  const int H = traj->horizon;
+  const int ds = traj->dim_state;
+
+  out->clear();
+  out->reserve(static_cast<std::size_t>(H) * nq * 9 + 256);
+  out->append("{\"stamp\":");
+  num(H > 0 ? traj->times[0] : 0.0);
+  out->append(",\"plan_iter\":");
+  {
+    int n = std::snprintf(buf, sizeof(buf), "%lld",
+                          static_cast<long long>(plan_iter));
+    out->append(buf, n > 0 ? n : 0);
+  }
+  out->append(",\"nq\":");
+  { int n = std::snprintf(buf, sizeof(buf), "%d", nq); out->append(buf, n > 0 ? n : 0); }
+  out->append(",\"horizon\":");
+  { int n = std::snprintf(buf, sizeof(buf), "%d", H); out->append(buf, n > 0 ? n : 0); }
+
+  out->append(",\"times\":[");
+  for (int t = 0; t < H; t++) {
+    if (t) out->push_back(',');
+    num(traj->times[t]);
+  }
+  out->append("],\"qpos\":[");
+  for (int t = 0; t < H; t++) {                   // row-major: H rows of nq
+    const double* q = traj->states.data() + static_cast<std::size_t>(t) * ds;
+    for (int i = 0; i < nq; i++) {
+      if (t || i) out->push_back(',');
+      num(q[i]);
+    }
+  }
+  out->append("],\"total_return\":");
+  num(traj->total_return);
+  out->append(",\"failure\":");
+  out->append(traj->failure ? "true" : "false");
+  out->append("}");
+}
 
 }  // namespace
 
@@ -720,9 +784,60 @@ int RunDeployNode(const NodeConfig& cfg) {
                "tau-estop per joint (command-side estops impossible for ANY planner output)\n",
                kClampRatio);
 
+  // ---- DEBUG PLAN PUBLISH (off unless --plan_topic is set) ----
+  // Constructed BEFORE the planner thread so the lambda can capture it; when the
+  // topic is empty nothing is constructed and the planner loop below is the exact
+  // pre-2026-07-15 two-liner (real deployments byte-unchanged).
+  const bool plan_pub_on = !cfg.plan_pub_topic.empty();
+  ChannelPublisherPtr<std_msgs::msg::dds_::String_> plan_pub;
+  if (plan_pub_on) {
+    plan_pub.reset(
+        new ChannelPublisher<std_msgs::msg::dds_::String_>(cfg.plan_pub_topic));
+    plan_pub->InitChannel();
+    std::fprintf(stderr,
+                 "[node] DEBUG plan publish ON -> '%s' @ %.1f Hz (qpos rows of the "
+                 "active planner's best trajectory, JSON; ROS sees it as '/%s')\n",
+                 cfg.plan_pub_topic.c_str(), cfg.plan_pub_hz,
+                 cfg.plan_pub_topic.compare(0, 3, "rt/") == 0
+                     ? cfg.plan_pub_topic.c_str() + 3
+                     : cfg.plan_pub_topic.c_str());
+  }
+
   mjpc::ThreadPool plan_pool(n_plan_threads);
   std::thread planner([&] {
-    while (!plan_exit.load()) { g_agent.PlanIteration(&plan_pool); plan_count.fetch_add(1); }
+    // Serialization scratch + rate gate live in the planner thread. The plan is
+    // ~90 KB of JSON and the planner free-runs at 45-52/s; publishing every
+    // iteration would burn ~4.5 MB/s for a 30 fps viewer that cannot use it. We
+    // SKIP iterations against a steady_clock deadline rather than sleeping --
+    // sleeping here would cost real plan rate, which is control-critical.
+    std::string plan_json;
+    const auto plan_pub_period = std::chrono::duration<double>(
+        cfg.plan_pub_hz > 0.0 ? 1.0 / cfg.plan_pub_hz : 0.0);
+    auto next_plan_pub = std::chrono::steady_clock::now();
+    std_msgs::msg::dds_::String_ plan_msg;
+
+    while (!plan_exit.load()) {
+      g_agent.PlanIteration(&plan_pool);
+      const std::int64_t iter = plan_count.fetch_add(1) + 1;
+
+      // PlanIteration has returned => every rollout job (incl. the nominal one
+      // BestTrajectory() hands back) has completed and no worker thread is
+      // touching the buffer; this thread is the only one that rewrites it. So
+      // reading it here is race-free WITHOUT taking the planner's mtx_.
+      if (!plan_pub_on) continue;
+      const auto now = std::chrono::steady_clock::now();
+      if (now < next_plan_pub) continue;
+      next_plan_pub = now + std::chrono::duration_cast<
+          std::chrono::steady_clock::duration>(plan_pub_period);
+
+      const mjpc::Trajectory* best = g_agent.ActivePlanner().BestTrajectory();
+      // Null until the first iteration completes (SamplingPlanner returns null
+      // while winner < 0); horizon 0 would serialize an empty plan.
+      if (best == nullptr || best->horizon <= 0) continue;
+      AppendPlanJson(best, nq, iter, &plan_json);
+      plan_msg.data(plan_json);
+      plan_pub->Write(plan_msg);
+    }
   });
 
   // ---- live strategy switch via stdin: type a number 0-20 (+Enter), q=quit ----
