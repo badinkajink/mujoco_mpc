@@ -50,6 +50,8 @@ add_library(
   tasks/cartpole/cartpole.h
   tasks/fingers/fingers.cc
   tasks/fingers/fingers.h
+  tasks/h12_lowerbody/h12_lowerbody.cc
+  tasks/h12_lowerbody/h12_lowerbody.h
   tasks/humanoid/interact/interact.cc
   tasks/humanoid/interact/interact.h
   tasks/humanoid/interact/contact_keyframe.cc

@@ -1,23 +1,227 @@
 <mujoco model="H1-2 Lowerbody">
   <!-- Robot + scene model.
 
-       h1_2_magpie.xml is NOT committed into the submodule: it is bind-mounted
-       from CL_Assets/mujoco_assets/h1_2_magpie.xml into this task directory at
-       container start (see docker/docker-compose.yml, the `ros` service). It is a
-       complete model (floor, lights, materials, 12+ leg/arm actuators).
+       h1_2_magpie.xml and its nested includes (magpie_gripper_left.xml,
+       magpie_gripper.xml) are NOT committed into the submodule: they are
+       bind-mounted from CL_Assets/mujoco_assets/ into this task directory at
+       container start (see docker/docker-compose.yml, the `ros` service).
+       h1_2_magpie.xml is a complete model (floor, lights, materials, 12+ leg/arm
+       actuators); CL_Assets stays the single source of truth.
 
-       MESH NOTE: h1_2_magpie.xml sets its own `compiler meshdir="../meshes"`,
-       which — once inlined here — resolves relative to THIS directory, i.e.
-       mjpc/tasks/meshes. The meshes live in CL_Assets/meshes/{h1_2,magpie}, so
-       they must also be made resolvable (e.g. an additional bind mount, or a
-       meshdir override) for the model to actually compile. Not wired yet. -->
+       MESH NOTE: h1_2_magpie.xml sets `compiler meshdir="../meshes"`, which —
+       once inlined here — would resolve to mjpc/tasks/meshes. The <compiler>
+       line below is placed AFTER the include so its meshdir wins the merge and
+       re-points mesh lookup at the `meshes/` bind mount of CL_Assets/meshes
+       inside THIS directory, keeping the task fully self-contained. -->
+
+  <!-- PUSHING THE ROBOT (disturbance testing): use the native perturbation —
+       double-click a body (e.g. pelvis or torso) to select it, then
+       Ctrl+right-drag applies a force at the grab point, Ctrl+left-drag a
+       torque; releasing the mouse ends the push. The force lasts as long as
+       the drag, is applied only to the GUI simulation
+       (app.cc PhysicsLoop -> ApplyForcePerturbations), and is NOT injected
+       into planner rollouts — State::Set copies qpos/qvel/act only, so the
+       planner discovers the shove through state feedback, like a real push.
+       -->
+
+  <!-- COST SENSORS GO IN THIS BLOCK, NOT AT THE BOTTOM. mjpc requires the
+       <user> cost sensors to be the model's FIRST sensors (Task::Reset in
+       mjpc/task.cc mju_error-aborts the whole process otherwise), and the
+       include below contributes ~99 native sensors — so this block must stay
+       ABOVE the include. user="<norm> <weight> <w_lo> <w_hi> [norm params]";
+       each term's residual entries are written by
+       H12Lowerbody::ResidualFn::Residual in declaration order.
+
+       Pelvis Up: quadratic norm on (pelvis z-axis · world z) - 1, computed by
+       PelvisUpResidual() from the pelvis_up framezaxis sensor below.
+
+       Hips Above Knees / Knees Above Ankles: per-leg cosine alignment of the
+       leg segments with world vertical — cos(knee->hip, +Z) - 1 for the thigh
+       and cos(ankle->knee, +Z) - 1 for the shin (0 = joint directly above
+       joint, -1 = segment horizontal, -2 = inverted), computed by
+       HipsAboveKneesResidual() / KneesAboveAnklesResidual() from the framepos
+       sensors below. Quadratic norm: graded pull toward vertical that starts
+       at the first degree of lean (cos > 0 already implies "above").
+
+       Torso Above Hips: same cosine alignment for the trunk axis —
+       hips-center -> shoulders-center vs world vertical (dim 1), computed by
+       TorsoAboveHipsResidual() from the hip/shoulder joint-center framepos
+       sensors.
+
+       Foot Width: signed stance margin (dim 1), computed by
+       FootWidthResidual() — horizontal (xy) distance between the
+       foot-geometry centers minus the allowed 0.4572 m (1.5 ft); the height
+       difference is deliberately not charged. The rectify norm (8, one-sided
+       softplus p=0.01) makes it an inequality: free while the feet are close
+       enough, ~linear in the excess beyond.
+
+       Foot Crossing: per-foot signed side margin (dim 2: left, right),
+       computed by FootCrossingResidual() — each foot-geometry center must
+       stay on its own side of the pelvis sagittal plane (pelvis y-axis
+       flattened to horizontal), with a 5 cm clearance band around the
+       midline. Positive when the foot crosses toward/past the midline; the
+       rectify norm (one-sided softplus p=0.01) charges only that side, so a
+       legal stance is free.
+
+       Hip Parity: mirror-symmetry error between the two hips (dim 3: pitch,
+       roll, yaw), computed by HipParityResidual() from the jointpos sensors
+       below. Both sides' hip joints share identical axes (yaw +z, pitch +y,
+       roll +x), so a sagittally mirrored pose has equal pitches and OPPOSITE
+       rolls/yaws (the mirrored roll ranges confirm the convention):
+       residuals are qL - qR for pitch and qL + qR for roll/yaw. Quadratic
+       norm — keeps the legs doing the same thing without pinning them to a
+       particular pose.
+
+       Hip Yaw Zero: the hip yaw angles themselves (dim 2: left, right),
+       computed by HipYawZeroResidual() from the *_hip_yaw_q sensors — pulls
+       both toes to point straight forward. Complements Hip Parity, whose yaw
+       entry (yawL + yawR) is blind to mirrored toe-out/toe-in. Quadratic
+       norm.
+
+       Hip Roll Zero: the hip roll angles themselves (dim 2: left, right),
+       computed by HipRollZeroResidual() from the *_hip_roll_q sensors —
+       pulls the legs to hang straight down rather than splayed/adducted.
+       Complements Hip Parity, whose roll entry (rollL + rollR) is blind to
+       mirrored splay. Quadratic norm.
+
+       Height: signed height deficit (dim 1), computed by HeightResidual() —
+       1.0 m minus the pelvis height ABOVE THE LOWER FOOT-GEOMETRY CENTER
+       (+ its nominal 0.0468 m ground clearance, so it reads as
+       height-above-ground on flat stance; default standing pelvis is
+       1.03 m). Kinematic rather than world z, so the same residual is
+       observable on the real robot from encoders + IMU. The rectify norm
+       (8, one-sided softplus p=0.01) makes it an inequality: free while
+       above 1 m, ~linear in every meter below.
+
+       COM_Projection: ||capture_point_xy - support_center_xy|| (scalar),
+       computed by CoMProjectionResidual(). Capture point = whole-robot CoM
+       projected by the live LIPM constant sqrt(h / g), with h the CoM height
+       above the lower foot-geometry center (kinematically observable — no
+       absolute world z); support center =
+       mean of the two FOOT-GEOMETRY centers (ankle_roll origins offset
+       +3.3 cm along each foot's forward axis — the ankle joints sit behind
+       the foot center). SmoothAbs norm p=0.1. Descended from humanoid-stand's
+       "Balance"; dims below are translated to this robot (nv=45). The
+       velocity projection doubles as the damping term (there is deliberately
+       no separate CoM-velocity cost).
+
+       Joint Vel.: qvel[6:] (all 39 non-root DOFs, incl. the passive gripper
+       linkage), computed by JointVelResidual(). Quadratic, small weight —
+       kills sampling-noise flail.
+
+       JointTorques: per-actuator torque (actuator_force — these are gear=1
+       torque motors, so this is the ctrlrange-clamped ctrl) normalized by
+       the capacity max(|ctrlrange|), computed by JointTorquesResidual() —
+       each entry is the fraction of available torque in use. All 31
+       actuators, not just the legs: the frozen arm/gripper motors get a
+       gradient to stop fighting the freeze equalities. Quadratic, small
+       weight — the control-effort regularizer that conditions iLQG and
+       kills chattery torques. -->
+  <sensor>
+    <user name="Pelvis Up" dim="1" user="0 1.0 0.0 10.0"/>
+    <user name="Hips Above Knees" dim="2" user="0 1.0 0.0 10.0"/>
+    <user name="Knees Above Ankles" dim="2" user="0 1.0 0.0 10.0"/>
+    <user name="Torso Above Hips" dim="1" user="0 1.0 0.0 10.0"/>
+    <user name="Foot Width" dim="1" user="8 1.0 0.0 10.0 0.01"/>
+    <user name="Foot Crossing" dim="2" user="8 1.0 0.0 10.0 0.01"/>
+    <user name="Hip Parity" dim="3" user="0 1.0 0.0 10.0"/>
+    <user name="Hip Yaw Zero" dim="2" user="0 1.0 0.0 10.0"/>
+    <user name="Hip Roll Zero" dim="2" user="0 1.0 0.0 10.0"/>
+    <user name="Height" dim="1" user="8 1.0 0.0 10.0 0.01"/>
+    <user name="COM_Projection" dim="1" user="6 50.0 0.0 100.0 0.1"/>
+    <user name="Joint Vel." dim="39" user="0 0.01 0.0 0.1"/>
+    <user name="JointTorques" dim="31" user="0 0.01 0.0 0.1"/>
+
+    <!-- Residual inputs (native sensors; must come AFTER the <user> terms).
+         objtype MUST be "xbody" (the body frame): "body" would attach to the
+         INERTIAL frame, whose principal axes are arbitrarily rotated. The leg
+         link body-frame origins sit exactly at their joint centers. -->
+    <framezaxis name="pelvis_up" objtype="xbody" objname="pelvis"/>
+    <!-- Pelvis origin + y-axis (leftward) for the Foot Crossing sagittal
+         plane. -->
+    <framepos name="pelvis_pos" objtype="xbody" objname="pelvis"/>
+    <frameyaxis name="pelvis_yaxis" objtype="xbody" objname="pelvis"/>
+    <!-- Whole-robot CoM: pelvis is the kinematic root, so its subtree is the
+         entire robot. com_position is unused by the costs so far but feeds
+         GUI traces and the upcoming Balance (CoM-over-feet) term. -->
+    <subtreecom name="com_position" body="pelvis"/>
+    <subtreelinvel name="com_velocity" body="pelvis"/>
+    <framepos name="left_hip_pos" objtype="xbody" objname="left_hip_pitch_link"/>
+    <framepos name="right_hip_pos" objtype="xbody" objname="right_hip_pitch_link"/>
+    <framepos name="left_shoulder_pos" objtype="xbody" objname="left_shoulder_pitch_link"/>
+    <framepos name="right_shoulder_pos" objtype="xbody" objname="right_shoulder_pitch_link"/>
+    <framepos name="left_knee_pos" objtype="xbody" objname="left_knee_link"/>
+    <framepos name="right_knee_pos" objtype="xbody" objname="right_knee_link"/>
+    <framepos name="left_ankle_pos" objtype="xbody" objname="left_ankle_pitch_link"/>
+    <framepos name="right_ankle_pos" objtype="xbody" objname="right_ankle_pitch_link"/>
+    <!-- Foot (sole) bodies for the COM_Projection support average; the
+         x-axes carry the ankle->foot-center offset direction. -->
+    <framepos name="left_foot_pos" objtype="xbody" objname="left_ankle_roll_link"/>
+    <framepos name="right_foot_pos" objtype="xbody" objname="right_ankle_roll_link"/>
+    <framexaxis name="left_foot_xaxis" objtype="xbody" objname="left_ankle_roll_link"/>
+    <framexaxis name="right_foot_xaxis" objtype="xbody" objname="right_ankle_roll_link"/>
+    <!-- Hip joint angles for the Hip Parity mirror-symmetry term. -->
+    <jointpos name="left_hip_pitch_q" joint="left_hip_pitch_joint"/>
+    <jointpos name="right_hip_pitch_q" joint="right_hip_pitch_joint"/>
+    <jointpos name="left_hip_roll_q" joint="left_hip_roll_joint"/>
+    <jointpos name="right_hip_roll_q" joint="right_hip_roll_joint"/>
+    <jointpos name="left_hip_yaw_q" joint="left_hip_yaw_joint"/>
+    <jointpos name="right_hip_yaw_q" joint="right_hip_yaw_joint"/>
+  </sensor>
+
   <include file="h1_2_magpie.xml"/>
+  <compiler meshdir="meshes"/>
 
-  <size memory="1M"/>
+  <!-- FREEZE everything above the hips: equality-lock the waist, both arms,
+       and the gripper drive hinges, leaving only the two legs (+ floating
+       base) free. With joint2 omitted the constraint is
+       q - qpos0 = polycoef[0], and this model has no keyframes and no joint
+       ref offsets (qpos0 = 0), so every joint is pinned at the zero reference
+       pose. The passive gripper hinges (*_hinge_2/3) are deliberately NOT
+       pinned — the four-bar <connect> equalities in h1_2_magpie.xml already
+       close them, and locking the drive hinge fixes the whole linkage;
+       pinning them too would over-constrain it. The planner still samples the
+       frozen joints' actuators (wasted dims — the constraints win); remove
+       the actuators via a model variant if that becomes a throughput problem.
+       To unfreeze at runtime (e.g. per mode), toggle data->eq_active by
+       equality name. -->
+  <equality>
+    <joint name="freeze_torso" joint1="torso_joint" polycoef="0 0 0 0 0"/>
 
-  <!-- MJPC planner defaults. Tune as the lower-body controller is implemented. -->
+    <joint name="freeze_left_shoulder_pitch" joint1="left_shoulder_pitch_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_shoulder_roll" joint1="left_shoulder_roll_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_shoulder_yaw" joint1="left_shoulder_yaw_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_elbow" joint1="left_elbow_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_wrist_roll" joint1="left_wrist_roll_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_wrist_pitch" joint1="left_wrist_pitch_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_wrist_yaw" joint1="left_wrist_yaw_joint" polycoef="0 0 0 0 0"/>
+
+    <joint name="freeze_right_shoulder_pitch" joint1="right_shoulder_pitch_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_shoulder_roll" joint1="right_shoulder_roll_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_shoulder_yaw" joint1="right_shoulder_yaw_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_elbow" joint1="right_elbow_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_wrist_roll" joint1="right_wrist_roll_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_wrist_pitch" joint1="right_wrist_pitch_joint" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_wrist_yaw" joint1="right_wrist_yaw_joint" polycoef="0 0 0 0 0"/>
+
+    <!-- Gripper drive hinges ("left/right" in hinge names = finger side;
+         leftg_* = left hand). -->
+    <joint name="freeze_right_hand_left_finger" joint1="left_hinge_1" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_right_hand_right_finger" joint1="right_hinge_1" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_hand_left_finger" joint1="leftg_left_hinge_1" polycoef="0 0 0 0 0"/>
+    <joint name="freeze_left_hand_right_finger" joint1="leftg_right_hinge_1" polycoef="0 0 0 0 0"/>
+  </equality>
+
+  <!-- Arena sized for contact-rich states: a fallen/tangled robot makes 100+
+       contacts and the constraint solve overruns 1M (mj_stackAlloc abort). -->
+  <size memory="10M"/>
+
+  <!-- MJPC planner defaults. Tune as the lower-body controller is implemented.
+       agent_planner 2 = iLQG (enum PlannerType in mjpc/planners/include.h);
+       the sampling_* numerics below only take effect if the planner is
+       switched back to Sampling (0) in the GUI. -->
   <custom>
-    <numeric name="agent_planner" data="0" />
+    <numeric name="agent_planner" data="2" />
     <numeric name="agent_horizon" data="0.35" />
     <numeric name="agent_timestep" data="0.01" />
     <numeric name="sampling_trajectories" data="60" />
@@ -25,7 +229,6 @@
     <numeric name="sampling_exploration" data="0.1" />
   </custom>
 
-  <!-- Cost terms: add one mjpc <user> sensor per residual term here as the
-       h12_lowerbody residual is written (see e.g. mjpc/tasks/op3/task.xml).
-       Empty for now — this scaffold only loads the model. -->
+  <!-- Cost terms: one mjpc <user> sensor per residual term, in the <sensor>
+       block ABOVE the include (ordering constraint documented there). -->
 </mujoco>

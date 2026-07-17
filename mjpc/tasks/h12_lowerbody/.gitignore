@@ -2,4 +2,6 @@
 # (see docker/docker-compose.yml, `ros` service) — never commit them into the
 # submodule; CL_Assets is the single source of truth.
 h1_2_magpie.xml
+magpie_gripper_left.xml
+magpie_gripper.xml
 meshes/

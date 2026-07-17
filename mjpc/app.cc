@@ -39,8 +39,13 @@
 #include "mjpc/threadpool.h"
 #include "mjpc/utilities.h"
 
-ABSL_FLAG(bool, planner_enabled, false,
-          "If true, the planner will run on startup");
+ABSL_FLAG(bool, planner_enabled, true,
+          "If true (default), the planner runs from startup; pass "
+          "--noplanner_enabled to start with planning off");
+ABSL_FLAG(bool, action_enabled, true,
+          "If true (default, matching Agent::Initialize), the planner's "
+          "actions are applied to the simulation from startup; pass "
+          "--noaction_enabled to plan without driving the sim");
 ABSL_FLAG(float, sim_percent_realtime, 100,
           "The realtime percentage at which the simulation will be launched.");
 ABSL_FLAG(bool, estimator_enabled, false,
@@ -229,6 +234,7 @@ void PhysicsLoop(mj::Simulate& sim) {
         sim.agent->Initialize(mnew);
         sim.agent->plot_enabled = absl::GetFlag(FLAGS_show_plot);
         sim.agent->plan_enabled = absl::GetFlag(FLAGS_planner_enabled);
+        sim.agent->action_enabled = absl::GetFlag(FLAGS_action_enabled);
         sim.agent->Allocate();
 
         // set home keyframe
@@ -438,6 +444,7 @@ MjpcApp::MjpcApp(std::vector<std::shared_ptr<mjpc::Task>> tasks, int task_id) {
   sim->agent->PlotInitialize();
 
   sim->agent->plan_enabled = absl::GetFlag(FLAGS_planner_enabled);
+  sim->agent->action_enabled = absl::GetFlag(FLAGS_action_enabled);
 
   // Get the index of the closest sim percentage to the input.
   float desired_percent = absl::GetFlag(FLAGS_sim_percent_realtime);
