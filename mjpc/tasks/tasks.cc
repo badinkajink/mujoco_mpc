@@ -55,6 +55,12 @@ namespace mjpc {
 
 std::vector<std::shared_ptr<Task>> GetTasks() {
   return {
+      // Humanoid Bench Stand Task (H1-2). FIRST on purpose: the GUI's Model
+      // combobox is built from this vector's order (agent.cc GetTaskNames) and
+      // MJPC's select widget does not scroll, so anything far down the list is
+      // unreachable in the UI.
+      std::make_shared<Stand_H12>(),
+
       // H1_2 Avoid Task
       std::make_shared<Avoid_H12>(),
       std::make_shared<Avoid_H12_ToF>(),

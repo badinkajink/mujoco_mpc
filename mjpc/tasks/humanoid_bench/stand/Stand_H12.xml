@@ -1,0 +1,108 @@
+<mujoco model="Stand H12">
+    <include file="../h1_2/h1_2_stand.xml"/>
+    <include file="../../common.xml" />
+    <include file="../assets/floor.xml" />
+
+    <!-- H1-2 port of Stand_H1.xml. stand.cc is UNCHANGED and every cost weight/norm
+         is identical to the H1 baseline. What genuinely differs:
+           - 27 actuated joints instead of 19  -> Joint Vel./Posture/Control dims
+           - feet are *_ankle_roll_link        -> foot sensor objnames
+           - taller robot                      -> Height Goal (see below)
+
+         ROBOT: h1_2_stand.xml, NOT the shared h1_2_modified.xml; stand-scoped variant
+         built by _gen_stand_model.py carrying the constants the real machine runs:
+         PD gains from h12_ros2_controller/config/safety_full.yaml, forcerange and the
+         ctrlrange envelope from the h12_safety_layer estop ratios x URDF torque, and
+         joint damping restored to the upstream Unitree value (0). The shared base is
+         left alone because every other H1-2 task is tuned against its numbers.
+
+         WHY THIS MATTERS (measured, 12s headless, iLQG, testspeed):
+         the shared base models the ARMS 3-6x TOO SOFT (shoulder_pitch kp 40 vs the
+         real 240) and adds a fictitious joint damping=10 on top of the PD's own kv.
+         Together they cost ~40x of arm control authority (dB/du at home: shoulder_roll
+         0.138 vs H1's 6.045). With near-zero B the iLQG backward pass has Quu collapse
+         onto the tiny cosh Control regulariser, so k = -Quu^-1 B'Vx demanded enormous
+         control excursions and the planner drove position targets to the ctrlrange
+         rails (shoulder commanded -3.4 rad with the joint at 0.0). That is NOT an iLQG
+         defect and NOT the cosh term (zeroing the Control weight made railing WORSE):
+         it is the planner correctly solving a robot that does not exist. -->
+    <keyframe>
+        <!-- Mirror of the Stand_H1 home crouch: hip_pitch -0.4 / knee 0.8 /
+             ankle_pitch -0.4 (sums to 0, so the sole stays flat). H1-2 joint
+             order per leg is yaw, PITCH, ROLL, knee, ankle_pitch, ankle_roll
+             (H1 is yaw, ROLL, PITCH, knee, ankle): pitch is the 2nd slot here,
+             not the 3rd. pelvis z=0.965 is FK-solved so the mesh sole rests
+             exactly on z=0 (same solver reproduces the validated z=1.022 of the
+             stabilize `home` key to 4 decimals). -->
+        <key name="home" qpos="0 0 0.965 1 0 0 0 0 -0.4 0 0.8 -0.4 0 0 -0.4 0 0.8 -0.4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
+    </keyframe>
+
+    <custom>
+        <!-- 2 = iLQG, same as Stand_H1: full parity with the H1 baseline.
+             An earlier revision shipped CEM (5) here because iLQG railed the
+             controls on the SHARED base. That was treating the symptom: the
+             railing was the planner reacting correctly to a mis-modelled robot
+             (arms 3-6x too soft + a fictitious joint damping). Against
+             h1_2_stand.xml's real constants iLQG is well-conditioned again and
+             is the better planner, as the humanoid_bench authors intended.
+             Set to 5 for CEM if you want the sampling comparison. -->
+        <numeric name="agent_planner" data="2" />
+        <numeric name="agent_horizon" data="0.35" />
+        <numeric name="agent_timestep" data="0.015" />
+        <numeric name="sampling_spline_points" data="3" />
+        <numeric name="sampling_exploration" data="0.05" />
+        <numeric name="gradient_spline_points" data="5" />
+        <!-- 1.66, not H1's 1.65: the goal is a head-feet distance, and H1-2 is a
+             taller robot. Fully-extended head-feet is 1.6742 (H1) vs 1.6832
+             (H1-2), so H1's 1.65 asks for full extension minus 24mm. 1.66 asks
+             H1-2 for the same 24mm, i.e. the same fraction of leg extension;
+             copying 1.65 verbatim would quietly make H1-2's task the easier of
+             the two and bias the comparison. Slider max is full extension; note
+             MJPC only reads data[0] (task.cc SetFeatureParameters), the min/max
+             are GUI slider bounds and are never clamped against. -->
+        <numeric name="residual_Height Goal" data="1.66 0.0 1.68" />
+    </custom>
+
+    <sensor>
+        <!-- dims that scale with the robot: nv-6 = 27 (was 19), nq-7 = 27 (was 19) -->
+        <user name="humanoid_bench" dim="1" user="6 0.0 0.0 1.0 0.01" />
+        <user name="Height" dim="1" user="6 100.0 0.0 100.0 0.1" />
+        <user name="CoM Vel." dim="2" user="0 10.0 0.0 100.0" />
+        <user name="Joint Vel." dim="27" user="0 0.01 0.0 0.1" />
+        <user name="Balance" dim="2" user="1 5.0 0.0 25.0 0.02 4.0" />
+        <user name="Upright" dim="8" user="2 5.0 0.0 25.0 0.01" />
+        <user name="Posture" dim="27" user="0 0.025 0 1.0" />
+        <user name="Velocity" dim="2" user="7 0.625 0 25.0 0.2 4.0" />
+        <user name="Control" dim="27" user="3 0.1 0 1.0 0.3" />
+
+        <framepos name="trace0" objtype="body" objname="torso_link" />
+
+        <framepos name="torso_position" objtype="body" objname="torso_link" />
+        <framepos name="head_position" objtype="site" objname="head" />
+        <framequat name="head_orientation" objtype="site" objname="head" />
+        <framezaxis name="torso_zaxis" objtype="body" objname="torso_link" />
+        <subtreelinvel name="torso_subtreelinvel" body="torso_link" />
+        <subtreecom name="torso_subtreecom" body="torso_link" />
+        <framepos name="foot_right_pos" objtype="body" objname="right_ankle_roll_link" />
+        <framepos name="foot_left_pos" objtype="body" objname="left_ankle_roll_link" />
+        <subtreelinvel name="foot_right_vel" body="right_ankle_roll_link" />
+        <subtreelinvel name="foot_left_vel" body="left_ankle_roll_link" />
+        <subtreecom name="torso_subcom" body="torso_link" />
+        <subtreelinvel name="torso_subcomvel" body="torso_link" />
+        <framepos name="pelvis_position" objtype="body" objname="pelvis" />
+        <framezaxis name="torso_up" objtype="xbody" objname="torso_link" />
+        <framezaxis name="pelvis_up" objtype="xbody" objname="pelvis" />
+        <framezaxis name="foot_right_up" objtype="xbody" objname="right_ankle_roll_link" />
+        <framezaxis name="foot_left_up" objtype="xbody" objname="left_ankle_roll_link" />
+        <framexaxis name="torso_forward" objtype="xbody" objname="torso_link" />
+        <framexaxis name="pelvis_forward" objtype="xbody" objname="pelvis" />
+        <framexaxis name="foot_right_forward" objtype="xbody" objname="right_ankle_roll_link" />
+        <framexaxis name="foot_left_forward" objtype="xbody" objname="left_ankle_roll_link" />
+        <subtreelinvel name="waist_lower_subcomvel" body="pelvis" />
+        <framelinvel name="torso_velocity" objtype="body" objname="torso_link" />
+
+        <framepos name="head_height" objtype="site" objname="head" />
+        <framezaxis name="torso_upright" objtype="xbody" objname="torso_link" />
+        <subtreelinvel name="center_of_mass_velocity" body="pelvis" />
+    </sensor>
+</mujoco>

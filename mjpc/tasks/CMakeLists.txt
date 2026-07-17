@@ -308,6 +308,16 @@ add_custom_target(
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stabilize/_gen_stabilize_model.py
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stabilize_magpie.xml
+  # Stand robot (2026-07-16): derive a stand-ONLY variant of the gripperless base
+  # carrying the REAL robot constants -- PD gains from h12_ros2_controller's
+  # safety_full.yaml, forcerange/ctrlrange from the h12_safety_layer estop ratios x
+  # URDF torque, and joint damping restored to the upstream 0. Stand-scoped on purpose:
+  # every other H1-2 task is tuned against the base's (wrong) numbers, so they keep
+  # loading h1_2_modified.xml untouched. See _gen_stand_model.py for provenance.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stand/_gen_stand_model.py
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stand.xml
   # Upper-body "upper" robot (2026-07-10): derive the nu=15 upper-only variant
   # from the SAME gripperless base (before the gripper re-patch below) -- keep
   # the 15 torso+arm actuators, eq-lock the 12 legs, weld the pelvis. Mirror of
