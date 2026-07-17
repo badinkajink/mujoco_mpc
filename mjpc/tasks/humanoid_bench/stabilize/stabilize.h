@@ -384,6 +384,9 @@ class stabilize : public Task {
         "stabilize_simple_drive",    // 24  WSS teleop drive: stand<->trot FSM on live cmd_vel
         "stabilize_straighten",      // 25  pre-stand slump recovery (legs-only port of lean strat 25)
         "stabilize_lockstand",       // 26  locked-knee wide-stance balance hold (strut stand)
+        "stabilize_stagger",         // 27  staggered stance: L foot 0.10m fwd / R 0.10m back
+                                     //     at NOMINAL width. Needs --align_start (a balance hold
+                                     //     cannot create a stagger -- that takes a STEP).
     };
   }
 

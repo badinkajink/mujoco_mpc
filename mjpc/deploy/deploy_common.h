@@ -158,6 +158,14 @@ struct NodeConfig {
   bool align_start = false;
   double align_pose[kMaxNU] = {0};     // target stance (rad, motor order); filled by the node
   bool align_pose_set = false;         // false -> fall back to the model's `stand` keyframe
+  // BRING-UP RAMP DESTINATION. The scripted rise+hold (kStartRampSec + kRampHoldSec) drives ALL
+  // joints here open-loop before the planner gets a vote. It was hard-wired to `stand`, which is
+  // perfectly SYMMETRIC (hipP -0.15/-0.15) -- so booting a staggered strategy WITHOUT --align_start
+  // spent 8 s scripted to drag the operator's hand-placed stagger back to a square stance. With
+  // both feet planted that cannot move the feet, it only shears the soles and shoves the base:
+  // strat 27 lat-lean grew monotonically -0.3 -> -7.0 deg across exactly the ramp window on two
+  // real runs. Empty -> `stand` (every existing strategy: byte-identical).
+  const char* ramp_dest_key = nullptr;
   double align_sec = 4.0;              // min-jerk drive duration [s, WALL]
   double align_tol = 0.08;             // converged when max|q - align_pose| < this [rad] (~4.6 deg)
   double align_timeout = 8.0;          // hard ceiling [s, WALL]; the robot is load-bearing and

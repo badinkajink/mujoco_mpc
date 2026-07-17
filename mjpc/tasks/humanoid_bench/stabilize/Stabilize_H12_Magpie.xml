@@ -70,6 +70,56 @@
              leg). FK-verified: feet grounded, CoM centered laterally (+0.001) and +0.017 m over
              midfoot; base z stays 1.016 (wide splay offsets the straighter knee). -->
         <key name="lockstand" qpos="0.19 0 1.016 1 0 0 0 0 -0.03 0.19 0.08 -0.14 -0.19 0 -0.03 -0.19 0.08 -0.14 0.19 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- stagger (strategy 27): STAGGERED stance — LEFT foot forward / RIGHT back, S=0.150 m,
+             CoM-CENTRED, at the NOMINAL 0.52 m width. IK-solved (stance_margin_sweep.py): per-leg
+             (hip_pitch, knee, ankle_pitch) for foot-x + a genuinely FLAT sole, base z planted on
+             the MESH sole. feet x +0.2860/+0.1360, CoM +0.2110, nearest stop ankle_roll @ 8.1 deg.
+             ★★ REV 2 (2026-07-16) — REV 1 (S=0.200, centred on the baseline MIDFOOT 0.171) FAILED
+             ON THE REAL ROBOT: the CoM sits at ~0.207, NOT at the midfoot, so centring the stagger
+             on the midfoot gave the BACK ankle a 0.136 m moment arm vs the front's 0.064 (113%
+             longer). Ankle torque = load x (CoM_x - ankle_x) => ~45 Nm predicted vs the 48.6 Nm
+             H2 budget; the robot measured RankP |tau|peak 48.2 Nm, 89% of e-stop for 6 s, CLAMPED
+             9.5% of ticks = OUT OF AUTHORITY, then the knees collapsed. The back foot also rocked
+             onto its TOE (CoM was 3 mm from that foot's toe edge) -> heel lift -> foot twist
+             (RankR 76%), exactly as observed by the operator.
+             ★ THE FIX IS TO CENTRE ON THE CoM, NOT THE MIDFOOT: feet at CoM +- S/2 => both arms
+             = S/2 = 0.075 m => ~24.9 Nm each, HALF the budget, and symmetric.
+             ★ S is capped at 0.168 by the FRONT foot's HEEL (0.084 behind its ankle): beyond that
+             the CoM leaves the front footprint. 0.15 keeps margin under that cap.
+             ★ DO NOT re-centre this on the midfoot and DO NOT raise S to 0.20 -- that is exactly
+             what failed on hardware. Ankle authority is the documented H1-2 limiter; the stagger
+             SPENDS it (square stand ~12 Nm static per ankle, this ~25 Nm) to buy ~+13% polygon.
+             ★ WIDTH IS NOMINAL (hip_roll 0.12), NOT wide, and that is DELIBERATE: a margin sweep
+             measured that widening buys only the LATERAL axis (already 2.9x stronger than fore-aft)
+             while fore-aft gets slightly WORSE and ankle_roll headroom burns 0.14->0.05 rad.
+             ankle_roll (+-0.262) caps width, not the hip. Width is a cost, not a lever.
+             ★ THE KNEE IS NOT FREE: foot (x, z, flat-sole) = 3 constraints vs 3 sagittal joints, so
+             placement + base z DETERMINE the knee. At stand's z=1.016 the knees come out 0.28/0.16 —
+             the back knee halfway to lockstand's locked 0.08 that FAILED at handover on the real
+             robot. base z 1.016->1.00748 is what lands the BACK knee on the real-validated 0.35
+             (front 0.42). Base z is the knee knob; do not "tidy" it back to 1.016.
+             ★ ONLY sagittally-ASYMMETRIC keyframe in this model (dHipP -0.293, dKnee +0.070,
+             dAnkP +0.224) => the Symmetry residual MUST be keyframe-relative (stabilize.cc sym_ref)
+             or it taxes this pose ~23 cost units at weight 150 vs Posture 24 and drags it square.
+             ⚠ Measured: the stagger buys only +19% fore-aft margin (0.104->0.124 m), NOT ~2x — a
+             symmetric stagger cannot extend the margin at the MIDLINE (the hull edge crossing it
+             sits at the AVERAGE of the two feet). The remaining case is DYNAMIC (fore-aft push-off
+             authority), which is what the A/B exists to test. See docs/stagger_strategy_design_*.md -->
+        <!-- REV5 (2026-07-16): REV4 + hip_roll abducted 0.12 -> 0.176 (ankle_roll counter-rotated
+             to hold the sole flat; base z re-solved 1.01003 -> 1.00360 so the soles still sit on
+             the floor). knee / hip_pitch / ankle_pitch are BYTE-IDENTICAL to REV4 -- only the roll
+             chain and 6 mm of height move, so this is attributable.
+             WHY: the operator reported the feet TWISTING. Measured, the floor's SPIN friction is
+             0.005 => a planted sole resists 0.2 Nm of yaw = 0.1% of the budget. ALL yaw resistance
+             is the force couple between the feet, Mz = mu * min(N_L,N_R) * foot_separation --
+             LINEAR in stance width, and capped by the LIGHTER foot.
+               REV4  d_sep 0.554 -> Mz 147.1 Nm @60/40  (86% of the square stand's 171.6)
+               REV5  d_sep 0.637 -> Mz 169.1 Nm @60/40  (99%)   /  211.4 @50/50 (123%)
+             PRICE: ankle_roll angle headroom 8.1deg -> 4.9deg (limit +-0.262 rad). That joint is
+             what keeps the sole flat while the body leans; run it out and the foot rolls onto its
+             edge, which has even LESS yaw resistance. 0.176 is a deliberate middle step, not the
+             max -- hip_roll 0.20 (lateral 0.643) leaves only 3.6deg and is NOT validated. -->
+        <key name="stagger" qpos="0.19 0 1.00360 1 0 0 0 0 -0.30627 0.176 0.36045 -0.13313 -0.176 0 -0.04444 -0.176 0.35 -0.38632 0.176 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- counterbalance_standing (strategy 16): MUST exist so 16's Posture targets a
              BENT-knee stand (knees 0.35) instead of falling back to home (key 0 = STRAIGHT
              knees), which — with the JSON "Knees Straight" weight — drove 16's legs straight
@@ -252,7 +302,7 @@
              RAISE if the REAL robot leans forward (compensates the real CoM sitting ahead of
              the un-sysid'd model). The value that stands it upright == the real CoM forward
              offset. XML-tunable, no rebuild. Default 0 = exact prior behavior. Try ~0.04. -->
-        <numeric name="com_x_offset" data="0.0"/>
+        <numeric name="com_x_offset" data="0.018"/>
         <!-- stumble_balance_gated (2026-06-19, strategy 20 only): 1 = STAND STILL
              (bent-knee) and step ONLY when balance is being lost (tilt / fore-aft
              CoM speed past a deadband), easing back to a still stand on recovery.
@@ -628,6 +678,42 @@
              KEEP SYMMETRIC (1.0) on real; only try >1 on a twin that reproduces the real fwd lean. -->
         <numeric name="back_balance_boost" data="1.0"/>
         <numeric name="back_angmom_boost"  data="1.0"/>
+        <!-- balance_frame (2026-07-16): the frame the fore-aft/lateral balance terms
+             are expressed in. 1 = SUPPORT FRAME (default): lateral = along the foot
+             line (R_foot->L_foot), forward = its perpendicular, both derived from the
+             MEASURED feet. 0 = legacy world x/y axes.
+             WHY THIS EXISTS: deploy fill_state feeds the planner the RAW IMU yaw (it
+             cancels the pitch/roll zero-offset only), and that yaw is arbitrary --
+             the power-on heading plus gyro drift. Any world-COMPONENT balance term
+             therefore reads the wrong axis on the real robot while being exactly
+             right on the yaw-0 twin, so it survived every headless sweep. Measured
+             by scratchpad/yaw_probe.py: with the pose FROZEN and only the heading
+             rotated, "Lateral Center" swept 0.1 -> 877 weighted on a robot with
+             1.5 mm of true lateral offset (Balance, a polygon distance, held at
+             1.7098). At yaw 0 the support frame equals the world axes EXACTLY, so
+             1 is byte-identical for the nominal stand; set 0 only to A/B the bug. -->
+        <numeric name="balance_frame" data="1.0"/>
+        <!-- Foot Flat (2026-07-16): foot_forward[2] reading of a FLAT sole, and the
+             free band around it. MEASURED, not guessed (scratchpad/footflat_ref.py):
+             the sole is flat where foot_up[2] peaks (0.99998), and there
+             foot_forward[2] = -0.006 ~= 0. NB the straighten keyframe reads +0.0808
+             (up[2]=0.99673 = a +4.63 deg heel-down sole) -- that pose is NOT flat and
+             must not be used as the reference (it was, until this fix).
+             margin 0.05 ~= +-2.9 deg of free sole pitch; raise if the term fights the
+             rise, lower to clamp heel-lift harder. -->
+        <numeric name="foot_flat_ref"    data="0.0"/>
+        <numeric name="foot_flat_margin" data="0.05"/>
+        <!-- com_cap_margin (2026-07-16): how far FORWARD of the midfoot the capture
+             point may sit before "CoM Cap" charges, in metres, along the support
+             frame's forward axis. NOT a guess: the polygon MEASURED from the actual
+             foot-floor contact points at the real squat is HEEL -0.079 / CENTRE
+             +0.027 / TOE +0.133. The shipped 0.12 was 90% of the way to the toe, so
+             the term stayed inert (real 2026-07-16 t=12: CoM_margin +0.135 = already
+             OUTSIDE the polygon, yet CoM Cap was only c=1.73 vs Balance 244).
+             0.08 = 60% of the toe edge, leaving ~5.3 cm of recovery room.
+             LOWER it toward 0.06 if the rise still launches; RAISE it toward 0.10 if
+             the robot refuses to rise / parks in the crouch. -->
+        <numeric name="com_cap_margin" data="0.08"/>
         <!-- Default 1.70 matches the actual head-feet error at the home
              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
              The old 1.65 made the Height residual +0.05 at home with cost
@@ -867,6 +953,18 @@
         <user name="Stance Width" dim="1" user="0 0.0 0.0 300.0"/>
         <user name="Foot Flat" dim="2" user="0 0.0 0.0 800.0"/>
         <user name="CoM Cap" dim="1" user="0 0.0 0.0 600.0"/>
+        <!-- Ankle Torque (dim 2, 2026-07-16): |tau_ankle_pitch| / 48.6, i.e. fraction of the
+             deploy node's H2 clamp budget. THE reason a staggered stance exists, made costable:
+             sum(tau_ankle) = W*CoM_x - sum(F_i*ankle_i) depends ONLY on the fore/back LOAD SPLIT.
+             A SQUARE stance (both feet at one x) CANNOT move the net CoP fore-aft by splitting
+             load, so its ankles are FORCED to carry ~23 Nm = 48% of budget just to stand. A
+             stagger can push that moment through KNEE+HIP instead and null the ankles -- measured
+             at 3% of e-stop during the real --align_start hold. Nothing in the cost asked MJPC to
+             do that, so post-handover both ankles railed into the clamp (REV1 9.5% of ticks,
+             REV3 20.4%). This term is the ask. Cannot be done from the JSON alone: `Control` is
+             on POSITION servos (ctrl = target angle, not torque).
+             Weight 0 default => byte-identical for every strategy that does not opt in. -->
+        <user name="Ankle Torque" dim="2" user="0 0.0 0.0 400.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

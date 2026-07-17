@@ -250,6 +250,15 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
       mj_name2id(model, mjOBJ_KEY, residual_keyframe_.name.c_str());
   if (posture_key_id < 0) posture_key_id = 0;  // home
   const mjtNum *posture_target = model->key_qpos + posture_key_id * model->nq;
+  // Symmetry reference (2026-07-16) = the RAW phase keyframe, captured HERE, before
+  // any of the reassignments below. Deliberately NOT posture_target: that pointer is
+  // later re-pointed at ramped_posture_target (STRAIGHTEN strat 25 ramps from a
+  // MEASURED, possibly asymmetric slump) and at stumble_posture_target (strat 20's
+  // swing-leg fold is INTENTIONALLY asymmetric) -- referencing it would silently
+  // change both strategies. Every keyframe except 'stagger' (strat 27) is sagittally
+  // symmetric, so (sym_ref[L] - sym_ref[R]) is exactly 0.0 there => x - 0.0 == x =>
+  // byte-identical for every pre-existing strategy. See the Symmetry term below.
+  const mjtNum *sym_ref = posture_target;
   // one-shot forensic: the hand-off snap survived 6 cost fixes -- verify LIVE which
   // keyframe the residual actually pulls toward (assumed 'stand' knee=0.35 z=0.98)
   static int dbg_last_key = -999;
@@ -1029,6 +1038,72 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double *foot_right_pos = SensorByName(model, data, "foot_right_pos");
   double *foot_left_pos = SensorByName(model, data, "foot_left_pos");
 
+  // ----- SUPPORT FRAME: heading-relative axes from the FEET (2026-07-16) ---//
+  // WHY: the deploy chain hands the planner the RAW IMU yaw -- fill_state
+  // (deploy_common.cc) cancels the measured pitch/roll zero-offset and passes the
+  // quaternion's yaw through untouched. That yaw is arbitrary: whatever heading
+  // the robot was powered on at, plus gyro drift (no magnetometer). So every
+  // residual that took a world x-/y-COMPONENT was measuring the wrong axis on the
+  // REAL robot, while being exactly right on the yaw-0 twin -- which is why this
+  // survived every headless sweep.
+  //
+  // Proven headless (scratchpad/yaw_probe.py): freeze the pose, rotate ONLY the
+  // heading, and "Lateral Center" sweeps 0.1 -> 877 WEIGHTED on a robot with
+  // 1.5 mm of true lateral offset, while Balance -- a polygon DISTANCE, hence
+  // rotation-invariant -- stays pinned at 1.7098 in every row.
+  //
+  // Measured on the real straighten run (2026-07-16, heading ~-21 deg per the
+  // seeded foot anchors): the forward slump leaked -sin(yaw)*0.084 = +0.033 m
+  // into the world-y channel, almost exactly CANCELLING the robot's real +0.036 m
+  // lateral offset. Lateral Center therefore read ~0 and the planner believed it
+  // was centred while a real lateral drift grew unopposed to 0.161 m, loaded one
+  // leg and twisted the foot -- precisely the disease the Lateral Center comment
+  // below says the term exists to prevent. The term was BLIND exactly when needed.
+  //
+  // FIX: derive the axes from the FEET, never the world. lat_ax = R_foot->L_foot
+  // (unit); fwd_ax = lat_ax rotated -90 deg. Drift-free (the feet are MEASURED,
+  // not integrated) and it is what these terms always MEANT: "centre the CoM
+  // between the feet" is an offset along the FOOT LINE; "CoM ahead of the feet"
+  // is its perpendicular. For the nominal stand (yaw 0, feet on +-y) lat_ax is
+  // EXACTLY (0,1) and fwd_ax EXACTLY (1,0) -> byte-identical to the legacy world
+  // code for every existing strategy. balance_frame numeric: 1 = support frame
+  // (default), 0 = legacy world axes (A/B without a rebuild).
+  double lat_ax[2] = {0.0, 1.0}, fwd_ax[2] = {1.0, 0.0};
+  {
+    int bf_id = mj_name2id(model, mjOBJ_NUMERIC, "balance_frame");
+    bool use_support_frame =
+        (bf_id < 0) || (model->numeric_data[model->numeric_adr[bf_id]] > 0.5);
+    if (use_support_frame) {
+      // Frame yaw = the mean of the FEET'S OWN headings -- NOT the perpendicular to
+      // the line joining them. Those coincide only for a SQUARE stance. For a
+      // stagger of depth S at width W the foot-line perpendicular is rotated by
+      // atan2(S,W) (21.2 deg at S=0.200/W=0.516) while the feet still point
+      // forward, so the position form aimed every balance term down the
+      // L-front/R-back diagonal and called the R-front/L-back diagonal "lateral" --
+      // i.e. it regulated the polygon's STRONG axis (29.7 cm) as fore-aft and its
+      // WEAK axis (13.1 cm) as lateral, with Balance 150 vs Lateral Center 300.
+      // Measured live: strat 27 reported heading +11..+17 deg for whole runs, which
+      // is atan2(S,0.516) for the operator's hand-placed S=0.10..0.16 -- the mis-aim
+      // grows with the very quantity a stagger exists to increase.
+      // This is IHMC's actual midFeetZUp (average the foot frames' yaw). Feet
+      // parallel on +x -- every square strategy -- gives fwd_ax EXACTLY (1,0) and
+      // lat_ax EXACTLY (0,1) => byte-identical to both the position form and the
+      // legacy world code.
+      const double *flf = SensorByName(model, data, "foot_left_forward");
+      const double *frf = SensorByName(model, data, "foot_right_forward");
+      double fx = 0.0, fy = 0.0;
+      if (flf && frf) { fx = flf[0] + frf[0];  fy = flf[1] + frf[1]; }
+      double len = mju_sqrt(fx * fx + fy * fy);
+      // Degenerate (a foot up on edge, or airborne and flopped so its x-axis has no
+      // ground projection) -> keep the world axes rather than normalise noise into
+      // a random heading.
+      if (len > 1.0e-6) {
+        fwd_ax[0] = fx / len;      fwd_ax[1] = fy / len;
+        lat_ax[0] = -fwd_ax[1];    lat_ax[1] = fwd_ax[0];
+      }
+    }
+  }
+
   double *head_position = SensorByName(model, data, "head_position");
   double head_feet_error =
       head_position[2] - 0.5 * (foot_right_pos[2] + foot_left_pos[2]);
@@ -1124,14 +1199,20 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // the planner holds the actual CoM that much BACK. RAISE it if the real robot leans forward;
   // the value that makes it stand upright == the real CoM forward offset (doubles as a sysid
   // measurement). XML-tunable -> no rebuild to change the value; default 0 = exact prior behavior.
+  // SUPPORT FRAME (2026-07-16): all three fore-aft biases below mean "this much
+  // further FORWARD" -- the robot's forward, not the odometry frame's +x. They
+  // are accumulated as a scalar and applied along fwd_ax at the end of the block,
+  // so a yawed robot biases along its own nose instead of smearing the trim into
+  // its lateral channel. At yaw 0 fwd_ax == (1,0) -> byte-identical.
+  double com_fwd_bias = 0.0;
   {
     int com_off_id = mj_name2id(model, mjOBJ_NUMERIC, "com_x_offset");
-    if (com_off_id >= 0) capture_point[0] += model->numeric_data[model->numeric_adr[com_off_id]];
+    if (com_off_id >= 0) com_fwd_bias += model->numeric_data[model->numeric_adr[com_off_id]];
     // T1 AUTO-TRIM (2026-07-11): the integrator in TransitionLocked automates the
     // manual com_x_offset sysid above -- the DC park distance is integrated into
     // this same forward-CoM bias until the park returns to nominal. 0 when
     // stand_trim_tau is 0/absent (byte-identical).
-    capture_point[0] += s_trim_x;
+    com_fwd_bias += s_trim_x;
     // reach_com_back (strat 21, 2026-06-23): the REACH adds its own forward-CoM
     // creep ON TOP of the global com_x_offset gap -- the ~4 kg magpie arm reaching
     // forward pulls the CoM toward the ankle's forward limit, and on the REAL chain
@@ -1149,8 +1230,11 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     if (residual_keyframe_.name == "reach_to_target") {
       int rcb_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_com_back");
       if (rcb_id >= 0)
-        capture_point[0] += model->numeric_data[model->numeric_adr[rcb_id]];
+        com_fwd_bias += model->numeric_data[model->numeric_adr[rcb_id]];
     }
+    // Apply the accumulated fore-aft bias along the robot's OWN forward axis.
+    capture_point[0] += com_fwd_bias * fwd_ax[0];
+    capture_point[1] += com_fwd_bias * fwd_ax[1];
   }
 
   // project onto support polygon
@@ -1922,7 +2006,15 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // residual + an arbitrary-direction foot-drag (see straighten_foot_anchor_).
   const double *rf_home = kRightFootHomeXY;
   const double *lf_home = kLeftFootHomeXY;
-  if (straighten_seeded_) {
+  // STAGGER (strat 27) needs this even more than straighten does: kRightFootHomeXY and
+  // kLeftFootHomeXY share the SAME x (0.2196), i.e. the home constants describe a SQUARE
+  // stance. So an unseeded Foot Stability was pulling a staggered stance back to square --
+  // the operator watched the feet "move around by dragging" and the live stagger_S readout
+  // collapsed 0.157 -> 0.103 (toward S=0) before the fall. Anchoring to the MEASURED feet
+  // makes the term mean "stay where you are" for ANY stance, which is what it always meant.
+  const bool anchor_to_measured =
+      straighten_seeded_ || residual_keyframe_.name.rfind("stagger", 0) == 0;
+  if (anchor_to_measured) {
     rf_home = straighten_foot_anchor_;
     lf_home = straighten_foot_anchor_ + 2;
   }
@@ -2304,8 +2396,27 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // struts and strat-6 doesn't: stumble had Symmetry=0 (it conflicts with
     // stepping); gating restores it for the calm phase the march-gate now holds.
     double sym_gate = 1.0 - g_amp;
-    residual[counter++] = sym_gate * (data->qpos[7 + 3] - data->qpos[7 + 9]);  // knee L-R
-    residual[counter++] = sym_gate * (data->qpos[7 + 1] - data->qpos[7 + 7]);  // hipPitch L-R
+    // KEYFRAME-RELATIVE (2026-07-16). The term's intent is "no UNCOMMANDED L/R
+    // asymmetry" (the strut) -- NOT "both legs identical". Zero-referenced, it
+    // taxes any DELIBERATELY asymmetric pose: the staggered 'stagger' keyframe
+    // (strat 27) pays ~23 cost units at weight 150 vs Posture 24, i.e. the term
+    // that forbids the stance outguns the one that defines it 6:1 -- and with both
+    // feet planted the difference is geometrically PINNED, so the planner cannot
+    // buy it down except by distorting the pose or scuffing the feet.
+    //   Precedent: STUMBLE hit this same wall (its swing leg is an intended
+    //   asymmetry). The fix there was NOT "Symmetry: 0" -- that is what stumble
+    //   used to do, and it STRUTTED -- but to make the term aware of the intent
+    //   via sym_gate. Stumble's asymmetry is TRANSIENT so a time-gate works;
+    //   stagger's is a PERMANENT static pose, so it needs a target reference.
+    // A JSON weight cannot express this: a weight is a volume knob, not a target
+    // knob -- no value of it makes (qL - qR) zero at a staggered pose.
+    // sym_ref is the RAW phase keyframe (captured at the top, see there for why not
+    // posture_target). All other keyframes are symmetric => subtrahend is exactly
+    // 0.0 => strategies 6/20/23/25/26 are bit-for-bit unchanged.
+    residual[counter++] = sym_gate * ((data->qpos[7 + 3] - data->qpos[7 + 9])
+                                      - (sym_ref[7 + 3] - sym_ref[7 + 9]));  // knee L-R
+    residual[counter++] = sym_gate * ((data->qpos[7 + 1] - data->qpos[7 + 7])
+                                      - (sym_ref[7 + 1] - sym_ref[7 + 7]));  // hipPitch L-R
     // anklePitch L-R: the SAGITTAL ankle. joint_forensics on the cold-start
     // backward fall (strat 19) showed the one-leg strut hides HERE — L/R
     // ankle_pitch diverged 13.9deg while knee diverged only 5.2deg. The
@@ -2313,7 +2424,8 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // (asymmetry there is normal); ankle_PITCH is fore/aft and must stay
     // symmetric for a square stance, so penalising its (L-R) closes the
     // strut's last escape. Quadratic => tiny asymmetries stay ~free.
-    residual[counter++] = sym_gate * (data->qpos[7 + 4] - data->qpos[7 + 10]); // anklePitch L-R
+    residual[counter++] = sym_gate * ((data->qpos[7 + 4] - data->qpos[7 + 10])
+                                      - (sym_ref[7 + 4] - sym_ref[7 + 10])); // anklePitch L-R
   } else {
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
@@ -2514,7 +2626,7 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // the support polygon. --- //
     constexpr double kLatShift = 0.07;   // base CoM lateral rock amplitude [m]
     double lat_amp = mju_min(0.20, kLatShift * trot_swing_scale);
-    double lat_tgt = midfoot_y +
+    double lat_shift =
         (is_stumble ? lat_amp * g_amp * (g_bump_r - g_bump_l) : 0.0);
     // A1 CAPTURE-POINT lateral (2026-06-30): penalise the lateral CAPTURE POINT
     // (y_CoM + y_dot/omega0), not just y_CoM, so a sideways DRIFT is caught while
@@ -2523,7 +2635,18 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // sqrt(g/z) ~= 3.1 -> tau ~= 0.32s; reuse the 0.3 the capture_point above uses
     // (subcomvel = torso_subcomvel, fetched with subcom). Sagittal (x) capture is
     // already covered by the Balance term; this closes the frontal-plane gap.
-    residual[counter++] = 10.0 * (subcom[1] + 0.3 * subcomvel[1] - lat_tgt);
+    //
+    // SUPPORT FRAME (2026-07-16): "lateral" is the component along the FOOT LINE
+    // (lat_ax, see the support-frame block near the top), NOT world y. On the
+    // yaw-0 twin lat_ax == (0,1) so this is byte-identical to the legacy form;
+    // on the REAL robot (arbitrary IMU yaw) the legacy form mixed -sin(yaw) of
+    // the FORE-AFT excursion into this channel, which is what blinded the term
+    // during the straighten rise. midfoot is the origin of the support frame.
+    double midfoot_x = 0.5 * (foot_left_pos[0] + foot_right_pos[0]);
+    double cl_x = subcom[0] + 0.3 * subcomvel[0] - midfoot_x;
+    double cl_y = subcom[1] + 0.3 * subcomvel[1] - midfoot_y;
+    residual[counter++] =
+        10.0 * (cl_x * lat_ax[0] + cl_y * lat_ax[1] - lat_shift);
   } else {
     residual[counter++] = 0.0;
   }
@@ -2753,19 +2876,34 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   //      strategy byte-identical unless its JSON opts in (straighten only).
   //      Appended as the LAST <user> sensor so no existing residual index moves.
   {
-    static constexpr double kFootFlatRefZ = 0.0808;   // flat-sole foot_forward[2]
-    static constexpr double kFootFlatMargin = 0.08;   // free band ~4.6 deg either way
+    // REFERENCE FIX (2026-07-16): this was hardcoded to 0.0808, lifted from a probe
+    // that had reported "pitch=-4.63deg" -- i.e. it was measured on a sole that was
+    // NOT flat, so the term's neutral sat 4.6 deg off. Ground truth (the sole is
+    // flat <=> the foot body's UP axis is vertical) measured by scratchpad/
+    // footflat_ref.py: sweeping ankle pitch, foot_up[2] peaks at 0.99998 where
+    // foot_forward[2] = -0.006 ~= 0. The straighten KEYFRAME itself sits at
+    // foot_forward[2]=+0.0808 / up[2]=0.99673 = a +4.63 deg heel-down sole, which
+    // is what got mistaken for flat. As shipped the free band was [0.0, +9.2] deg
+    // instead of +-4.6 about flat: it charged heel-lift from 0 (right intent, by
+    // luck -- flat landed exactly on the band EDGE, which is why it read 0.00 all
+    // run) but left 9.2 deg of heel-DOWN rock free. Now centred on measured flat.
+    // XML numerics -> tunable without a rebuild.
+    double ff_ref = 0.0, ff_margin = 0.05;
+    { int id = mj_name2id(model, mjOBJ_NUMERIC, "foot_flat_ref");
+      if (id >= 0) ff_ref = model->numeric_data[model->numeric_adr[id]]; }
+    { int id = mj_name2id(model, mjOBJ_NUMERIC, "foot_flat_margin");
+      if (id >= 0) ff_margin = model->numeric_data[model->numeric_adr[id]]; }
     double *foot_flat_l = SensorByName(model, data, "foot_left_forward");
     double *foot_flat_r = SensorByName(model, data, "foot_right_forward");
-    double ff_dev_l = foot_flat_l[2] - kFootFlatRefZ;
-    double ff_dev_r = foot_flat_r[2] - kFootFlatRefZ;
-    // DEADBAND: 0 while the sole is within ~4.6 deg of flat (normal rise micro-
+    double ff_dev_l = foot_flat_l[2] - ff_ref;
+    double ff_dev_r = foot_flat_r[2] - ff_ref;
+    // DEADBAND: 0 while the sole is within ~ff_margin of flat (normal rise micro-
     // pitch is free, so the term never fights the dynamic rise), quadratic
-    // beyond -> only a GENUINE heel-lift / backward heel-rock is charged. The
-    // raw (no-deadband) form at w500 over-constrained the rise (twin sagged
-    // 2/3); the deadband keeps the anti-toe-stand intent without that.
-    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_l) - kFootFlatMargin);  // Foot Flat L
-    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_r) - kFootFlatMargin);  // Foot Flat R
+    // beyond -> only a GENUINE heel-lift / heel-rock is charged. The raw
+    // (no-deadband) form at w500 over-constrained the rise (twin sagged 2/3);
+    // the deadband keeps the anti-toe-stand intent without that.
+    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_l) - ff_margin);  // Foot Flat L
+    residual[counter++] = mju_max(0.0, mju_abs(ff_dev_r) - ff_margin);  // Foot Flat R
   }
 
   // ---- CoM Cap (dim 1, 2026-07-16): one-sided FORWARD barrier on the CAPTURE
@@ -2783,10 +2921,67 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   //      Stance Width / the barriers. XML weight 0 default -> every other
   //      strategy byte-identical. Appended as the LAST <user> sensor.
   {
-    static constexpr double kComCapMargin = 0.12;  // CP may sit 12cm fwd of midfoot
-    double cc_midfoot_x = 0.5 * (foot_left_pos[0] + foot_right_pos[0]);
+    // MARGIN FIX (2026-07-16): 0.12 was GUESSED and it made this term inert. The
+    // support polygon MEASURED from the actual foot-floor contacts
+    // (scratchpad/faithful_ic.py, 6 contact points at the real squat) is:
+    //     HEEL -0.079 m | CENTRE +0.027 m | TOE +0.133 m   (from the midfoot)
+    // so a 0.12 margin only fired at 90% of the way to tipping -- past any hope of
+    // recovery. Real 2026-07-16 confirms it: CoM_margin ran +0.092 (hold, already
+    // 69% of the toe) -> +0.135 at t=12, i.e. OUTSIDE the polygon, and this term
+    // was still only c=1.73 while Balance was 244. Past the toe, tipping is not a
+    // control failure, it is arithmetic.
+    // 0.08 = 60% of the measured toe edge -> leaves 5.3 cm of real recovery room.
+    // Cost is w*norm and the norm is quadratic, so at the t=12 launch this goes
+    // c = 150*(10*(0.135-0.08))^2 = 45 (vs 3.4 at margin 0.12) = 13x the authority.
+    // XML numeric -> tunable on the robot without a rebuild.
+    double kComCapMargin = 0.08;
+    { int id = mj_name2id(model, mjOBJ_NUMERIC, "com_cap_margin");
+      if (id >= 0) kComCapMargin = model->numeric_data[model->numeric_adr[id]]; }
+    // SUPPORT FRAME (2026-07-16): "forward" is the FOOT-LINE perpendicular
+    // (fwd_ax), not world x. The legacy world-x form silently DISARMED as the
+    // heading turned -- yaw_probe.py measured this exact term reading 0.51 at
+    // yaw 0 and 0.00 past 45 deg on an unchanged, 17 cm-forward pose.
+    double cc_mid_x = 0.5 * (foot_left_pos[0] + foot_right_pos[0]);
+    double cc_mid_y = 0.5 * (foot_left_pos[1] + foot_right_pos[1]);
+    double cc_fwd = (capture_point[0] - cc_mid_x) * fwd_ax[0] +
+                    (capture_point[1] - cc_mid_y) * fwd_ax[1];
+    residual[counter++] = 10.0 * mju_max(0.0, cc_fwd - kComCapMargin);  // CoM Cap
+  }
+
+  // ---- Ankle Torque (dim 2, 2026-07-16) -------------------------------- //
+  // THE POINT OF A STAGGERED STANCE, made costable.
+  //
+  // Statics: sum(tau_ankle) = W*CoM_x - sum(F_i * ankle_i)  -- it depends ONLY on
+  // the fore/back LOAD SPLIT. In a SQUARE stance both feet share one x, so no
+  // split can move the net CoP fore-aft and the ankles are FORCED to carry
+  // W*(CoM-ankle) ~= 23 Nm (48% of the 48.6 Nm H2 budget) just to stand. With the
+  // feet at DIFFERENT x the same moment can ride the LOAD DIFFERENCE up through
+  // KNEE+HIP and the ankles can go to ~ZERO (stagger: 60% front / 40% back).
+  // Measured on the real robot: during the --align_start HOLD the stagger sat at
+  // *** 3% of e-stop *** on both ankles. The mechanism is real and it works.
+  //
+  // BUT NOTHING IN THE COST ASKED FOR IT. Once MJPC took authority it just
+  // balanced, the ankles took whatever the geometry handed them, and both railed
+  // into the node's clamp (REV1 RankP 9.5% of ticks, REV3 20.4%). This term is the
+  // missing ask: it puts ankle torque in the objective so the sampler prefers the
+  // load-split solution over the ankle-holding one.
+  //
+  // `Control` (0.05) CANNOT do this: these actuators are POSITION servos, so ctrl
+  // is a target ANGLE, not a torque. actuator_force IS the joint torque (mj_forward
+  // fills it), which is exactly the quantity the H2 clamp bites on.
+  // Normalised by the node's 48.6 Nm budget -> residual 1.0 == at the clamp, so the
+  // JSON weight reads in "cost per saturated ankle" units.
+  // Appended as the LAST <user> sensor -> no existing residual index moves.
+  // XML default weight 0 => every other strategy is byte-identical (zero weight AND
+  // this residual is nonzero, so the weight is what gates it -- opt in per JSON).
+  {
+    const double kAnkleBudget = 48.6;  // 0.9 * tau_estop, the node's H2 clamp
+    int al = mj_name2id(model, mjOBJ_ACTUATOR, "left_ankle_pitch_joint");
+    int ar = mj_name2id(model, mjOBJ_ACTUATOR, "right_ankle_pitch_joint");
     residual[counter++] =
-        10.0 * mju_max(0.0, capture_point[0] - cc_midfoot_x - kComCapMargin);  // CoM Cap
+        (al >= 0) ? data->actuator_force[al] / kAnkleBudget : 0.0;  // Ankle Torque L
+    residual[counter++] =
+        (ar >= 0) ? data->actuator_force[ar] / kAnkleBudget : 0.0;  // Ankle Torque R
   }
 
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
@@ -3703,6 +3898,46 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
   // CURRENT pose and freeze the phase clocks every tick; the deploy node arms
   // it when full planner authority lands, so the glide runs WHILE the planner
   // rises. Default-armed => GUI / twin / every other flow byte-identical.
+  // STAGGER (strat 27) Foot Stability anchor -- RE-PINNED EVERY TICK, on purpose.
+  //
+  // Unseeded, this term anchors to kRight/kLeftFootHomeXY, which share the same x = a SQUARE
+  // stance, so it spent every run dragging the stagger square (live stagger_S collapsed
+  // 0.157 -> 0.103 before the fall). Straighten's fix seeds ONCE and freezes at hand-over via
+  // the deploy's `Funnel Arm`; that flag is wired to --straighten_start only, and stagger boots
+  // through --align_start, so there is no hand-over signal to freeze on here.
+  //
+  // Re-pinning every tick is not a workaround, it is the better contract. Transition runs on the
+  // TRUE state once per plan; Residual runs on ROLLOUT states over the horizon. So anchor ==
+  // "where the feet are RIGHT NOW" makes the term read: do not PLAN to move the feet over the
+  // next horizon. That is precisely the anti-slide this needs, and it is immune to BOTH failure
+  // modes of a frozen anchor -- the square-stance bias AND the odometric drift that accumulates
+  // into a phantom foot-drag over a 90 s run. It cannot correct creep that already happened; it
+  // prevents creep from being planned, which is the thing we are actually fighting.
+  //
+  // (Foot Slip, weight 25, tries this on VELOCITY: at the observed ~2.8 mm/s creep it scores
+  //  0.0028*25 = 0.07 cost units. Invisible. Position-over-horizon is the version with teeth.)
+  //
+  // Every other strategy is untouched: they keep the home constants / straighten's frozen seed.
+  if (residual_.residual_keyframe_.name.rfind("stagger", 0) == 0) {
+    double *frp = SensorByName(model, data, "foot_right_pos");
+    double *flp = SensorByName(model, data, "foot_left_pos");
+    if (frp && flp) {
+      residual_.straighten_foot_anchor_[0] = frp[0];
+      residual_.straighten_foot_anchor_[1] = frp[1];
+      residual_.straighten_foot_anchor_[2] = flp[0];
+      residual_.straighten_foot_anchor_[3] = flp[1];
+      static double next_anchor_print = -1.0;
+      if (data->time >= next_anchor_print) {
+        next_anchor_print = data->time + 5.0;
+        std::fprintf(stderr,
+                     "[stabilize-stagger] Foot Stability re-pinned to the MEASURED stance: "
+                     "R(%.3f,%.3f) L(%.3f,%.3f) dx=%+.3f  [unseeded it would pull toward "
+                     "R(0.220,-0.163) L(0.220,+0.163) = same x = SQUARE]\n",
+                     frp[0], frp[1], flp[0], flp[1], flp[0] - frp[0]);
+      }
+    }
+  }
+
   if (residual_.straighten_seeded_ &&
       residual_.residual_keyframe_.name.rfind("straighten", 0) == 0) {
     double funnel_arm =
