@@ -157,9 +157,17 @@ void Stand::ResidualFn::Residual(const mjModel *model, const mjData *data,
   counter += 2;
 
   // ----- control ----- //
-  mju_sub(&residual[counter], data->ctrl, model->key_qpos + 7,
-          model->nq - 7);  // because of pos control
-  counter += model->nq - 7;
+  // Position targets vs the home pose (position control). Indexed per ACTUATOR
+  // and resolved through the actuator's joint: actuator i drives joint i+1 only
+  // when every joint is actuated (nu == nq-7 -- true for H1 and the full-body
+  // H1-2, where this is identical to the old `ctrl - key_qpos+7` over nq-7).
+  // The legs-only variant actuates 12 of 27 joints, so assuming that would read
+  // past data->ctrl.
+  for (int i = 0; i < model->nu; i++) {
+    int joint = model->actuator_trnid[2 * i];
+    residual[counter++] =
+        data->ctrl[i] - model->key_qpos[model->jnt_qposadr[joint]];
+  }
 
   // sensor dim sanity check
   // TODO: use this pattern everywhere and make this a utility function

@@ -68,6 +68,15 @@ class Stand_H12 : public Stand {
   }
 };
 
+class Stand_H12_Lower : public Stand {
+ public:
+  std::string Name() const override { return "Stand H12 Lower"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/stand/Stand_H12_Lower.xml");
+  }
+};
+
 class Stand_G1 : public Stand {
  public:
   std::string Name() const override { return "Stand G1"; }

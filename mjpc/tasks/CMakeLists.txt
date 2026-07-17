@@ -318,6 +318,19 @@ add_custom_target(
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stand/_gen_stand_model.py
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stand.xml
+  # Legs-only stand robot (2026-07-17): EQUALITY-LOCK torso+arms at home (keep the 15
+  # upper joints + DOF, drop only their actuators) by reusing the stabilize derivation
+  # on the real-constants stand model. Eq-lock, NOT weld, because the DEPLOY legs-only
+  # node (h12_lower_body_controller.cc) injects the 15 MEASURED arm angles into
+  # qpos[19..33] via equality-lock retargeting (deploy_common.cc:713,942) so the
+  # planner CoM tracks the real arms -- a welded model has no arm DOF and breaks that.
+  # Using the SAME eq-locked model for the MJPC-only benchmark keeps the only
+  # difference between MJPC-only and sim2sim the pipeline, not the robot. nq=34, nv=33,
+  # nu=12; ~1.1x planner speedup over full (vs 2.17x for weld -- deploy compat wins).
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/stabilize/_gen_stabilize_model.py
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stand.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_stand_lower.xml
   # Upper-body "upper" robot (2026-07-10): derive the nu=15 upper-only variant
   # from the SAME gripperless base (before the gripper re-patch below) -- keep
   # the 15 torso+arm actuators, eq-lock the 12 legs, weld the pelvis. Mirror of
