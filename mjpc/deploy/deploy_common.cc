@@ -1008,7 +1008,14 @@ int RunDeployNode(const NodeConfig& cfg) {
   { // bring-up destination = the OPERATING stance ("stand", bent-knee), NOT the singular
     // straight-knee "home": ramping to knee=0 hands the policy the hyperextension basin
     // (knees snapped to the -0.12 stop within 1 s of ramp end -- live-verified).
-    int hk = mj_name2id(g_model, mjOBJ_KEY, "stand");
+    // cfg.ramp_dest_key lets an ASYMMETRIC strategy (stagger) name its own destination: ramping a
+    // staggered stance to the symmetric `stand` shears the planted soles for the whole scripted
+    // window. Unset -> `stand`, exactly as before.
+    int hk = cfg.ramp_dest_key ? mj_name2id(g_model, mjOBJ_KEY, cfg.ramp_dest_key) : -1;
+    if (hk < 0 && cfg.ramp_dest_key)
+      std::fprintf(stderr, "[node] WARNING: ramp_dest_key '%s' is not a keyframe -> falling back "
+                           "to 'stand' (the SQUARE stance)\n", cfg.ramp_dest_key);
+    if (hk < 0) hk = mj_name2id(g_model, mjOBJ_KEY, "stand");
     if (hk < 0) hk = mj_name2id(g_model, mjOBJ_KEY, "home");
     if (hk < 0) hk = 0;
     std::fprintf(stderr, "[node] bring-up ramp destination keyframe: '%s'\n",
@@ -1787,6 +1794,7 @@ int RunDeployNode(const NodeConfig& cfg) {
       // ahead of the torso. CoM_margin = CoM_x - midfoot_x: + = CoM AHEAD of the feet
       // (leaning out over the toes -> the forward-creep tip risk), - = behind midfoot.
       static int adr_rh = -2, adr_tp = -2, adr_flp = -2, adr_frp = -2, adr_com = -2;
+      static int adr_flf = -1, adr_frf = -1;
       if (adr_rh == -2) {
         auto SA = [&](const char* nm) {
           int id = mj_name2id(g_model, mjOBJ_SENSOR, nm);
@@ -1795,15 +1803,50 @@ int RunDeployNode(const NodeConfig& cfg) {
         adr_rh = SA("right_hand_pos"); adr_tp = SA("torso_position");
         adr_flp = SA("foot_left_pos"); adr_frp = SA("foot_right_pos");
         adr_com = SA("torso_subcom");
+        adr_flf = SA("foot_left_forward"); adr_frf = SA("foot_right_forward");
       }
       if (adr_rh >= 0 && adr_tp >= 0 && adr_com >= 0 && adr_flp >= 0 && adr_frp >= 0) {
-        double rhand_fwd = sd->sensordata[adr_rh] - sd->sensordata[adr_tp];
-        double midfoot_x = 0.5 * (sd->sensordata[adr_flp] + sd->sensordata[adr_frp]);
-        double com_margin = sd->sensordata[adr_com] - midfoot_x;
+        // SUPPORT FRAME (2026-07-16): these were world-x differences, and the base
+        // yaw fed to the planner is the RAW IMU yaw (fill_state cancels pitch/roll
+        // only) -- an arbitrary power-on heading plus gyro drift. So CoM_margin
+        // INVERTED SIGN with heading: yaw_probe.py measured the identical 17 cm-
+        // forward pose reading +0.171 at yaw 0 and -0.171 at yaw 180 ("safely
+        // behind the feet" while faceplanting). This telemetry is what the real-run
+        // diagnoses are read from, so it must measure the robot's OWN forward:
+        // fwd_ax = the foot-line perpendicular, exactly as stabilize.cc's residuals
+        // now do. At yaw 0 fwd_ax == (1,0) -> identical to the old numbers, so the
+        // reference table (stand +0.03-0.07, launch +0.22) still holds.
+        double lx = sd->sensordata[adr_flp + 0], ly = sd->sensordata[adr_flp + 1];
+        double rx = sd->sensordata[adr_frp + 0], ry = sd->sensordata[adr_frp + 1];
+        // 2026-07-16 rev2: the frame is the mean of the FEET'S OWN headings, not the
+        // perpendicular to the line between them -- see the long note at the lat_ax /
+        // fwd_ax block in stabilize.cc. The two agree only for a SQUARE stance; for a
+        // stagger the position form is rotated by atan2(S,W) and this readout must
+        // match the residual's frame or the telemetry lies about the cost being paid.
+        double ax = 0.0, ay = 0.0;
+        if (adr_flf >= 0 && adr_frf >= 0) {
+          ax = sd->sensordata[adr_flf + 0] + sd->sensordata[adr_frf + 0];
+          ay = sd->sensordata[adr_flf + 1] + sd->sensordata[adr_frf + 1];
+        }
+        double alen = std::sqrt(ax * ax + ay * ay);
+        double fwd_x = 1.0, fwd_y = 0.0, yaw_deg = 0.0;
+        if (alen > 1.0e-6) {
+          fwd_x = ax / alen; fwd_y = ay / alen;
+          yaw_deg = std::atan2(fwd_y, fwd_x) * 180.0 / M_PI;
+        }
+        // stagger depth along the frame's own forward: + = LEFT foot leads. Zero for
+        // every square strategy; this is the number the operator's hand-placement sets.
+        double stag_S = (lx - rx) * fwd_x + (ly - ry) * fwd_y;
+        double mid_x = 0.5 * (lx + rx), mid_y = 0.5 * (ly + ry);
+        double com_margin = (sd->sensordata[adr_com + 0] - mid_x) * fwd_x +
+                            (sd->sensordata[adr_com + 1] - mid_y) * fwd_y;
+        double rhand_fwd = (sd->sensordata[adr_rh + 0] - sd->sensordata[adr_tp + 0]) * fwd_x +
+                           (sd->sensordata[adr_rh + 1] - sd->sensordata[adr_tp + 1]) * fwd_y;
         std::fprintf(stderr,
                      "[node]        Rhand_fwd=%+.2fm  CoM_margin=%+.3fm "
-                     "(+=CoM ahead of feet=fwd-tip risk)\n",
-                     rhand_fwd, com_margin);
+                     "(+=CoM ahead of feet=fwd-tip risk)  heading=%+.0fdeg  "
+                     "stagger_S=%+.3fm\n",
+                     rhand_fwd, com_margin, yaw_deg, stag_S);
       }
       // Cost-term dump (debug, 2026-07-11): once/sec, every residual term on the
       // live planning state (sd->sensordata already filled by residual_sensor_callback

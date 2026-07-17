@@ -87,6 +87,67 @@ constexpr double kLockstandStartPose[12] = {
     -0.14,   // [10] right_ankle_pitch_joint -8.0 deg
      0.19,   // [11] right_ankle_roll_joint +10.9 deg  (mirror of left)
 };
+
+// STAGGER (--strategy 27) REV 4: LEFT foot forward / RIGHT back, S=0.200 m, CoM +0.020 m
+// ahead of the ankle midpoint, NOMINAL width, base z 1.01003. == the `stagger` keyframe legs
+// in Stabilize_H12_Magpie.xml; they MUST stay in sync or the align parks the robot somewhere
+// the cost does not want.
+//
+// WHY A STAGGER AT ALL (the physics, confirmed on hardware):
+//   sum(tau_ankle) = W*CoM_x - sum(F_i*ankle_i)  -> depends ONLY on the fore/back LOAD SPLIT.
+//   A SQUARE stance has both feet at one x, so NO split moves the net CoP fore-aft and the
+//   ankles are FORCED to carry W*(CoM-ankle) ~= 23 Nm = 48% of the 48.6 Nm budget, just to
+//   stand -- and fore-aft recovery is ankle-only (one inverted pendulum -> underdamped ->
+//   the classic lean-forward/fall-backward oscillation). A stagger pushes that moment through
+//   KNEE+HIP instead. REAL EVIDENCE: during the REV3 --align_start HOLD both ankles sat at
+//   *** 3% of e-stop ***. The stance is nearly FREE to hold.
+//
+// WHAT KILLED REV1/REV3 (and it was NOT the stagger):
+//   REV3 set base z 1.008 at S=0.15 -> knees 0.42/0.418, far more bent than the validated 0.35
+//   -> they SAGGED to 0.56 under load, the anti-stiction push hit 100% of windup, and by ENTER
+//   the robot was at tilt 10.1 deg / CoM_margin +0.197 -- ALREADY FALLING. MJPC inherited a
+//   fall; the ankle clamping (RankP 20.4% of ticks) was the CONSEQUENCE. REV1's handover was
+//   cleaner (tilt 2-5 deg) and it survived longer.
+//   => BASE Z IS THE MASTER KNOB: it sets BOTH the knee bend AND the reachable stagger.
+//   REV4 picks base z 1.01003 so the BACK KNEE lands on the real-validated 0.35 (front 0.36).
+//
+// ★ AN EARLIER "S <= 0.168 cap" WAS MY BUG -- I pinned the pelvis. Let base z drop (a lunge,
+//   which is what a human does) and S=0.40 solves at base z 0.996 for +37% margin. REV4 stays
+//   at S=0.20 ONLY because that is the largest stagger whose BACK KNEE still reaches 0.35;
+//   beyond it the knee straightens (0.22 @ S=0.30, 0.14 @ S=0.40) toward lockstand's 0.08,
+//   which FAILED at handover. Escalate S only after a clean handover is demonstrated.
+//
+// ★ THE COST THAT MAKES IT WORK: `Ankle Torque` (JSON 120) -- new 2026-07-16. Nothing used to
+//   ASK the planner to use the load split, so post-handover it just balanced and the ankles
+//   railed. `Foot Flat` (500) resists the heel-lift/toe-rock. `Foot Right Up` (2000) is NOT a
+//   flat-foot term (1-cos, inert below ~10 deg, minimum 4.65 deg off flat).
+// ★ WIDTH IS NOMINAL ON PURPOSE: widening buys only the LATERAL axis (already 2.9x stronger
+//   than fore-aft) and spends ankle_roll headroom. One variable at a time.
+//                        knees 20.7/20.1 deg -- BOTH at the real-validated bend
+// REV5 (2026-07-16) == the `stagger` keyframe's legs EXACTLY (asserted below).
+// Deltas vs REV4 are ONLY the roll chain: hip_roll 0.120 -> 0.176 (abduct, widening the
+// lateral stance 0.517 -> 0.605) with ankle_roll counter-rotated -0.120 -> -0.176 so the
+// sole stays flat. knee / hip_pitch / ankle_pitch are unchanged, so a REV4-vs-REV5 real
+// A/B isolates stance width and nothing else.
+// Rationale (measured, not assumed): the floor's SPIN friction is 0.005, so a planted sole
+// resists 0.2 Nm of yaw -- 0.1% of the budget. Every bit of twist resistance is the force
+// couple between the feet, Mz = mu * min(N_L,N_R) * foot_separation: LINEAR in stance width
+// and capped by the LIGHTER foot. REV4 d_sep 0.554 -> 147 Nm (86% of the square stand's
+// 171.6); REV5 d_sep 0.637 -> 169 Nm (99%). PRICE: ankle_roll headroom 8.1 -> 4.9 deg.
+constexpr double kStaggerStartPose[12] = {
+      0.00000,  // [ 0] left_hip_yaw_joint           +0.0 deg
+     -0.30627,  // [ 1] left_hip_pitch_joint        -17.5 deg
+      0.17600,  // [ 2] left_hip_roll_joint         +10.1 deg   REV5: was +0.120
+      0.36045,  // [ 3] left_knee_joint             +20.7 deg
+     -0.13313,  // [ 4] left_ankle_pitch_joint       -7.6 deg
+     -0.17600,  // [ 5] left_ankle_roll_joint       -10.1 deg   REV5: was -0.120
+      0.00000,  // [ 6] right_hip_yaw_joint          +0.0 deg
+     -0.04444,  // [ 7] right_hip_pitch_joint        -2.5 deg
+     -0.17600,  // [ 8] right_hip_roll_joint        -10.1 deg   REV5: was -0.120
+      0.35000,  // [ 9] right_knee_joint            +20.1 deg
+     -0.38632,  // [10] right_ankle_pitch_joint     -22.1 deg
+      0.17600,  // [11] right_ankle_roll_joint      +10.1 deg   REV5: was +0.120
+};
 }  // namespace
 
 ABSL_FLAG(std::string, task, "Stabilize H12 Magpie",
@@ -96,6 +157,11 @@ ABSL_FLAG(int, strategy, 6,
           "(nu=12), so the lean reach/lean/crouch slots are absent. Slots:\n"
           "    6  = stand   (free-standing balance hold -- the validated default)\n"
           "   20  = stumble (balance-gated march + catch-march push recovery)\n"
+          "   27  = stagger (staggered stance: LEFT foot 10 cm fwd / RIGHT 10 cm "
+          "back, 0.200 m between them, at NOMINAL width. REQUIRES --align_start: a "
+          "balance hold cannot slide a planted foot fore/aft, so without the align "
+          "the planner hauls on an unreachable stance and twists the pelvis ~20 deg. "
+          "Buys ~+19% fore-aft CoM margin over slot 6 -- measured, not assumed.)\n"
           "   22  = walk    (trot + a baked forward v_des; walk_des_vel_x)\n"
           "   23  = trot    (capture-point in-place trot; lifts ~5-8 cm)\n"
           "   24  = drive   (WSS teleop: stand<->trot FSM on live cmd_vel; idle "
@@ -358,9 +424,27 @@ int main(int argc, char** argv) {
   // Strategy 26 (lockstand) aligns to the wide+locked pose; every other strategy
   // keeps the tested bent-knee stand bring-up. Feet must START wide (a hold can't
   // slide planted feet outward), so the align pose owns the stance width.
+  // Strategy 27 (stagger) likewise: a balance hold cannot SLIDE a planted foot
+  // fore/aft -- that needs a STEP -- so the align pose owns the stagger too.
+  // PROVEN in own-sim (hold_from_key.py, 2026-07-16): seeded AT the stagger
+  // keyframe it holds 12 s, keeps 102% of the stance and peaks at +7.6 deg yaw;
+  // started SQUARE (the default reset) the identical strategy instead hauls on an
+  // unreachable target and twists the pelvis +20..23 deg. Without this pose the
+  // deploy reproduces the SQUARE-start case, i.e. the broken one.
   const bool lockstand = absl::GetFlag(FLAGS_strategy) == 26;
-  const double* start_pose = lockstand ? kLockstandStartPose : kLowerStartPose;
+  const bool stagger   = absl::GetFlag(FLAGS_strategy) == 27;
+  const double* start_pose = lockstand ? kLockstandStartPose
+                           : stagger   ? kStaggerStartPose
+                                       : kLowerStartPose;
   for (int i = 0; i < kNU; i++) cfg.align_pose[i] = start_pose[i];
   cfg.align_pose_set = true;
+  // BRING-UP RAMP DESTINATION. Separate from the align pose above: the ramp runs even with
+  // --noalign_start, and it was hard-wired to `stand` (hipP -0.15/-0.15, perfectly SQUARE).
+  // So hand-placing a stagger and booting WITHOUT --align_start had the node spend the whole
+  // scripted rise+hold dragging the stance back to square against planted soles -- measured on
+  // two real runs as a monotonic lat-lean -0.3 -> -7.0 deg over exactly the ramp window, which
+  // then never cleared. Point it at the strategy's OWN stance. Square strategies: unchanged.
+  if (stagger)        cfg.ramp_dest_key = "stagger";
+  else if (lockstand) cfg.ramp_dest_key = "lockstand";
   return h12deploy::RunDeployNode(cfg);
 }
