@@ -1,6 +1,7 @@
 #ifndef MJPC_TASKS_HUMANOID_BENCH_LEAN_LEAN_H_
 #define MJPC_TASKS_HUMANOID_BENCH_LEAN_LEAN_H_
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <random>
@@ -290,6 +291,28 @@ class lean : public Task {
                      const double* qvel, double time,
                      double* ctrl) const override;
 
+  // ---- SPLIT-BODY upper-body pause lock (2026-07-17) --------------------- //
+  // The whole-body split deploy core (mjpc_split_core) calls SetUpperLocked
+  // when its upper-channel pause toggle flips. While locked, the frame_task IK
+  // owns the physical arms, so this task must stop planning them:
+  //   - ModifyRolloutState activates the per-data upper-joint equality locks
+  //     (data->eq_active; the model ships them active="false") so every rollout
+  //     holds torso+arms at the eq_data target -- which the deploy node
+  //     retargets to the MEASURED pose each tick, exactly the legs-only node's
+  //     arm_aware arrangement -- and restores them inactive when unlocked
+  //     (worker mjData persists across rollouts; see task.h hygiene note).
+  //   - ModifyControl pins ctrl rows 12..26 to the same eq target so the
+  //     sampler's arm channels cannot fight the locks and the executed action's
+  //     arm rows equal the measured pose.
+  // Requires a model that DEFINES the 15 upper-joint equality constraints
+  // (Split_H12_Magpie.xml); on models without them (plain Lean_H12*) the lock
+  // silently degrades to "arms still planned free" -- the deploy node warns.
+  void SetUpperLocked(bool locked) override {
+    if (locked) upper_locked_touched_.store(true, std::memory_order_relaxed);
+    upper_locked_.store(locked, std::memory_order_release);
+  }
+  void ModifyRolloutState(const mjModel* model, mjData* data) const override;
+
   // Slider layout (Lean H12) — user's 6-phase decomposition:
   //   0  stand            — stand_up
   //   1  arm_extend       — stand → arm_extend_standing (arm out, body upright)
@@ -406,6 +429,15 @@ class lean : public Task {
   void PrepareNextPhaseWeights(const mjpc::humanoid::ContactKeyframe &kf);
   void SnapshotCurrentWeightsAsPrev();
 
+  // SPLIT-BODY upper lock state (see SetUpperLocked above). Written by the
+  // deploy node's 200 Hz control loop on a toggle edge, read lock-free by every
+  // rollout worker in ModifyRolloutState/ModifyControl. `touched_` is one-way:
+  // once the lock has ever been active, the unlocked path must keep RESTORING
+  // eq_active=0 on worker mjData (they persist across rollouts); a pristine
+  // process (never locked) early-outs and is byte-identical to before.
+  std::atomic<bool> upper_locked_{false};
+  std::atomic<bool> upper_locked_touched_{false};
+
  protected:
   std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {
     // Copy the phase-transition timing state along with the keyframe so
@@ -487,6 +519,25 @@ class Lean_H12_Magpie : public lean {
 
   std::string XmlPath() const override {
     return GetModelPath("humanoid_bench/lean/Lean_H12_Magpie.xml");
+  }
+};
+
+// Lean_H12_Magpie + the 15 upper-body (torso + two arms) joint equality
+// constraints defined INACTIVE (Split_H12_Magpie.xml wraps the Magpie model).
+// This is the model the whole-body SPLIT deploy core (mjpc_split_core) must
+// load: while its upper channel is active the locks stay off and the planner
+// drives all 27 joints exactly like "Lean H12 Magpie"; when the upper channel
+// is PAUSED (frame_task IK owns the arms) the deploy core activates the locks
+// per rollout-data and retargets them to the measured arm pose each tick
+// (lean::SetUpperLocked / ModifyRolloutState / ModifyControl), so the planner
+// balances the legs AROUND the real arms instead of planning arm motion it
+// cannot execute. Same strategies/costs/weights as the Magpie task.
+class Lean_H12_Magpie_Split : public lean {
+ public:
+  std::string Name() const override { return "Lean H12 Magpie Split"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/lean/Split_H12_Magpie.xml");
   }
 };
 

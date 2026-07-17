@@ -242,6 +242,11 @@ const mjModel* g_agent_model = nullptr;
 mjModel* g_model = nullptr;
 mjpc::Task* g_task = nullptr;
 std::atomic<bool> g_exit{false};
+// SPLIT-BODY upper-body pause toggle: set from the DDS pause_upper_topic (a
+// std_msgs/String "1"/"0"); true = the node stops writing the upper channel so
+// the frame_task IK owns the arms, false = the node drives the arms (whole-body).
+// Off unless cfg.pause_upper_topic is set, so every other core is byte-unchanged.
+std::atomic<bool> g_upper_paused{false};
 // --- LIVE STRATEGY-SWITCH BLEND: ease the pre-switch pose -> the new policy target over
 //     g_switch_blend sec (same idea as the cold-start policy-blend, but re-armed on EVERY
 //     live switch, so pressing 8 mid-run descends smoothly instead of snapping). g_switch_from
@@ -671,6 +676,54 @@ int RunDeployNode(const NodeConfig& cfg) {
       new ChannelPublisher<LowCmd>(cfg.lowcmd_topic));
   cmd_pub->InitChannel();
 
+  // ---- SPLIT-BODY second output channel (arms) ----
+  // The whole-body split core writes legs on cfg.lowcmd_topic (lower channel) and
+  // arms on cfg.upper_lowcmd_topic (upper channel). The safety split-merge reads
+  // only rows 12..26 from the upper channel, so the SAME 27-row cmd is written to
+  // both. "" = single channel (every existing core: unchanged).
+  ChannelPublisherPtr<LowCmd> upper_cmd_pub;
+  if (!cfg.upper_lowcmd_topic.empty()) {
+    upper_cmd_pub.reset(new ChannelPublisher<LowCmd>(cfg.upper_lowcmd_topic));
+    upper_cmd_pub->InitChannel();
+    std::fprintf(stderr, "[node] SPLIT output: legs -> %s, arms -> %s (gated by pause)\n",
+                 cfg.lowcmd_topic.c_str(), cfg.upper_lowcmd_topic.c_str());
+  }
+
+  // ---- SPLIT-BODY upper-body pause toggle subscriber ----
+  // std_msgs/String ("1"/"true"/"pause" = paused): when paused the node stops
+  // writing the upper channel below, handing the arms to the frame_task IK. Off
+  // when the topic is empty (every non-split core). The launcher's
+  // toggle_pause_upperbody service publishes this over DDS.
+  ChannelSubscriberPtr<std_msgs::msg::dds_::String_> pause_sub;
+  if (!cfg.pause_upper_topic.empty()) {
+    // Seed the pause state BEFORE the subscriber can deliver: with
+    // pause_upper_init=true (the dynamic-handshake default) the core comes up
+    // NOT writing the upper channel and NOT racing the launcher's first
+    // keep-alive sample -- frame_task owns the arms until the launcher
+    // explicitly unpauses us. false = legacy active-at-boot.
+    g_upper_paused.store(cfg.pause_upper_init);
+    pause_sub.reset(
+        new ChannelSubscriber<std_msgs::msg::dds_::String_>(cfg.pause_upper_topic));
+    pause_sub->InitChannel(
+        [](const void* msg) {
+          const auto* s = static_cast<const std_msgs::msg::dds_::String_*>(msg);
+          const std::string& d = s->data();
+          const bool paused = (d == "1" || d == "true" || d == "pause");
+          if (g_upper_paused.exchange(paused) != paused) {
+            std::fprintf(stderr, "[node] upper-body %s -- frame_task %s the arms\n",
+                         paused ? "PAUSED" : "RESUMED",
+                         paused ? "OWNS" : "released");
+          }
+        },
+        1);
+    std::fprintf(stderr,
+                 "[node] upper-body pause toggle on %s (String \"1\"=paused; "
+                 "initial state: %s)\n",
+                 cfg.pause_upper_topic.c_str(),
+                 cfg.pause_upper_init ? "PAUSED (frame_task owns arms)"
+                                      : "ACTIVE (MJPC owns arms)");
+  }
+
   // ---- H1/M5 safe-hold: damping stop (kp=0, small kd, tau=0) at the last measured
   // pose (harmless with kp=0). Callable from the control loop (stale state) or from
   // FatalMjuError; snapshots the state under the mutex.
@@ -722,6 +775,45 @@ int RunDeployNode(const NodeConfig& cfg) {
     std::fprintf(stderr, "[node] X-aware OFF: complement joints held at home in the planner "
                          "(validated home-locked stand). Pass --arm_aware to track the measured pose.\n");
   }
+
+  // ---- SPLIT-BODY PAUSE-GATED ARM LOCK (2026-07-17) ----
+  // Only the whole-body SPLIT core (both split topics set) toggles eq_active at
+  // runtime: paused => the arms are eq-locked to the measured pose (the exact
+  // arm_aware arrangement of the legs-only node, locks retargeted each tick by
+  // fill_state above) and the task pins their ctrl channels; active => the
+  // locks are off and the planner drives all nu rows (whole-body). The
+  // legs-only/upper cores keep their XML-default always-active locks -- this
+  // block never runs for them (their split topics are empty), so they are
+  // byte-unchanged.
+  const bool split_pause_lock = arm_aware && !cfg.pause_upper_topic.empty() &&
+                                !cfg.upper_lowcmd_topic.empty();
+  int n_split_locks = 0;
+  for (int e = 0; e < g_model->neq; e++) if (eq_motor[e] >= 0) n_split_locks++;
+  if (!cfg.pause_upper_topic.empty() && !cfg.upper_lowcmd_topic.empty()) {
+    if (!arm_aware) {
+      std::fprintf(stderr,
+          "[node] ** SPLIT-CORE WARNING: --noarm_aware (or upper_count=0): the pause "
+          "toggle will only GATE THE WIRE -- while paused the planner still plans the "
+          "arms as free joints and wastes balance authority on motion it cannot emit. "
+          "Run with --arm_aware and upper_count=15.\n");
+    } else if (n_split_locks == 0) {
+      std::fprintf(stderr,
+          "[node] ** SPLIT-CORE WARNING: the loaded model defines NO upper-joint "
+          "equality constraints -- the pause toggle cannot eq-lock the arms, so while "
+          "paused the planner still plans them as free joints. Load the split model "
+          "(task 'Lean H12 Magpie Split' / Split_H12_Magpie.xml).\n");
+    } else {
+      std::fprintf(stderr,
+          "[node] split pause-lock ON: %d upper eq locks toggle with the pause state "
+          "(paused = arms eq-locked to measured + ctrl pinned, legs-only planning; "
+          "active = whole-body). Initial: %s\n",
+          n_split_locks, cfg.pause_upper_init ? "LOCKED" : "free");
+    }
+  }
+  // Tell the task the boot ownership BEFORE the planner thread starts, so the
+  // very first rollouts already hold the arms if we come up paused.
+  if (split_pause_lock)
+    g_task->SetUpperLocked(cfg.pause_upper_init);
 
   // ---- wait for the first full state ----
   std::fprintf(stderr, "[node] waiting for %s + %s ...\n",
@@ -791,8 +883,9 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
   }
   std::fprintf(stderr,
-               "[node] torque-budget clamp ON (audit H2): |tau_ff + kp*(tgt-q) + kv*dq| <= %.1f x "
-               "tau-estop per joint (command-side estops impossible for ANY planner output)\n",
+               "[node] torque-budget clamp OFF (audit H2): publishing the RAW planner command --"
+               " |tau_ff + kp*(tgt-q) + kv*dq| is NOT bounded, so it can exceed %.1f x tau-estop "
+               "and TRIP the safety estop. Over-budget ticks are counted for telemetry only.\n",
                kClampRatio);
 
   // ---- DEBUG PLAN PUBLISH (off unless --plan_topic is set) ----
@@ -1104,11 +1197,12 @@ int RunDeployNode(const NodeConfig& cfg) {
   double m_tau_sum[kMaxNU] = {0}, m_tau_max[kMaxNU] = {0};
   double m_z_sum = 0, m_z_sq = 0, m_z_min = 1e9, m_tilt_sum = 0, m_tilt_max = 0;
   long m_sat_count[kMaxNU] = {0};   // ticks where |tau| exceeds the real H1-2 limit
-  // ticks where the H2 clamp actually BIT (the emitted target was cut back because the
-  // full torque budget kClampRatio*tau_estop was exhausted). A joint pinned here is OUT OF
-  // AUTHORITY: the planner is asking for torque the node will not emit, and whatever the
-  // plan wanted from that joint did not happen. This was the invisible failure in the real
-  // trot runs -- the stance ankle sat at 100% and nothing reported it. 2026-07-11.
+  // ticks where the raw command WOULD have exceeded the kClampRatio*tau_estop budget. The
+  // clamp is gone (2026-07-16), so this no longer means the target was cut back -- it is a
+  // PASSIVE over-budget read: a high count means the node is emitting torque above 0.9x the
+  // safety estop on that joint, i.e. the safety-layer estop is at risk of tripping. This was
+  // the invisible failure in the real trot runs -- the stance ankle sat at 100% and nothing
+  // reported it (2026-07-11); now it is emitted rather than clamped, so watch this row.
   long m_clamp_count[kMaxNU] = {0};
   bool m_sat_warned = false;
 
@@ -1122,6 +1216,18 @@ int RunDeployNode(const NodeConfig& cfg) {
                "[node] base linvel: SINGLE-STREAM finite-diff + %.0fms LPF (drops the two-stream phantom)\n",
                kVelLpfMs);
   bool stale_warned = false;   // H1 watchdog: warn once per stale episode
+  // split pause-lock edge detector (only read when split_pause_lock). Starts at
+  // the boot state so the first loop iteration logs no spurious edge; the
+  // initial SetUpperLocked was already sent before the planner thread started.
+  bool upper_locked_prev = cfg.pause_upper_init;
+  // ARM RELEASE BLEND: on the unpause edge the wire target for rows 12..26
+  // would otherwise STEP from wherever frame_task parked the arms to whatever
+  // the ramp/policy currently commands (a 1 rad step at arm kp 30 = ~30 Nm,
+  // right at the shoulder estop). Latch the measured arm pose at the edge and
+  // ease into the computed target over kPolicyBlendSec (legs untouched --
+  // their balance loop must not pause for a blend). -1 = no blend active.
+  double upper_release_from[kMaxNU] = {0};
+  double upper_release_t0 = -1.0;   // WALL time of the unpause edge
   auto t0 = std::chrono::steady_clock::now();
   auto next = t0;
   long ticks = 0;
@@ -1174,6 +1280,54 @@ int RunDeployNode(const NodeConfig& cfg) {
     bool warming = phase_t < warmup_sec;
 
     fill_state(cur);
+
+    // ---- SPLIT pause-lock: apply the pause state to the planner every tick ----
+    // eq_data was just retargeted to the measured pose (fill_state above), so
+    // activating the locks is snap-free: they engage exactly where the arms are.
+    //   - sd/pdat are THIS loop's mjData (Transition/cost eval + the latency
+    //     rollout): set their eq_active directly so the predicted future holds
+    //     the arms where frame_task holds them, instead of rolling the node's
+    //     phantom arm targets forward.
+    //   - the planner workers' mjData are reached through the task hook
+    //     (lean::ModifyRolloutState reads the flag set via SetUpperLocked).
+    // 15 byte-stores per tick when supported; other cores never enter (their
+    // split topics are empty -> split_pause_lock false).
+    if (split_pause_lock) {
+      const bool upper_locked =
+          g_upper_paused.load(std::memory_order_relaxed);
+      if (upper_locked != upper_locked_prev) {
+        upper_locked_prev = upper_locked;
+        g_task->SetUpperLocked(upper_locked);
+        std::fprintf(stderr,
+                     "[node] split pause-lock -> %s (%d upper eq locks %s; "
+                     "planner %s)\n",
+                     upper_locked ? "LOCKED" : "FREE", n_split_locks,
+                     upper_locked ? "engaged at the measured pose" : "released",
+                     upper_locked ? "legs-only" : "whole-body");
+        if (!upper_locked) {
+          // UNPAUSE edge: MJPC takes the arms. Blend the wire target from the
+          // MEASURED arm pose (where frame_task left them) into the computed
+          // target, and re-latch the bring-up lerp base for the arm rows so a
+          // mid-ramp handover doesn't lerp from a stale power-on pose.
+          upper_release_t0 = wall;
+          for (int i = 12; i < cfg.nu; i++) {
+            upper_release_from[i] = cur.q[i];
+            arm_q_init[i] = cur.q[i];
+          }
+          std::fprintf(stderr,
+                       "[node] arm release blend: measured -> policy over "
+                       "%.1fs (legs unaffected)\n", kPolicyBlendSec);
+        } else {
+          upper_release_t0 = -1.0;  // pause edge: wire is gated, cancel blend
+        }
+      }
+      for (int e = 0; e < g_model->neq; e++) {
+        if (eq_motor[e] < 0) continue;
+        sd->eq_active[e] = upper_locked ? 1 : 0;
+        pdat->eq_active[e] = upper_locked ? 1 : 0;
+      }
+    }
+
     if (!arm_init_set && cur.have_ls) {                 // latch the measured power-on pose for the ramp
       for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = cur.q[i];
       arm_init_set = true;
@@ -1433,8 +1587,9 @@ int RunDeployNode(const NodeConfig& cfg) {
     } else if (in_align) {
       // min-jerk 10s^3 - 15s^4 + 6s^5: zero velocity AND zero acceleration at BOTH ends, so a
       // twisted leg is dragged into place, never yanked. At s=0 the target is exactly the
-      // measured pose, so there is no step at t=0 either. Gravity feedforward (tau) and the H2
-      // torque clamp below still apply, so a leg that jams on the floor cannot be forced.
+      // measured pose, so there is no step at t=0 either. Gravity feedforward (tau) still
+      // applies, but the H2 torque clamp below is REMOVED (2026-07-16): a joint that jams on
+      // the floor IS now driven with the full PD torque the min-jerk target implies.
       const double at = wall - align_t0;
       const double s = (cfg.align_sec > 1e-6)
                            ? std::fmin(1.0, std::fmax(0.0, at / cfg.align_sec))
@@ -1448,8 +1603,9 @@ int RunDeployNode(const NodeConfig& cfg) {
         // motor PD then applies kp*(tgt - q), which keeps GROWING until the joint breaks its
         // static friction. Deadbanded by align_tol so an arrived joint stops being pushed, and
         // hard-limited by align_i_max so a genuinely jammed joint parks a bounded target rather
-        // than winding up forever. The H2 torque clamp below still bounds what actually reaches
-        // the motor to 0.9 x the safety estop -- this cannot exceed the safety envelope.
+        // than winding up forever. NOTE: the H2 torque clamp below is REMOVED (2026-07-16), so
+        // align_i_max (a POSITION bound) is now the only limit -- the motor PD torque from the
+        // wound-up target is no longer capped at 0.9 x the safety estop and CAN reach it.
         if (mjk >= 1.0 && cfg.align_ki > 0.0) {
           const double e = align_q[i] - cur.q[i];
           if (std::fabs(e) > cfg.align_tol) {
@@ -1563,6 +1719,20 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
     }   // end !in_align
 
+    // ---- SPLIT arm release blend (see upper_release_t0 above): ease the arm
+    // rows from the measured pose latched at the unpause edge into the freshly
+    // computed target. Smoothstep for a C1 hand-over; window = kPolicyBlendSec,
+    // then self-disarms. Leg rows untouched.
+    if (split_pause_lock && upper_release_t0 >= 0.0) {
+      const double bt = (wall - upper_release_t0) / kPolicyBlendSec;
+      if (bt >= 1.0) {
+        upper_release_t0 = -1.0;
+      } else {
+        const double s = bt * bt * (3.0 - 2.0 * bt);
+        for (int i = 12; i < cfg.nu; i++)
+          tgt_q[i] = (1.0 - s) * upper_release_from[i] + s * tgt_q[i];
+      }
+    }
 
     // ankle zero-offset: shift the WIRE command by the calibration so the physical joint
     // reaches the planner's intended (corrected) angle. Pairs with the belief correction in
@@ -1580,22 +1750,23 @@ int RunDeployNode(const NodeConfig& cfg) {
       tgt_q[11] += ankle_off_r;
     }
 
-    // H2 torque-budget clamp: bound the emitted position target so the FULL commanded torque
-    // the onboard/safety PD applies -- tau_ff + KP*(tgt-q) + KV*(0-dq) -- stays within
-    // kClampRatio x the safety estop. The old clamp only bounded the KP*(tgt-q) term and
-    // ignored the gravity feedforward tau_ff and the KV*dq transient, so the "estop
-    // impossible" guarantee was false. The PD headroom is reduced by |tau_ff| and KV*|dq|
-    // before converting to a position delta. Applied to the FINAL target (ramp + policy
-    // uniformly).
+    // H2 torque-budget MONITOR (2026-07-16: clamp REMOVED -- publish the planner's raw
+    // command). We no longer cut tgt_q back to keep the full commanded torque
+    // tau_ff + KP*(tgt-q) + KV*(0-dq) under kClampRatio x tau_estop; the emitted position
+    // target is exactly what the planner (+ ramp) produced, so the onboard/safety PD delivers
+    // whatever torque the plan demands -- the torques the planner generates now reach the
+    // robot unclamped. The per-joint counter is retained as a PASSIVE safety read only
+    // (m_clamp_count = ticks the raw command exceeded the 0.9 x tau_estop budget); tgt_q is
+    // left untouched. WARNING: this drops the "estop-impossible" guarantee -- the safety-layer
+    // estop (tau_estop) is now the only backstop and CAN trip. Run with frc_parity so the
+    // planner still samples inside the emittable envelope.
     for (int i = 0; i < cfg.nu; i++) {
       const double budget = kClampRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
       const double dmax = (pd_headroom > 0.0) ? pd_headroom / cfg.kp[i] : 0.0;
       const double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;
-      // clamp-BIT telemetry: the plan asked for more than this joint's real budget, so the
-      // emitted command is NOT what the planner planned (see m_clamp_count).
-      if (tgt_q[i] < lo) { tgt_q[i] = lo; if (!warming) m_clamp_count[i]++; }
-      else if (tgt_q[i] > hi) { tgt_q[i] = hi; if (!warming) m_clamp_count[i]++; }
+      // over-budget telemetry only -- tgt_q is NOT modified (see m_clamp_count).
+      if (!warming && (tgt_q[i] < lo || tgt_q[i] > hi)) m_clamp_count[i]++;
     }
 
     // SAFETY: hard-clamp the ankle commands to the joint ctrl range so the zero-offset can
@@ -1653,6 +1824,11 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
     cmd.crc() = Crc32Core(reinterpret_cast<uint32_t*>(&cmd), (sizeof(LowCmd) >> 2) - 1);
     cmd_pub->Write(cmd);
+    // SPLIT-BODY: also emit the arms on the upper channel UNLESS paused (then the
+    // frame_task IK owns them). Same cmd -- the safety split merge reads only rows
+    // 12..26 from the upper channel. No-op for single-channel cores.
+    if (upper_cmd_pub && !g_upper_paused.load(std::memory_order_relaxed))
+      upper_cmd_pub->Write(cmd);
 
     // latency-comp bookkeeping: this command is the in-flight target during the NEXT prediction
     // window; and (AUTO mode) fold this tick's compute time tick-start->post-write into the EWMA Δ.
@@ -1865,7 +2041,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                  zmean, zsd, m_z_min, m_tilt_sum * inv, m_tilt_max);
     std::fprintf(stderr,
                  "[B0] joint   trackRMSE trackMax |tau|mean |tau|peak  limit  peak%%  sat%%  "
-                 "budget clamp%%\n");
+                 "budget over%%\n");
     std::fprintf(stderr,
                  "[B0]          (deg)    (deg)     (Nm)     (Nm)      (Nm)              (Nm)\n");
     int n_over = 0, n_starved = 0;
@@ -1875,28 +2051,29 @@ int RunDeployNode(const NodeConfig& cfg) {
       double budget = kClampRatio * cfg.tau_estop[i];
       double clpct = 100.0 * m_clamp_count[i] * inv;
       if (pk > lim) n_over++;
-      const bool starved = clpct >= 5.0;   // out of authority for >=5% of the run
+      const bool starved = clpct >= 5.0;   // emitting over the estop budget for >=5% of the run
       if (starved) n_starved++;
       std::fprintf(stderr,
                    "[B0] %-7s %8.2f %8.2f %8.1f %9.1f %6.0f %6.0f %5.1f %7.1f %5.1f%s%s\n",
                    cfg.joint_names[i], std::sqrt(m_err_sq[i] * inv) * 57.29577951308232,
                    m_err_max[i] * 57.29577951308232, m_tau_sum[i] * inv, pk, lim, pkpct, satpct,
-                   budget, clpct, starved ? "  <<OUT-OF-AUTHORITY" : "",
+                   budget, clpct, starved ? "  <<OVER-BUDGET" : "",
                    pk > lim ? "  <<OVER-LIMIT" : "");
     }
     std::fprintf(stderr,
                  "[B0] torque headroom: %d/%d joints exceed the real H1-2 limit%s\n",
                  n_over, cfg.nu,
                  n_over == 0 ? " -> torque-safe for hardware" : " <-- ADDRESS before deploy");
-    // clamp% is the authority read: a joint pinned at its budget did NOT do what the plan
-    // asked. On the 2026-07-11 real trot the stance ankle + torso sat at 100% of budget for
-    // 6 s and the stance knee locked to a passive prop -- that is what this row now exposes.
+    // over% is the safety read (clamp is gone): a joint here is EMITTING torque above 0.9x
+    // its safety estop, so the plan gets the authority it asked for but the safety-layer estop
+    // may trip. On the 2026-07-11 real trot the stance ankle + torso would have sat at 100% of
+    // budget for 6 s -- now that torque is emitted rather than clamped, so watch this row.
     std::fprintf(stderr,
-                 "[B0] authority: %d/%d joints hit the H2 torque budget >=5%% of ticks%s\n",
+                 "[B0] estop risk: %d/%d joints emitted over the H2 budget >=5%% of ticks%s\n",
                  n_starved, cfg.nu,
                  n_starved == 0
-                     ? " -> the planner got the torque it planned"
-                     : " <-- OUT OF AUTHORITY: the plan asked for torque the node cannot emit."
+                     ? " -> stayed within 0.9x tau_estop (safety estop not challenged)"
+                     : " <-- OVER BUDGET: emitting torque above 0.9x tau_estop -- the safety estop may trip."
                        " Enable --frc_parity=1 so the PLANNER knows (else it keeps planning"
                        " motions that physically cannot execute), and/or reduce the demand.");
     std::fprintf(stderr, "[B0] (run the SAME node on the real robot -> per-row sim2real delta)\n");

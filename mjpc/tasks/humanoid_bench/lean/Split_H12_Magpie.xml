@@ -1,0 +1,54 @@
+<mujoco model="Split H12 Magpie">
+    <!-- ======================================================================
+         SPLIT-BODY deploy model (2026-07-17): the FULL "Lean H12 Magpie"
+         whole-body model (27 position actuators, magpie grippers as wrist
+         masses) PLUS the 15 upper-body joint equality locks, defined INACTIVE.
+
+         Load with task "Lean H12 Magpie Split" — the model the mjpc_split_core
+         deploy binary runs. Semantics of the locks:
+
+           * active="false" (eq_active0 = 0): while MJPC owns the arms (upper
+             channel unpaused) nothing here differs from Lean_H12_Magpie.xml —
+             inactive equality constraints contribute zero constraint rows, so
+             the planner drives all 27 joints exactly as before.
+
+           * When the deploy core's upper channel is PAUSED (the frame_task IK
+             owns the physical arms), the core flips data->eq_active for these
+             rows per rollout-data (lean::ModifyRolloutState) and retargets
+             each lock's eq_data[0] to the MEASURED joint angle every control
+             tick (deploy_common.cc fill_state, the same arm_aware retarget the
+             legs-only Stabilize core uses). Rollouts then hold torso+arms
+             where they really are, and the sampler spends its authority on the
+             legs only — no balance budget wasted on arm motion the node will
+             never emit.
+
+         The polycoef defaults (0 0 0 0 0) are placeholders; the deploy core
+         overwrites polycoef[0] (eq_data[0]) with the live measured pose before
+         the locks are ever activated. Joint set == the safety layer's UPPER
+         split (motor rows 12..26): torso + 2x7 arm joints, the exact set
+         _gen_stabilize_model.py equality-locks for the legs-only core.
+
+         Kept as a WRAPPER include so this file cannot drift from the Magpie
+         model: include paths resolve relative to the MAIN xml's directory,
+         and this file lives next to Lean_H12_Magpie.xml.
+         ====================================================================== -->
+    <include file="Lean_H12_Magpie.xml"/>
+
+    <equality>
+        <joint joint1="torso_joint"                active="false"/>
+        <joint joint1="left_shoulder_pitch_joint"  active="false"/>
+        <joint joint1="left_shoulder_roll_joint"   active="false"/>
+        <joint joint1="left_shoulder_yaw_joint"    active="false"/>
+        <joint joint1="left_elbow_joint"           active="false"/>
+        <joint joint1="left_wrist_roll_joint"      active="false"/>
+        <joint joint1="left_wrist_pitch_joint"     active="false"/>
+        <joint joint1="left_wrist_yaw_joint"       active="false"/>
+        <joint joint1="right_shoulder_pitch_joint" active="false"/>
+        <joint joint1="right_shoulder_roll_joint"  active="false"/>
+        <joint joint1="right_shoulder_yaw_joint"   active="false"/>
+        <joint joint1="right_elbow_joint"          active="false"/>
+        <joint joint1="right_wrist_roll_joint"     active="false"/>
+        <joint joint1="right_wrist_pitch_joint"    active="false"/>
+        <joint joint1="right_wrist_yaw_joint"      active="false"/>
+    </equality>
+</mujoco>

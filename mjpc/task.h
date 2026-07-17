@@ -125,6 +125,17 @@ class Task {
   // Default no-op -> byte-identical for every task that does not override.
   virtual void ModifyRolloutState(const mjModel* model, mjData* data) const {}
 
+  // SPLIT-BODY upper-body ownership notification (2026-07-17). The H1-2 deploy
+  // node calls this when the upper-body (torso+arms, motor rows 12..26) pause
+  // toggle flips: locked=true => another controller (the frame_task IK) owns
+  // the arms, so the task should hold them in rollouts (eq-lock to the
+  // measured pose via ModifyRolloutState) and pin their ctrl channels
+  // (ModifyControl) instead of planning them as free actuated joints;
+  // locked=false => this planner owns the whole body. Default no-op -> every
+  // task that does not override is byte-identical, and the deploy cores that
+  // never set a pause topic never call it.
+  virtual void SetUpperLocked(bool locked) {}
+
   // get information from model
   // calls ResetLocked and InternalResidual()->Update() while holding a lock
   void Reset(const mjModel* model);

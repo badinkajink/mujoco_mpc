@@ -63,6 +63,9 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Magpie>(),
+      // Magpie + INACTIVE upper-joint eq locks, for the whole-body SPLIT
+      // deploy core's pause-gated arm handover (see lean.h).
+      std::make_shared<Lean_H12_Magpie_Split>(),
       std::make_shared<Lean_H12_Hands>(),
 
       // H1_2 lower-body-only (nu=12) Stabilize Task

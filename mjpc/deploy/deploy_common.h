@@ -131,6 +131,28 @@ struct NodeConfig {
   double gravity_ff = 0.85;            // 0 on the twin (gravcomp over-lightens), 0.85 real
   double twin_dt = 0.005;              // 1/lowstate_hz of the plant (real 1 kHz tick -> 0.001)
   std::string lowcmd_topic;            // per-node default (full vs split safety channel)
+  // ---- SPLIT-BODY OUTPUT + UPPER-BODY PAUSE TOGGLE (whole-body split core) ----
+  // When set, the node ALSO writes its command to this second channel. The
+  // whole-body split core sends legs on lowcmd_topic (the safety split LOWER
+  // channel) and arms on upper_lowcmd_topic (the UPPER channel), so the safety
+  // split-merge takes rows 0..11 from one and 12..26 from the other -- the same
+  // 27-row cmd goes to both, the untouched rows on each are ignored by the merge.
+  // "" = single channel (every existing core is byte-unchanged).
+  std::string upper_lowcmd_topic;
+  // DDS std_msgs/String topic carrying the upper-body pause toggle ("1" = paused;
+  // unitree_sdk2 ships no ros2 Bool IDL). Paused => the node STOPS writing
+  // upper_lowcmd_topic, so the frame_task IK owns the arms; the legs channel keeps
+  // publishing. "" = no subscriber (off; existing cores byte-unchanged).
+  std::string pause_upper_topic;
+  // INITIAL pause state of the upper channel (only meaningful when
+  // pause_upper_topic is set). true = come up PAUSED: the node does not write
+  // the upper channel (and, when the model carries the upper eq locks, holds
+  // the arms eq-locked to measured in the planner) until a "0" arrives on
+  // pause_upper_topic. The dynamic startup handshake needs this: frame_task
+  // initializes OWNING the arms, and the split launcher hands them to MJPC by
+  // unpausing only once frame_task reports ready -- so the core must not race
+  // ahead of the first toggle sample. false = legacy (active at boot).
+  bool pause_upper_init = false;
   std::string lowstate_topic = "rt/lowstate";
   std::string sportstate_topic;        // truth vs rt/sportmodestate_est (estimator-in-loop)
   double imu_pitch_offset_deg = 0.0;   // real H1-2 mount calib 1.6; twin 0

@@ -3804,8 +3804,67 @@ void lean::ResetLocked(const mjModel *model) {
 // target for qpos[7+i] (position-servo). FK-measured gains (twin model): +hip_
 // pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both legs.
 // ============================================================================
+// ============================================================================
+// SPLIT-BODY upper-body pause lock (2026-07-17). Called per rollout step on the
+// WORKER's own mjData (Trajectory::NoisyRollout, before mj_step -- the same
+// hook stabilize's arm_plan preview uses). While the split deploy core's upper
+// channel is PAUSED (frame_task IK owns the physical arms), activate the
+// per-data upper-joint equality locks so every imagined future holds torso+
+// arms at the eq_data target -- which the deploy node retargets to the
+// MEASURED pose each tick (deploy_common.cc fill_state, the arm_aware
+// machinery) -- instead of planning arm motion the node will never emit.
+// The locks are DEFINED in Split_H12_Magpie.xml with active="false"
+// (eq_active0=0), so a pristine/unlocked process is byte-identical to the
+// plain Magpie task: the first branch returns before touching anything.
+// HYGIENE (task.h contract): eq_active PERSISTS across mj_step and worker
+// mjData is REUSED across rollouts, so once the lock has ever been active
+// (upper_locked_touched_) the unlocked path must keep restoring eq_active=0
+// (= the model default) every step.
+// ============================================================================
+void lean::ModifyRolloutState(const mjModel *model, mjData *data) const {
+  const bool locked = upper_locked_.load(std::memory_order_acquire);
+  if (!locked && !upper_locked_touched_.load(std::memory_order_relaxed)) {
+    return;  // pristine: no lock ever engaged -> byte-identical no-op
+  }
+  for (int e = 0; e < model->neq; e++) {
+    if (model->eq_type[e] != mjEQ_JOINT) continue;
+    int midx = model->jnt_qposadr[model->eq_obj1id[e]] - 7;  // motor row 0..26
+    if (midx < 12 || midx > 26) continue;  // upper body = torso+arms rows only
+    data->eq_active[e] = locked ? 1 : 0;
+  }
+}
+
 void lean::ModifyControl(const mjModel *model, const double *qpos,
                          const double *qvel, double time, double *ctrl) const {
+  // ---- SPLIT-BODY upper lock: pin the torso+arm ctrl channels ------------ //
+  // While the deploy core's upper channel is paused, hard-write ctrl rows
+  // 12..26 to the eq-lock target (model->eq_data[0] = the MEASURED pose, kept
+  // current by the deploy node) BEFORE the strategy-specific overrides below.
+  // Rollout side-effect: the position servos then command exactly where the
+  // eq locks already hold the joints, so the actuators exert ~zero torque
+  // against the locks (the analogue of the legs-only node simply having no arm
+  // actuators). Executed-action side-effect: ActionFromPolicy's arm rows equal
+  // the measured pose, so nothing downstream can emit a phantom arm target.
+  // Runs FIRST because the code below has strategy-gated early returns; it
+  // only ever writes LEG channels (trot swing / jump push), so the pin is
+  // never overwritten. Unlocked -> skipped entirely (byte-identical).
+  if (upper_locked_.load(std::memory_order_acquire)) {
+    for (int e = 0; e < model->neq; e++) {
+      if (model->eq_type[e] != mjEQ_JOINT) continue;
+      int jid = model->eq_obj1id[e];
+      int midx = model->jnt_qposadr[jid] - 7;
+      if (midx < 12 || midx > 26) continue;
+      // find the position actuator driving this joint (exact, no motor-order
+      // assumption); O(neq*nu) on ~15x27 -- negligible next to mj_step.
+      for (int a = 0; a < model->nu; a++) {
+        if (model->actuator_trntype[a] == mjTRN_JOINT &&
+            model->actuator_trnid[2 * a] == jid) {
+          ctrl[a] = model->eq_data[e * mjNEQDATA + 0];
+          break;
+        }
+      }
+    }
+  }
   const std::string &kfname = residual_.residual_keyframe_.name;
   const bool is_trot = (kfname.rfind("stumble", 0) == 0) &&
                        (kfname.find("trot") != std::string::npos);
