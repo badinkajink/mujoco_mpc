@@ -2272,6 +2272,31 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
       reach_dir[1] = std::sin(drive_yaw_des_);
       reach_dir[2] = 0.0;
     }
+  } else {
+    // ★ POSE-STRATEGY HEADING REFERENCE (2026-07-17): the heading lock above is
+    // trot-gated, so every NON-stepping strategy kept the original reference --
+    // reach_dir = normalize(RANDOM mocap target - torso), the same +/-11 deg
+    // heading lottery the comment block above documents for the steppers. With
+    // "Body Yaw" 25 in the stand JSON that is a WORLD-FRAME pull toward a random
+    // heading: on real (2026-07-17, calibrated, cleanest stand yet) the robot was
+    // placed at heading -22 deg and Body Yaw steered it -22 -> +7 deg over ~15 s,
+    // dragging the planted feet along (stagger_S -> +0.23 m) until the stance
+    // geometry broke. Same disease, same fix family as balance_frame: FACE THE
+    // FEET'S OWN MEAN HEADING (fwd_ax, the support frame computed above) --
+    // placement-invariant, no world anchor, the reference FOLLOWS the stance
+    // instead of steering it. Safe to overwrite: the reach-alignment residual
+    // consumed the original reach_dir earlier (same argument as the trot lock),
+    // and no reach/pose strategy weights Body Yaw except the stand (25) and
+    // stumble (40), both of which want hold-heading semantics.
+    // body_yaw_feet_ref numeric: 1 = on (default), 0 = legacy random-reach-axis.
+    int fr_id = mj_name2id(model, mjOBJ_NUMERIC, "body_yaw_feet_ref");
+    bool fr = (fr_id < 0) ||
+              (model->numeric_data[model->numeric_adr[fr_id]] > 0.5);
+    if (fr) {
+      reach_dir[0] = fwd_ax[0];
+      reach_dir[1] = fwd_ax[1];
+      reach_dir[2] = 0.0;
+    }
   }
   double tf_xy_len = mju_sqrt(torso_forward[0] * torso_forward[0] +
                               torso_forward[1] * torso_forward[1]);
