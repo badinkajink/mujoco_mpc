@@ -145,6 +145,12 @@ struct NodeConfig {
   double ankle_roll_offset_r_deg = 0.0;
   double ankle_pitch_offset_l_deg = 0.0;  // per-ankle PITCH zero calib; same belief/command
   double ankle_pitch_offset_r_deg = 0.0;  // pairing as the roll offsets (H1-2 stores no zero)
+  // --ankle_autocalib: measure the per-power-on ankle zeros DURING the bring-up ramp hold
+  // (still, loaded, planner muzzled) with the floor-referenced flat-sole solve, and REPLACE
+  // the manual offsets above before policy handover. Fail-safe: any gate failure applies
+  // nothing and keeps the manual flags. OFF by default = byte-identical.
+  bool ankle_autocalib = false;
+  bool ankle_autocalib_selftest = false;  // run the planted-offset solver selftest and exit
   // ---- PHASE-A START-POSE ALIGN (2026-07-13) ----
   // Power-on leg geometry is arbitrary (twisted / fore-aft / one knee folded), and the operator
   // was hand-straightening the legs before every run. With align_start the node does it itself:

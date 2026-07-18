@@ -212,6 +212,21 @@ ABSL_FLAG(double, ankle_pitch_offset_l_deg, 0.0,
           "Measure with ankle_zero_snap.py over a LOADED quiet-stand recording. 0 = off.");
 ABSL_FLAG(double, ankle_pitch_offset_r_deg, 0.0,
           "RIGHT ankle-pitch zero-offset calibration (deg); see --ankle_pitch_offset_l_deg.");
+ABSL_FLAG(bool, ankle_autocalib, false,
+          "SELF-CALIBRATE the per-power-on ankle zeros at bring-up: during the scripted ramp "
+          "HOLD (robot still, feet LOADED, planner muzzled) sample the raw encoders + IMU, "
+          "solve the flat-sole ankle angles (the floor is the reference -- same validated math "
+          "as ankle_zero_snap.py), and REPLACE the four --ankle_*_offset flags with the result "
+          "before policy handover. The H1-2 stores no ankle calibration and the zero re-rolls "
+          "EVERY power-on (and can move on a violent event), so a per-bring-up self-check "
+          "catches every case. FAIL-SAFE: if the window is not LOADED (>15 Nm legs) + SETTLED "
+          "(|dq|<0.03) + STABLE (base std<0.5 deg) + self-consistent (halves agree <0.5 deg, "
+          "|off|<8 deg cap), it applies NOTHING and keeps the manual flags. Requires the feet "
+          "on the ground during bring-up (suspended -> clean REJECT). Skipped under "
+          "--straighten_start. OFF by default = byte-identical.");
+ABSL_FLAG(bool, ankle_autocalib_selftest, false,
+          "Validate the auto-calib solver against planted +-6 deg offsets (no robot, no DDS) "
+          "and exit 0/1. Run after any edit to the anklecalib:: code.");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = auto-pin the 192.168.123.x robot NIC when present, "
           "else autodetermine/loopback for the twin)");
@@ -400,6 +415,8 @@ int main(int argc, char** argv) {
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
   cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
   cfg.ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
+  cfg.ankle_autocalib = absl::GetFlag(FLAGS_ankle_autocalib);
+  cfg.ankle_autocalib_selftest = absl::GetFlag(FLAGS_ankle_autocalib_selftest);
   cfg.network_interface = absl::GetFlag(FLAGS_network_interface);
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);

@@ -220,6 +220,7 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
 struct StateData {
   bool have_ls = false, have_ss = false;
   double q[kMaxNU] = {0}, dq[kMaxNU] = {0};       // the cfg.nu ACTUATED joints (motor_offset + i)
+  double tau[kMaxNU] = {0};                       // tau_est: LOADED gate for the ankle auto-calib
   double qu[15] = {0}, dqu[15] = {0};  // complement joints (X-aware): arm-aware = the 15 upper
                                        // (motor 12..26, legs-only node); leg-aware = the 12 legs
                                        // (motor 0..11, upper-body node)
@@ -235,6 +236,178 @@ struct RobotState {
   std::mutex mu;
   StateData d;
 };
+
+// ===========================================================================
+// ANKLE ZERO AUTO-CALIB (--ankle_autocalib, OFF by default)
+//
+// The H1-2 stores NO ankle calibration: each ankle's zero = wherever the A/B
+// linkage sat at encoder power-on (Unitree's own FAQ: "ensure the position of
+// ... ankles are correct before powering on"). A few degrees of zero error
+// physically rotates everything above the ankle (the motor PD servos the
+// ENCODER to the target, so q_true = tgt - off) -> steady lean, CoP parked at
+// the toe, the per-power-on stand lottery.
+//
+// METHOD (C++ port of ankle_zero_snap.py, validated 2026-07-17: recovers a
+// planted +-6 deg to 0.000 deg through physics, incl. the IMU offset in the
+// loop): the FLOOR is the reference. Loaded, the sole MUST be flat, so with
+// the (corrected) IMU quat + measured leg encoders, secant-solve the ankle
+// pitch/roll that would make each sole flat; offset = measured - solved.
+//
+// WHEN: sampled during the scripted bring-up ramp HOLD -- the robot is still,
+// loaded, and the planner has zero authority. Purely OBSERVATIONAL: no
+// choreography change; the solve lands before policy handover so the planner
+// starts with a corrected belief. Gates (LOADED + SETTLED + STABLE + halves
+// agree + |off| cap) mirror the snap tool; ANY failure -> apply NOTHING, keep
+// the manual --ankle_*_offset flags, log why. It can never bake a bad number.
+// ===========================================================================
+namespace anklecalib {
+
+// world pitch/roll of a body from its row-major xmat (== ankle_zero_snap.foot_pr)
+inline void FootPR(const double* x, double* pitch, double* roll) {
+  *pitch = std::atan2(-x[6], std::hypot(x[0], x[3]));
+  *roll = std::atan2(x[7], x[8]);
+}
+
+// Secant-solve ankle (pitch, roll) qpos so the foot body matches the flat
+// reference orientation. Mirrors ankle_zero_snap.solve_flat exactly.
+inline void SolveFlat(const mjModel* m, mjData* d, double* qpos, int bid,
+                      int adr_p, int adr_r, double ref_p, double ref_r,
+                      double* sp, double* sr) {
+  auto pr = [&](double* q, double* p, double* r) {
+    mju_copy(d->qpos, q, m->nq);
+    mj_forward(m, d);
+    FootPR(d->xmat + 9 * bid, p, r);
+  };
+  for (int it = 0; it < 30; it++) {
+    double p, r;
+    pr(qpos, &p, &r);
+    double ep = p - ref_p, er = r - ref_r;
+    if (std::fabs(ep) < 1e-5 && std::fabs(er) < 1e-5) break;
+    const int adrs[2] = {adr_p, adr_r};
+    const double errs[2] = {ep, er};
+    for (int k = 0; k < 2; k++) {
+      double q2[64];  // nq <= 41 on every deploy model; hard-capped below
+      int nq = m->nq < 64 ? m->nq : 64;
+      mju_copy(q2, qpos, nq);
+      q2[adrs[k]] += 1e-4;
+      double p2, r2;
+      pr(q2, &p2, &r2);
+      double g = ((k == 0 ? p2 : r2) - (k == 0 ? p : r)) / 1e-4;
+      if (std::fabs(g) > 1e-6) qpos[adrs[k]] -= errs[k] / g;
+    }
+  }
+  *sp = qpos[adr_p];
+  *sr = qpos[adr_r];
+}
+
+struct Result {
+  bool ok = false;
+  double poff_l = 0, roff_l = 0, poff_r = 0, roff_r = 0;  // DEG, off = encoder - true
+  char why[160] = "";
+};
+
+// (mean leg encoders q12[0..11] in MOTOR order, node-frame base quat wxyz) -> offsets.
+// Mirrors ankle_zero_snap.estimate: flat reference = foot orientation at the
+// 'stand' keyframe (flat by construction); legs are qpos[7..18] on every deploy
+// model (printed joint order, both nq=41 task + nq=34 twin).
+inline Result Solve(const mjModel* m, const double* q12, const double* quat_node) {
+  Result out;
+  int kid = mj_name2id(m, mjOBJ_KEY, "stand");
+  if (kid < 0) { std::snprintf(out.why, sizeof(out.why), "no 'stand' keyframe"); return out; }
+  int bl = mj_name2id(m, mjOBJ_BODY, "left_ankle_roll_link");
+  int br = mj_name2id(m, mjOBJ_BODY, "right_ankle_roll_link");
+  if (bl < 0 || br < 0) { std::snprintf(out.why, sizeof(out.why), "ankle_roll_link bodies missing"); return out; }
+  mjData* d = mj_makeData(m);
+  if (!d) { std::snprintf(out.why, sizeof(out.why), "mj_makeData failed"); return out; }
+  double key[64];
+  int nq = m->nq < 64 ? m->nq : 64;
+  mju_copy(key, m->key_qpos + kid * m->nq, nq);
+  // flat reference at the keyframe
+  mju_copy(d->qpos, key, nq);
+  mj_forward(m, d);
+  double ref_pl, ref_rl, ref_pr, ref_rr;
+  FootPR(d->xmat + 9 * bl, &ref_pl, &ref_rl);
+  FootPR(d->xmat + 9 * br, &ref_pr, &ref_rr);
+  // measured pose: node-frame quat + the 12 measured leg encoders
+  double qpos[64];
+  mju_copy(qpos, key, nq);
+  mju_copy4(qpos + 3, quat_node);
+  mju_normalize4(qpos + 3);
+  for (int i = 0; i < 12; i++) qpos[7 + i] = q12[i];
+  const int aLP = 11, aLR = 12, aRP = 17, aRR = 18;  // qpos adr (printed joint order)
+  double q2[64], sp, sr;
+  mju_copy(q2, qpos, nq);
+  SolveFlat(m, d, q2, bl, aLP, aLR, ref_pl, ref_rl, &sp, &sr);
+  out.poff_l = (qpos[aLP] - sp) * 180.0 / M_PI;
+  out.roff_l = (qpos[aLR] - sr) * 180.0 / M_PI;
+  mju_copy(q2, qpos, nq);
+  SolveFlat(m, d, q2, br, aRP, aRR, ref_pr, ref_rr, &sp, &sr);
+  out.poff_r = (qpos[aRP] - sp) * 180.0 / M_PI;
+  out.roff_r = (qpos[aRR] - sr) * 180.0 / M_PI;
+  mj_deleteData(d);
+  out.ok = true;
+  return out;
+}
+
+// Closed-loop selftest (--ankle_autocalib_selftest): plant known offsets on a
+// physically-consistent flat-foot truth (solved at NON-keyframe base poses, the
+// same recipe that validated the python solver to 0.000 deg) and demand recovery.
+inline int Selftest(const mjModel* m) {
+  int kid = mj_name2id(m, mjOBJ_KEY, "stand");
+  int bl = mj_name2id(m, mjOBJ_BODY, "left_ankle_roll_link");
+  int br = mj_name2id(m, mjOBJ_BODY, "right_ankle_roll_link");
+  if (kid < 0 || bl < 0 || br < 0) { std::fprintf(stderr, "[autocalib-selftest] model missing key/bodies\n"); return 1; }
+  mjData* d = mj_makeData(m);
+  double key[64];
+  int nq = m->nq < 64 ? m->nq : 64;
+  mju_copy(key, m->key_qpos + kid * m->nq, nq);
+  mju_copy(d->qpos, key, nq);
+  mj_forward(m, d);
+  double ref[4];
+  FootPR(d->xmat + 9 * bl, &ref[0], &ref[1]);
+  FootPR(d->xmat + 9 * br, &ref[2], &ref[3]);
+  const int aLP = 11, aLR = 12, aRP = 17, aRR = 18;
+  struct Case { double off_p, off_r, base_pitch_deg; };
+  const Case cases[] = {{+6, 0, 0}, {+6, 0, +2}, {-6, 0, -1}, {+6, +3, +2}, {+4.01, +5.95, +1}};
+  double worst = 0.0;
+  for (const Case& c : cases) {
+    // physically-consistent truth: tilt the base, SOLVE the flat ankles there
+    double truth[64];
+    mju_copy(truth, key, nq);
+    double tilt_q[4], ax[3] = {0, 1, 0}, t4[4];
+    mju_axisAngle2Quat(tilt_q, ax, c.base_pitch_deg * M_PI / 180.0);
+    mju_mulQuat(t4, truth + 3, tilt_q);
+    mju_copy4(truth + 3, t4);
+    mju_normalize4(truth + 3);
+    double sp, sr, q2[64];
+    mju_copy(q2, truth, nq);
+    SolveFlat(m, d, q2, bl, aLP, aLR, ref[0], ref[1], &sp, &sr);
+    truth[aLP] = sp; truth[aLR] = sr;
+    mju_copy(q2, truth, nq);
+    SolveFlat(m, d, q2, br, aRP, aRR, ref[2], ref[3], &sp, &sr);
+    truth[aRP] = sp; truth[aRR] = sr;
+    // encoders read truth + off (MOTOR order legs = qpos[7..18])
+    double q12[12];
+    for (int i = 0; i < 12; i++) q12[i] = truth[7 + i];
+    q12[4] += c.off_p * M_PI / 180.0;  q12[5] += c.off_r * M_PI / 180.0;
+    q12[10] += c.off_p * M_PI / 180.0; q12[11] += c.off_r * M_PI / 180.0;
+    Result r = Solve(m, q12, truth + 3);
+    double e = std::fmax(std::fmax(std::fabs(r.poff_l - c.off_p), std::fabs(r.poff_r - c.off_p)),
+                         std::fmax(std::fabs(r.roff_l - c.off_r), std::fabs(r.roff_r - c.off_r)));
+    worst = std::fmax(worst, e);
+    std::fprintf(stderr,
+                 "[autocalib-selftest] plant P%+.2f R%+.2f @basePitch%+.0f -> "
+                 "P L%+.2f R%+.2f  R L%+.2f R%+.2f  err %.4f deg  %s\n",
+                 c.off_p, c.off_r, c.base_pitch_deg, r.poff_l, r.poff_r, r.roff_l,
+                 r.roff_r, e, (r.ok && e < 0.05) ? "OK" : "FAIL <<<");
+  }
+  mj_deleteData(d);
+  std::fprintf(stderr, "[autocalib-selftest] worst %.4f deg -> %s\n", worst,
+               worst < 0.05 ? "PASS" : "FAIL");
+  return worst < 0.05 ? 0 : 1;
+}
+
+}  // namespace anklecalib
 
 // Globals for the MuJoCo sensor callback (mirror grpc/agent_service.cc).
 mjpc::Agent g_agent;
@@ -522,6 +695,9 @@ int RunDeployNode(const NodeConfig& cfg) {
   g_agent_model = g_agent.GetModel();
   g_model = mj_copyModel(nullptr, g_agent_model);
   PatchActuators(g_model, cfg);   // latency-comp rollout model (the planner model was patched at LoadModel above)
+  // --ankle_autocalib_selftest: validate the C++ solver against planted offsets
+  // (no robot, no DDS) and exit. Run this after ANY edit to anklecalib::.
+  if (cfg.ankle_autocalib_selftest) std::exit(anklecalib::Selftest(g_model));
   mjData* data = mj_makeData(g_model);
   int home = mj_name2id(g_model, mjOBJ_KEY, "home");
   if (home < 0) home = mj_name2id(g_model, mjOBJ_KEY, "stand");  // upper task has only "stand"
@@ -634,6 +810,7 @@ int RunDeployNode(const NodeConfig& cfg) {
         for (int i = 0; i < cfg.nu; i++) {
           rs.d.q[i] = s->motor_state().at(moff + i).q();
           rs.d.dq[i] = s->motor_state().at(moff + i).dq();
+          rs.d.tau[i] = s->motor_state().at(moff + i).tau_est();
         }
         // X-aware: also latch the COMPLEMENT joints (arm-aware: motor 12..26 on the
         // legs-only node; leg-aware: motor 0..11 on the upper-body node) so the
@@ -902,12 +1079,16 @@ int RunDeployNode(const NodeConfig& cfg) {
     std::printf("[node] IMU zero-offset calibration ON: perceived base orientation rotated "
                 "pitch%+.2f roll%+.2f deg before planning\n",
                 cfg.imu_pitch_offset_deg, cfg.imu_roll_offset_deg);
-  const double ankle_off_l = cfg.ankle_roll_offset_l_deg * M_PI / 180.0;
-  const double ankle_off_r = cfg.ankle_roll_offset_r_deg * M_PI / 180.0;
-  const double ankle_poff_l = cfg.ankle_pitch_offset_l_deg * M_PI / 180.0;
-  const double ankle_poff_r = cfg.ankle_pitch_offset_r_deg * M_PI / 180.0;
-  const bool ankle_calib_on = (ankle_off_l != 0.0 || ankle_off_r != 0.0 ||
-                               ankle_poff_l != 0.0 || ankle_poff_r != 0.0);
+  // NOT const: --ankle_autocalib REPLACES these with its own solve at the end of
+  // the bring-up ramp hold (absolute offsets, encoder - true -- not deltas on the
+  // manual flags). Written only from the main control loop, the same thread that
+  // reads them in fill_state and the wire shift => no race.
+  double ankle_off_l = cfg.ankle_roll_offset_l_deg * M_PI / 180.0;
+  double ankle_off_r = cfg.ankle_roll_offset_r_deg * M_PI / 180.0;
+  double ankle_poff_l = cfg.ankle_pitch_offset_l_deg * M_PI / 180.0;
+  double ankle_poff_r = cfg.ankle_pitch_offset_r_deg * M_PI / 180.0;
+  bool ankle_calib_on = (ankle_off_l != 0.0 || ankle_off_r != 0.0 ||
+                         ankle_poff_l != 0.0 || ankle_poff_r != 0.0);
   if (ankle_calib_on)
     std::printf("[node] ankle zero-offset calibration ON (deg, off = encoder - true): "
                 "pitch L%+.2f R%+.2f  roll L%+.2f R%+.2f\n",
@@ -1181,6 +1362,237 @@ int RunDeployNode(const NodeConfig& cfg) {
     bool warming = phase_t < warmup_sec;
 
     fill_state(cur);
+
+    // ---- ANKLE ZERO AUTO-CALIB (--ankle_autocalib; observational, fail-safe) ----
+    // Sample RAW encoders + RAW IMU during the scripted ramp HOLD (still, loaded,
+    // planner muzzled), solve just BEFORE policy handover, and only then swap the
+    // offsets. Skipped entirely under --straighten_start (different choreography;
+    // its hold is operator-timed, not scripted). Statics: one call per process.
+    if (cfg.ankle_autocalib && moff == 0 && !straighten_active && arm_init_set &&
+        cur.have_ls) {
+      static bool ac_done = false;
+      static int ac_n = 0, ac_n1 = 0;
+      static double ac_q[12] = {0}, ac_q1[12] = {0};   // full-window + first-half sums
+      static double ac_quat[4] = {0}, ac_load = 0, ac_dq = 0;
+      static double ac_ps = 0, ac_pss = 0, ac_rs = 0, ac_rss = 0;  // base pitch/roll stats (deg)
+      // RETRY + BLEND state (2026-07-17): a squat start eats the whole ramp, so the
+      // first window lands on a still-recovering robot -> gate REJECT. The old
+      // one-shot then ran the WHOLE SESSION UNCALIBRATED (observed on real: 74s of
+      // the old lean, REJECT at t=7.7). Now a gate-reject re-arms the window ~1s
+      // later, up to kAcMaxAttempts tries; a solve that lands after policy handover
+      // BLENDs the offsets in over kAcBlendSec (an instant 3.8-deg ankle-target step
+      // mid-policy is a kp*0.066 ~ 5 Nm jolt; the ramp-hold application keeps its
+      // instant path implicitly since blending during the scripted hold is harmless).
+      constexpr int kAcMaxAttempts = 10;   // witness + confirm need >=2 good windows
+      constexpr double kAcBlendSec = 1.0;
+      static int ac_attempt = 0;
+      static double ac_t0 = -1.0, ac_t1 = -1.0;
+      static bool ac_blending = false;
+      static double ac_from[4], ac_to[4], ac_blend_t0 = 0.0;
+      // DRIFT WITNESS (2026-07-17 night, 3rd gate hole learned on real): a true
+      // encoder zero is boot-CONSTANT, so every valid window must solve to the
+      // same offsets. On a badly-yawed placement the feet CREEP out of flat --
+      // solves drifted R pitch +1.2 -> +2.8 -> +5.2 across one run -- and the
+      // applied window passed every stillness gate while being 1.6 deg wrong.
+      // The feet are flattest right after the human places them: remember a
+      // solve from the FIRST loaded, roughly-quiet window (looser gates) and
+      // refuse any later apply that disagrees with it.
+      static bool ac_wit = false;
+      static double ac_wit_off[4] = {0};        // deg: poff_l, poff_r, roff_l, roff_r
+      static double ac_wit_t = 0.0;
+      if (ac_blending) {
+        double f = std::fmin(1.0, (phase_t - ac_blend_t0) / kAcBlendSec);
+        ankle_poff_l = ac_from[0] + f * (ac_to[0] - ac_from[0]);
+        ankle_poff_r = ac_from[1] + f * (ac_to[1] - ac_from[1]);
+        ankle_off_l = ac_from[2] + f * (ac_to[2] - ac_from[2]);
+        ankle_off_r = ac_from[3] + f * (ac_to[3] - ac_from[3]);
+        ankle_calib_on = true;
+        if (f >= 1.0) ac_blending = false;
+      }
+      if (!ac_done) {
+        if (ac_t0 < 0.0) {                                         // arm the first window
+          ac_t0 = std::fmax(ramp_eff, warmup_sec) + 0.5;           // settle after the ramp motion
+          ac_t1 = ramp_eff + kRampHoldSec - 0.3;                   // solve BEFORE handover
+          if (ac_t1 < ac_t0 + 1.0) ac_t1 = ac_t0 + 2.2;            // degenerate ramp: keep 2.2s
+        }
+        const double t0s = ac_t0;
+        const double t1s = ac_t1;
+        if (phase_t >= t0s && phase_t < t1s) {
+          double load = 0, dqm = 0;
+          for (int i = 0; i < 12 && i < cfg.nu; i++) {
+            ac_q[i] += cur.q[i];
+            load += std::fabs(cur.tau[i]);
+            dqm += std::fabs(cur.dq[i]);
+          }
+          if (phase_t < 0.5 * (t0s + t1s)) {           // temporal first half (agreement gate)
+            for (int i = 0; i < 12 && i < cfg.nu; i++) ac_q1[i] += cur.q[i];
+            ac_n1++;
+          }
+          ac_load += load;
+          ac_dq += dqm / 12.0;
+          for (int k = 0; k < 4; k++) ac_quat[k] += cur.quat[k];
+          double w = cur.quat[0], x = cur.quat[1], y = cur.quat[2], z = cur.quat[3];
+          double bp = std::asin(std::fmax(-1.0, std::fmin(1.0, 2 * (w * y - z * x)))) * 180.0 / M_PI;
+          double brl = std::atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * 180.0 / M_PI;
+          ac_ps += bp; ac_pss += bp * bp; ac_rs += brl; ac_rss += brl * brl;
+          ac_n++;
+        } else if (phase_t >= t1s) {
+          bool fatal = false;   // solver/model failures never retry; gate failures do
+          // ---- WITNESS + CONFIRM (2026-07-17 redesign, 4 real runs of lessons) --
+          // Stillness gates (SETTLED 0.03 / STABLE 0.5 / UPRIGHT / halves 0.5) were
+          // the wrong instrument twice over: a still window can be the WRONG POSE
+          // (mid-rise, harness-lean, crept feet -- solves drifted R +1.2 -> +2.8 ->
+          // +5.2 across one run), and once the policy is live the robot is NEVER
+          // still (run 4: the first window solved the CORRECT zeros at t=5, then
+          // all 5 strict windows rejected and the session ran uncalibrated). The
+          // invariant that identifies an encoder zero is CONSTANCY: it solves to
+          // the same value in ANY two loaded windows. So: LOOSE per-window gates,
+          // STRICT cross-window agreement -- the first plausible window is the
+          // WITNESS (anchor; the feet are flattest right after the human places
+          // them), a later window CONFIRMS if it agrees within kAcAgreeDeg, and
+          // the mean of the two is applied. Creeping feet never re-agree with the
+          // anchor -> give up -> manual flags.
+          constexpr double kAcAgreeDeg = 0.8;
+          const char* rej = nullptr;
+          double q12[12] = {0}, quatm[4] = {1, 0, 0, 0};
+          double dpitch = 0;                     // worst half-vs-full ankle delta (deg)
+          double bq[4] = {1, 0, 0, 0};           // node-frame quat (IMU corr applied)
+          if (ac_n < 100) rej = "window too short (<0.5s of samples)";
+          if (!rej) {
+            for (int i = 0; i < 12; i++) q12[i] = ac_q[i] / ac_n;
+            for (int k = 0; k < 4; k++) quatm[k] = ac_quat[k] / ac_n;
+            mju_normalize4(quatm);
+            // node-frame quat: raw IMU x corr(imu_pitch) x corr(imu_roll), the SAME
+            // correction fill_state applies (and the same one the snap tool applies).
+            mju_copy4(bq, quatm);
+            if (imu_pitch_off != 0.0) {
+              double dq4[4], ax[3] = {0, 1, 0}, t4[4];
+              mju_axisAngle2Quat(dq4, ax, imu_pitch_off);
+              mju_mulQuat(t4, bq, dq4); mju_copy4(bq, t4);
+            }
+            if (imu_roll_off != 0.0) {
+              double dq4[4], ax[3] = {1, 0, 0}, t4[4];
+              mju_axisAngle2Quat(dq4, ax, imu_roll_off);
+              mju_mulQuat(t4, bq, dq4); mju_copy4(bq, t4);
+            }
+            mju_normalize4(bq);
+            if (ac_load / ac_n < 15.0) rej = "NOT LOADED (sum|tau| legs < 15 Nm -- feet not carrying weight)";
+          }
+          // loose plausibility gates: slow motion keeps the q/quat means valid; the
+          // agreement gate below is what separates a good pose from a wrong one
+          if (!rej && ac_dq / ac_n > 0.06) rej = "MOVING (mean |dq| > 0.06 rad/s)";
+          if (!rej) {
+            double vp = ac_pss / ac_n - (ac_ps / ac_n) * (ac_ps / ac_n);
+            double vr = ac_rss / ac_n - (ac_rs / ac_n) * (ac_rs / ac_n);
+            if (std::sqrt(std::fmax(0.0, vp)) > 2.0 || std::sqrt(std::fmax(0.0, vr)) > 2.0)
+              rej = "BASE MOVING (pitch/roll std > 2 deg)";
+          }
+          if (!rej && ac_n1 > 20) {              // halves agreement on the measured ankles
+            const int aidx[4] = {4, 5, 10, 11};
+            for (int k = 0; k < 4; k++) {
+              double d1 = (ac_q1[aidx[k]] / ac_n1 - q12[aidx[k]]) * 180.0 / M_PI;
+              dpitch = std::fmax(dpitch, std::fabs(d1));
+            }
+            if (dpitch > 0.8) rej = "HALVES DISAGREE (>0.8 deg -- ankles moved inside the window)";
+          }
+          anklecalib::Result r;
+          if (!rej) {
+            // solver-side failures below are FATAL (missing keyframe/bodies -- no
+            // amount of retrying fixes a model), gate failures above are transient
+            r = anklecalib::Solve(g_model, q12, bq);   // ~10-20ms per window (held
+                                                       // targets; a 2-4 tick stall is
+                                                       // absorbed by the PD on last cmd)
+            if (!r.ok) { rej = r.why; fatal = true; }
+          }
+          if (!rej) {
+            double mx = std::fmax(std::fmax(std::fabs(r.poff_l), std::fabs(r.poff_r)),
+                                  std::fmax(std::fabs(r.roff_l), std::fabs(r.roff_r)));
+            if (mx > 8.0) rej = "|offset| > 8 deg cap -- check feet were FLAT + LOADED";
+          }
+          bool applied = false;
+          if (!rej) {
+            if (!ac_wit) {
+              ac_wit = true;
+              ac_wit_off[0] = r.poff_l; ac_wit_off[1] = r.poff_r;
+              ac_wit_off[2] = r.roff_l; ac_wit_off[3] = r.roff_r;
+              ac_wit_t = t0s;
+              std::fprintf(stderr,
+                           "[autocalib] WITNESS @%.1f-%.1fs: pitch L%+.2f R%+.2f roll "
+                           "L%+.2f R%+.2f (load %.0f Nm, |dq| %.4f, halves d%.2f) -- "
+                           "awaiting a confirming window within %.1f deg\n",
+                           t0s, t1s, r.poff_l, r.poff_r, r.roff_l, r.roff_r,
+                           ac_load / ac_n, ac_dq / ac_n, dpitch, kAcAgreeDeg);
+            } else {
+              double dd = std::fmax(
+                  std::fmax(std::fabs(r.poff_l - ac_wit_off[0]),
+                            std::fabs(r.poff_r - ac_wit_off[1])),
+                  std::fmax(std::fabs(r.roff_l - ac_wit_off[2]),
+                            std::fabs(r.roff_r - ac_wit_off[3])));
+              if (dd <= kAcAgreeDeg) {
+                applied = true;
+                ac_done = true;
+                // BLEND the mean of witness+confirm in (jolt-free post-handover)
+                ac_from[0] = ankle_poff_l; ac_from[1] = ankle_poff_r;
+                ac_from[2] = ankle_off_l; ac_from[3] = ankle_off_r;
+                ac_to[0] = 0.5 * (r.poff_l + ac_wit_off[0]) * M_PI / 180.0;
+                ac_to[1] = 0.5 * (r.poff_r + ac_wit_off[1]) * M_PI / 180.0;
+                ac_to[2] = 0.5 * (r.roff_l + ac_wit_off[2]) * M_PI / 180.0;
+                ac_to[3] = 0.5 * (r.roff_r + ac_wit_off[3]) * M_PI / 180.0;
+                ac_blend_t0 = phase_t;
+                ac_blending = true;
+                std::fprintf(stderr,
+                             "[autocalib] CONFIRMED @%.1f-%.1fs agrees with witness @%.1fs "
+                             "(max d%.2f deg) -> APPLIED mean (off = encoder - true, deg): "
+                             "pitch L%+.2f R%+.2f  roll L%+.2f R%+.2f  (blended over %.1fs) "
+                             "-- REPLACES the manual flags\n",
+                             t0s, t1s, ac_wit_t, dd,
+                             0.5 * (r.poff_l + ac_wit_off[0]), 0.5 * (r.poff_r + ac_wit_off[1]),
+                             0.5 * (r.roff_l + ac_wit_off[2]), 0.5 * (r.roff_r + ac_wit_off[3]),
+                             kAcBlendSec);
+              } else {
+                rej = "DISAGREES with the witness (feet CREEPING or witness was a bad "
+                      "pose; a true encoder zero is constant)";
+                std::fprintf(stderr,
+                             "[autocalib]   candidate @%.1f-%.1fs pitch L%+.2f R%+.2f roll "
+                             "L%+.2f R%+.2f vs witness max d%.2f > %.1f deg\n",
+                             t0s, t1s, r.poff_l, r.poff_r, r.roff_l, r.roff_r, dd, kAcAgreeDeg);
+              }
+            }
+          }
+          if (!applied && !ac_done) {
+            ac_attempt++;
+            bool more = !fatal && ac_attempt < kAcMaxAttempts;
+            if (more) {
+              // re-arm a fresh window ~1s out with clean accumulators (also the
+              // path a freshly-recorded witness takes to get its confirm window)
+              ac_n = 0; ac_n1 = 0; ac_load = 0; ac_dq = 0;
+              ac_ps = 0; ac_pss = 0; ac_rs = 0; ac_rss = 0;
+              for (int k = 0; k < 12; k++) { ac_q[k] = 0; ac_q1[k] = 0; }
+              for (int k = 0; k < 4; k++) ac_quat[k] = 0;
+              ac_t0 = phase_t + 1.0;
+              ac_t1 = ac_t0 + 2.2;
+              if (rej)
+                std::fprintf(stderr,
+                             "[autocalib] window %d/%d REJECT: %s -> next window at t=%.1fs "
+                             "(offsets unchanged meanwhile)\n",
+                             ac_attempt, kAcMaxAttempts, rej, ac_t0);
+            } else {
+              ac_done = true;
+              std::fprintf(stderr,
+                           "[autocalib] GIVING UP after window %d (%s): applying NOTHING, "
+                           "keeping the manual flags (pitch L%+.2f R%+.2f roll L%+.2f R%+.2f)"
+                           "%s\n",
+                           ac_attempt, rej ? rej : "no confirming window",
+                           ankle_poff_l * 180.0 / M_PI, ankle_poff_r * 180.0 / M_PI,
+                           ankle_off_l * 180.0 / M_PI, ankle_off_r * 180.0 / M_PI,
+                           ac_wit ? " -- a witness existed but was never confirmed: "
+                                    "feet likely creeping, re-place the stance" : "");
+            }
+          }
+        }
+      }
+    }
+
     if (!arm_init_set && cur.have_ls) {                 // latch the measured power-on pose for the ramp
       for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = cur.q[i];
       arm_init_set = true;
