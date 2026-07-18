@@ -32,57 +32,24 @@
        each term's residual entries are written by
        H12Lowerbody::ResidualFn::Residual in declaration order.
 
+       REDUCED STAND COST. These 5 terms are what remains after a cost-weight
+       sweep + N=25 ablation (tuning/run_sweep.sh, run sweep_20260717-011452)
+       found the posture-shaping residuals — Hips/Knees Above, Foot
+       Width/Crossing, Hip Parity/Yaw/Roll, and Joint Vel. — redundant for
+       standing. Those were removed entirely, from this block AND from
+       h12_lowerbody.cc/.h (their residual fns, and the native input sensors
+       only they read: pelvis_yaxis, *_knee_pos, *_ankle_pos, *_hip_*_q). The
+       weights below are the CEM-best from that sweep. To restore a removed
+       term, re-add its <user> line, its residual fn + Residual() block, and
+       any input sensors it needs.
+
        Pelvis Up: quadratic norm on (pelvis z-axis · world z) - 1, computed by
        PelvisUpResidual() from the pelvis_up framezaxis sensor below.
 
-       Hips Above Knees / Knees Above Ankles: per-leg cosine alignment of the
-       leg segments with world vertical — cos(knee->hip, +Z) - 1 for the thigh
-       and cos(ankle->knee, +Z) - 1 for the shin (0 = joint directly above
-       joint, -1 = segment horizontal, -2 = inverted), computed by
-       HipsAboveKneesResidual() / KneesAboveAnklesResidual() from the framepos
-       sensors below. Quadratic norm: graded pull toward vertical that starts
-       at the first degree of lean (cos > 0 already implies "above").
-
-       Torso Above Hips: same cosine alignment for the trunk axis —
+       Torso Above Hips: cosine alignment of the trunk axis —
        hips-center -> shoulders-center vs world vertical (dim 1), computed by
        TorsoAboveHipsResidual() from the hip/shoulder joint-center framepos
        sensors.
-
-       Foot Width: signed stance margin (dim 1), computed by
-       FootWidthResidual() — horizontal (xy) distance between the
-       foot-geometry centers minus the allowed 0.4572 m (1.5 ft); the height
-       difference is deliberately not charged. The rectify norm (8, one-sided
-       softplus p=0.01) makes it an inequality: free while the feet are close
-       enough, ~linear in the excess beyond.
-
-       Foot Crossing: per-foot signed side margin (dim 2: left, right),
-       computed by FootCrossingResidual() — each foot-geometry center must
-       stay on its own side of the pelvis sagittal plane (pelvis y-axis
-       flattened to horizontal), with a 5 cm clearance band around the
-       midline. Positive when the foot crosses toward/past the midline; the
-       rectify norm (one-sided softplus p=0.01) charges only that side, so a
-       legal stance is free.
-
-       Hip Parity: mirror-symmetry error between the two hips (dim 3: pitch,
-       roll, yaw), computed by HipParityResidual() from the jointpos sensors
-       below. Both sides' hip joints share identical axes (yaw +z, pitch +y,
-       roll +x), so a sagittally mirrored pose has equal pitches and OPPOSITE
-       rolls/yaws (the mirrored roll ranges confirm the convention):
-       residuals are qL - qR for pitch and qL + qR for roll/yaw. Quadratic
-       norm — keeps the legs doing the same thing without pinning them to a
-       particular pose.
-
-       Hip Yaw Zero: the hip yaw angles themselves (dim 2: left, right),
-       computed by HipYawZeroResidual() from the *_hip_yaw_q sensors — pulls
-       both toes to point straight forward. Complements Hip Parity, whose yaw
-       entry (yawL + yawR) is blind to mirrored toe-out/toe-in. Quadratic
-       norm.
-
-       Hip Roll Zero: the hip roll angles themselves (dim 2: left, right),
-       computed by HipRollZeroResidual() from the *_hip_roll_q sensors —
-       pulls the legs to hang straight down rather than splayed/adducted.
-       Complements Hip Parity, whose roll entry (rollL + rollR) is blind to
-       mirrored splay. Quadratic norm.
 
        Height: signed height deficit (dim 1), computed by HeightResidual() —
        1.0 m minus the pelvis height ABOVE THE LOWER FOOT-GEOMETRY CENTER
@@ -97,17 +64,11 @@
        computed by CoMProjectionResidual(). Capture point = whole-robot CoM
        projected by the live LIPM constant sqrt(h / g), with h the CoM height
        above the lower foot-geometry center (kinematically observable — no
-       absolute world z); support center =
-       mean of the two FOOT-GEOMETRY centers (ankle_roll origins offset
-       +3.3 cm along each foot's forward axis — the ankle joints sit behind
-       the foot center). SmoothAbs norm p=0.1. Descended from humanoid-stand's
-       "Balance"; dims below are translated to this robot (nv=45). The
-       velocity projection doubles as the damping term (there is deliberately
-       no separate CoM-velocity cost).
-
-       Joint Vel.: qvel[6:] (all 39 non-root DOFs, incl. the passive gripper
-       linkage), computed by JointVelResidual(). Quadratic, small weight —
-       kills sampling-noise flail.
+       absolute world z); support center = mean of the two FOOT-GEOMETRY
+       centers (ankle_roll origins offset +3.3 cm along each foot's forward
+       axis — the ankle joints sit behind the foot center). SmoothAbs norm
+       p=0.1. The velocity projection doubles as the damping term (there is
+       deliberately no separate CoM-velocity cost).
 
        JointTorques: per-actuator torque (actuator_force — these are gear=1
        torque motors, so this is the ctrlrange-clamped ctrl) normalized by
@@ -118,55 +79,34 @@
        weight — the control-effort regularizer that conditions iLQG and
        kills chattery torques. -->
   <sensor>
-    <user name="Pelvis Up" dim="1" user="0 1.0 0.0 10.0"/>
-    <user name="Hips Above Knees" dim="2" user="0 1.0 0.0 10.0"/>
-    <user name="Knees Above Ankles" dim="2" user="0 1.0 0.0 10.0"/>
-    <user name="Torso Above Hips" dim="1" user="0 1.0 0.0 10.0"/>
-    <user name="Foot Width" dim="1" user="8 1.0 0.0 10.0 0.01"/>
-    <user name="Foot Crossing" dim="2" user="8 1.0 0.0 10.0 0.01"/>
-    <user name="Hip Parity" dim="3" user="0 1.0 0.0 10.0"/>
-    <user name="Hip Yaw Zero" dim="2" user="0 1.0 0.0 10.0"/>
-    <user name="Hip Roll Zero" dim="2" user="0 1.0 0.0 10.0"/>
-    <user name="Height" dim="1" user="8 1.0 0.0 10.0 0.01"/>
-    <user name="COM_Projection" dim="1" user="6 50.0 0.0 100.0 0.1"/>
-    <user name="Joint Vel." dim="39" user="0 0.01 0.0 0.1"/>
-    <user name="JointTorques" dim="31" user="0 0.01 0.0 0.1"/>
+    <user name="Pelvis Up" dim="1" user="0 2.79715 0.0 10.0"/>
+    <user name="Torso Above Hips" dim="1" user="0 5.85687 0.0 10.0"/>
+    <user name="Height" dim="1" user="8 1.65962 0.0 10.0 0.01"/>
+    <user name="COM_Projection" dim="1" user="6 9.01515 0.0 100.0 0.1"/>
+    <user name="JointTorques" dim="31" user="0 0.00958327 0.0 0.1"/>
 
     <!-- Residual inputs (native sensors; must come AFTER the <user> terms).
          objtype MUST be "xbody" (the body frame): "body" would attach to the
          INERTIAL frame, whose principal axes are arbitrarily rotated. The leg
          link body-frame origins sit exactly at their joint centers. -->
     <framezaxis name="pelvis_up" objtype="xbody" objname="pelvis"/>
-    <!-- Pelvis origin + y-axis (leftward) for the Foot Crossing sagittal
-         plane. -->
     <framepos name="pelvis_pos" objtype="xbody" objname="pelvis"/>
-    <frameyaxis name="pelvis_yaxis" objtype="xbody" objname="pelvis"/>
     <!-- Whole-robot CoM: pelvis is the kinematic root, so its subtree is the
-         entire robot. com_position is unused by the costs so far but feeds
-         GUI traces and the upcoming Balance (CoM-over-feet) term. -->
+         entire robot. Feeds COM_Projection (capture point + damping). -->
     <subtreecom name="com_position" body="pelvis"/>
     <subtreelinvel name="com_velocity" body="pelvis"/>
+    <!-- Hip + shoulder joint centers for the Torso Above Hips trunk axis. -->
     <framepos name="left_hip_pos" objtype="xbody" objname="left_hip_pitch_link"/>
     <framepos name="right_hip_pos" objtype="xbody" objname="right_hip_pitch_link"/>
     <framepos name="left_shoulder_pos" objtype="xbody" objname="left_shoulder_pitch_link"/>
     <framepos name="right_shoulder_pos" objtype="xbody" objname="right_shoulder_pitch_link"/>
-    <framepos name="left_knee_pos" objtype="xbody" objname="left_knee_link"/>
-    <framepos name="right_knee_pos" objtype="xbody" objname="right_knee_link"/>
-    <framepos name="left_ankle_pos" objtype="xbody" objname="left_ankle_pitch_link"/>
-    <framepos name="right_ankle_pos" objtype="xbody" objname="right_ankle_pitch_link"/>
-    <!-- Foot (sole) bodies for the COM_Projection support average; the
-         x-axes carry the ankle->foot-center offset direction. -->
+    <!-- Foot (sole) bodies for the Height stance reference and the
+         COM_Projection support average; the x-axes carry the
+         ankle->foot-center offset direction. -->
     <framepos name="left_foot_pos" objtype="xbody" objname="left_ankle_roll_link"/>
     <framepos name="right_foot_pos" objtype="xbody" objname="right_ankle_roll_link"/>
     <framexaxis name="left_foot_xaxis" objtype="xbody" objname="left_ankle_roll_link"/>
     <framexaxis name="right_foot_xaxis" objtype="xbody" objname="right_ankle_roll_link"/>
-    <!-- Hip joint angles for the Hip Parity mirror-symmetry term. -->
-    <jointpos name="left_hip_pitch_q" joint="left_hip_pitch_joint"/>
-    <jointpos name="right_hip_pitch_q" joint="right_hip_pitch_joint"/>
-    <jointpos name="left_hip_roll_q" joint="left_hip_roll_joint"/>
-    <jointpos name="right_hip_roll_q" joint="right_hip_roll_joint"/>
-    <jointpos name="left_hip_yaw_q" joint="left_hip_yaw_joint"/>
-    <jointpos name="right_hip_yaw_q" joint="right_hip_yaw_joint"/>
   </sensor>
 
   <include file="h1_2_magpie.xml"/>

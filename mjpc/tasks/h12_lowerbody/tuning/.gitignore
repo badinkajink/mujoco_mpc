@@ -1,1 +1,5 @@
 runs/
+__pycache__/
+# transient eval-config inputs (real records live under runs/*/eval_configs.json)
+*_configs.json
+rebuilt_check.json

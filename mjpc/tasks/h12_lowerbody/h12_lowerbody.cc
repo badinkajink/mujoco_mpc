@@ -35,14 +35,6 @@ double UprightCosFromPoints(const double* below, const double* above) {
   return segment[2] / length - 1.0;
 }
 
-// Same, between two named framepos sensors.
-double SegmentUprightResidual(const mjModel* model, const mjData* data,
-                              const std::string& below,
-                              const std::string& above) {
-  return UprightCosFromPoints(SensorByName(model, data, below),
-                              SensorByName(model, data, above));
-}
-
 // Center of a foot's geometry: the ankle_roll body origin offset along the
 // foot's forward (x) axis — the ankle joint sits 3.3 cm behind the foot mesh
 // center (measured).
@@ -88,22 +80,6 @@ double PelvisUpResidual(const mjModel* model, const mjData* data) {
   return pelvis_up[2] - 1.0;
 }
 
-void HipsAboveKneesResidual(const mjModel* model, const mjData* data,
-                            double* residual) {
-  residual[0] =
-      SegmentUprightResidual(model, data, "left_knee_pos", "left_hip_pos");
-  residual[1] =
-      SegmentUprightResidual(model, data, "right_knee_pos", "right_hip_pos");
-}
-
-void KneesAboveAnklesResidual(const mjModel* model, const mjData* data,
-                              double* residual) {
-  residual[0] =
-      SegmentUprightResidual(model, data, "left_ankle_pos", "left_knee_pos");
-  residual[1] =
-      SegmentUprightResidual(model, data, "right_ankle_pos", "right_knee_pos");
-}
-
 double TorsoAboveHipsResidual(const mjModel* model, const mjData* data) {
   // Trunk axis: hips center -> shoulders center. (torso_link's own origin is
   // at the waist, only 16 cm above the hip line — too short a segment for a
@@ -118,37 +94,6 @@ double TorsoAboveHipsResidual(const mjModel* model, const mjData* data) {
   mju_add3(shoulders, left_shoulder, right_shoulder);
   mju_scl3(shoulders, shoulders, 0.5);
   return UprightCosFromPoints(hips, shoulders);
-}
-
-void HipParityResidual(const mjModel* model, const mjData* data,
-                       double* residual) {
-  // Mirror-symmetry error between the two hips' joint angles. Both sides'
-  // joints share identical axes (yaw +z, pitch +y, roll +x), so a sagittally
-  // mirrored pose has equal pitches and opposite rolls/yaws — the mirrored
-  // roll ranges in h1_2_magpie.xml (left [-0.43, 3.14], right [-3.14, 0.43])
-  // confirm the convention.
-  residual[0] = SensorByName(model, data, "left_hip_pitch_q")[0] -
-                SensorByName(model, data, "right_hip_pitch_q")[0];
-  residual[1] = SensorByName(model, data, "left_hip_roll_q")[0] +
-                SensorByName(model, data, "right_hip_roll_q")[0];
-  residual[2] = SensorByName(model, data, "left_hip_yaw_q")[0] +
-                SensorByName(model, data, "right_hip_yaw_q")[0];
-}
-
-void HipYawZeroResidual(const mjModel* model, const mjData* data,
-                        double* residual) {
-  // The yaw angles directly: zero = toes straight forward. Complements Hip
-  // Parity, whose yaw entry (yawL + yawR) can't see mirrored toe-out/toe-in.
-  residual[0] = SensorByName(model, data, "left_hip_yaw_q")[0];
-  residual[1] = SensorByName(model, data, "right_hip_yaw_q")[0];
-}
-
-void HipRollZeroResidual(const mjModel* model, const mjData* data,
-                         double* residual) {
-  // The roll angles directly: zero = legs hanging straight down. Complements
-  // Hip Parity, whose roll entry (rollL + rollR) can't see mirrored splay.
-  residual[0] = SensorByName(model, data, "left_hip_roll_q")[0];
-  residual[1] = SensorByName(model, data, "right_hip_roll_q")[0];
 }
 
 double HeightResidual(const mjModel* model, const mjData* data) {
@@ -189,65 +134,6 @@ double CoMProjectionResidual(const mjModel* model, const mjData* data) {
   return mju_norm(error, 2);
 }
 
-double FootWidthResidual(const mjModel* model, const mjData* data) {
-  // Signed stance margin: horizontal (xy) distance between the foot-geometry
-  // centers, minus the allowed maximum — vertical separation (e.g. a raised
-  // foot) is not stance width and is deliberately not charged. Negative while
-  // the feet are close enough; the one-sided rectify norm in task.xml only
-  // charges the positive side.
-  constexpr double kMaxStance = 0.4572;  // 1.5 ft
-  double left_center[3], right_center[3];
-  FootCenter(model, data, "left_foot_pos", "left_foot_xaxis", left_center);
-  FootCenter(model, data, "right_foot_pos", "right_foot_xaxis", right_center);
-  double diff[2] = {left_center[0] - right_center[0],
-                    left_center[1] - right_center[1]};
-  return mju_norm(diff, 2) - kMaxStance;
-}
-
-void FootCrossingResidual(const mjModel* model, const mjData* data,
-                          double* residual) {
-  // Each foot must stay on its own side of the pelvis sagittal plane, with a
-  // clearance band around the midline (the hip joints sit 0.163 m out, so
-  // 5 cm still leaves room to narrow the stance without a penalty).
-  constexpr double kMinLateralClearance = 0.05;  // meters
-
-  // Lateral (leftward) direction: the pelvis y-axis flattened to the
-  // horizontal plane, so pelvis roll/pitch don't tilt the midline.
-  double* pelvis_yaxis = SensorByName(model, data, "pelvis_yaxis");
-  double lateral[2] = {pelvis_yaxis[0], pelvis_yaxis[1]};
-  double length = mju_norm(lateral, 2);
-  if (length < 1.0e-6) {
-    // Pelvis y-axis is vertical (robot on its side): no meaningful sagittal
-    // plane — the uprightness terms own this regime.
-    residual[0] = residual[1] = 0.0;
-    return;
-  }
-  lateral[0] /= length;
-  lateral[1] /= length;
-
-  double* pelvis_pos = SensorByName(model, data, "pelvis_pos");
-  double left_center[3], right_center[3];
-  FootCenter(model, data, "left_foot_pos", "left_foot_xaxis", left_center);
-  FootCenter(model, data, "right_foot_pos", "right_foot_xaxis", right_center);
-
-  // Signed lateral offset of each foot-geometry center from the pelvis:
-  // positive = on the robot's left.
-  double left_offset = (left_center[0] - pelvis_pos[0]) * lateral[0] +
-                       (left_center[1] - pelvis_pos[1]) * lateral[1];
-  double right_offset = (right_center[0] - pelvis_pos[0]) * lateral[0] +
-                        (right_center[1] - pelvis_pos[1]) * lateral[1];
-
-  // Positive when a foot enters the clearance band or crosses the midline;
-  // the one-sided rectify norm in task.xml only charges that side.
-  residual[0] = kMinLateralClearance - left_offset;
-  residual[1] = kMinLateralClearance + right_offset;
-}
-
-void JointVelResidual(const mjModel* model, const mjData* data,
-                      double* residual) {
-  mju_copy(residual, data->qvel + 6, model->nv - 6);
-}
-
 void JointTorquesResidual(const mjModel* model, const mjData* data,
                           double* residual) {
   // Per-actuator torque: these are gear=1 torque motors (ctrl IS the joint
@@ -267,7 +153,11 @@ void JointTorquesResidual(const mjModel* model, const mjData* data,
 }
 
 // Writes one residual entry per <user> cost sensor dim in task.xml, in
-// declaration order.
+// declaration order. The posture-shaping terms (leg/foot geometry, hip
+// symmetry, joint velocity) were removed after a cost-weight sweep + N=25
+// ablation found them redundant for standing (tuning/run_sweep.sh); the five
+// terms below carry the stand: uprightness, height, CoM balance, and the
+// torque regularizer that conditions iLQG.
 void H12Lowerbody::ResidualFn::Residual(const mjModel* model,
                                         const mjData* data,
                                         double* residual) const {
@@ -276,45 +166,14 @@ void H12Lowerbody::ResidualFn::Residual(const mjModel* model,
   // ----- Pelvis Up (dim 1) ----- //
   residual[counter++] = PelvisUpResidual(model, data);
 
-  // ----- Hips Above Knees (dim 2: left, right) ----- //
-  HipsAboveKneesResidual(model, data, residual + counter);
-  counter += 2;
-
-  // ----- Knees Above Ankles (dim 2: left, right) ----- //
-  KneesAboveAnklesResidual(model, data, residual + counter);
-  counter += 2;
-
   // ----- Torso Above Hips (dim 1) ----- //
   residual[counter++] = TorsoAboveHipsResidual(model, data);
-
-  // ----- Foot Width (dim 1: signed stance margin) ----- //
-  residual[counter++] = FootWidthResidual(model, data);
-
-  // ----- Foot Crossing (dim 2: left, right side margins) ----- //
-  FootCrossingResidual(model, data, residual + counter);
-  counter += 2;
-
-  // ----- Hip Parity (dim 3: pitch, roll, yaw mirror errors) ----- //
-  HipParityResidual(model, data, residual + counter);
-  counter += 3;
-
-  // ----- Hip Yaw Zero (dim 2: left, right yaw angles) ----- //
-  HipYawZeroResidual(model, data, residual + counter);
-  counter += 2;
-
-  // ----- Hip Roll Zero (dim 2: left, right roll angles) ----- //
-  HipRollZeroResidual(model, data, residual + counter);
-  counter += 2;
 
   // ----- Height (dim 1: signed pelvis height deficit) ----- //
   residual[counter++] = HeightResidual(model, data);
 
   // ----- COM_Projection (dim 1: ||capture point - support center||) ----- //
   residual[counter++] = CoMProjectionResidual(model, data);
-
-  // ----- Joint Vel. (dim nv-6 = 39) ----- //
-  JointVelResidual(model, data, residual + counter);
-  counter += model->nv - 6;
 
   // ----- JointTorques (dim nu = 31: capacity-normalized servo forces) --- //
   JointTorquesResidual(model, data, residual + counter);

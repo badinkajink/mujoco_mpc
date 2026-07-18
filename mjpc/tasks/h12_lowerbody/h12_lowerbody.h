@@ -29,65 +29,11 @@ namespace mjpc {
 // cost term.
 double PelvisUpResidual(const mjModel* model, const mjData* data);
 
-// Per-leg thigh uprightness: cosine similarity of the knee->hip segment with
-// world +Z, minus 1, from the *_hip_pos / *_knee_pos framepos sensors (joint
-// centers). Writes residual[0] = left, residual[1] = right; each is 0 when
-// the hip is directly above the knee, -1 when the thigh is horizontal, -2
-// when inverted. Backs the "Hips Above Knees" cost term.
-void HipsAboveKneesResidual(const mjModel* model, const mjData* data,
-                            double* residual);
-
-// Same contract for the shin: cos(ankle->knee segment, world +Z) - 1 per
-// leg. Backs the "Knees Above Ankles" cost term.
-void KneesAboveAnklesResidual(const mjModel* model, const mjData* data,
-                              double* residual);
-
 // Trunk uprightness: cos(hips-center -> shoulders-center segment, world +Z)
 // - 1, from the hip and shoulder joint-center framepos sensors. 0 when the
 // shoulders are directly above the hips. Backs the "Torso Above Hips" cost
 // term.
 double TorsoAboveHipsResidual(const mjModel* model, const mjData* data);
-
-// Signed stance margin: ||footL_center - footR_center|| in the horizontal
-// (xy) plane minus the allowed maximum stance (0.4572 m = 1.5 ft); vertical
-// separation is not charged. Negative while the feet are close enough,
-// positive by the excess when they spread too far. Backs the "Foot Width"
-// cost term (one-sided rectify norm — under-threshold is free).
-double FootWidthResidual(const mjModel* model, const mjData* data);
-
-// Per-foot side margin vs the pelvis sagittal plane (pelvis y-axis flattened
-// to horizontal): residual[0] = clearance - left_offset, residual[1] =
-// clearance + right_offset, where offsets are the foot-geometry centers'
-// signed lateral distance from the pelvis (positive = robot's left) and
-// clearance = 0.05 m. Each entry is negative while its foot is on its own
-// side with margin, positive when it enters the band or crosses. Backs the
-// "Foot Crossing" cost term (one-sided rectify norm). Zeroed when the pelvis
-// y-axis is vertical (robot on its side).
-void FootCrossingResidual(const mjModel* model, const mjData* data,
-                          double* residual);
-
-// Mirror-symmetry error between the two hips' joint angles, from the
-// *_hip_{pitch,roll,yaw}_q jointpos sensors. Both sides share identical
-// joint axes, so a sagittally mirrored pose has equal pitches and opposite
-// rolls/yaws: residual[0] = pitchL - pitchR, residual[1] = rollL + rollR,
-// residual[2] = yawL + yawR. All zero when the legs move in mirrored unison,
-// regardless of what that motion is. Backs the "Hip Parity" cost term.
-void HipParityResidual(const mjModel* model, const mjData* data,
-                       double* residual);
-
-// Hip yaw angles directly (residual[0] = left, residual[1] = right), from
-// the *_hip_yaw_q jointpos sensors: zero = toes straight forward. Covers the
-// mirrored toe-out/toe-in direction that Hip Parity's yawL + yawR entry is
-// blind to. Backs the "Hip Yaw Zero" cost term.
-void HipYawZeroResidual(const mjModel* model, const mjData* data,
-                        double* residual);
-
-// Hip roll angles directly (residual[0] = left, residual[1] = right), from
-// the *_hip_roll_q jointpos sensors: zero = legs hanging straight down.
-// Covers the mirrored splay/adduction direction that Hip Parity's
-// rollL + rollR entry is blind to. Backs the "Hip Roll Zero" cost term.
-void HipRollZeroResidual(const mjModel* model, const mjData* data,
-                         double* residual);
 
 // Signed pelvis height deficit: 1.0 m minus the pelvis height measured
 // above the lower foot-geometry center (+ its 0.0468 m nominal ground
@@ -109,11 +55,6 @@ double HeightResidual(const mjModel* model, const mjData* data);
 // cost term (SmoothAbs norm).
 double CoMProjectionResidual(const mjModel* model, const mjData* data);
 
-// Joint velocities: qvel[6:], all model->nv - 6 non-root DOFs (including the
-// passive gripper linkage). Backs the "Joint Vel." cost term.
-void JointVelResidual(const mjModel* model, const mjData* data,
-                      double* residual);
-
 // Per-actuator effort: actuator_force[i] / max(|ctrlrange[i]|) for all nu
 // actuators — the fraction of each motor's torque capacity in use (these are
 // gear=1 torque motors, so actuator_force is the ctrlrange-clamped ctrl;
@@ -127,8 +68,10 @@ void JointTorquesResidual(const mjModel* model, const mjData* data,
 
 // MJPC task for the Unitree H1-2 (+ Magpie) lower body. The model is loaded
 // from h12_lowerbody/task.xml (which bind-mounts h1_2_magpie.xml from
-// CL_Assets at container runtime). Cost terms so far: Pelvis Up. The
-// transition is still an empty stub.
+// CL_Assets at container runtime). Cost terms: Pelvis Up, Torso Above Hips,
+// Height, COM_Projection, JointTorques — the reduced set kept after a
+// cost-weight sweep + ablation removed the posture-shaping residuals found
+// redundant for standing (see tuning/). The transition is still an empty stub.
 class H12Lowerbody : public Task {
  public:
   std::string Name() const override;
@@ -139,7 +82,8 @@ class H12Lowerbody : public Task {
     explicit ResidualFn(const H12Lowerbody* task) : BaseResidualFn(task) {}
 
     // Writes one entry per <user> cost sensor dim in task.xml, in declaration
-    // order. Terms: Pelvis Up (dim 1).
+    // order: Pelvis Up (1), Torso Above Hips (1), Height (1), COM_Projection
+    // (1), JointTorques (nu).
     void Residual(const mjModel* model, const mjData* data,
                   double* residual) const override;
 
