@@ -1,4 +1,5 @@
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
+#include "mjpc/tasks/humanoid_bench/h12_common/h12_gait.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,18 +13,10 @@
 namespace mjpc {
 
 namespace {
-// Swing clearance bell 0->1->0 over swing progress s in [0,1]. Cubic-Bezier
-// (MuJoCo Playground gait.get_rz shape): smoothstep b(t)=3t^2-2t^3 of a 0->1->0
-// triangle. dcl/ds = 0 at s=0, 0.5, 1 => zero swing-JOINT velocity at liftoff
-// AND touchdown (soft, quiet landing). Replaces sin(pi*s), whose endpoint slope
-// is +-pi => max foot velocity exactly at touchdown = the sport-mode slap.
-// Peak and area match sin closely (apex 1.0 at s=0.5) so step CLEARANCE is
-// preserved; only the endpoint velocity changes.
-inline double SwingBell(double s) {
-  s = s < 0.0 ? 0.0 : (s > 1.0 ? 1.0 : s);
-  double t = (s <= 0.5) ? 2.0 * s : 2.0 - 2.0 * s;   // triangle ramp 0->1->0
-  return t * t * (3.0 - 2.0 * t);                     // smoothstep of the ramp
-}
+// Swing clearance bell -- SHARED with the twin task (h12_common/h12_gait.h):
+// the cost gait clock and the ModifyControl swing forcer MUST be the same
+// function or cost and swing disagree.
+using mjpc::h12::SwingBell;
 
 // Target (post-ramp) reach + brace + posture scales for each named phase. Kept
 // in one place so the residual and the transition logic can't drift out of
@@ -742,15 +735,18 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int pid = mj_name2id(model, mjOBJ_BODY, "pelvis");
     if (pid < 0) pid = 1;
     const mjtNum *com = data->subtree_com + 3 * pid;
-    double zc  = mju_max(0.5, com[2]);
-    double tau = mju_sqrt(zc / 9.81);
     int lnx_id = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
     double kLeanX = (lnx_id >= 0)
         ? model->numeric_data[model->numeric_adr[lnx_id]] : 0.06;
-    double tx = (tup ? tup[0] : 0.0) - kLeanX, ty = tup ? tup[1] : 0.0;
+    double ty = tup ? tup[1] : 0.0;
     double vx = cvel ? cvel[0] : 0.0, vy = cvel ? cvel[1] : 0.0;
-    double ex = zc * tx + tau * vx;                      // signed fore-aft capture
-    double ey = zc * ty + tau * vy;                      //   (full, for foot choice)
+    // SHARED capture-excursion core (h12_common/h12_gait.h): same function as
+    // the latches/EMA/forcer, so cost and swing cannot drift (I10).
+    auto cap = mjpc::h12::CaptureExcursionFrom(
+        com[2], tup ? tup[0] : 0.0, ty, vx, vy, kLeanX);
+    double zc = cap.zc;
+    double ex = cap.ex;                                  // signed fore-aft capture
+    double ey = cap.ey;                                  //   (full, for foot choice)
     g_cap_ex = ex; g_cap_ey = ey;         // share with the hip/arm recovery tier
     double ey_pos = zc * ty;                             // lateral: tilt only (rock-immune)
     double danger = mju_sqrt(ex * ex + ey_pos * ey_pos);
@@ -3958,8 +3954,7 @@ void lean::ModifyControl(const mjModel *model, const double *qpos,
   // a push OR a come-to-rest tip -> recov > 0 -> the swing fires the come-to-rest
   // capture step (cap_g*tau*qvel, computed below), catching the fall.
   if (is_drive) {
-    double zc = mju_max(0.5, qpos[2]);
-    double tauc = mju_sqrt(zc / 9.81);
+    // (zc/tau via the SHARED capture core below)
     // base up-axis (x,y) from the pelvis free-joint quat qpos[3:7]=(w,x,y,z);
     // matches the up_z = 1-2(x^2+y^2) convention used by the standing gate below.
     double qw = qpos[3], qxx = qpos[4], qyy = qpos[5], qzz = qpos[6];
@@ -3968,8 +3963,11 @@ void lean::ModifyControl(const mjModel *model, const double *qpos,
     int lnx = mj_name2id(model, mjOBJ_NUMERIC, "lean_nominal_x");
     double kLeanX =
         (lnx >= 0) ? model->numeric_data[model->numeric_adr[lnx]] : 0.06;
-    double tx = up_x - kLeanX, ty = up_y;             // tilt rel. steady lean
-    double ex = zc * tx + tauc * qvel[0];             // signed fore-aft capture
+    double ty = up_y;
+    auto cap = mjpc::h12::CaptureExcursionFrom(
+        qpos[2], up_x, ty, qvel[0], 0.0, kLeanX);
+    double zc = cap.zc;
+    double ex = cap.ex;                               // signed fore-aft capture
     double eyp = zc * ty;                             // lateral: tilt only
     double danger = mju_sqrt(ex * ex + eyp * eyp);
     int ct = mj_name2id(model, mjOBJ_NUMERIC, "catch_trig");
