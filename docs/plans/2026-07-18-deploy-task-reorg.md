@@ -476,6 +476,27 @@ Rules:
 - Thread-safety contract carries over verbatim: `TransitionLocked` writes under the
   transition lock before workers fan out; `ModifyRolloutState` touches only
   per-mjData fields with restore hygiene.
+
+**Execution record (2026-07-19):** **4a landed** (`7e84691`): `PlanSnapshot` via a
+shared base struct (`h12_common/h12_plan_snapshot.h`) mixed into both `ResidualFn`s
+by inheritance (member names unchanged → zero `.cc` edits); both `ResidualLocked`s
+are now one wholesale struct assignment. **4b-1 landed** (`6c53b62`):
+`h12_common/h12_gait.h` — shared `SwingBell` (both twins' local copies deleted) and
+`CaptureExcursionFrom` replacing the 5-per-file hand-synced signed-excursion copies
+(Residual cost, recovery tier, DC-EMA, catch latch, drive gates), arithmetic order
+preserved bit-identically. Both gated on the RoboCasa stand (z≈1.01, ~52 plans/s).
+**4b-2 analysis complete, extraction pending:** the twins' balance/support-polygon
+blocks re-anchor at `project_triangle` (stabilize ~1144, lean ~1432, ~316 lines) and
+diff to ~21 lines, ALL of which is stabilize's F3 `back_balance_boost` — whose
+numeric defaults to 1.0 (OFF) when absent, and lean's XML has no such numeric, so a
+shared function WITH the F3 lookup is behavior-identical for lean (the divergence
+unifies without an I12 violation). The extraction needs a context struct for the
+enclosing-scope inputs (`capture_point`, `is_leg_lift_stage_early`,
+`any_arm_contact`, `brace_contact_force`, `foot_left_pos`/`foot_right_pos`,
+`bracing_hand`, `edge_smooth`/`bscale`/`fwd_scale`/`cp_dx`, residual+counter) plus
+the `PlanSnapshot` fields it reads. Remaining after 4b-2: 4b-3 (weight-ramp trio +
+LEAN_DEBUG block), then 4c (phase machine + `h12_task_core` base class), then the
+deferred 3c.
 - **No function-local statics in shared code** (review rule): both tasks are
   instantiated in *every* process (`GetTasks()` — deploy nodes and the GUI alike),
   so a static moved into `h12_common/` becomes cross-task shared state. Per-task
