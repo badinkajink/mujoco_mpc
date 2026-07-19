@@ -339,3 +339,19 @@ tick_dt: 0.005   # follows --sim-dt 0.005 (plant timestep parity, 2026-07-04)
     # releases were also benched dishonest: they fire mid-sway and dump the
     # robot from whatever posture the tether wound it into.)
 ```
+
+## Ankle softening tested and REJECTED 2026-07-10 (real-robot A/B)
+
+*Migrated 2026-07-18 (stage 2) from `mjpc/deploy/h12_lower_body_controller.cc` (gain-table comment):*
+
+```
+// Hypothesis: kp 80 turns the stand's 15-25deg ankle trackRMSE into 30-48Nm of
+// reflexive PD torque, railing the 60Nm ankle at 89% -> saturation cascade.
+// kp 50 / kv 2 DID take the ankle off the rail (peaks 65-81 vs pinned 89) but
+// the lost DC stiffness was what held the fore-aft equilibrium: the robot
+// wandered (CoM_margin -0.25..+0.22m), toes-up excursions, and crouch-jammed
+// EARLIER (~42s vs ~77s). kp50 + gravity_ff 1.0 parked it FURTHER forward ->
+// the fwd bias is a MODEL-vs-REAL CoM mismatch the stiff PD was masking, not a
+// comp-fraction or gain problem. Net: stiffness is load-bearing here; keep 80/4
+// (== full-body node, which stood 281s). Fix the model CoM, not the gains.
+```

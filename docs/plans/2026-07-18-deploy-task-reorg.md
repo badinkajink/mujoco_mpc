@@ -325,12 +325,12 @@ lives in exactly one header. Binary names/targets unchanged (I6).
 
 ### 5.2b Companion (HAMS side): strategy-switch service
 
-`split_body_controller.py` Popens the core with `stdin=PIPE` and exposes a
-`switch_strategy` service (same bridge pattern as its `toggle_pause_upperbody`
-handshake) that writes `"N\n"` to the child — making the core's live strategy
-switch reachable under `ros2 launch` for the first time (today the stdin thread
-EOFs immediately; see §3.4). Also promote the commented-out `--straighten_start`
-to a declared param here if still wanted.
+`split_body_controller.py` Popens the core with `stdin=PIPE` and subscribes to a
+`mjpc_deploy/switch_strategy` **std_msgs/Int32 topic** (a Trigger service can't
+carry the slot number; a one-shot topic fits fire-and-forget) that writes
+`"N\n"` to the child (`data < 0` sends a bare ENTER for the align/straighten
+gate) — making the core's live strategy switch reachable under `ros2 launch`
+for the first time (today the stdin thread EOFs immediately; see §3.4).
 
 ### 5.3 Build-system dedupe
 

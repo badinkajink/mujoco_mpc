@@ -284,78 +284,50 @@ option(MJPC_BUILD_DEPLOY "Build the embedded DDS control node (needs unitree_sdk
 if(MJPC_BUILD_DEPLOY)
   list(APPEND CMAKE_PREFIX_PATH "$ENV{HOME}/unitree_install")
   find_package(unitree_sdk2 REQUIRED)
-  add_executable(h12_control_node deploy/h12_control_node.cc deploy/deploy_common.cc)
-  target_link_libraries(
-    h12_control_node
-    absl::flags
-    absl::flags_parse
-    absl::log
-    libmjpc
-    mujoco::mujoco
-    threadpool
-    Threads::Threads
-    unitree_sdk2
-  )
-  target_include_directories(h12_control_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-  target_compile_options(h12_control_node PUBLIC ${MJPC_COMPILE_OPTIONS})
-  target_link_options(h12_control_node PRIVATE ${MJPC_LINK_OPTIONS})
-  target_compile_definitions(h12_control_node PRIVATE MJSIMULATE_STATIC)
   # bundled CycloneDDS .so ships next to the SDK; bake its dir into the rpath so
   # libddsc/libddscxx resolve at runtime regardless of LD_LIBRARY_PATH.
   get_target_property(_ddsc_loc ddsc IMPORTED_LOCATION)
   get_filename_component(_dds_libdir "${_ddsc_loc}" DIRECTORY)
-  set_target_properties(h12_control_node PROPERTIES
-    BUILD_RPATH "${_dds_libdir}"
-    INSTALL_RPATH "${_dds_libdir}")
-  message(STATUS "MJPC deploy: h12_control_node ENABLED (unitree_sdk2 at ${_dds_libdir})")
 
-  # Legs-only (nu=12) lower-body controller: same DDS deploy node, drives the
-  # Stabilize task and publishes 12 leg joints to the safety layer's split LOWER
-  # channel so the upper-body IK can own the arms.
-  add_executable(h12_lower_body_controller deploy/h12_lower_body_controller.cc deploy/deploy_common.cc)
-  target_link_libraries(
-    h12_lower_body_controller
-    absl::flags
-    absl::flags_parse
-    absl::log
-    libmjpc
-    mujoco::mujoco
-    threadpool
-    Threads::Threads
-    unitree_sdk2
-  )
-  target_include_directories(h12_lower_body_controller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-  target_compile_options(h12_lower_body_controller PUBLIC ${MJPC_COMPILE_OPTIONS})
-  target_link_options(h12_lower_body_controller PRIVATE ${MJPC_LINK_OPTIONS})
-  target_compile_definitions(h12_lower_body_controller PRIVATE MJSIMULATE_STATIC)
-  set_target_properties(h12_lower_body_controller PROPERTIES
-    BUILD_RPATH "${_dds_libdir}"
-    INSTALL_RPATH "${_dds_libdir}")
-  message(STATUS "MJPC deploy: h12_lower_body_controller ENABLED (legs-only nu=12)")
-
-  # Upper-body (nu=15) controller: the sampling-MPC replacement for the FrameTask
-  # IK. Drives the Upper task (torso + arms = motor rows 12..26) and publishes to
-  # the safety layer's split UPPER channel; goals arrive over its gRPC port.
-  add_executable(h12_upper_body_controller deploy/h12_upper_body_controller.cc deploy/deploy_common.cc)
-  target_link_libraries(
-    h12_upper_body_controller
-    absl::flags
-    absl::flags_parse
-    absl::log
-    libmjpc
-    mujoco::mujoco
-    threadpool
-    Threads::Threads
-    unitree_sdk2
-  )
-  target_include_directories(h12_upper_body_controller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-  target_compile_options(h12_upper_body_controller PUBLIC ${MJPC_COMPILE_OPTIONS})
-  target_link_options(h12_upper_body_controller PRIVATE ${MJPC_LINK_OPTIONS})
-  target_compile_definitions(h12_upper_body_controller PRIVATE MJSIMULATE_STATIC)
-  set_target_properties(h12_upper_body_controller PROPERTIES
-    BUILD_RPATH "${_dds_libdir}"
-    INSTALL_RPATH "${_dds_libdir}")
-  message(STATUS "MJPC deploy: h12_upper_body_controller ENABLED (torso+arms nu=15)")
+  # Shared deploy sources -- when stage 3 splits deploy_common.cc, extend THIS
+  # list (and the consumer package's H12_DEPLOY_COMMON_SRCS): the deploy source
+  # list lives in exactly 2 places (here + core_ws/src/h12_deploy_mjpc).
+  set(H12_DEPLOY_COMMON_SRCS deploy/deploy_common.cc)
+  # target : thin main pairs. NOTE the split core is ALSO built by the consumer
+  # package as mjpc_split_core (the production binary); building it here keeps
+  # a fork-only checkout able to produce every core.
+  set(H12_DEPLOY_NODES
+      h12_control_node        deploy/h12_control_node.cc
+      h12_lower_body_controller deploy/h12_lower_body_controller.cc
+      h12_upper_body_controller deploy/h12_upper_body_controller.cc
+      h12_split_controller    deploy/h12_split_controller.cc)
+  list(LENGTH H12_DEPLOY_NODES _n)
+  math(EXPR _last "${_n} - 1")
+  foreach(_i RANGE 0 ${_last} 2)
+    list(GET H12_DEPLOY_NODES ${_i} _node)
+    math(EXPR _j "${_i} + 1")
+    list(GET H12_DEPLOY_NODES ${_j} _main)
+    add_executable(${_node} ${_main} ${H12_DEPLOY_COMMON_SRCS})
+    target_link_libraries(
+      ${_node}
+      absl::flags
+      absl::flags_parse
+      absl::log
+      libmjpc
+      mujoco::mujoco
+      threadpool
+      Threads::Threads
+      unitree_sdk2
+    )
+    target_include_directories(${_node} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    target_compile_options(${_node} PUBLIC ${MJPC_COMPILE_OPTIONS})
+    target_link_options(${_node} PRIVATE ${MJPC_LINK_OPTIONS})
+    target_compile_definitions(${_node} PRIVATE MJSIMULATE_STATIC)
+    set_target_properties(${_node} PROPERTIES
+      BUILD_RPATH "${_dds_libdir}"
+      INSTALL_RPATH "${_dds_libdir}")
+    message(STATUS "MJPC deploy: ${_node} ENABLED (unitree_sdk2 at ${_dds_libdir})")
+  endforeach()
 endif()
 
 add_subdirectory(tasks)
@@ -373,14 +345,18 @@ include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-# Attach the in-process MJPC gRPC server to BOTH embedded control nodes so the
-# existing monitor can connect (view state + live Strategy switch). Done HERE,
-# after add_subdirectory(grpc), so mjpc_agent_service (grpc_agent_util helpers +
-# generated proto + grpc++) is already defined. (Until 2026-07-02 only
-# h12_control_node was wired -- the lower-body binary's #ifdef H12_NODE_GRPC
-# blocks were dead code and it had no monitor server.)
+# Attach the in-process MJPC gRPC server to every embedded control node so the
+# existing monitor can connect (view state + live Strategy switch; the upper
+# node's goal-ingest seam). Done HERE, after add_subdirectory(grpc), so
+# mjpc_agent_service (grpc_agent_util helpers + generated proto + grpc++) is
+# already defined. Targets come from the H12_DEPLOY_NODES pair list above.
+# NOTE: the production colcon cores (core_ws/src/h12_deploy_mjpc) never define
+# H12_NODE_GRPC -- a fork-built core has the monitor, the container one does not.
 if(MJPC_BUILD_DEPLOY AND MJPC_BUILD_GRPC_SERVICE)
-  foreach(_node h12_control_node h12_lower_body_controller h12_upper_body_controller)
+  list(LENGTH H12_DEPLOY_NODES _n)
+  math(EXPR _last "${_n} - 1")
+  foreach(_i RANGE 0 ${_last} 2)
+    list(GET H12_DEPLOY_NODES ${_i} _node)
     if(TARGET ${_node})
       target_link_libraries(${_node} mjpc_agent_service)
       target_compile_definitions(${_node} PRIVATE H12_NODE_GRPC)

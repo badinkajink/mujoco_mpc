@@ -18,6 +18,9 @@
 
 #include "mjpc/deploy/deploy_common.h"
 
+#include <absl/flags/flag.h>
+#include "mjpc/deploy/deploy_flags.h"
+
 #include <algorithm>
 #include <limits>
 #include <atomic>
@@ -450,6 +453,39 @@ void AppendPlanJson(const mjpc::Trajectory* traj, int nq, std::int64_t plan_iter
 }
 
 }  // namespace
+
+void FillCommonConfig(NodeConfig* cfg) {
+  cfg->gravity_ff = absl::GetFlag(FLAGS_gravity_ff);
+  cfg->twin_dt = absl::GetFlag(FLAGS_twin_dt);
+  cfg->sportstate_topic = absl::GetFlag(FLAGS_sportstate_topic);
+  cfg->imu_pitch_offset_deg = absl::GetFlag(FLAGS_imu_pitch_offset_deg);
+  cfg->bad_orient_rad = absl::GetFlag(FLAGS_bad_orient_rad);
+  cfg->imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
+  cfg->ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
+  cfg->ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
+  cfg->ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
+  cfg->ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
+  cfg->network_interface = absl::GetFlag(FLAGS_network_interface);
+  cfg->domain_id = absl::GetFlag(FLAGS_domain_id);
+  cfg->grpc_port = absl::GetFlag(FLAGS_grpc_port);
+  cfg->plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
+  cfg->plan_threads = absl::GetFlag(FLAGS_plan_threads);
+  cfg->straighten_start = absl::GetFlag(FLAGS_straighten_start);
+  cfg->cost_log = absl::GetFlag(FLAGS_cost);
+  cfg->frc_parity = absl::GetFlag(FLAGS_frc_parity);
+  cfg->stale_sec = absl::GetFlag(FLAGS_stale_sec);
+  cfg->latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
+  cfg->arm_aware = absl::GetFlag(FLAGS_arm_aware);
+  cfg->align_start = absl::GetFlag(FLAGS_align_start);
+  cfg->align_sec = absl::GetFlag(FLAGS_align_sec);
+  cfg->align_tol = absl::GetFlag(FLAGS_align_tol);
+  cfg->align_ki = absl::GetFlag(FLAGS_align_ki);
+  cfg->align_i_max = absl::GetFlag(FLAGS_align_i_max);
+  cfg->align_wait = absl::GetFlag(FLAGS_align_wait);
+  cfg->align_timeout = absl::GetFlag(FLAGS_align_timeout);
+  cfg->plan_pub_topic = absl::GetFlag(FLAGS_plan_topic);
+  cfg->plan_pub_hz = absl::GetFlag(FLAGS_plan_hz);
+}
 
 int RunDeployNode(const NodeConfig& cfg) {
   const std::string& task_id = cfg.task_id;

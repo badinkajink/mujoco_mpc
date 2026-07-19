@@ -25,6 +25,7 @@
 #ifndef MJPC_DEPLOY_DEPLOY_COMMON_H_
 #define MJPC_DEPLOY_DEPLOY_COMMON_H_
 
+#include <cstdlib>
 #include <string>
 
 namespace h12deploy {
@@ -236,6 +237,23 @@ struct NodeConfig {
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.
 int RunDeployNode(const NodeConfig& cfg);
+
+// Default DDS domain: follow the ROS 2 convention used by HAMS ($ROS_DOMAIN_ID
+// must match across the rclpy/DDS halves or they silently diverge). Used as the
+// --domain_id default in the shared flag manifest (deploy_flags.inc).
+inline int DefaultDomainId() {
+  const char* e = std::getenv("ROS_DOMAIN_ID");
+  return e ? std::atoi(e) : 0;
+}
+
+// Fills every NodeConfig field that maps 1:1 to a manifest flag
+// (deploy_flags.inc / deploy_flags.h). The mains call this after
+// ParseCommandLine, then set only their node-specific fields: task/strategy,
+// topics, gain-table slices, telemetry, motor placement, split pause fields,
+// and the leg-owning mains' align_pose (h12_start_poses.h -- NEVER wired here:
+// on the upper main motor_offset=12 would re-interpret the R^12 leg stance as
+// arm targets).
+void FillCommonConfig(NodeConfig* cfg);
 
 }  // namespace h12deploy
 
