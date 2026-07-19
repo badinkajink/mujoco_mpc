@@ -99,6 +99,7 @@ add_library(
   tasks/humanoid_bench/stand/stand.h
   tasks/humanoid_bench/push/push.cc
   tasks/humanoid_bench/push/push.h
+  tasks/humanoid_bench/h12_common/h12_plan_snapshot.h
   tasks/humanoid_bench/lean/lean.cc
   tasks/humanoid_bench/lean/lean.h
   tasks/humanoid_bench/stabilize/stabilize.cc

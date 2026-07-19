@@ -11,6 +11,7 @@
 #include "mjpc/utilities.h"
 #include "mjpc/tasks/humanoid/interact/contact_keyframe.h"
 #include "mjpc/tasks/humanoid/interact/motion_strategy.h"
+#include "mjpc/tasks/humanoid_bench/h12_common/h12_plan_snapshot.h"
 #include "mujoco/mujoco.h"
 
 namespace mjpc {
@@ -60,46 +61,34 @@ class stabilize : public Task {
 
   std::string XmlPath() const override = 0;
 
-  class ResidualFn : public mjpc::BaseResidualFn {
+  // Per-plan ROLLOUT-VISIBLE state (stage 4a): the twins' shared snapshot
+  // (h12_common/h12_plan_snapshot.h) + stabilize's extras. ResidualLocked
+  // copies this WHOLESALE into every rollout residual -- add a rollout-visible
+  // field HERE (or in the base) and it propagates automatically.
+  struct PlanSnapshot : mjpc::h12::PlanSnapshotBase {
+    // FORCED CATCH-STEP episode (strategy 20): latched in TransitionLocked
+    // (real plant state, once per plan) when the capture excursion escapes
+    // catch_full; executed open-loop by ModifyControl for catch_step_sec.
+    // In the snapshot (v4) so the COST side expects the scripted swing --
+    // same foot, same window -- in every sampled trajectory; without it the
+    // Foot-Up cost fights the freeze in half the samples. t0 <= -1e8 = "no
+    // episode ever". (history: see mjpc/tasks/humanoid_bench/HISTORY.md)
+    mjtNum catch_ep_t0_ = -1.0e9;   // plant time the active episode began
+    bool catch_ep_left_ = false;    // true = left foot swings
+    // STRAIGHTEN (strat 25) foot anchor: while strat 25 is active the "Foot
+    // Stability" residual anchors to THESE captured world positions instead of
+    // the world-home constants (which the real estimator's drifting odometric
+    // frame invalidates). Seeded at strategy load, re-pinned while the funnel
+    // is deploy-held. Default = the home constants (benign if never seeded).
+    // In the snapshot so rollout copies cost the same anchor as the canonical.
+    double straighten_foot_anchor_[4] = {0.2196, -0.163, 0.2196, 0.163};  // Rx,Ry,Lx,Ly
+  };
+
+  class ResidualFn : public mjpc::BaseResidualFn, public PlanSnapshot {
    public:
-    explicit ResidualFn(const stabilize *task,
-                        const mjpc::humanoid::ContactKeyframe& kf =
-                            mjpc::humanoid::ContactKeyframe(),
-                        mjtNum keyframe_start_time = 0.0,
-                        mjtNum prev_reach_scale = 0.0,
-                        mjtNum prev_brace_pos_scale = 0.0,
-                        mjtNum prev_posture_scale = 1.0,
-                        mjtNum prev_brace_force_target = 0.0,
-                        int prev_posture_key_id = 0,
-                        int num_phases = 1,
-                        const bool* contact_pair_is_new = nullptr,
-                        mjtNum catch_ep_t0 = -1.0e9,
-                        bool catch_ep_left = false,
-                        const mjtNum* straighten_start_qpos = nullptr,
-                        double straighten_start_tilt = 0.0,
-                        bool straighten_seeded = false)
-        : mjpc::BaseResidualFn(task),
-          residual_keyframe_(kf),
-          keyframe_start_time_(keyframe_start_time),
-          catch_ep_t0_(catch_ep_t0),
-          catch_ep_left_(catch_ep_left),
-          prev_phase_reach_scale_(prev_reach_scale),
-          prev_phase_brace_pos_scale_(prev_brace_pos_scale),
-          prev_phase_posture_scale_(prev_posture_scale),
-          prev_phase_brace_force_target_(prev_brace_force_target),
-          prev_posture_key_id_(prev_posture_key_id),
-          num_phases_(num_phases),
-          straighten_start_tilt_(straighten_start_tilt),
-          straighten_seeded_(straighten_seeded) {
-      for (int i = 0; i < 5; ++i) {
-        contact_pair_is_new_[i] =
-            contact_pair_is_new ? contact_pair_is_new[i] : false;
-      }
-      for (int i = 0; i < 64; ++i) {
-        straighten_start_qpos_[i] =
-            straighten_start_qpos ? straighten_start_qpos[i] : 0.0;
-      }
-    }
+    explicit ResidualFn(const stabilize *task) : mjpc::BaseResidualFn(task) {}
+    ResidualFn(const stabilize *task, const PlanSnapshot &snap)
+        : mjpc::BaseResidualFn(task), PlanSnapshot(snap) {}
 
     void Residual(const mjModel *model, const mjData *data,
                   double *residual) const override;
@@ -113,36 +102,10 @@ class stabilize : public Task {
     static constexpr mjtNum kPhaseRampSeconds = 1.5;
 
    protected:
-    mjpc::humanoid::ContactKeyframe residual_keyframe_;
+    // (Rollout-visible per-plan state lives in the PlanSnapshot bases above;
+    //  everything below is CANONICAL-ONLY bookkeeping, never read from a
+    //  rollout copy and deliberately not propagated.)
 
-    // ----- Phase-transition state -----------------------------------------
-    // `keyframe_start_time_`: wall time at which the current keyframe became
-    // active (set in TransitionLocked). The residual uses `data->time -
-    // keyframe_start_time_` to compute how far through the ramp we are.
-    // `prev_phase_*_scale_`: the scales that were in effect just before the
-    // last transition. Together they let Residual() lerp smoothly into the
-    // new phase's scales, which is the WBC-style smooth handoff the robot
-    // needs to avoid lurching when a contact cost switches on.
-    mjtNum keyframe_start_time_ = 0.0;
-
-    // FORCED CATCH-STEP episode (strategy 20 quiet stand, 2026-07-03). The
-    // cost-side catch-step alone never lifts a foot: a sampling planner
-    // cannot DISCOVER a contact-breaking swing (every short-horizon rollout
-    // prefers both feet planted; trace-proven on the backward push). The trot
-    // already solves this with the stabilize::ModifyControl channel-freeze;
-    // these members arm the SAME scripted swing as a one-shot episode:
-    // latched in TransitionLocked (real plant state, once per plan) when the
-    // capture excursion escapes catch_full, executed open-loop by
-    // ModifyControl for catch_step_sec, then the planner owns the legs again.
-    // t0 <= -1e8 means "no episode ever". v4 (2026-07-03): ALSO propagated
-    // into every rollout residual copy (ResidualLocked ctor args) so the
-    // COST side expects the scripted swing -- same foot, same window -- in
-    // every sampled trajectory. Without this the rollout residuals re-derive
-    // their own foot pick from diverged rollout states and the Foot-Up cost
-    // fights the freeze in half the samples (the v1-v3 coin-flip catches).
-    // This mirrors WHY the trot works: its cost gait + freeze share a clock.
-    mjtNum catch_ep_t0_ = -1.0e9;   // plant time the active episode began
-    bool catch_ep_left_ = false;    // true = left foot swings
     // R3 (2026-07-04): latch PERSISTENCE. Real Unitree deploys exclude base
     // lin-vel from the loop entirely (unobservable on HW); our danger's tau*vx
     // term rides the noisy EKF estimate, and quiet-stand sway historically
@@ -157,14 +120,8 @@ class stabilize : public Task {
     // and by stabilize::ModifyControl. cmd_active_=false => both readers take
     // the legacy trot_des_vel numeric path => byte-identical to the validated
     // static-numeric configs, so a process that never gets a command behaves
-    // exactly as before.
-    //
-    // ★ cmd_active_ + cmd_vdes_world_ ARE propagated into every rollout copy by
-    // ResidualLocked, so the sampled cost and the open-loop walk drive agree on
-    // the same velocity target -- which is what the "MUST match ModifyControl"
-    // comments in the residual actually require.
-    bool   cmd_active_ = false;
-    double cmd_vdes_world_[2] = {0.0, 0.0};  // governed v_des, WORLD frame
+    // exactly as before. (cmd_active_ + cmd_vdes_world_ live in the
+    // PlanSnapshot base -- propagated to every rollout copy.)
     // --- canonical-only bookkeeping (never read from a rollout copy) ---
     double cmd_filt_[2] = {0.0, 0.0};        // slew-limited BODY-frame command
     bool   cmd_starved_ = false;             // log-once latch, heartbeat watchdog
@@ -175,70 +132,11 @@ class stabilize : public Task {
     double cmd_wz_ = 0.0;                    // governed yaw-rate [rad/s]
 
     // ----- WSS drive FSM (strat 24 stand<->trot teleop) --------------------
-    // drive_gait_amp_ (0..1): gait-enable multiplier. 0 => feet plant => the
-    // balance-gated stand (still steps to catch a push); 1 => full trot.
-    // Written by the TransitionLocked latch, propagated into the plan snapshot
-    // by ResidualLocked so the COST gates g_amp exactly the way ModifyControl
-    // does. drive_yaw_des_ = integrated desired WORLD heading [rad] (Body Yaw
-    // reference). The latch bookkeeping below stays canonical-only.
-    double drive_gait_amp_ = 0.0;
-    double drive_yaw_des_ = 0.0;
+    // drive_gait_amp_/drive_yaw_des_ (the FSM OUTPUTS the cost gates on) live
+    // in the PlanSnapshot base; the latch bookkeeping here is canonical-only.
     bool   drive_walk_ = false;
     double drive_idle_since_ = -1.0;
     double drive_ramp_prev_ = -1.0;
-
-    mjtNum prev_phase_reach_scale_ = 0.0;
-    mjtNum prev_phase_brace_pos_scale_ = 0.0;
-    // Posture scale starts at 1.0 (no boost) and ramps to 3.0 during stand_up.
-    mjtNum prev_phase_posture_scale_ = 1.0;
-    // ITER 28: previous phase's brace_force_target value, used to smoothstep
-    // the brace force demand across phase boundaries so MPC doesn't see a
-    // step change (which would plan an impulsive arm slam into the table).
-    mjtNum prev_phase_brace_force_target_ = 0.0;
-
-    // Previous phase's posture keyframe id (model <key> index), captured at
-    // every transition (SnapshotEffectiveScales) so Residual() can ramp the
-    // TARGET pose from it to the current keyframe over kPhaseRampSeconds —
-    // parallels prev_phase_posture_scale_ but for the pose itself, not its
-    // weight. 0 = home on cold start. Only matters when consecutive phases name
-    // DIFFERENT keyframes (cyclic squat); pipeline phases all resolve to home.
-    int prev_posture_key_id_ = 0;
-
-    // Number of phases (keyframes) in the active strategy; set in TransitionLocked
-    // from motion_strategy_.GetKeyframesCount(). The target-pose ramp in Residual()
-    // is GATED on num_phases_ > 1 so single-phase strategies (stand/crouch/arms)
-    // never enter the ramp branch.
-    int num_phases_ = 1;
-    // STRAIGHTEN (strat 25) live-seed funnel state (ported from lean 2026-07-15):
-    //   straighten_start_qpos_ : full qpos at straighten entry (posture ramp FROM)
-    //   straighten_start_tilt_ : pelvis tilt [rad] at entry (upright ramp FROM)
-    //   straighten_seeded_     : true once captured (else fall back to static target)
-    mjtNum straighten_start_qpos_[64] = {0};
-    double straighten_start_tilt_ = 0.0;
-    bool straighten_seeded_ = false;
-    // STRAIGHTEN (strat 25) foot anchor (2026-07-15): "Foot Stability" anchors
-    // the feet to WORLD-frame home constants -- correct in the twin/GUI (robot
-    // spawns at the origin), garbage on real where "world" is the estimator's
-    // drifting ODOMETRIC frame (real --cost run: r~21 while standing still and
-    // flat-footed, creeping upward with drift = a ~320-unit bias + an
-    // arbitrary-direction foot-drag gradient, the #1 cost term all run).
-    // While strat 25 is active the residual anchors to THESE captured
-    // positions instead: seeded at strategy load and re-pinned while the
-    // funnel is deploy-held, so at hand-over the anchor == where the feet
-    // actually stand. Default = the home constants (benign if never seeded).
-    double straighten_foot_anchor_[4] = {0.2196, -0.163, 0.2196, 0.163};  // Rx,Ry,Lx,Ly
-
-    // Per-contact-pair "is new this phase" flags. true when a contact pair
-    // went from inactive (body1=-1) in the previous keyframe to active in
-    // the current one — i.e. a brand-new target that just appeared. Used
-    // by ContactResidual to multiply each newly-appeared pair's residual
-    // by smoothstep(t_in_phase / kPhaseRampSeconds) so the cost grows
-    // from 0 to full strength over the same 1.5s window as the weights.
-    // Without this, the planner sees the new contact target's gradient
-    // instantly and slams the body toward it (the 2→3 hand-slam-into-
-    // table failure mode). Pairs that were continuously active across
-    // the transition keep factor 1.0 throughout.
-    bool contact_pair_is_new_[5] = {false, false, false, false, false};
 
    private:
     friend class stabilize;
@@ -353,42 +251,14 @@ class stabilize : public Task {
 
  protected:
   std::unique_ptr<mjpc::ResidualFn> ResidualLocked() const override {
-    // Copy the phase-transition timing state along with the keyframe so
-    // freshly-spawned residuals (one per rollout thread) see the same ramp
-    // progress as the canonical residual_.
-    auto rfn = std::make_unique<ResidualFn>(
-        this, residual_.residual_keyframe_,
-        residual_.keyframe_start_time_,
-        residual_.prev_phase_reach_scale_,
-        residual_.prev_phase_brace_pos_scale_,
-        residual_.prev_phase_posture_scale_,
-        residual_.prev_phase_brace_force_target_,
-        residual_.prev_posture_key_id_,
-        residual_.num_phases_,
-        residual_.contact_pair_is_new_,
-        residual_.catch_ep_t0_,
-        residual_.catch_ep_left_,
-        residual_.straighten_start_qpos_,
-        residual_.straighten_start_tilt_,
-        residual_.straighten_seeded_);
-    // WSS drive: propagate the FSM gait-enable + heading into this plan's
-    // snapshot so the rollout COST gates g_amp (and aims Body Yaw) exactly the
-    // way stabilize::ModifyControl does. Non-drive strategies leave these 0.
-    rfn->drive_gait_amp_ = residual_.drive_gait_amp_;
-    rfn->drive_yaw_des_ = residual_.drive_yaw_des_;
-    // ★ AND the governed command itself -- without this the rollouts cost an
-    // IN-PLACE trot (cmd_active_=false -> v_des from the static numerics = 0)
-    // while ModifyControl forces the swing FORWARD, so the sampler spends every
-    // rollout cancelling the walk drive. See the note on cmd_active_ above.
-    rfn->cmd_active_ = residual_.cmd_active_;
-    rfn->cmd_vdes_world_[0] = residual_.cmd_vdes_world_[0];
-    rfn->cmd_vdes_world_[1] = residual_.cmd_vdes_world_[1];
-    // STRAIGHTEN foot anchor: rollout copies must cost the same captured
-    // anchor as the canonical residual_ (else workers fall back to the
-    // world-home constants the real odometric frame invalidates).
-    for (int i = 0; i < 4; i++)
-      rfn->straighten_foot_anchor_[i] = residual_.straighten_foot_anchor_[i];
-    return rfn;
+    // Wholesale copy of the canonical residual_'s PlanSnapshot (stage 4a):
+    // every rollout-visible field -- keyframe/ramp state, catch episode,
+    // straighten seed + foot anchor, the governed command, the drive FSM
+    // outputs -- propagates in ONE struct assignment. Fields added to the
+    // snapshot propagate automatically (the old per-field list is the code
+    // shape that produced the walk-ceiling forgot-to-copy bug).
+    return std::make_unique<ResidualFn>(
+        this, static_cast<const PlanSnapshot &>(residual_));
   }
 
   ResidualFn *InternalResidual() override { return &residual_; }
