@@ -502,6 +502,7 @@ Rules:
 | F8 | `gen_lean_pipeline` regenerates committed JSONs **into the source tree** each build; hands ladder silently frozen (inputs deleted). Redirect to the binary dir or stop committing output. |
 | F9 | Legacy chains (`controller_launcher.py`+lowerbody yaml sections, `mjpc_fullbody_core`, `h12_upper_body_controller`) kept for now per decision #3 — revisit after the handover branch stabilizes. |
 | F10 | `AppendPlanJson` hand-rolled serializer → nlohmann once the colcon include path can see `_deps/json-src`. |
+| F11 | **The §3.4 trot criterion is unachievable via live-switch in RoboCasa** (found during the stage-3 gate, 2026-07-19): a live switch into 23 keeps the *startup* strategy's planner numerics (stand's spline-3 — documented as unable to represent the gait), and the robot falls backward ~4-15 s after the switch on **both** stage-2 and stage-3 binaries (A/B-neutral → not a regression; stage-3 gate met on behavior preservation). A real trot gate needs boot-at-`strategy: 23` (proper `PlannerNumericOverrides`) or the fork twin at RTF≈1. Alternatively make the deploy node re-apply per-strategy numerics on a live switch — a behavior change, decide separately. |
 
 ## 9. Mechanics per stage
 
