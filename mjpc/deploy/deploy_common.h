@@ -56,7 +56,7 @@ inline constexpr double kLatencyFixedMs = 0.0;    // 0 = AUTO (EWMA of compute t
 inline constexpr double kLatencyExtraMs = 4.0;    // transport + plant zero-order-hold (AUTO mode)
 inline constexpr double kLatencyMaxMs = 40.0;     // hard cap on the predicted-forward horizon
 inline constexpr double kVelLpfMs = 30.0;         // single-stream base-linvel finite-diff LPF
-inline constexpr double kClampRatio = 0.9;        // 0.9 x TAU_ESTOP: frc_parity forcerange
+inline constexpr double kBudgetRatio = 0.9;       // 0.9 x TAU_ESTOP: frc_parity forcerange
                                                   // budget + over-budget telemetry (no emit clamp)
 inline constexpr double kStaleSec = 0.05;         // H1 watchdog: state older than this -> safe-hold
 inline constexpr float  kSafeHoldKd = 2.0f;       // damping-stop kd on safe-hold (kp=0, tau=0)
@@ -83,7 +83,7 @@ struct NodeConfig {
   // ---- ACTUATOR-AUTHORITY PARITY: the planner must not plan with torque the
   // deployment cannot afford. There is NO emit clamp -- the node publishes the
   // raw planner command -- so a plan that demands more than the safety-layer
-  // estop budget (kClampRatio * tau_estop) is emitted as-is and can TRIP the
+  // estop budget (kBudgetRatio * tau_estop) is emitted as-is and can TRIP the
   // estop. frc_parity is the intended mitigation: when ON, every planner
   // forcerange is tightened to that budget (never loosened; see
   // PatchActuators), so the sampler only plans motions the safety layer will
@@ -234,6 +234,30 @@ struct NodeConfig {
                                        // SETTLE->BLEND as align_start. NO drag. Default off ->
                                        // the cold-start + align paths are byte-identical.
 };
+
+// Bring-up choreography phases (stage 3 of the 2026-07-18 reorg). Currently a
+// DERIVED VIEW: RunDeployNode still sequences the choreography through its
+// original booleans (warming/align_active/handover_active/...) and derives
+// this enum from them each status tick -- the printed phase is guaranteed to
+// describe the same state the ladder acted on. Making the enum the driver
+// (and deleting the booleans) is the planned completion of stage 3b, gated on
+// twin verification.
+enum class BringupPhase {
+  kWarmup,          // first kWarmupSec of plant time: hold measured pose
+  kAlignDrag,       // --align_start: min-jerk drag to the start pose (WALL)
+  kAlignHold,       // aligned; parked stiff waiting for the operator GO
+  kStraightenHold,  // --straighten_start: holding the slump for the GO
+  kHandoverSettle,  // GO -> stiff hold while the planner converges (WALL)
+  kHandoverBlend,   // eased hand-over into the live policy (WALL)
+  kRamp,            // cold-start scripted rise measured -> stance (plant time)
+  kRampHold,        // scripted stance hold while CEM converges
+  kPolicyBlend,     // scripted stance -> live policy ease-in
+  kPolicy,          // full planner authority
+  kSwitchSettle,    // live strategy switch: pre-switch pose hold
+  kSwitchBlend,     // live strategy switch: ease into the new policy
+  kDamped,          // R6 bad-orientation latch: kp=0 damping until restart
+};
+const char* PhaseName(BringupPhase p);
 
 // Runs the full deploy node (blocks until SIGINT/SIGTERM/q). Returns exit code.
 int RunDeployNode(const NodeConfig& cfg);

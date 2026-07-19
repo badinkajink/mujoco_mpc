@@ -8,7 +8,7 @@
 //   H1  input-freshness watchdog: state older than kStaleSec -> damping safe-hold
 //   H2  torque-budget MONITOR: there is NO emit clamp -- the raw planner command
 //       is published and CAN trip the safety-layer estop; over-budget ticks are
-//       only counted (m_clamp_count). --frc_parity is the intended mitigation.
+//       only counted (m_over_budget_count). --frc_parity is the intended mitigation.
 //   M4  tau%estop telemetry graded against TAU_ESTOP (the threshold that trips)
 //   M5  mju_error -> emit safe-hold BEFORE terminating
 // (history: see mjpc/deploy/HISTORY.md)
@@ -20,6 +20,11 @@
 
 #include <absl/flags/flag.h>
 #include "mjpc/deploy/deploy_flags.h"
+#include "mjpc/deploy/deploy_grpc.h"
+#include "mjpc/deploy/deploy_model.h"
+#include "mjpc/deploy/deploy_net.h"
+#include "mjpc/deploy/deploy_state.h"
+#include "mjpc/deploy/deploy_telemetry.h"
 
 #include <algorithm>
 #include <limits>
@@ -38,12 +43,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-// POSIX networking -- auto-pin the wired robot-subnet NIC (see AutoDetectRobotInterface).
-#include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include <mujoco/mujoco.h>
 
@@ -90,158 +89,6 @@ using LowState = unitree_hg::msg::dds_::LowState_;
 using SportState = unitree_go::msg::dds_::SportModeState_;
 
 namespace {
-
-// Auto-detect the interface holding a 192.168.123.x address (the wired H1-2
-// robot subnet), so an EMPTY --network_interface binds the robot link instead
-// of CycloneDDS autodetermine grabbing WiFi/Tailscale -- the trap that silently
-// makes the node hear the same-host twin but never the real robot. Mirrors
-// dds_tools/dds_topic_check.py. Returns "" when no robot-subnet NIC is present
-// (-> caller keeps autodetermine/loopback, the right default for the twin).
-std::string AutoDetectRobotInterface() {
-  const char kRobotPrefix[] = "192.168.123.";
-  std::string result;
-  struct ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) == -1) return result;
-  for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (ifa->ifa_addr == nullptr) continue;
-    if (ifa->ifa_addr->sa_family != AF_INET) continue;
-    char host[INET_ADDRSTRLEN] = {0};
-    const void* sin_addr =
-        &reinterpret_cast<const struct sockaddr_in*>(ifa->ifa_addr)->sin_addr;
-    if (inet_ntop(AF_INET, sin_addr, host, sizeof(host)) == nullptr) continue;
-    if (std::strncmp(host, kRobotPrefix, sizeof(kRobotPrefix) - 1) == 0) {
-      result = ifa->ifa_name;
-      break;
-    }
-  }
-  freeifaddrs(ifaddr);
-  return result;
-}
-
-// rotate vec v by quaternion q (wxyz) -- matches mjpc_dds_bridge.py:_quat_rot.
-void QuatRot(const double q[4], const double v[3], double out[3]) {
-  double w = q[0], x = q[1], y = q[2], z = q[3];
-  double tx = 2 * (y * v[2] - z * v[1]);
-  double ty = 2 * (z * v[0] - x * v[2]);
-  double tz = 2 * (x * v[1] - y * v[0]);
-  out[0] = v[0] + w * tx + (y * tz - z * ty);
-  out[1] = v[1] + w * ty + (z * tx - x * tz);
-  out[2] = v[2] + w * tz + (x * ty - y * tx);
-}
-
-// Unitree CRC (matches example/h1/low_level + unitree_sdk2py.utils.crc).
-uint32_t Crc32Core(uint32_t* ptr, uint32_t len) {
-  uint32_t CRC32 = 0xFFFFFFFF;
-  const uint32_t dwPolynomial = 0x04c11db7;
-  for (uint32_t i = 0; i < len; i++) {
-    uint32_t xbit = 1u << 31;
-    uint32_t data = ptr[i];
-    for (uint32_t bits = 0; bits < 32; bits++) {
-      if (CRC32 & 0x80000000) {
-        CRC32 <<= 1;
-        CRC32 ^= dwPolynomial;
-      } else {
-        CRC32 <<= 1;
-      }
-      if (data & xbit) CRC32 ^= dwPolynomial;
-      xbit >>= 1;
-    }
-  }
-  return CRC32;
-}
-
-// Patch a freshly-loaded model's <position> actuators to the node's authoritative
-// gains (+ estop-bound forceranges where the config asks -- full-body node: ARMS
-// ONLY, idx >= 13, so the planner can't plan a motor-peak (120 Nm) arm torque.
-// LEG/TORSO forceranges are LEFT at the model default: tightening them to the
-// estop bound clamped the planner's hip/ankle balance authority and regressed
-// the hold). <position>: gainprm[0]=kp, biasprm[1]=-kp, biasprm[2]=-kv. Call on
-// the loaded model BEFORE Agent::Initialize (it is const after GetModel()).
-//
-// ACTUATOR-AUTHORITY PARITY (frc_parity): see the NodeConfig::frc_parity
-// comment. When ON, EVERY actuator's forcerange is tightened to the deployment
-// torque budget -- kClampRatio * tau_estop, just under the safety-layer estop
-// (there is no emit clamp: a plan over this budget is published as-is and can
-// trip the estop) -- so the sampler stops planning single-support balance on
-// phantom ankle/torso authority. It only ever TIGHTENS (never loosens) an
-// existing limit, so the arm patch above still binds where it is stricter. This
-// is a MODEL-PARITY fix, not a control law: the planner keeps sampling, it just
-// samples inside the envelope it will really get.
-void PatchActuators(mjModel* m, const NodeConfig& cfg) {
-  // Task-side default lives in the model as the `deploy_frc_parity` numeric (set by
-  // Task::PlannerNumericOverrides, applied by the caller BEFORE this runs). CLI wins.
-  bool parity = false;
-  if (cfg.frc_parity >= 0) {
-    parity = cfg.frc_parity > 0;
-  } else {
-    int pid = mj_name2id(m, mjOBJ_NUMERIC, "deploy_frc_parity");
-    parity = (pid >= 0) && (m->numeric_data[m->numeric_adr[pid]] > 0.5);
-  }
-
-  for (int i = 0; i < cfg.nu && i < m->nu; i++) {
-    m->actuator_gainprm[i * mjNGAIN + 0] = cfg.kp[i];
-    m->actuator_biasprm[i * mjNBIAS + 1] = -cfg.kp[i];
-    m->actuator_biasprm[i * mjNBIAS + 2] = -cfg.kv[i];
-    if (cfg.frc_limit && i >= cfg.frc_limit_begin) {
-      m->actuator_forcelimited[i] = 1;
-      m->actuator_forcerange[i * 2 + 0] = -cfg.frc_limit[i];
-      m->actuator_forcerange[i * 2 + 1] = cfg.frc_limit[i];
-    }
-  }
-  // PatchActuators runs on BOTH the planner model and the latency-comp rollout model (they
-  // must agree, else predict-forward simulates torque the planner/node cannot produce).
-  // Only narrate the first pass so the log stays readable.
-  static bool narrated = false;
-  const bool say = !narrated;
-  narrated = true;
-  if (!parity) {
-    if (say)
-      std::fprintf(stderr,
-                   "[node] actuator-authority parity OFF: the planner may plan torque over the "
-                   "safety-estop budget -- with no emit clamp it is published as-is and can TRIP "
-                   "the safety estop (legacy model; --frc_parity=1 to enable)\n");
-    return;
-  }
-  if (say)
-    std::fprintf(stderr,
-                 "[node] actuator-authority parity ON (planner + latency models): forcerange "
-                 "-> the deployment budget (%.2f x tau_estop, under the safety estop). Tightened:\n",
-                 kClampRatio);
-  for (int i = 0; i < cfg.nu && i < m->nu; i++) {
-    const double budget = kClampRatio * cfg.tau_estop[i];
-    const double had = m->actuator_forcelimited[i]
-                           ? m->actuator_forcerange[i * 2 + 1]
-                           : std::numeric_limits<double>::infinity();
-    if (!(budget < had)) continue;             // never LOOSEN an existing limit
-    m->actuator_forcelimited[i] = 1;
-    m->actuator_forcerange[i * 2 + 0] = -budget;
-    m->actuator_forcerange[i * 2 + 1] = budget;
-    if (say)
-      std::fprintf(stderr, "[node]   %-7s %7.1f -> %6.1f Nm  (planner was %.2fx over)\n",
-                   cfg.joint_names ? cfg.joint_names[i] : "?", had, budget,
-                   budget > 0.0 ? had / budget : 0.0);
-  }
-}
-
-// Plain, copyable snapshot of the latest robot state.
-struct StateData {
-  bool have_ls = false, have_ss = false;
-  double q[kMaxNU] = {0}, dq[kMaxNU] = {0};       // the cfg.nu ACTUATED joints (motor_offset + i)
-  double qu[15] = {0}, dqu[15] = {0};  // complement joints (X-aware): arm-aware = the 15 upper
-                                       // (motor 12..26, legs-only node); leg-aware = the 12 legs
-                                       // (motor 0..11, upper-body node)
-  double quat[4] = {1, 0, 0, 0}, gyro[3] = {0};  // rt/lowstate IMU (wxyz, body gyro)
-  double site_p[3] = {0}, site_v[3] = {0};       // rt/sportmodestate (IMU-site world pose)
-  uint8_t mode_machine = 0;
-  uint32_t tick = 0;          // rt/lowstate tick = twin sim-step count (twin sim_time = tick * twin_dt)
-  // H1 watchdog: wall-clock receive stamps of the two streams (steady_clock).
-  std::chrono::steady_clock::time_point ls_stamp{}, ss_stamp{};
-};
-// Mutex-guarded holder (std::mutex isn't copyable, so it stays out of the snapshot).
-struct RobotState {
-  std::mutex mu;
-  StateData d;
-};
 
 // Globals for the MuJoCo sensor callback (mirror grpc/agent_service.cc).
 mjpc::Agent g_agent;
@@ -295,164 +142,26 @@ void FatalMjuError(const char* msg) {
 }
 void LogMjuWarning(const char* msg) { std::fprintf(stderr, "[mju_warning] %s\n", msg); }
 
-#ifdef H12_NODE_GRPC
-// gRPC service over the node's LIVE agent so the existing MJPC monitor can
-// attach. READ-ONLY reflection (state/action/residuals/costs/metrics/params)
-// delegates to the same grpc_agent_util helpers agent_server uses; the only
-// mutator exposed is SetTaskParameters (the live Strategy switch). All
-// state/planner-driving RPCs are inert no-ops so the monitor (or a stray
-// button) can never disturb the node's own control loop. A mutex serialises
-// concurrent gRPC calls on the service's scratch mjData.
-class NodeAgentService final : public agent::Agent::Service {
- public:
-  NodeAgentService(mjpc::Agent* ag, const mjModel* m)
-      : agent_(ag), model_(m), data_(mj_makeData(m)), rollout_data_(mj_makeData(m)) {}
-  ~NodeAgentService() override {
-    if (data_) mj_deleteData(data_);
-    if (rollout_data_) mj_deleteData(rollout_data_);
-  }
-  grpc::Status GetState(grpc::ServerContext*, const agent::GetStateRequest*,
-                        agent::GetStateResponse* response) override {
-    std::lock_guard<std::mutex> lk(mu_);
-    agent_->state.CopyTo(model_, data_);
-    return grpc_agent_util::GetState(model_, data_, response);
-  }
-  grpc::Status GetAction(grpc::ServerContext*, const agent::GetActionRequest* request,
-                         agent::GetActionResponse* response) override {
-    std::lock_guard<std::mutex> lk(mu_);
-    return grpc_agent_util::GetAction(request, agent_, model_, rollout_data_,
-                                      &rollout_state_, response);
-  }
-  grpc::Status GetResiduals(grpc::ServerContext*, const agent::GetResidualsRequest* request,
-                            agent::GetResidualsResponse* response) override {
-    std::lock_guard<std::mutex> lk(mu_);
-    agent_->state.CopyTo(model_, data_);
-    mj_forward(model_, data_);
-    return grpc_agent_util::GetResiduals(request, agent_, model_, data_, response);
-  }
-  grpc::Status GetCostValuesAndWeights(
-      grpc::ServerContext*, const agent::GetCostValuesAndWeightsRequest* request,
-      agent::GetCostValuesAndWeightsResponse* response) override {
-    std::lock_guard<std::mutex> lk(mu_);
-    agent_->state.CopyTo(model_, data_);
-    mj_forward(model_, data_);
-    return grpc_agent_util::GetCostValuesAndWeights(request, agent_, model_, data_, response);
-  }
-  grpc::Status GetMetrics(grpc::ServerContext*, const agent::GetMetricsRequest* request,
-                          agent::GetMetricsResponse* response) override {
-    std::lock_guard<std::mutex> lk(mu_);
-    agent_->state.CopyTo(model_, data_);
-    mj_forward(model_, data_);
-    grpc::Status status =
-        grpc_agent_util::GetMetrics(request, agent_, model_, data_, response);
-    // Identity beacon: this gRPC service is the REAL-HARDWARE deploy node
-    // (reading rt/lowstate), NOT an MJPC sim agent_server. The monitor reads
-    // this sentinel to auto-label the connection as "REAL HW" and stream live
-    // -- no special port or flag needed. It's just a map<string,double> key,
-    // so adding it requires no agent.proto change. The monitor strips it
-    // before plotting, so it never shows up as a metric.
-    (*response->mutable_values())["__real_hardware__"] = 1.0;
-    return status;
-  }
-  grpc::Status GetTaskParameters(grpc::ServerContext*, const agent::GetTaskParametersRequest* request,
-                                 agent::GetTaskParametersResponse* response) override {
-    return grpc_agent_util::GetTaskParameters(request, agent_, response);
-  }
-  grpc::Status SetTaskParameters(grpc::ServerContext*, const agent::SetTaskParametersRequest* request,
-                                 agent::SetTaskParametersResponse*) override {
-    return grpc_agent_util::SetTaskParameters(request, agent_);  // <-- live Strategy switch
-  }
-  grpc::Status GetMode(grpc::ServerContext*, const agent::GetModeRequest* request,
-                       agent::GetModeResponse* response) override {
-    return grpc_agent_util::GetMode(request, agent_, response);
-  }
-  grpc::Status GetAllModes(grpc::ServerContext*, const agent::GetAllModesRequest* request,
-                           agent::GetAllModesResponse* response) override {
-    return grpc_agent_util::GetAllModes(request, agent_, response);
-  }
-  // inert: the node owns state + planning; never let a client drive/reset them.
-  grpc::Status Init(grpc::ServerContext*, const agent::InitRequest*,
-                    agent::InitResponse*) override { return grpc::Status::OK; }
-  grpc::Status SetState(grpc::ServerContext*, const agent::SetStateRequest*,
-                        agent::SetStateResponse*) override { return grpc::Status::OK; }
-  grpc::Status PlannerStep(grpc::ServerContext*, const agent::PlannerStepRequest*,
-                           agent::PlannerStepResponse*) override { return grpc::Status::OK; }
-  grpc::Status Step(grpc::ServerContext*, const agent::StepRequest*,
-                    agent::StepResponse*) override { return grpc::Status::OK; }
-  grpc::Status Reset(grpc::ServerContext*, const agent::ResetRequest*,
-                     agent::ResetResponse*) override { return grpc::Status::OK; }
-
- private:
-  mjpc::Agent* agent_;
-  const mjModel* model_;
-  mjData* data_;
-  mjData* rollout_data_;
-  mjpc::State rollout_state_;
-  std::mutex mu_;
-};
-#endif  // H12_NODE_GRPC
-
-// ---- DEBUG PLAN PUBLISH: serialize a Trajectory's qpos rows to JSON ----
-// Hand-rolled rather than nlohmann: libmjpc links nlohmann_json but the colcon
-// package that actually builds this binary (core_ws/src/h12_deploy_mjpc/
-// CMakeLists.txt) does not put _deps/json-src/include on the include path, so
-// <nlohmann/json.hpp> would not compile here. It is also far faster to append
-// ~4k doubles into one reserved buffer than to build a DOM and dump it.
-//
-// Emits qpos ONLY (not the full nq+nv+na state): the visualizer's ghost needs
-// nothing else and it halves the payload (~180 KB -> ~90 KB).
-//
-// LANDMINE: traj->states is Allocate()d to kMaxTrajectoryHorizon (512) but only
-// traj->horizon rows are valid -- Rollout overwrites `horizon` with the actual
-// step count. Iterate horizon (101 for this task), never states.size().
-void AppendPlanJson(const mjpc::Trajectory* traj, int nq, std::int64_t plan_iter,
-                    std::string* out) {
-  char buf[40];
-  auto num = [&](double v) {
-    // %.6g keeps rad-scale qpos well inside double round-trip needs for a
-    // debug view while holding the payload to ~90 KB.
-    int n = std::snprintf(buf, sizeof(buf), "%.6g", v);
-    out->append(buf, n > 0 ? n : 0);
-  };
-  const int H = traj->horizon;
-  const int ds = traj->dim_state;
-
-  out->clear();
-  out->reserve(static_cast<std::size_t>(H) * nq * 9 + 256);
-  out->append("{\"stamp\":");
-  num(H > 0 ? traj->times[0] : 0.0);
-  out->append(",\"plan_iter\":");
-  {
-    int n = std::snprintf(buf, sizeof(buf), "%lld",
-                          static_cast<long long>(plan_iter));
-    out->append(buf, n > 0 ? n : 0);
-  }
-  out->append(",\"nq\":");
-  { int n = std::snprintf(buf, sizeof(buf), "%d", nq); out->append(buf, n > 0 ? n : 0); }
-  out->append(",\"horizon\":");
-  { int n = std::snprintf(buf, sizeof(buf), "%d", H); out->append(buf, n > 0 ? n : 0); }
-
-  out->append(",\"times\":[");
-  for (int t = 0; t < H; t++) {
-    if (t) out->push_back(',');
-    num(traj->times[t]);
-  }
-  out->append("],\"qpos\":[");
-  for (int t = 0; t < H; t++) {                   // row-major: H rows of nq
-    const double* q = traj->states.data() + static_cast<std::size_t>(t) * ds;
-    for (int i = 0; i < nq; i++) {
-      if (t || i) out->push_back(',');
-      num(q[i]);
-    }
-  }
-  out->append("],\"total_return\":");
-  num(traj->total_return);
-  out->append(",\"failure\":");
-  out->append(traj->failure ? "true" : "false");
-  out->append("}");
-}
-
 }  // namespace
+
+const char* PhaseName(BringupPhase p) {
+  switch (p) {
+    case BringupPhase::kWarmup:         return "WARMUP";
+    case BringupPhase::kAlignDrag:      return "ALIGN";
+    case BringupPhase::kAlignHold:      return "ALIGN-HOLD";
+    case BringupPhase::kStraightenHold: return "STRAIGHTEN-HOLD";
+    case BringupPhase::kHandoverSettle: return "HANDOVER-SETTLE";
+    case BringupPhase::kHandoverBlend:  return "HANDOVER-BLEND";
+    case BringupPhase::kRamp:           return "RAMP";
+    case BringupPhase::kRampHold:       return "RAMP-HOLD";
+    case BringupPhase::kPolicyBlend:    return "POLICY-BLEND";
+    case BringupPhase::kPolicy:         return "policy";
+    case BringupPhase::kSwitchSettle:   return "SWITCH-SETTLE";
+    case BringupPhase::kSwitchBlend:    return "SWITCH-BLEND";
+    case BringupPhase::kDamped:         return "DAMPED";
+  }
+  return "?";
+}
 
 void FillCommonConfig(NodeConfig* cfg) {
   cfg->gravity_ff = absl::GetFlag(FLAGS_gravity_ff);
@@ -926,7 +635,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                "[node] torque-budget clamp OFF (audit H2): publishing the RAW planner command --"
                " |tau_ff + kp*(tgt-q) + kv*dq| is NOT bounded, so it can exceed %.1f x tau-estop "
                "and TRIP the safety estop. Over-budget ticks are counted for telemetry only.\n",
-               kClampRatio);
+               kBudgetRatio);
 
   // ---- DEBUG PLAN PUBLISH (off unless --plan_topic is set) ----
   // Constructed BEFORE the planner thread so the lambda can capture it; when the
@@ -1239,13 +948,13 @@ int RunDeployNode(const NodeConfig& cfg) {
   double m_tau_sum[kMaxNU] = {0}, m_tau_max[kMaxNU] = {0};
   double m_z_sum = 0, m_z_sq = 0, m_z_min = 1e9, m_tilt_sum = 0, m_tilt_max = 0;
   long m_sat_count[kMaxNU] = {0};   // ticks where |tau| exceeds the real H1-2 limit
-  // ticks where the raw command WOULD have exceeded the kClampRatio*tau_estop budget. The
+  // ticks where the raw command WOULD have exceeded the kBudgetRatio*tau_estop budget. The
   // clamp is gone (2026-07-16), so this no longer means the target was cut back -- it is a
   // PASSIVE over-budget read: a high count means the node is emitting torque above 0.9x the
   // safety estop on that joint, i.e. the safety-layer estop is at risk of tripping. This was
   // the invisible failure in the real trot runs -- the stance ankle sat at 100% and nothing
   // reported it (2026-07-11); now it is emitted rather than clamped, so watch this row.
-  long m_clamp_count[kMaxNU] = {0};
+  long m_over_budget_count[kMaxNU] = {0};
   bool m_sat_warned = false;
 
   // ---- control loop @ ctrl_hz (mirrors app.cc physics thread) ----
@@ -1794,21 +1503,21 @@ int RunDeployNode(const NodeConfig& cfg) {
 
     // H2 torque-budget MONITOR (2026-07-16: clamp REMOVED -- publish the planner's raw
     // command). We no longer cut tgt_q back to keep the full commanded torque
-    // tau_ff + KP*(tgt-q) + KV*(0-dq) under kClampRatio x tau_estop; the emitted position
+    // tau_ff + KP*(tgt-q) + KV*(0-dq) under kBudgetRatio x tau_estop; the emitted position
     // target is exactly what the planner (+ ramp) produced, so the onboard/safety PD delivers
     // whatever torque the plan demands -- the torques the planner generates now reach the
     // robot unclamped. The per-joint counter is retained as a PASSIVE safety read only
-    // (m_clamp_count = ticks the raw command exceeded the 0.9 x tau_estop budget); tgt_q is
+    // (m_over_budget_count = ticks the raw command exceeded the 0.9 x tau_estop budget); tgt_q is
     // left untouched. WARNING: this drops the "estop-impossible" guarantee -- the safety-layer
     // estop (tau_estop) is now the only backstop and CAN trip. Run with frc_parity so the
     // planner still samples inside the emittable envelope.
     for (int i = 0; i < cfg.nu; i++) {
-      const double budget = kClampRatio * cfg.tau_estop[i];
+      const double budget = kBudgetRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);
       const double dmax = (pd_headroom > 0.0) ? pd_headroom / cfg.kp[i] : 0.0;
       const double lo = cur.q[i] - dmax, hi = cur.q[i] + dmax;
-      // over-budget telemetry only -- tgt_q is NOT modified (see m_clamp_count).
-      if (!warming && (tgt_q[i] < lo || tgt_q[i] > hi)) m_clamp_count[i]++;
+      // over-budget telemetry only -- tgt_q is NOT modified (see m_over_budget_count).
+      if (!warming && (tgt_q[i] < lo || tgt_q[i] > hi)) m_over_budget_count[i]++;
     }
 
     // SAFETY: hard-clamp the ankle commands to the joint ctrl range so the zero-offset can
@@ -1928,6 +1637,39 @@ int RunDeployNode(const NodeConfig& cfg) {
         }
       }
     }
+    // DERIVED bring-up phase (see BringupPhase in deploy_common.h): computed
+    // FROM the choreography booleans the ladder above acted on this tick, so
+    // the printed phase always matches the executed one. Stage-3b completion
+    // will invert this: the enum becomes the driver, the booleans go.
+    BringupPhase phase = BringupPhase::kPolicy;
+    if (g_bad_orient_latched) {
+      phase = BringupPhase::kDamped;
+    } else if (warming) {
+      phase = BringupPhase::kWarmup;
+    } else if (straighten_hold) {
+      phase = BringupPhase::kStraightenHold;
+    } else if (in_align) {
+      phase = (align_t0 >= 0.0 && (wall - align_t0) < cfg.align_sec)
+                  ? BringupPhase::kAlignDrag : BringupPhase::kAlignHold;
+    } else if (handover_active) {
+      phase = (wall - handover_t0) < kSwitchSettleSec
+                  ? BringupPhase::kHandoverSettle : BringupPhase::kHandoverBlend;
+    } else if (ramp_eff > 0.0 && arm_init_set && phase_t < ramp_eff) {
+      phase = BringupPhase::kRamp;
+    } else if (ramp_eff > 0.0 && arm_init_set && phase_t < ramp_eff + kRampHoldSec) {
+      phase = BringupPhase::kRampHold;
+    } else if (ramp_eff > 0.0 && arm_init_set &&
+               phase_t < ramp_eff + kRampHoldSec + kPolicyBlendSec) {
+      phase = BringupPhase::kPolicyBlend;
+    } else {
+      const double sw_dt = phase_t - g_switch_wall.load();
+      const double sbl = g_switch_blend.load();
+      if (sw_dt >= 0.0 && sw_dt < kSwitchSettleSec)
+        phase = BringupPhase::kSwitchSettle;
+      else if (sbl > 0.0 && sw_dt >= kSwitchSettleSec && sw_dt < kSwitchSettleSec + sbl)
+        phase = BringupPhase::kSwitchBlend;
+    }
+
     if (++ticks % static_cast<long>(ctrl_hz) == 0) {
       static long last_pc = 0; static double last_w = 0.0;
       long pc = plan_count.load();
@@ -1938,7 +1680,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                      "[node] t=%5.1fs(twin=%5.1f) %s z=%.3f tilt=%4.1f lean(fwd/lat)=%+.1f/%+.1f "
                      "knee=%+.2f/%+.2f  Rsh(cmd/ms)=%+.0f/%+.0f Lsh=%+.0f/%+.0f[neg=FWD]  "
                      "plan=%.0f/s lat=%.0fms\n",
-                     wall, twin_time, warming ? "WARMUP" : "policy", base_z, tilt,
+                     wall, twin_time, PhaseName(phase), base_z, tilt,
                      meas_lean_fwd, meas_lean_lat,
                      meas_kneeL, meas_kneeR,
                      tgt_q[20] * 57.29578, cur.q[20] * 57.29578,
@@ -1963,7 +1705,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                      "[node] t=%5.1fs(twin=%5.1f) %s tilt=%4.1f "
                      "torso(cmd/ms)=%+.0f/%+.0f LshP=%+.0f/%+.0f RshP=%+.0f/%+.0f "
                      "Lelb=%+.0f/%+.0f Relb=%+.0f/%+.0f deg  plan=%.0f/s lat=%.0fms\n",
-                     wall, twin_time, warming ? "WARMUP" : "policy", tilt,
+                     wall, twin_time, PhaseName(phase), tilt,
                      tgt_q[0] * 57.29578, cur.q[0] * 57.29578,
                      tgt_q[1] * 57.29578, cur.q[1] * 57.29578,
                      tgt_q[8] * 57.29578, cur.q[8] * 57.29578,
@@ -1984,7 +1726,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                      "[node] t=%5.1fs(twin=%5.1f) %s z=%.3f tilt=%4.1f lean(fwd/lat)=%+.1f/%+.1f "
                      "knee=%+.2f/%+.2f  ankP(L/R)=%+.0f/%+.0f deg  "
                      "plan=%.0f/s lat=%.0fms\n",
-                     wall, twin_time, warming ? "WARMUP" : "policy", base_z, tilt,
+                     wall, twin_time, PhaseName(phase), base_z, tilt,
                      meas_lean_fwd, meas_lean_lat,
                      meas_kneeL, meas_kneeR,
                      cur.q[4] * 57.29578, cur.q[10] * 57.29578,
@@ -2090,8 +1832,8 @@ int RunDeployNode(const NodeConfig& cfg) {
     for (int i = 0; i < cfg.nu; i++) {
       double pk = m_tau_max[i], lim = cfg.tau_limit[i];
       double pkpct = 100.0 * pk / lim, satpct = 100.0 * m_sat_count[i] * inv;
-      double budget = kClampRatio * cfg.tau_estop[i];
-      double clpct = 100.0 * m_clamp_count[i] * inv;
+      double budget = kBudgetRatio * cfg.tau_estop[i];
+      double clpct = 100.0 * m_over_budget_count[i] * inv;
       if (pk > lim) n_over++;
       const bool starved = clpct >= 5.0;   // emitting over the estop budget for >=5% of the run
       if (starved) n_starved++;

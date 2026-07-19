@@ -292,7 +292,12 @@ if(MJPC_BUILD_DEPLOY)
   # Shared deploy sources -- when stage 3 splits deploy_common.cc, extend THIS
   # list (and the consumer package's H12_DEPLOY_COMMON_SRCS): the deploy source
   # list lives in exactly 2 places (here + core_ws/src/h12_deploy_mjpc).
-  set(H12_DEPLOY_COMMON_SRCS deploy/deploy_common.cc)
+  set(H12_DEPLOY_COMMON_SRCS
+      deploy/deploy_common.cc
+      deploy/deploy_model.cc
+      deploy/deploy_net.cc
+      deploy/deploy_state.cc
+      deploy/deploy_telemetry.cc)
   # target : thin main pairs. NOTE the split core is ALSO built by the consumer
   # package as mjpc_split_core (the production binary); building it here keeps
   # a fork-only checkout able to produce every core.

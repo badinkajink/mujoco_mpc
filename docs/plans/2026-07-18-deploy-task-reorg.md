@@ -401,6 +401,21 @@ it agrees with the existing booleans for one verification run), then delete the
 booleans. The dual clock stays: choreography on plant time, align/handover/physical
 on wall time; `tick0` untouched at handover (I9).
 
+**Execution record (2026-07-18):** stage 3 landed in the reduced-risk order:
+**3a** extracted the genuinely self-contained units (`deploy_net`, `deploy_model`,
+`deploy_state` types+QuatRot, `deploy_telemetry` AppendPlanJson, header-only
+`deploy_grpc`) and applied the clamp-era renames (`kClampRatio`→`kBudgetRatio`,
+`m_clamp_count`→`m_over_budget_count`); **3b** introduced `BringupPhase` as the
+derived view, printed in every status line (each verification run exercises it).
+The remaining stage-3 work — NodeRuntime absorbing the loop/lambda state,
+`deploy_choreo.cc`, and inverting the enum to drive the ladder — is deferred to a
+**3c** pass after stage 4, with the derived view as its correctness oracle: 3c
+must reproduce the exact phase sequence 3b's labels log today. Rationale: having
+read all 2,138 lines, the lambda-capture web (fill_state/emit_safe_hold/
+predict_forward + ~40 loop locals) makes the full NodeRuntime move the riskiest
+single step of the reorg; the derived view extracts most of the readability value
+at zero behavioral risk and turns the final move into a diff against logged truth.
+
 **Explicitly unchanged (flagged follow-up F2):** safe-hold and the stale watchdog
 publish only on `cfg.lowcmd_topic` — the split core's upper channel goes silent, not
 damped, on stale state. Changing that is a safety-semantics decision, not a
