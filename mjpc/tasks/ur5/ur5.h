@@ -36,7 +36,8 @@ class UR5 : public Task {
   };
   UR5() : residual_(this) {}
 
-  // // Reset the cube into the hand if it's on the floor
+  // On bring success (mean box-site-to-target distance < 1.5 cm):
+  // re-randomize the box position and the mocap target pose, open the gripper.
   void TransitionLocked(mjModel *model, mjData *data) override;
 
  protected:

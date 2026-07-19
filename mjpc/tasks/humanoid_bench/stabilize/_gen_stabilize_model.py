@@ -11,7 +11,8 @@ h1_2_stabilize_magpie.xml which:
     rigid while the planner controls the lower body only.
 
 The 27-DOF joint layout is preserved (only actuators are dropped + locked), so
-lean's residual stays valid; the model->nu-coupled cost terms shrink to 12.
+the stabilize residual's qpos indexing stays valid; the model->nu-coupled cost
+terms shrink to 12.
 
 usage: _gen_stabilize_model.py <input_magpie.xml> <output_stabilize.xml>
 """
@@ -20,16 +21,13 @@ import sys
 
 LEG_KEYS = ("hip", "knee", "ankle")
 
-# R2 (2026-07-04): sole = 4 corner SPHERES per foot (G1 Menagerie pattern,
-# H1-2 dimensions), mesh sole demoted to visual. The mesh foot gives a
-# NON-DETERMINISTIC support polygon (L vs R resolve different contact sets =
-# the one-knee-crouch signature; G1 abandoned mesh feet for exactly this).
-# Geometry-ONLY change: spheres inherit the validated condim 4 + friction
-# 1/0.06 (G1's 0.6/condim3 are separate parity knobs, NOT taken). Corner
-# placement measured from the mesh sole AABB (body frame: x -0.085..0.173,
-# y +-0.042, sole plane z=-0.045), corners ~2 cm inside the edges; sphere
-# bottoms sit exactly on the mesh sole plane (z center -0.040, r 0.005) so
-# the standing height is unchanged. Set False to revert to the mesh sole.
+# FOOT_SPHERES = False: the MESH sole is the collision sole (current default;
+# the sphere-sole experiment was reverted). Set True to re-run the R2
+# experiment: 4 corner spheres per foot (G1 Menagerie pattern, H1-2
+# dimensions), mesh demoted to visual, spheres inheriting condim 4 + friction
+# 1/0.06 with bottoms on the mesh sole plane so standing height is unchanged.
+# (history + the sphere-vs-mesh rationale: see
+# mjpc/tasks/humanoid_bench/HISTORY.md)
 FOOT_SPHERES = False
 _SPHERE_XY = [(-0.065, 0.038), (-0.065, -0.038), (0.15, 0.038), (0.15, -0.038)]
 

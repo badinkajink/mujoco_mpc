@@ -1,29 +1,27 @@
-// Shared core of the H1-2 MJPC deploy nodes (h12_control_node = full-body nu=27,
-// h12_lower_body_controller = legs-only nu=12). Everything that used to be
-// duplicated line-for-line across the two .cc files lives here once: DDS I/O
-// (unitree_sdk2), the embedded mjpc::Agent + async planner thread, state
-// reconstruction (IMU-site -> pelvis), latency compensation, bring-up ramp /
-// policy blend / live strategy switch, the safety clamps, telemetry, and the
-// optional gRPC monitor service. The two remaining .cc files are thin mains:
-// per-node gain tables + the surviving CLI flags -> NodeConfig -> RunDeployNode.
+// Shared core of the H1-2 MJPC deploy nodes. Everything that would otherwise
+// be duplicated across the node mains lives here once: DDS I/O (unitree_sdk2),
+// the embedded mjpc::Agent + async planner thread, state reconstruction
+// (IMU-site -> pelvis), latency compensation, bring-up ramp / policy blend /
+// live strategy switch, the safety machinery, telemetry, and the optional gRPC
+// monitor service. The FOUR .cc files beside it are thin mains -- per-node gain
+// tables + the surviving CLI flags -> NodeConfig -> RunDeployNode:
+//   h12_control_node.cc          full-body nu=27  -> colcon mjpc_fullbody_core
+//   h12_lower_body_controller.cc legs-only nu=12  -> mjpc_lowerbody_core
+//                                (the legacy chain)
+//   h12_upper_body_controller.cc upper nu=15 (motors 12..26; fork build only,
+//                                no colcon core)
+//   h12_split_controller.cc      whole-body nu=27, split lower/upper output
+//                                channels -> mjpc_split_core (the core the
+//                                chain bringup runs)
 //
-// FLAG DIET (2026-07-02, HAMS_integration): the ~20 flags that were passed
-// IDENTICALLY in every documented invocation (Command_Sheet_h12.html A1/A2/B1/
-// B2/B-Stabilize, run_realchain.sh, tab launchers) are now compiled-in
-// constants below; the flags that provably differ between plants/missions
-// survive in the thin mains (task, strategy, gravity_ff, twin_dt,
-// sportstate_topic, IMU/ankle calibration, network_interface, domain_id,
-// grpc_port, arm_aware). Deleted dead paths: --sync_plan / --plan_rate_hz (all
-// runs used the async planner thread), --arm_ramp_sec (only live when
-// start_ramp_sec==0, which never happened), --require_sportstate=false debug
-// mode (the base estimator / OptiTrack always publishes sportmodestate now),
-// --execute_best (never used).
-// NO TUNED VALUE CHANGED: only how it is supplied (compiled default vs CLI).
-// RE-ADDED 2026-07-03: --plan_trajectories + --plan_threads. Cutting them was
-// a diet mistake -- they are the R2 plan-rate sweep levers on REAL hardware
-// (samples-per-plan vs replan-rate: trot's 36 traj @ 12 threads plans only
-// ~28 Hz = the 06-29 starvation diagnosis; one-wave rule: traj <= threads).
-// Both default 0 = the compiled/task value, so a bare invocation is unchanged.
+// FLAG DIET: flags that were passed identically in every documented invocation
+// are compiled-in constants below; only the flags that provably differ between
+// plants/missions survive in the thin mains. NO TUNED VALUE CHANGED by the
+// diet -- only how a value is supplied (compiled default vs CLI).
+// --plan_trajectories / --plan_threads stay as CLI flags: they are the
+// plan-rate sweep levers on real hardware (one-wave rule: traj + 1 <= threads);
+// both default 0 = the compiled/task value, so a bare invocation is unchanged.
+// (history: see mjpc/deploy/HISTORY.md)
 #ifndef MJPC_DEPLOY_DEPLOY_COMMON_H_
 #define MJPC_DEPLOY_DEPLOY_COMMON_H_
 
@@ -41,20 +39,11 @@ inline constexpr double kStartRampSec = 5.0;      // all-joint measured->stance 
 inline constexpr double kRampHoldSec = 3.0;       // scripted hold after ramp (CEM converges)
 inline constexpr double kPolicyBlendSec = 4.5;    // ease scripted stance -> live policy target
 inline constexpr double kSwitchSettleSec = 2.0;   // hold pose after a live strategy switch
-inline constexpr bool   kUseTwinTime = true;      // planner clock = lowstate tick * twin_dt
-// Planner ThreadPool size. 0 = AUTO = hw_threads - kPlanThreadsReserve.
-//
-// WAS a hard 12 ("leaves cores for twin/safety"), which silently starved every STEPPING
-// strategy on the real robot: CEM schedules num_trajectory + 1 jobs (the nominal rollout
-// rides along, cross_entropy/planner.cc:469) and WAITS for all of them, so a plan iteration
-// costs ceil((N+1)/threads) thread-WAVES. Trot's 36 trajectories on 12 threads = 4 waves =
-// 27-30 plans/s measured on real -- below the 50-100 Hz band every real deployment needs
-// (CMU Go1 MPPI: 30 samples @ 100 Hz, CPU-only, "limited computing is much better spent on
-// achieving a ~100 Hz policy than additional sample evaluations"; Unitree's own H1-2 RL
-// deploys decide at 50 Hz). The open-loop swing (lean::ModifyControl) is rate-INDEPENDENT
-// so the legs still alternated -- but the stance-leg weight shift is SAMPLER-owned, so it
-// starved: feet never unloaded. AUTO-sizing gives 18 on the dev laptop (24 hw threads),
-// which measured 45-52 plans/s on the real robot -- in band.
+// Planner ThreadPool size. 0 = AUTO = hw_threads - kPlanThreadsReserve (floor
+// kPlanThreadsMin). Rationale for AUTO: CEM waits on num_trajectory + 1 rollout
+// jobs per iteration, so an undersized pool divides the replan rate into
+// thread-WAVES and starves the sampler-owned stepping strategies -- real legged
+// sampling-MPC needs 50-100 plans/s. (history: see mjpc/deploy/HISTORY.md)
 // Reserve covers: control/publish thread, DDS rx/tx, safety layer, OS.
 // BENCH NOTE: when co-running the PYTHON twin on the same box, pass --plan_threads 12 --
 // 18 planner threads starve the twin to ~0.5x real-time (measured 2026-07-03).
@@ -66,7 +55,8 @@ inline constexpr double kLatencyFixedMs = 0.0;    // 0 = AUTO (EWMA of compute t
 inline constexpr double kLatencyExtraMs = 4.0;    // transport + plant zero-order-hold (AUTO mode)
 inline constexpr double kLatencyMaxMs = 40.0;     // hard cap on the predicted-forward horizon
 inline constexpr double kVelLpfMs = 30.0;         // single-stream base-linvel finite-diff LPF
-inline constexpr double kClampRatio = 0.9;        // torque budget clamp: 0.9 x TAU_ESTOP (audit H2)
+inline constexpr double kClampRatio = 0.9;        // 0.9 x TAU_ESTOP: frc_parity forcerange
+                                                  // budget + over-budget telemetry (no emit clamp)
 inline constexpr double kStaleSec = 0.05;         // H1 watchdog: state older than this -> safe-hold
 inline constexpr float  kSafeHoldKd = 2.0f;       // damping-stop kd on safe-hold (kp=0, tau=0)
 // IMU site position in the pelvis (free-joint) frame, from h1_2_handless.xml.
@@ -82,32 +72,25 @@ enum class Telemetry { kFullBody, kLowerBody, kUpperBody };
 
 struct NodeConfig {
   // ---- per-node compile-time tables (point at static arrays in the main) ----
-  int nu = 0;                          // 27 full-body, 12 legs-only
+  int nu = 0;                          // 27 full-body/split, 12 legs-only, 15 upper-body
   const double* kp = nullptr;          // [nu] onboard PD kp == planner actuator gains
   const double* kv = nullptr;          // [nu]
-  const double* tau_estop = nullptr;   // [nu] safety-layer estop thresholds (H2 clamp basis)
+  const double* tau_estop = nullptr;   // [nu] safety-layer estop thresholds (frc_parity basis)
   const double* tau_limit = nullptr;   // [nu] operational URDF limits (B0 report basis)
   const double* frc_limit = nullptr;   // [nu] planner forcerange patch, or nullptr = none
   int frc_limit_begin = 0;             // first index to patch (13 = arms only, full-body node)
-  // ---- ACTUATOR-AUTHORITY PARITY (2026-07-11): the planner must not plan with torque
-  // the node will never emit. The H2 clamp bounds the EMITTED command to
-  // kClampRatio * tau_estop, but the PLANNER model's forceranges were left at the MJCF
-  // defaults for legs/torso -- so the sampler plans single-support balance believing it
-  // has authority it does not have:
-  //     joint    planner sees   node actually emits   over-estimate
-  //     ankleP     +/-75 Nm          48.6 Nm             1.54x
-  //     ankleR     +/-75 Nm          32.4 Nm             2.31x
-  //     torso     +/-200 Nm          36.0 Nm             5.56x
-  //     hipY      +/-200 Nm          54.0 Nm             3.70x
-  // REAL 2026-07-11 (strat 23, plan rate healthy at 45-52/s): the stance ankle pitch railed
-  // at EXACTLY 48.6 Nm and the torso at EXACTLY 36.0 Nm for 6 s while the stance knee locked
-  // to -0.05 rad (a passive prop) AGAINST a weight-200 anti-strut cost -- the classic
-  // weak-ankle crutch. The plan was valid in the planner's model and unexecutable in the
-  // node's. Same bug CLASS as the phantom-table parity bug that faked the "forward walk needs
-  // RL" verdict: the planner was solving the wrong physics.
-  // -1 = task default (Task::PlannerNumericOverrides may set the `deploy_frc_parity` numeric;
-  //      the lean task turns it ON for the stepping strategies only), 0 = force OFF (legacy
-  //      model, byte-identical), 1 = force ON. Kill switch: --frc_parity=0.
+  // ---- ACTUATOR-AUTHORITY PARITY: the planner must not plan with torque the
+  // deployment cannot afford. There is NO emit clamp -- the node publishes the
+  // raw planner command -- so a plan that demands more than the safety-layer
+  // estop budget (kClampRatio * tau_estop) is emitted as-is and can TRIP the
+  // estop. frc_parity is the intended mitigation: when ON, every planner
+  // forcerange is tightened to that budget (never loosened; see
+  // PatchActuators), so the sampler only plans motions the safety layer will
+  // tolerate. (history: see mjpc/deploy/HISTORY.md)
+  // -1 = task default (the model's `deploy_frc_parity` numeric; no task ships it ON —
+  //      the Lean XMLs set it 0 and PlannerNumericOverrides never sets it), 0 = force OFF
+  //      (legacy model, byte-identical), 1 = force ON (what split_body_controller.py
+  //      passes). Kill switch: --frc_parity=0.
   int frc_parity = -1;
   const char* const* joint_names = nullptr;  // [nu]
   Telemetry telemetry = Telemetry::kFullBody;
@@ -188,10 +171,10 @@ struct NodeConfig {
   // at kp=200 a 3 deg residual is only 10 Nm, which a harmonic drive will happily sit on, so the
   // legs stop short of the stance. align_ki winds an integrator into the COMMANDED target once
   // the min-jerk reference has arrived, so kp*(tgt - q) keeps GROWING until the joint breaks
-  // loose. The head-room is real -- the H2 clamp permits |tgt - q| up to
-  // (0.9*tau_estop - |tau_ff| - kv*|dq|)/kp = 0.36..1.35 rad on these joints -- and that SAME
-  // clamp is the backstop: the emitted torque still cannot exceed 0.9 x the safety estop, so
-  // this pushes hard but never leaves the safety envelope. 0 = off (pure PD, may stall short).
+  // loose. align_i_max (a POSITION bound) is the ONLY limit on the push: there is no torque
+  // clamp on the emitted command, so the motor PD torque from the wound-up target CAN reach
+  // the safety-layer estop (kp*align_i_max bounds the extra torque any one joint can add).
+  // 0 = off (pure PD, may stall short).
   double align_ki = 1.0;               // integral gain [rad/s per rad of error]
   double align_i_max = 0.25;           // windup limit [rad]: the most extra command any one joint
                                        // may accumulate (kp*this = the extra torque it can add;
@@ -207,7 +190,8 @@ struct NodeConfig {
   bool arm_aware = false;              // legs-only node: retarget eq locks to measured arms
   int plan_trajectories = 0;           // >0 overrides sampling_trajectories AFTER the
                                        // per-strategy PlannerNumericOverrides; 0 = task default
-  int plan_threads = 0;                // >0 overrides kPlanThreads(12); 0 = compiled default
+  int plan_threads = 0;                // >0 overrides the pool size; 0 = compiled kPlanThreads,
+                                       // itself 0 = AUTO (hw_threads - kPlanThreadsReserve)
   double stale_sec = kStaleSec;        // H1 watchdog threshold; default = the REAL-robot 50ms.
                                        // Loosen ONLY for sims whose lowstate publisher stalls
                                        // on a shared sim lock (RoboCasa sensor renders: 50-60ms

@@ -18,12 +18,6 @@
 
 namespace mjpc::humanoid {
 
-void MotionStrategy::Clear() {
-  contact_keyframes_.clear();
-  contact_keyframes_[current_keyframe_index_].Reset();
-  current_keyframe_index_ = 0;
-}
-
 void MotionStrategy::Reset() { current_keyframe_index_ = 0; }
 
 int MotionStrategy::NextKeyframe() {

@@ -847,13 +847,16 @@
              Tune the trot-walk strength via the trot_angmom_w numeric, NOT this weight. -->
         <user name="Angular Momentum" dim="3" user="0 1.0 0.0 100.0"/>
         <user name="Lateral Center" dim="1" user="0 0.0 0.0 100.0"/>
-        <!-- Gait / Step Place: strategy-20 "stumble" stepping. Default weight 0
-             (inert for strategies 0-19, exactly like Symmetry/Angular Momentum/
-             Lateral Center above); enabled per-phase by h12_simple_stumble.json
-             and computed only when the keyframe name starts with "stumble"
-             (lean.cc name-gate). Gait(2)=swing-foot height per foot; Step
-             Place(4)=swing-foot xy capture-point/Raibert target (L xy, R xy).
-             These MUST stay the LAST two <user> sensors (residual append order). -->
+        <!-- Gait / Step Place: "stumble" stepping. Default weight 0 (inert for
+             non-stepping strategies, exactly like Symmetry/Angular Momentum/
+             Lateral Center above); enabled per-phase by the stumble/trot/walk/
+             drive strategy JSONs and computed only when the keyframe name
+             starts with "stumble" (stabilize.cc name-gate). Gait(2)=swing-foot
+             height per foot; Step Place(4)=swing-foot xy capture-point/Raibert
+             target (L xy, R xy). The <user> sensor order here IS the residual
+             append order in stabilize.cc (the order contract) -- new terms are
+             appended at the END, so Foot Slip / Stance Width / Foot Flat /
+             CoM Cap follow these. -->
         <user name="Gait" dim="2" user="0 0.0 0.0 100.0"/>
         <user name="Step Place" dim="4" user="0 0.0 0.0 100.0"/>
         <user name="Foot Slip" dim="2" user="0 0.0 0.0 100.0"/>
@@ -861,9 +864,10 @@
              barrier (heading frame), residual = 10*max(0, stance_min_sep - sep).
              0 at the nominal 0.516 m stance; the stand JSON opts in (100) to
              stop the sampler criss-crossing the legs under lateral pushes
-             (nothing else in the cost regulates stance width). MUST stay the
-             LAST <user> sensor: it was appended after Foot Slip so no existing
-             residual index moved. Barrier position = numeric stance_min_sep. -->
+             (nothing else in the cost regulates stance width). Appended after
+             Foot Slip so no existing residual index moved; Foot Flat and CoM
+             Cap now follow it (append any new term at the END). Barrier
+             position = numeric stance_min_sep. -->
         <user name="Stance Width" dim="1" user="0 0.0 0.0 300.0"/>
         <user name="Foot Flat" dim="2" user="0 0.0 0.0 800.0"/>
         <user name="CoM Cap" dim="1" user="0 0.0 0.0 600.0"/>

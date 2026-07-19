@@ -107,39 +107,9 @@ class lean : public Task {
     // interpolate from their previous-phase values to the new-phase values
     // over this many seconds after each keyframe advance. 1.5s gives the
     // robot time to absorb the new gradient instead of being shoved forward.
-    // Tried bumping to 3.0 to slow the arm swing during 2→3 — backfired:
-    // with MPC horizon 1.0s the lean_forward gradient stayed weak for ~2s
-    // while Height (head wants to stay high, weight 35 effective in
-    // arm_contact_or_lean) was full strength — body settled into a slight
-    // backward bend as the cheap local optimum. If arm swing is still too
-    // fast at 1.5s, a surgical fix (Brace Hand Velocity residual active
-    // only during arm_plant) is preferable to slowing every cost ramp.
+    // Raising it is NOT a free fix for abrupt arm swings — a 3.0s trial
+    // backfired (history: see mjpc/tasks/humanoid_bench/HISTORY.md).
     static constexpr mjtNum kPhaseRampSeconds = 1.5;
-
-    // STAND-UP-only target-pose ramp duration (see the asymmetric target ramp
-    // in lean.cc). Deliberately LONGER than kPhaseRampSeconds: at the live
-    // ~60/s plan rate, straightening the legs from a crouch over only 1.5s
-    // still launches the body backward on the second cycle (squat fell ~28s).
-    // Spreading the leg extension over 3s lets the sampler keep the capture
-    // point under the feet the whole way up. Only used when a phase transition
-    // moves the target pose CLOSER to home (standing up); descents still snap.
-    static constexpr mjtNum kAscentTargetRampSeconds = 3.0;
-
-    // Crouch-DOWN target-pose ramp duration. Much SHORTER than the ascent ramp:
-    // a pure snap folds the legs so fast the upper body overshoots into a
-    // forward pitch (the recurring squat descent fall), but the slow ascent
-    // ramp on a descent lets the robot catch the target and kills the
-    // stabilising spring (forward pitch at ~2.6s). 0.6s threads the needle: the
-    // target still leads the robot (spring preserved) yet the fold is spread
-    // over ~0.6s instead of instantaneous, capping the overshoot. So short that
-    // single-phase pose strategies (which settle for seconds) are unaffected.
-    static constexpr mjtNum kDescentTargetRampSeconds = 0.6;
-
-    enum LeanMode {
-      kModeReach = 0,
-      kModeRetrieve,
-      kNumMode
-    };
 
    protected:
     mjpc::humanoid::ContactKeyframe residual_keyframe_;
@@ -243,7 +213,6 @@ class lean : public Task {
     friend class lean;
 
     static constexpr double kHandDistThreshold = 0.0;
-    static constexpr double kContactStableTime = 0.0;
     static constexpr double kContactForceThreshold = 0.0;
 
     void ContactResidual(const mjModel *model, const mjData *data,
@@ -461,15 +430,12 @@ class lean : public Task {
     // agreement). Every non-drive strategy leaves this 0 (default path).
     rfn->drive_gait_amp_ = residual_.drive_gait_amp_;
     rfn->drive_yaw_des_ = residual_.drive_yaw_des_;   // V3 yaw heading target
-    // ★ BUGFIX 2026-07-12: propagate the GOVERNED COMMAND too. Without this every
-    // rollout residual sees cmd_active_=false and therefore takes the legacy
-    // trot_des_vel numeric path (v_des = 0) -- i.e. it costs the gait as an
-    // IN-PLACE trot -- while lean::ModifyControl (which reads the CANONICAL
-    // residual_) drives the swing FORWARD at the governed v_des. Cost and swing
-    // then disagree on every sampled trajectory and the sampler spends the whole
-    // plan cancelling the walk drive. That is the exact opposite of what the
-    // "MUST match lean::ModifyControl" comments in Residual() require, and it is
-    // the prime suspect for the free-twin ~6 s walk ceiling.
+    // Propagate the GOVERNED COMMAND too: every rollout snapshot MUST carry
+    // the cmd state, or rollout residuals fall back to the legacy trot_des_vel
+    // numeric path (v_des = 0, in-place trot) while lean::ModifyControl (which
+    // reads the CANONICAL residual_) drives the swing forward -- violating the
+    // "MUST match lean::ModifyControl" cost/swing agreement Residual() requires.
+    // (history: see mjpc/tasks/humanoid_bench/HISTORY.md)
     rfn->cmd_active_ = residual_.cmd_active_;
     rfn->cmd_vdes_world_[0] = residual_.cmd_vdes_world_[0];
     rfn->cmd_vdes_world_[1] = residual_.cmd_vdes_world_[1];

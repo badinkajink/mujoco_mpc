@@ -108,7 +108,6 @@ add_library(
   tasks/humanoid_bench/avoid/avoid.cc
   tasks/humanoid_bench/avoid/avoid.h
   tasks/humanoid_bench/avoid/offline_obstacles.h
-  tasks/humanoid_bench/avoid/utils.h
   planners/planner.cc
   planners/planner.h
   planners/policy.h
@@ -279,7 +278,7 @@ target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
 # OFF by default so the normal build never needs unitree_sdk2.  Enable with:
 #   cmake .. -DMJPC_BUILD_DEPLOY=ON
 # unitree_sdk2 is auto-located at ~/unitree_install (override by adding your own
-# prefix to -DCMAKE_PREFIX_PATH).  See mjpc/deploy/README_EMBED.md.
+# prefix to -DCMAKE_PREFIX_PATH).  See mjpc/deploy/README.md.
 # -----------------------------------------------------------------------------
 option(MJPC_BUILD_DEPLOY "Build the embedded DDS control node (needs unitree_sdk2)" OFF)
 if(MJPC_BUILD_DEPLOY)

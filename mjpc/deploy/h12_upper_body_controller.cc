@@ -72,11 +72,11 @@ ABSL_FLAG(int, grpc_port, 10001,
 ABSL_FLAG(int, plan_trajectories, 0,
           "override sampling_trajectories (rollouts per plan) AFTER load. 0 = task default.");
 ABSL_FLAG(int, plan_threads, 0,
-          "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). For a co-run "
+          "override the planner ThreadPool size. 0 = AUTO = hw_threads - 6. For a co-run "
           "with the lower node on one PC, split the cores (e.g. 6/6) -- see the P6.4 gate.");
 ABSL_FLAG(bool, straighten_start, false,
           "hold the measured (slumped) pose, wait for ENTER, then hand authority to the planner "
-          "from the slump (SETTLE->BLEND, no drag). Pair with --strategy 25 (straighten). OFF by default.");
+          "from the slump (SETTLE->BLEND, no drag). OFF by default.");
 ABSL_FLAG(bool, cost, false,
           "dump the per-term cost breakdown to stderr once/sec (debug). OFF by default -- the "
           "concise [node] status line is unaffected.");
@@ -109,8 +109,10 @@ const double KP[kNU] = {200,  40, 40, 40, 40, 40, 40, 40,
 const double KV[kNU] = {5,    10, 10, 10, 10, 2, 2, 2,
                               10, 10, 10, 10, 2, 2, 2};
 // SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit),
-// rows 12..26 of the full-body node's table. Basis of the H2 torque-budget
-// clamp: |tau_ff + KP*(tgt-q) + KV*dq| <= 0.9x these, per joint.
+// rows 12..26 of the full-body node's table -- MUST equal the safety layer's
+// estop table. Feeds the over-budget telemetry (ticks where |tau_ff + KP*(tgt-q)
+// + KV*dq| > 0.9x these); emitted torque is NOT clamped -- the estop is the
+// backstop.
 const double TAU_ESTOP[kNU] = {40,  32, 32, 14.4, 14.4, 9.5, 9.5, 9.5,
                                     32, 32, 14.4, 14.4, 9.5, 9.5, 9.5};
 // OPERATIONAL H1-2 joint torque limits (Nm) = Unitree URDF actuatorfrcrange

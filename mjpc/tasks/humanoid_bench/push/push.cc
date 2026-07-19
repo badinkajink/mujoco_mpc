@@ -21,7 +21,7 @@
 #include "mujoco/mujoco.h"
 
 namespace mjpc {
-// ------------------ Residuals for humanoid stand task ------------
+// ------------------ Residuals for humanoid_bench push task -------
 //   Number of residuals:
 //      Residual(0): humanoid_bench reward
 //      Residual(1): Height: head feet vertical error

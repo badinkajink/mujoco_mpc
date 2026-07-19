@@ -22,14 +22,13 @@
 #include "mjpc/utilities.h"
 
 namespace mjpc {
-// ------- Residuals for cube manipulation task ------
-//     Cube position: (3)
-//     Cube orientation: (3)
-//     Cube linear velocity: (3)
-//     Control: (16), there are 16 servos
-//     Nominal pose: (16)
-//     Joint velocity: (16)
-// ------------------------------------------
+// ------- Residuals for UR5 reach-and-bring task ------
+//     Reach: hand site to box site (3)
+//     Bring: box1 site to target1 site (3)
+//            box2 site to target2 site (3)
+//     (box1/box2 are the two ends of the box; matching
+//      both to the target sites fixes pos + orientation)
+// -----------------------------------------------------
 void UR5::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                    double *residual) const {
   int counter = 0;

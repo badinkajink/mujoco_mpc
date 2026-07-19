@@ -108,39 +108,9 @@ class stabilize : public Task {
     // interpolate from their previous-phase values to the new-phase values
     // over this many seconds after each keyframe advance. 1.5s gives the
     // robot time to absorb the new gradient instead of being shoved forward.
-    // Tried bumping to 3.0 to slow the arm swing during 2→3 — backfired:
-    // with MPC horizon 1.0s the lean_forward gradient stayed weak for ~2s
-    // while Height (head wants to stay high, weight 35 effective in
-    // arm_contact_or_lean) was full strength — body settled into a slight
-    // backward bend as the cheap local optimum. If arm swing is still too
-    // fast at 1.5s, a surgical fix (Brace Hand Velocity residual active
-    // only during arm_plant) is preferable to slowing every cost ramp.
+    // Raising it was tried and rejected (history: see
+    // mjpc/tasks/humanoid_bench/HISTORY.md).
     static constexpr mjtNum kPhaseRampSeconds = 1.5;
-
-    // STAND-UP-only target-pose ramp duration (see the asymmetric target ramp
-    // in stabilize.cc). Deliberately LONGER than kPhaseRampSeconds: at the live
-    // ~60/s plan rate, straightening the legs from a crouch over only 1.5s
-    // still launches the body backward on the second cycle (squat fell ~28s).
-    // Spreading the leg extension over 3s lets the sampler keep the capture
-    // point under the feet the whole way up. Only used when a phase transition
-    // moves the target pose CLOSER to home (standing up); descents still snap.
-    static constexpr mjtNum kAscentTargetRampSeconds = 3.0;
-
-    // Crouch-DOWN target-pose ramp duration. Much SHORTER than the ascent ramp:
-    // a pure snap folds the legs so fast the upper body overshoots into a
-    // forward pitch (the recurring squat descent fall), but the slow ascent
-    // ramp on a descent lets the robot catch the target and kills the
-    // stabilising spring (forward pitch at ~2.6s). 0.6s threads the needle: the
-    // target still leads the robot (spring preserved) yet the fold is spread
-    // over ~0.6s instead of instantaneous, capping the overshoot. So short that
-    // single-phase pose strategies (which settle for seconds) are unaffected.
-    static constexpr mjtNum kDescentTargetRampSeconds = 0.6;
-
-    enum LeanMode {
-      kModeReach = 0,
-      kModeRetrieve,
-      kNumMode
-    };
 
    protected:
     mjpc::humanoid::ContactKeyframe residual_keyframe_;
@@ -190,13 +160,9 @@ class stabilize : public Task {
     // exactly as before.
     //
     // ★ cmd_active_ + cmd_vdes_world_ ARE propagated into every rollout copy by
-    // ResidualLocked (unlike lean.cc, which propagates only drive_gait_amp_/
-    // drive_yaw_des_ -- so ITS rollout residuals silently see cmd_active_=false
-    // and cost the gait as an IN-PLACE trot while ModifyControl drives the swing
-    // FORWARD at the governed v_des). That disagreement makes the sampler fight
-    // the open-loop walk drive on every rollout, which is the same signature as
-    // the documented "free-twin ~6s walk ceiling". Propagating them is what the
-    // "MUST match ModifyControl" comments in the residual actually require.
+    // ResidualLocked, so the sampled cost and the open-loop walk drive agree on
+    // the same velocity target -- which is what the "MUST match ModifyControl"
+    // comments in the residual actually require.
     bool   cmd_active_ = false;
     double cmd_vdes_world_[2] = {0.0, 0.0};  // governed v_des, WORLD frame
     // --- canonical-only bookkeeping (never read from a rollout copy) ---
@@ -241,8 +207,7 @@ class stabilize : public Task {
     // Number of phases (keyframes) in the active strategy; set in TransitionLocked
     // from motion_strategy_.GetKeyframesCount(). The target-pose ramp in Residual()
     // is GATED on num_phases_ > 1 so single-phase strategies (stand/crouch/arms)
-    // never enter the ramp branch -- byte-identical to before. This is the
-    // per-strategy gate the 2026-06-08 revert note (stabilize.cc) said the ramp needed.
+    // never enter the ramp branch.
     int num_phases_ = 1;
     // STRAIGHTEN (strat 25) live-seed funnel state (ported from lean 2026-07-15):
     //   straighten_start_qpos_ : full qpos at straighten entry (posture ramp FROM)
@@ -279,7 +244,6 @@ class stabilize : public Task {
     friend class stabilize;
 
     static constexpr double kHandDistThreshold = 0.0;
-    static constexpr double kContactStableTime = 0.0;
     static constexpr double kContactForceThreshold = 0.0;
 
     void ContactResidual(const mjModel *model, const mjData *data,
@@ -310,7 +274,7 @@ class stabilize : public Task {
   // Per-strategy planner model-numeric overrides (e.g. sampling_spline_points).
   // See task.h PlannerNumericOverrides for the contract. Keyed by strategy NAME
   // (GetStrategyNames()[strategy]) so the override follows the strategy across
-  // the Lean_H12 / Lean_H12_Hands model variants.
+  // model variants.
   std::map<std::string, double> PlannerNumericOverrides(
       int strategy) const override;
 
@@ -333,29 +297,12 @@ class stabilize : public Task {
   // process (plan never armed) = first-branch return = byte-identical.
   void ModifyRolloutState(const mjModel* model, mjData* data) const override;
 
-  // Slider layout (Lean H12) — user's 6-phase decomposition:
-  //   0  stand            — stand_up
-  //   1  arm_extend       — stand → arm_extend_standing (arm out, body upright)
-  //   2  lean_no_brace    — stand → extend → lean_with_arm_no_brace
-  //   3  brace_hand_lean  — stand → extend → stabilize → arm_plant → lean_forward
-  //   4  forearm_brace    — above + forearm_brace_lean (hand+elbow on table)
-  //   5  full_pipeline    — identical to slot 4 now: ends in a HELD two-foot
-  //                         braced stabilize (DEFAULT).
-  //
-  // DESIGN (2026-05-26): the leg-lift phase (leg_lift_arm_plant) is DROPPED
-  // permanently. BOTH feet stay stable on the ground through EVERY phase of
-  // the pipeline. The only lower-body motion allowed is WBC-driven foot
-  // re-placement / hip twist IN SERVICE OF the brace (to hold balance while
-  // reaching/leaning) — never lifting a leg off the floor. No strategy JSON
-  // contains leg_lift_arm_plant anymore, so slot 5 == slot 4.
-  //
-  // Each slot is a literal truncation of the index-5 pipeline with the
-  // last phase forced indefinite (sustain/time_limit = 9999).
   virtual std::vector<std::string> GetStrategyNames() const {
-    // Lower-body STABILIZE strategy slots. Only slot 6 (stand) is real today;
-    // 0-5 are placeholders reserved for future lower-body skills (weight-shift,
-    // crouch, brace-step). Slot 6 == stand keeps parity with the
-    // h12_lower_body_controller --strategy 6 default.
+    // Lower-body STABILIZE strategy slots. Seven slots are real today:
+    // 6 (stand), 20 (stumble), 22 (walk), 23 (trot), 24 (drive),
+    // 25 (straighten), 26 (lockstand). Slots 0-5, 7-19 and 21 are placeholders
+    // kept for numbering parity with the lean task's slot layout (slot 6 ==
+    // stand also matches the h12_lower_body_controller --strategy 6 default).
     return {
         "stabilize_placeholder",     // 0
         "stabilize_placeholder",     // 1

@@ -183,27 +183,23 @@ inline void PhaseTargetScales(const std::string& name,
   }
   else if (name == "arm_extend") { reach = 0.3; brace_pos = 1.0; posture = 1.0; }
   else if (name == "lean_plant") { reach = 0.7; brace_pos = 1.0; posture = 1.0; }
-  // lean_reach / lean_reach_ext / leg_lift_arm_plant / deep_reach → 1.0/1.0/1.0.
+  // Any other name → 1.0/1.0/1.0 (lean_reach / lean_reach_ext). The old
+  // leg_lift_arm_plant / deep_reach names also fell through here, but they were
+  // removed from every strategy JSON (2026-05-26 leg-lift drop, see lean.h) —
+  // those cases can no longer occur; kept for the record.
 }
 }  // namespace
 
 // ------------------ Residuals for humanoid lean task ------------
-//   Number of residuals:
-//      Residual(0): humanoid_bench reward
-//      Residual(1): Height: head feet vertical error
-//      Residual(2): CoM Velocity
-//      Residual(3): joint velocity
-//      Residual(4): balance
-//      Residual(5): torso forward tilt (NEW - encourages leaning)
-//      Residual(6): pelvis tilt (NEW - allows forward lean)
-//      Residual(7): posture
-//      Residual(8): velocity
-//      Residual(9): control
-//      Residual(10): object distance (reaching hand)
-//      Residual(11): right hand distance to object
-//      Residual(12): left hand brace position on table (NEW)
-//   Number of parameters:
-//      Parameter(0): head height goal
+// The residual set is DEFINED by the <user> sensor list in the Lean_H12*.xml
+// model variants: Residual() appends its terms in exactly that sensor order,
+// with matching dims (the ORDER contract — enforced by the sensor-dim sanity
+// check at the end of this function).
+// Positional parameters come from the residual_* numerics in the model XML;
+// their indices are pinned by the kLean*ParameterIndex constants in lean.h
+// (Height Goal 0, Strategy 1, Phase 2, Reach Active/X/Y/Z 3-6, Cmd
+// Active/Vx/Vy/Seq/Wz 7-11 — 12 in Lean_H12_Magpie.xml; models that omit the
+// later ones fall back to the legacy paths via parameters.size() guards).
 // ----------------------------------------------------------------
 void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
@@ -1017,7 +1013,8 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // forward with the lean and chase itself into a face-plant. Placed 0.70 m
   // forward of midfoot — well beyond the upright arm's horizontal reach — so the
   // body must lean forward AND fully EXTEND the REACHING arm (reach_hand-selected:
-  // default/2 = RIGHT reaches, the OTHER arm counterweights -- see line ~495) to get
+  // default/2 = RIGHT reaches, the OTHER arm counterweights -- see the
+  // auto-arm-selection block above) to get
   // there. A nearer target (0.55) let the elbow stay folded; pushing it out
   // straightens the reach so the hand extends further in front. The free (other,
   // = left when reach_hand=2) arm + hips swing back to
@@ -1982,8 +1979,9 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     for (int li : {1, 3, 7, 9}) residual[counter + li] *= leg_gain;
   }
   // PIN THE NON-REACHING ARM (strat 21, 2026-06-23). The reach keeps GLOBAL
-  // Posture LOW (12) on purpose so the REACHING arm is free to extend (line ~75,
-  // the jab lesson: a high Posture parks a limb at rest). But that ALSO leaves the
+  // Posture LOW (12) on purpose so the REACHING arm is free to extend (see the
+  // reach_to_target case in PhaseTargetScales -- the jab lesson: a high Posture
+  // parks a limb at rest). But that ALSO leaves the
   // OTHER arm loose, so the planner throws it around for balance -- the user sees
   // this as the reach "switching arms" / the idle arm flailing. Fix the role
   // assignment right=reach (reach_hand) / left=HELD brace-ready arm: amplify ONLY
@@ -2951,49 +2949,6 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = 0.0;  // Foot Slip R
   }
 
-  // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
-  // // Check if we have elbow sensors (indicates H12_Hands model)
-  // bool has_elbow_sensors = false;
-  // for (int i = 0; i < model->nsensor; i++) {
-  //   if (std::string(model->names + model->name_sensoradr[i]) == "left_elbow_pos") {
-  //     has_elbow_sensors = true;
-  //     break;
-  //   }
-  // }
-  
-  // if (has_elbow_sensors) {
-  //   // Get elbow positions for bracing arm
-  //   double const *left_elbow_pos = SensorByName(model, data, "left_elbow_pos");
-  //   double const *right_elbow_pos = SensorByName(model, data, "right_elbow_pos");
-  //   double const *bracing_elbow = left_reaches ? right_elbow_pos : left_elbow_pos;
-    
-  //   // Get elbow orientation (z-axis should point along forearm)
-  //   double const *left_elbow_zaxis = SensorByName(model, data, "left_elbow_zaxis");
-  //   double const *right_elbow_zaxis = SensorByName(model, data, "right_elbow_zaxis");
-  //   double const *bracing_elbow_zaxis = left_reaches ? right_elbow_zaxis : left_elbow_zaxis;
-    
-  //   // Ideal forearm position: between palm and elbow, on table surface
-  //   double ideal_forearm[3] = {
-  //       (bracing_palm[0] + bracing_elbow[0]) * 0.5,
-  //       bracing_hand[1],
-  //       table_pos[2]  // On table surface
-  //   };
-    
-  //   // Distance from ideal forearm contact point
-  //   mju_sub3(&residual[counter], bracing_elbow, ideal_forearm);
-  //   counter += 3;
-    
-  //   // Forearm orientation: want forearm parallel to table (z-axis perpendicular to table normal)
-  //   // If forearm is flat, dot product with table normal should be ~0
-  //   double table_normal[3] = {0, 0, 1};
-  //   double forearm_alignment = mju_abs(mju_dot3(bracing_elbow_zaxis, table_normal));
-  //   residual[counter++] = forearm_alignment;  // Should be close to 0 when parallel
-    
-  //   // Optional: Check for forearm contact (if you add touch sensor)
-  //   // This would require adding a touch sensor to the elbow_link geoms
-  // }
-  // // ========== END FOREARM BRACING ========== //
-
   // sensor dim sanity check
   int user_sensor_dim = 0;
   for (int i = 0; i < model->nsensor; i++) {
@@ -3790,21 +3745,6 @@ void lean::ResetLocked(const mjModel *model) {
 }
 
 // ============================================================================
-// ModifyControl — CAPTURE-POINT FOOTSTEP CONTROLLER for the TROT strategy
-// (slot 23, phase "stumble_trot"). Called by Task::ModifyControl after the
-// policy fills ctrl and before mj_step, in EVERY rollout (NoisyRollout) AND on
-// the executed action (CEM ActionFromPolicy). Open-loop drives ONLY the swing
-// leg: lift for clearance mid-swing, then PLACE the foot at the capture point
-//   xi = v * sqrt(z/g)   (inverted-pendulum "catch" spot)
-// by touchdown, so single-support is a PLANNED CATCH, not an unguided fall. The
-// sampler still owns the stance leg + torso (balance). A desired CoM velocity
-// (numerics trot_des_vel_x/y, default 0) biases the step: 0 = step in place
-// (trot/stumble), >0 = WALK forward -- ONE generalized controller. is_trot-
-// gated: strat 20 + every other strategy byte-identical. ctrl[i] == joint
-// target for qpos[7+i] (position-servo). FK-measured gains (twin model): +hip_
-// pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both legs.
-// ============================================================================
-// ============================================================================
 // SPLIT-BODY upper-body pause lock (2026-07-17). Called per rollout step on the
 // WORKER's own mjData (Trajectory::NoisyRollout, before mj_step -- the same
 // hook stabilize's arm_plan preview uses). While the split deploy core's upper
@@ -3834,6 +3774,23 @@ void lean::ModifyRolloutState(const mjModel *model, mjData *data) const {
   }
 }
 
+// ============================================================================
+// ModifyControl — CAPTURE-POINT FOOTSTEP CONTROLLER for the TROT strategy
+// (slot 23, phase "stumble_trot"). Called by Task::ModifyControl after the
+// policy fills ctrl and before mj_step, in EVERY rollout (NoisyRollout) AND on
+// the executed action (CEM ActionFromPolicy). Open-loop drives ONLY the swing
+// leg: lift for clearance mid-swing, then PLACE the foot at the capture point
+//   xi = v * sqrt(z/g)   (inverted-pendulum "catch" spot)
+// by touchdown, so single-support is a PLANNED CATCH, not an unguided fall. The
+// sampler still owns the stance leg + torso (balance). A desired CoM velocity
+// (numerics trot_des_vel_x/y, default 0) biases the step: 0 = step in place
+// (trot/stumble), >0 = WALK forward -- ONE generalized controller. is_trot-
+// gated: strat 20 + every other strategy byte-identical. ctrl[i] == joint
+// target for qpos[7+i] (position-servo). FK-measured gains (twin model): +hip_
+// pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both legs.
+// (Also hosts the SPLIT-BODY upper-lock ctrl pin and the JUMP push assist,
+// documented at their blocks below.)
+// ============================================================================
 void lean::ModifyControl(const mjModel *model, const double *qpos,
                          const double *qvel, double time, double *ctrl) const {
   // ---- SPLIT-BODY upper lock: pin the torso+arm ctrl channels ------------ //
@@ -3989,9 +3946,10 @@ void lean::ModifyControl(const mjModel *model, const double *qpos,
   // DRIVE (strat 24): the stand<->trot latch gates the OPEN-LOOP swing, BUT the
   // balance CATCH-STEP must survive a disengage. R1 fix (2026-07-08): gating by
   // drive_gait_amp_ ALONE quit the forcer the instant the walk latch ramped to 0
-  // on release, WHILE the cost (residual line ~571, arm*max(drive_gait_amp_,
-  // recov)) still wanted the catch -- so the sampler alone would not lift the
-  // catch foot and forward momentum toppled the robot (walk->stop faceplant).
+  // on release, WHILE the cost (the drive g_amp gate in Residual(),
+  // arm*max(drive_gait_amp_, recov)) still wanted the catch -- so the sampler
+  // alone would not lift the catch foot and forward momentum toppled the robot
+  // (walk->stop faceplant).
   // Mirror the cost: gate by max(drive_gait_amp_, recov), computing the SAME
   // signed capture-point danger as the residual from a base-quat tilt + base
   // qvel proxy (ModifyControl has no mjData/sensors, and the capture step below
@@ -4185,12 +4143,6 @@ void lean::ModifyControl(const mjModel *model, const double *qpos,
   do_leg(ph_r, 7, 8, 9, 10, -1.0);   // RIGHT swing window ph_r in [duty,1]
 }
 
-// ============================================================================
-// ComputeMetrics — phase-aware monitoring metrics for the Research GUI /
-// headless analyzer. Reads the current keyframe + sensor stack; no rollout
-// hot-path work. See QUANTIFICATION_PLAN.html for the 10 metrics surfaced
-// here (reach, CoP, ICP, brace force, saturation, ...).
-// ============================================================================
 std::map<std::string, double> lean::PlannerNumericOverrides(int strategy) const {
   const auto names = GetStrategyNames();
   if (strategy < 0 || strategy >= static_cast<int>(names.size())) return {};
@@ -4227,23 +4179,18 @@ std::map<std::string, double> lean::PlannerNumericOverrides(int strategy) const 
   // is exactly what starves first.
   //
   // *** deploy_frc_parity is deliberately NOT set here -- it stays 0 (OFF). ***
-  // The ACTUATOR-AUTHORITY finding is real, but the parity fix is NOT the cure, and the
-  // twin said so before the robot did (authority_ab.py, faithful twin, n=5, 2026-07-12):
-  //     arm                          HELD    ankleP pinned at its budget
-  //     phantom (the twin as it was)  5/5     0%   <- the twin plant has INFINITE actuator torque
-  //     clamped (= the REAL deploy)   3-4/5  42%   <- the H2 clamp ALONE costs 1-2/5
-  //     parity  (planner told truth)  2/5    38%   <- NO BETTER; the knee went to its STOP
-  // Telling the sampler its real budget did not make it discover a hip/step solution -- it
-  // just strutted harder. Releasing the Hip Roll pin (30->0) and softening the capture
-  // over-step (2.2->1.4) did nothing either (3/5 each; `clamped` alone scored 3/5 then 4/5
-  // on IDENTICAL config, so +/-1/5 is CEM noise, not signal). The keyframe is innocent too:
-  // its static single-support ankle load is 19.2 Nm against a 48.6 Nm budget.
-  // What IS solid: the stance ankle sits pinned at EXACTLY its 48.6 Nm budget for 34-73% of
-  // upright ticks while the planner asks for 44-99 deg of ankle travel when only 35 deg is
-  // buyable. The trot's ankle DEMAND is structurally ~1.5-3x the H1-2 safety envelope. That
-  // is the wall; no cost lever tested moves it.
-  // The flag survives as a REAL-ROBOT A/B lever (--frc_parity=1). Do NOT promote it to a
-  // default on the strength of the mechanism alone -- hardware has to say it helps.
+  // The ACTUATOR-AUTHORITY finding is solid: the stance ankle pins at EXACTLY its
+  // 48.6 Nm deployment budget while the planner asks for 44-99 deg of ankle travel
+  // when only 35 deg is buyable -- the trot's ankle DEMAND is structurally ~1.5-3x
+  // the H1-2 safety envelope. But a faithful-twin A/B showed the parity fix is NOT
+  // the cure (it held no better than the baseline; full table in
+  // mjpc/tasks/humanoid_bench/HISTORY.md), so the flag survives only as a
+  // REAL-ROBOT A/B lever (--frc_parity=1). Since the H2 emit clamp was REMOVED
+  // (2026-07-16, deploy_common torque-budget MONITOR), an over-budget plan is
+  // published as-is and CAN trip the safety-layer estop: parity is the intended
+  // planner-side mitigation, the safety layer the backstop. Do NOT promote it to
+  // a default on the strength of the mechanism alone -- hardware has to say it
+  // helps.
   if (name == "h12_simple_trot" || name == "h12_hands_simple_trot" ||
       name == "h12_simple_drive" || name == "h12_hands_simple_drive") {
     return {{"sampling_spline_points", 5.0},
@@ -4277,6 +4224,11 @@ std::map<std::string, double> lean::PlannerNumericOverrides(int strategy) const 
   return {};
 }
 
+// ============================================================================
+// ComputeMetrics — phase-aware monitoring metrics for the Research GUI /
+// headless analyzer (reach, CoP, ICP, brace force, saturation, ...). Reads
+// the current keyframe + sensor stack; no rollout hot-path work.
+// ============================================================================
 void lean::ComputeMetrics(const mjModel *model, const mjData *data,
                           std::map<std::string, double> *metrics,
                           std::string *phase_name) const {
@@ -4333,7 +4285,13 @@ void lean::ComputeMetrics(const mjModel *model, const mjData *data,
     return;
   }
 
-  // Right arm always braces, left arm always reaches (lean.cc convention).
+  // FIXED left-reaches / right-braces labels. NOTE: the controller's actual
+  // assignment is DYNAMIC — Residual() picks per the reach_hand numeric (0 =
+  // auto by target side, 1 = force LEFT, 2 = force RIGHT; the shipped
+  // Lean_H12_Magpie.xml sets 2, i.e. the RIGHT arm reaches and the LEFT
+  // braces) — so these reach_*/brace_* metrics are side-swapped whenever the
+  // right arm reaches (known follow-up; the reach_to_target block below does
+  // pick the hand correctly).
   double *reaching_hand = left_hand;
   double *bracing_hand = right_hand;
   double brace_force_normal = right_contact ? right_contact[0] : 0.0;

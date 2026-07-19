@@ -17,7 +17,7 @@ thread_local std::mt19937 generator(std::random_device{}());
 }  // namespace
 
 
-// ------------------ Residuals for humanoid stand task ------------
+// ------------------ Residuals for humanoid_bench avoid task ------
 //   Number of residuals:
 //      Residual(0): 0
 //      Residual(1): Height: head feet vertical error
@@ -28,8 +28,10 @@ thread_local std::mt19937 generator(std::random_device{}());
 //      Residual(6): posture
 //      Residual(7): velocity
 //      Residual(8): control
-//      Residual(9): obstacle proximity
+//      Residual(9): obstacle proximity (one term per capacitive sensor)
 //      Residual(10): COM distance to obstacle
+//      Residual(11): ToF obstacle proximity (one term per ToF sensor)
+//      Residual(12): COM distance to ToF obstacle
 //   Number of parameters:
 //      Parameter(0): head height goal
 // ----------------------------------------------------------------
@@ -243,7 +245,7 @@ void Avoid::ResidualFn::Residual(const mjModel *model, const mjData *data,
   }
   } else {
     // Zero out capacitive residuals if disabled
-    for (int i = 0; i < static_cast<int>(skin.NumCapSensors()); i++) {  // 63 capacitive sensors
+    for (int i = 0; i < static_cast<int>(skin.NumCapSensors()); i++) {  // count is model-variant-dependent
       residual[counter++] = 0.0;
     }
   }

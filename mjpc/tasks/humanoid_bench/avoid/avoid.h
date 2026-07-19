@@ -16,7 +16,6 @@
 #include "mjpc/utilities.h"
 #include "mujoco/mujoco.h"
 #include "mjpc/tasks/humanoid_bench/avoid/offline_obstacles.h"
-#include "mjpc/tasks/humanoid_bench/avoid/utils.h"
 
 struct EpisodeLogger {
   std::string out_dir = ".";         // output directory

@@ -8,8 +8,8 @@
 //
 // The shared implementation lives in deploy_common.cc (this file is a thin main:
 // per-node gain tables + the surviving CLI flags -> NodeConfig -> RunDeployNode).
-// Settled values (ctrl_hz 200, twin-time clocking, latency comp, plan threads 12,
-// ramp/hold/blend timings, torque-budget clamp, ...) are compiled-in constants --
+// Settled values (ctrl_hz 200, twin-time clocking, latency comp, AUTO-sized plan
+// threads, ramp/hold/blend timings, ...) are compiled-in constants --
 // see deploy_common.h for the full flag-diet rationale.
 
 #include <cstdlib>
@@ -29,29 +29,10 @@ int DefaultDomainId() {
 }
 
 // ---------------------------------------------------------------------------
-// START POSE (--align_start): the stance the node drags the legs into BEFORE
-// handing the robot to MJPC. R^12, radians, in DDS motor order (rows 0..11 of
-// lowcmd -- the same rows this node publishes to rt/safety/lowcmd_lower_in).
-//
-// PROVENANCE (2026-07-13). Derived from the only long good stand on record,
-// logs/stand_cost_3_20260711_175521: averaging the MEASURED pose over its 164 s
-// of stable standing (70 s -> 234 s after hand-off) gives
-//     { 0.011,-0.276, 0.173, 0.370,-0.154,-0.133,
-//      -0.006,-0.269,-0.108, 0.371,-0.233, 0.221 }
-// i.e. feet 0.549 m apart, knees bent 21.2/21.3 deg, pelvis 1.017 m. Every joint
-// of that lands within 5.8 deg of the model's `stand` keyframe, so the keyframe
-// was already right; the run just confirms it on hardware.
-//
-// SHIPPED below == the 'stand_up'/'stand' keyframe legs EXACTLY (2026-07-14, user
-// request): the align target now equals what strategy-6 Posture pulls toward, so
-// there is NO pose discontinuity at handover. (Previously knee 0.37 / hip_pitch
-// -0.27 / ankle_pitch -0.21 were taken from a measured good-stand HOLD -- droop-
-// aware -- which differed from the keyframe by up to 7 deg and caused a small jump
-// at handover.) Under load the robot droops FROM this commanded pose; the align
-// exits on SETTLED (not q==target), so it rests slightly off and reports a residual
-// -- expected. Edit freely; this is the knob.
-//
-//                          feet ~0.516 m apart, knees ~20 deg bent (== keyframe)
+// START POSE (--align_start): R^12 stance (DDS motor order, lowcmd rows 0..11) the
+// node drags the legs into BEFORE handover to MJPC. Tuning knob -- edit freely, but
+// keep it == the 'stand'/'stand_up' keyframe legs (strategy-6's Posture target) or
+// the handover jumps. (history: see mjpc/deploy/HISTORY.md)
 constexpr double kLowerStartPose[12] = {
      0.00,   // [ 0] left_hip_yaw_joint        0 deg
     -0.15,   // [ 1] left_hip_pitch_joint    -8.6 deg -- == 'stand_up' keyframe
@@ -67,12 +48,10 @@ constexpr double kLowerStartPose[12] = {
      0.12,   // [11] right_ankle_roll_joint  +6.9 deg  (mirror of left)
 };
 
-// LOCKSTAND (strategy 26) align target = the 'lockstand' keyframe legs: LOCKED knee
-// + WIDE stance. Used ONLY when --strategy 26, so the bring-up places the feet apart
-// and the knees straight BEFORE handover (a balance hold cannot widen PLANTED feet --
-// they must start wide). Matches the own-sim-validated pose (held 3/3), so the robot
-// lands at lockstand's target instead of straightening under load after handover.
-//                          feet ~0.635 m apart, knees ~4.6 deg (locked strut)
+// LOCKSTAND (--strategy 26) align target: LOCKED knees + WIDE stance (~0.635 m).
+// Tuning knob -- edit freely, but keep it == the 'lockstand' keyframe legs; feet
+// must START wide (a balance hold cannot widen planted feet). (history: see
+// mjpc/deploy/HISTORY.md)
 constexpr double kLockstandStartPose[12] = {
      0.00,   // [ 0] left_hip_yaw_joint       0 deg
     -0.03,   // [ 1] left_hip_pitch_joint    -1.7 deg -- thigh near-vertical (straight leg)
@@ -102,6 +81,9 @@ ABSL_FLAG(int, strategy, 6,
           "plants the feet and stands, a command engages the gait, release settles "
           "upright. Set Cmd Active/Vx/Vy/Wz/Seq over gRPC -- Seq is a heartbeat and "
           "MUST keep changing or the watchdog stops the robot after 1 s.)\n"
+          "   25  = straighten (pre-stand slump recovery; pair with --straighten_start)\n"
+          "   26  = lockstand (locked-knee wide-stance strut hold; this main also "
+          "swaps the --align_start target to the wide+locked lockstand pose)\n"
           "  20/22/23/24 are the STEPPING family: they share the gait clock and the "
           "ModifyControl swing forcer, and get spline 5 / 17 trajectories via "
           "PlannerNumericOverrides (17+1 = one thread wave -- see the plan-rate note "
@@ -159,8 +141,8 @@ ABSL_FLAG(int, plan_trajectories, 0,
           "PlannerNumericOverrides. 0 = task default. Real-hardware plan-rate sweep lever "
           "(samples-per-plan vs replan-rate); see h12_control_node --help for the full story.");
 ABSL_FLAG(int, plan_threads, 0,
-          "override the planner ThreadPool size. 0 = compiled kPlanThreads (12). One-wave "
-          "rule: plan_trajectories <= plan_threads maximizes replan rate.");
+          "override the planner ThreadPool size. 0 = AUTO = hw_threads - 6. One-wave "
+          "rule: keep plan_trajectories < plan_threads (CEM schedules traj+1 jobs).");
 ABSL_FLAG(bool, straighten_start, false,
           "hold the measured (slumped) pose, wait for ENTER, then hand authority to the planner "
           "from the slump (SETTLE->BLEND, no drag). Pair with --strategy 25 (straighten). OFF by default.");
@@ -168,12 +150,12 @@ ABSL_FLAG(bool, cost, false,
           "dump the per-term cost breakdown to stderr once/sec (debug). OFF by default -- the "
           "concise [node] status line is unaffected.");
 ABSL_FLAG(int, frc_parity, -1,
-          "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to the "
-          "torque the node can actually emit (0.9 x tau_estop = the H2 clamp budget), so the "
-          "sampler stops planning balance it cannot execute. The stabilize planner model ships "
-          "the ankle at +/-75 Nm while the node emits at most 48.6 -- a 1.54x overestimate on "
-          "the joint that OWNS fore-aft balance, so the sampler buys sway correction with ankle "
-          "torque that the clamp then eats (real stand: LankP railed at 48.2/48.6, clamp 6.9%). "
+          "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to "
+          "0.9 x tau_estop (the safety-layer torque budget), so the sampler stops planning "
+          "balance the safety envelope cannot deliver. The stabilize planner model ships "
+          "the ankle at +/-75 Nm against a 48.6 budget -- a 1.54x overestimate on the joint "
+          "that OWNS fore-aft balance. The torque-budget clamp is REMOVED: emitted torque is "
+          "unclamped and CAN trip the safety estop, so parity is the intended mitigation. "
           "-1 = task default (the `deploy_frc_parity` numeric; absent on stabilize -> OFF), "
           "0 = OFF (legacy model, byte-identical), 1 = force ON. Real-robot A/B: --frc_parity=0.");
 ABSL_FLAG(double, stale_sec, 0.05,
@@ -229,17 +211,17 @@ ABSL_FLAG(double, align_ki, 1.0,
           "stalls wherever breakaway friction beats kp*err -- at kp=200 a 3 deg residual is only "
           "10 Nm, which a harmonic drive will just sit on, so the legs stop short of the stance. "
           "This integrates the residual into the COMMANDED target once the drag profile has "
-          "arrived, so kp*(tgt-q) keeps GROWING until the joint breaks loose. The head-room is "
-          "real: the H2 clamp allows |tgt-q| up to 0.36-1.35 rad on these joints. And that same "
-          "clamp is the backstop -- emitted torque still cannot exceed 0.9 x the safety estop, so "
-          "this pushes HARD but never outside the safety envelope. Raise it if the legs still "
-          "stall; 0 = off (pure PD).");
+          "arrived, so kp*(tgt-q) keeps GROWING until the joint breaks loose. The wound-up "
+          "target is bounded ONLY by --align_i_max (the torque clamp is removed): the PD "
+          "torque CAN reach the safety-layer estop, which is the backstop. Raise it if the "
+          "legs still stall; 0 = off (pure PD).");
 ABSL_FLAG(double, align_i_max, 0.25,
           "--align_start: windup limit [rad] on the anti-stiction push -- the most extra command "
           "any ONE joint may accumulate. kp * this = the extra breakaway torque available (knee "
           "kp=200 -> up to +50 Nm). Bounds how hard a genuinely JAMMED joint gets shoved: it "
-          "parks at this and the node reports it, rather than winding up forever. The torque "
-          "clamp still caps the real output regardless.");
+          "parks at this and the node reports it, rather than winding up forever. This is the "
+          "ONLY bound (the torque clamp is removed): the resulting PD torque CAN reach the "
+          "safety-layer estop.");
 ABSL_FLAG(bool, align_wait, true,
           "--align_start: after the legs reach the start pose, PARK there and hold it until you "
           "press ENTER (bare Enter, or 'g'/'go', on the node's stdin). Nothing else changes: the "
@@ -292,8 +274,10 @@ constexpr int kNU = 12;  // LEGS-ONLY lower-body controller: the 12 actuated
 // (== full-body node, which stood 281s). Fix the model CoM, not the gains.
 const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4};
-// SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit).
-// Basis of the H2 torque-budget clamp: |tau_ff + KP*(tgt-q) + KV*dq| <= 0.9x these.
+// SAFETY-LAYER TAU-ESTOP thresholds -- MUST equal the safety layer's estop table
+// (estop torque_ratio x URDF torque limit). Feeds the over-budget telemetry
+// (ticks where |tau_ff + KP*(tgt-q) + KV*dq| > 0.9x these) and the --frc_parity
+// forcerange patch; emitted torque is NOT clamped -- the estop is the backstop.
 const double TAU_ESTOP[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36};
 // LEG forceranges are LEFT at the model default: tightening them to the estop
 // bound clamped hip/ankle balance authority and regressed the hold. Arms are

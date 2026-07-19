@@ -1,16 +1,17 @@
 // Shared core of the H1-2 MJPC deploy nodes -- see deploy_common.h for the
-// architecture note and the flag-diet rationale. This file is the line-for-line
-// merge of the formerly-duplicated h12_control_node.cc / h12_lower_body_controller.cc
-// (HAMS_integration 2026-07-02), parameterized by NodeConfig:
+// architecture note (the four thin mains) and the flag manifest. Everything
+// here is parameterized by NodeConfig:
 //   - kNU / gain tables       -> cfg.nu + cfg.kp/kv/tau_estop/tau_limit/frc_limit
-//   - arm-aware machinery     -> gated on cfg.upper_count > 0 (legs-only node)
+//   - complement ("X-aware")  -> gated on cfg.upper_count > 0
 //   - status-line variant     -> cfg.telemetry
-// plus the four defensive fixes ported from the HAMS rclcpp rewrite (audit
-// H1/H2/M4/M5, see mjpc_deploy_lowerbody_controller.cpp):
+// Defensive machinery (the audit tags survive in code/log text):
 //   H1  input-freshness watchdog: state older than kStaleSec -> damping safe-hold
-//   H2  torque clamp on the FULL budget tau_ff + KP*e + KV*dq (was KP*e only)
-//   M4  tau%%estop telemetry graded against TAU_ESTOP (was mislabeled TAU_LIMIT)
-//   M5  mju_error -> emit safe-hold BEFORE terminating (was a bare exit)
+//   H2  torque-budget MONITOR: there is NO emit clamp -- the raw planner command
+//       is published and CAN trip the safety-layer estop; over-budget ticks are
+//       only counted (m_clamp_count). --frc_parity is the intended mitigation.
+//   M4  tau%estop telemetry graded against TAU_ESTOP (the threshold that trips)
+//   M5  mju_error -> emit safe-hold BEFORE terminating
+// (history: see mjpc/deploy/HISTORY.md)
 //
 // WHY THIS EXISTS / ARCHITECTURE / STATE reconstruction: see the header block
 // of h12_control_node.cc (kept there -- it is still the entry point doc).
@@ -154,13 +155,15 @@ uint32_t Crc32Core(uint32_t* ptr, uint32_t len) {
 // the hold). <position>: gainprm[0]=kp, biasprm[1]=-kp, biasprm[2]=-kv. Call on
 // the loaded model BEFORE Agent::Initialize (it is const after GetModel()).
 //
-// ACTUATOR-AUTHORITY PARITY (frc_parity, 2026-07-11): see the NodeConfig::frc_parity
-// comment for the full diagnosis. When ON, EVERY actuator's forcerange is tightened to
-// the torque the node can actually emit -- kClampRatio * tau_estop, the exact H2 clamp
-// budget -- so the sampler stops planning single-support balance on phantom ankle/torso
-// authority. It only ever TIGHTENS (never loosens) an existing limit, so the arm patch
-// above still binds where it is stricter. This is a MODEL-PARITY fix, not a control law:
-// the planner keeps sampling, it just samples inside the envelope it will really get.
+// ACTUATOR-AUTHORITY PARITY (frc_parity): see the NodeConfig::frc_parity
+// comment. When ON, EVERY actuator's forcerange is tightened to the deployment
+// torque budget -- kClampRatio * tau_estop, just under the safety-layer estop
+// (there is no emit clamp: a plan over this budget is published as-is and can
+// trip the estop) -- so the sampler stops planning single-support balance on
+// phantom ankle/torso authority. It only ever TIGHTENS (never loosens) an
+// existing limit, so the arm patch above still binds where it is stricter. This
+// is a MODEL-PARITY fix, not a control law: the planner keeps sampling, it just
+// samples inside the envelope it will really get.
 void PatchActuators(mjModel* m, const NodeConfig& cfg) {
   // Task-side default lives in the model as the `deploy_frc_parity` numeric (set by
   // Task::PlannerNumericOverrides, applied by the caller BEFORE this runs). CLI wins.
@@ -191,14 +194,15 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
   if (!parity) {
     if (say)
       std::fprintf(stderr,
-                   "[node] actuator-authority parity OFF: the planner may plan torque the "
-                   "H2 clamp will not emit (legacy model; --frc_parity=1 to enable)\n");
+                   "[node] actuator-authority parity OFF: the planner may plan torque over the "
+                   "safety-estop budget -- with no emit clamp it is published as-is and can TRIP "
+                   "the safety estop (legacy model; --frc_parity=1 to enable)\n");
     return;
   }
   if (say)
     std::fprintf(stderr,
                  "[node] actuator-authority parity ON (planner + latency models): forcerange "
-                 "-> the REAL emitted budget (%.2f x tau_estop = the H2 clamp). Tightened:\n",
+                 "-> the deployment budget (%.2f x tau_estop, under the safety estop). Tightened:\n",
                  kClampRatio);
   for (int i = 0; i < cfg.nu && i < m->nu; i++) {
     const double budget = kClampRatio * cfg.tau_estop[i];
@@ -944,8 +948,9 @@ int RunDeployNode(const NodeConfig& cfg) {
     }
   });
 
-  // ---- live strategy switch via stdin: type a number 0-20 (+Enter), q=quit ----
-  std::fprintf(stderr, "[node] live switch ready: type a strategy number 0-20 + Enter (q=quit)\n");
+  // ---- live strategy switch via stdin: type a strategy number (+Enter), q=quit ----
+  std::fprintf(stderr, "[node] live switch ready: type a strategy number + Enter (range depends "
+               "on task: 0-26 Stabilize, 0-35 Lean; q=quit)\n");
   std::thread stdin_thread([&] {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -969,7 +974,8 @@ int RunDeployNode(const NodeConfig& cfg) {
         std::fprintf(stderr, "[node] >>> Strategy -> %d (eases into the new pose over %.1fs)\n",
                      s, kPolicyBlendSec);
       } catch (...) {
-        std::fprintf(stderr, "[node] (enter a strategy number 0-20, or q to quit)\n");
+        std::fprintf(stderr, "[node] (enter a strategy number -- range depends on task: "
+                     "0-26 Stabilize, 0-35 Lean -- or q to quit)\n");
       }
     }
   });
@@ -1736,11 +1742,11 @@ int RunDeployNode(const NodeConfig& cfg) {
 
     // ankle zero-offset: shift the WIRE command by the calibration so the physical joint
     // reaches the planner's intended (corrected) angle. Pairs with the belief correction in
-    // fill_state. Applied BEFORE the torque clamp so the clamp bounds the delta the motor PD
-    // actually sees (encoder frame) -- the old shift-after-clamp order left a kp*off hole in
-    // the estop guarantee. tgt_q is ENCODER/wire frame from here on; last_cmd_q un-shifts it
-    // back to the true frame below (2026-07-10: storing the shifted value double-counted the
-    // offset in the latency prediction -> feet-wide/backward-lean on the real A/B). 0 = no-op.
+    // fill_state. Applied BEFORE the torque-budget monitor below so the monitor measures the
+    // delta the motor PD actually sees (encoder frame). tgt_q is ENCODER/wire frame from here
+    // on; last_cmd_q un-shifts it back to the true frame below (2026-07-10: storing the
+    // shifted value double-counted the offset in the latency prediction ->
+    // feet-wide/backward-lean on the real A/B). 0 = no-op.
     // LEG indices 4/5/10/11 -> gated to leg-actuating nodes (motor_offset 0): on the upper
     // node those rows are ARM joints and the ankle range clamps would destroy their commands.
     if (moff == 0 && ankle_calib_on) {

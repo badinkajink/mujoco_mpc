@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <limits>
 #include <random>
 
@@ -84,6 +83,12 @@ inline void PhaseTargetScales(const std::string& name,
   else if (name == "arm_extend_standing") {
     reach = 1.0; brace_pos = 0.0; posture = 1.5;
   }
+  // NOTE: the "Strategy 16/19/21/33" slot numbers in the comments below (and
+  // on the matching counterbalance/jab/reach/brace branches later in
+  // Residual()) are the LEAN task's slot numbering. No stabilize strategy JSON
+  // uses these phase names, so those branches never run in this task; the code
+  // is kept because the lean twin exercises it.
+  //
   // counterbalance_standing: dedicated STANDING counterbalance skill (Strategy
   // 16). Like arm_extend_standing the left arm reaches forward and the feet
   // stay planted, BUT the reach target is overridden to SHOULDER height (see
@@ -131,24 +136,12 @@ inline void PhaseTargetScales(const std::string& name,
 }
 }  // namespace
 
-// ------------------ Residuals for humanoid lean task ------------
-//   Number of residuals:
-//      Residual(0): humanoid_bench reward
-//      Residual(1): Height: head feet vertical error
-//      Residual(2): CoM Velocity
-//      Residual(3): joint velocity
-//      Residual(4): balance
-//      Residual(5): torso forward tilt (NEW - encourages leaning)
-//      Residual(6): pelvis tilt (NEW - allows forward lean)
-//      Residual(7): posture
-//      Residual(8): velocity
-//      Residual(9): control
-//      Residual(10): object distance (reaching hand)
-//      Residual(11): right hand distance to object
-//      Residual(12): left hand brace position on table (NEW)
-//   Number of parameters:
-//      Parameter(0): head height goal
-// ----------------------------------------------------------------
+// ------------------ Residuals for the stabilize task ------------------------
+// The residual term set (names, order, dimensions) is DEFINED by the <user>
+// sensor list in Stabilize_H12_Magpie.xml -- that list is the append-order
+// contract this function writes against (enforced by the sensor-dim sanity
+// check at the end of Residual()). Parameter(0) = head height goal.
+// ----------------------------------------------------------------------------
 void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
                                 double *residual) const {
   double const height_goal = parameters_[0];
@@ -172,16 +165,14 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   const bool is_lean_no_brace_phase =
       (residual_keyframe_.name == "lean_with_arm_no_brace");
   const bool arm_contact_or_lean = any_arm_contact || is_lean_no_brace_phase;
-  // ITER 36 (2026-05-18): is_leg_lift detection is PHASE-NAME based (keyed on
-  // the active keyframe name), not contact-count based.
-  //
-  // DESIGN (2026-05-26): the leg-lift phase is DROPPED permanently — both feet
-  // stay grounded through the whole pipeline (see the lean.h header). NO
-  // strategy JSON contains "leg_lift_arm_plant" / "deep_reach" anymore, so
-  // is_leg_lift_stage_early is now ALWAYS FALSE and every `is_leg_lift_stage`
-  // branch below is DORMANT (kept as vestigial history, not removed) — the
-  // grounded branch (both feet anchored) always runs. Any future single-
-  // support move must come from a WBC/balance decision, not this hard gate.
+  // is_leg_lift detection is PHASE-NAME based (keyed on the active keyframe
+  // name), not contact-count based. The leg-lift phase is DROPPED permanently
+  // — both feet stay grounded through every phase. NO strategy JSON contains
+  // "leg_lift_arm_plant" / "deep_reach", so is_leg_lift_stage_early is ALWAYS
+  // FALSE and every `is_leg_lift_stage` branch below is DORMANT — the grounded
+  // branch (both feet anchored) always runs. Any future single-support move
+  // must come from a WBC/balance decision, not this hard gate. (history: see
+  // mjpc/tasks/humanoid_bench/HISTORY.md)
   const bool is_leg_lift_stage_early =
       (residual_keyframe_.name == "leg_lift_arm_plant" ||
        residual_keyframe_.name == "deep_reach");
@@ -238,14 +229,6 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // and behaves exactly as before. The lookup is one hash probe per Residual
   // call — negligible next to the ~10 std::string compares PhaseTargetScales
   // already does.
-  // REVERTED 2026-06-08: the squat target-pose ramp (asymmetric stand-up/crouch
-  // ramp) is OFF — restored to the original instantaneous SNAP. The ramp ran in
-  // this hot residual path for EVERY strategy (incl. single-phase crouch/stand/
-  // arms) and was suspected of regressing the live crouch (one-knee-locked slow
-  // creep) even though headless held. Snap = exactly the accepted behaviour.
-  // The prev_posture_key_id_ plumbing (lean.h, SnapshotEffectiveScales) is left
-  // in place but UNUSED; re-enable the ramp here only behind a per-strategy gate
-  // that provably never touches single-phase strategies. See [[project_squat_strategy]].
   int posture_key_id =
       mj_name2id(model, mjOBJ_KEY, residual_keyframe_.name.c_str());
   if (posture_key_id < 0) posture_key_id = 0;  // home
@@ -256,13 +239,12 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   if (posture_key_id != dbg_last_key) {
     dbg_last_key = posture_key_id;
     std::fprintf(stderr,
-                 "[lean-residual] posture keyframe: name='%s' id=%d z=%.3f kneeL=%.3f kneeR=%.3f\n",
+                 "[stabilize-residual] posture keyframe: name='%s' id=%d z=%.3f kneeL=%.3f kneeR=%.3f\n",
                  residual_keyframe_.name.c_str(), posture_key_id,
                  posture_target[2], posture_target[7 + 3], posture_target[7 + 9]);
   }
 
-  // ----- GENERAL target-pose ramp (re-enabled 2026-06-16, behind the per-strategy
-  //       gate the 2026-06-08 revert note above requires) --------------------- //
+  // ----- GENERAL target-pose ramp (per-strategy + window gated) ------------- //
   // On a phase transition, ease the posture target from the keyframe we LEFT
   // (prev_posture_key_id_, captured at every transition) into the new one over a
   // smoothstep window -- the "blend tasks, don't switch them" idea the weight ramp
@@ -273,8 +255,8 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   //   GATED num_phases_ > 1: single-phase strategies (stand/crouch/arms) never take
   //   this branch -> byte-identical. WINDOW-GATED: only runs while alpha<1 (the
   //   ~ramp_dur right after a transition), into a stack buffer, so steady state and
-  //   every snap phase (target_ramp_sec==0) pay nothing -- the unconditional version
-  //   that ran for EVERY residual call of EVERY strategy is what got reverted.
+  //   every snap phase (target_ramp_sec==0) pay nothing. (history of the 2026-06
+  //   ramp revert/re-enable arc: see mjpc/tasks/humanoid_bench/HISTORY.md)
   mjtNum ramped_posture_target[64];
   // STRAIGHTEN (strat 25) live-seed posture ramp (ported from lean 2026-07-15): glide the posture
   // target from the CAPTURED release qpos (the measured slump at engage) -> the centered
@@ -751,11 +733,8 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
 
   double reward = 0;
 
-  // Bracing position calculation. Reverted Y-clamp (was test 14) → back
-  // to bracing_hand[1] (test 12 state). User confirmed test 14 introduced
-  // chaotic early-phase behaviour. Y free means no restoring force on
-  // lateral position; the eventual ~60s slip seen in test 12 is the
-  // known trade-off for accepting this baseline.
+  // Bracing position calculation (ideal_brace below; the lateral pin is
+  // documented at its definition).
   double const *table_pos = SensorByName(model, data, "table_surface_pos");
   // torso_pos declared above (near arm-selection) to keep one definition.
 
@@ -809,14 +788,10 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // Lean depth is bounded by Pelvis Tilt / Torso Forward Tilt (JSON lean knobs).
     mju_copy3(phase1_target_storage, data->mocap_pos);
     reach_target = phase1_target_storage;
-    // INVESTIGATED 2026-06-23: a deliberate static counterweight (free arm swung
-    // back +/- knee bend) was trialed to add forward-push margin, but EVERY forced
-    // posture override (arm-back >= 0.30 rad OR knee-bend 0.18) toppled it BACKWARD
-    // during lean establishment -- the planner's EMERGENT counterbalance is already
-    // optimal and a forced pose disrupts it. Kept the validated emergent behavior
-    // (twin + GUI 3/3). The forward-push fragility of this FREE-STANDING no-brace
-    // lean is inherent (planted feet, no step); the push-robust paths are BRACING
-    // on the surface (strat 33/34) or STEPPING (strat 20), not strat 16.
+    // A forced static counterweight pose was tried and rejected -- the
+    // planner's EMERGENT counterbalance wins; the push-robust paths are
+    // bracing or stepping, not this free-standing lean. (history: see
+    // mjpc/tasks/humanoid_bench/HISTORY.md)
   }
   // jab_extend (Strategy 19): the RIGHT arm punches straight forward. Posture
   // alone (one arm joint out of ~30) is too weak a reward for the warm-started
@@ -1032,14 +1007,11 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double *head_position = SensorByName(model, data, "head_position");
   double head_feet_error =
       head_position[2] - 0.5 * (foot_right_pos[2] + foot_left_pos[2]);
-  // TEST #8 (2026-05-17): Restore Height ×0.35 during arm contact
-  // (test 4's working setting). Combined with the foot-z anchors added
-  // in test 6 (Right Foot Lift penalises lift; Left Leg Anchor enforces
-  // both left knee height AND left foot on ground), the squat is the
-  // stable solution but now with feet anchored. Tests 6 (×0.7) and 7
-  // (×1.0) both failed because the planner can't stand-and-bend with
-  // kp_ankle=20 — it either tips forward (×0.7) or backward (×1.0).
-  // The squat IS the natural solution given the weak PD.
+  // Height ×0.35 during arm contact: combined with the foot-z anchors
+  // (Right Foot Lift penalises lift; Left Leg Anchor enforces left knee
+  // height AND left foot on ground), the anchored squat is the stable
+  // solution under the weak audit-spec ankle PD; higher Height scales tip
+  // the plant (history: see mjpc/tasks/humanoid_bench/HISTORY.md).
   // ===== STUMBLE swing-release masks (foot-lift fix 2026-06-24, Tier A) =====
   // During a foot's scheduled swing (g_amp*g_bump_foot -> 1) the "keep foot down /
   // upright / at height" costs are RELEASED off the swing leg / single-support
@@ -1109,10 +1081,8 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double *subcomvel = SensorByName(model, data, "torso_subcomvel");
 
   double capture_point[3];
-  // Horizon kept at 0.3 s. A 0.45 s preview was trialed (2026-05-26) to fight the
-  // forward-velocity overshoot at brace commit, but a 10-run trace showed it did
-  // NOT improve the hold rate (still 8/10) and produced lower-quality holds (one
-  // barely-leaning +2 deg, one drifting -8 deg lateral), so it was reverted.
+  // Horizon 0.3 s (a 0.45 s preview was trialed and reverted; history: see
+  // mjpc/tasks/humanoid_bench/HISTORY.md).
   mju_addScl(capture_point, subcom, subcomvel, 0.3, 3);
   capture_point[2] = 1.0e-3;
 
@@ -1529,27 +1499,10 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   residual[counter++] = phase_reach_scale * (1.0 - alignment);
 
   // ----- pelvis tilt ----- //
-  // Phase-dependent residual that mixes two sensors:
-  //  • pelvis_up[2]      = cos(tilt magnitude) — symmetric in direction
-  //  • pelvis_forward[2] = -sin(pitch angle)   — DIRECTIONAL (forward = -,
-  //    backward = +)
-  // Round 7 fix used `pelvis_up[2] - target` everywhere, which is symmetric
-  // for any tilt direction. During lean_forward (target 0.85 = 32° tilt),
-  // backward tilt achieved the same target as forward tilt, and MPC chose
-  // backward to avoid the Hip-Clearance penalty on forward pelvis travel —
-  // the user saw the robot stand → plant hand → tip BACKWARD → fall on its
-  // back. Round 8 fix: switch the lean-phase branch to pelvis_forward[2]
-  // so the target -sin(32°)=-0.530 is only met by forward pitch; backward
-  // pitch gives residual +1.060 (cost ~9.6/step ≈ 640/horizon — overwhelming
-  // deterrent vs the ~3 Hip-Clearance penalty MPC was previously avoiding).
-  // Upright phases keep pelvis_up because the home pose is at pelvis_up=1.0
-  // so the residual is already 0 there and roll is also penalized.
-  // BISECTION TEST #2 (2026-05-17): reverted to symmetric residual
-  // ALWAYS. Pre-R8 form. The directional `pelvis_forward[2] − (−0.530)`
-  // in lean_forward was forcing 32° pitch regardless of CoM state; with
-  // weak ankle PD (kp=20) this over-committed the lean and let the planner
-  // exploit the pelvis-table exclude. Symmetric is permissive: any tilt
-  // (forward or backward) costs the same — MPC picks based on other terms.
+  // SYMMETRIC residual on pelvis_up[2] = cos(tilt magnitude): any tilt
+  // direction costs the same — MPC picks the direction based on the other
+  // terms. (A DIRECTIONAL pelvis_forward form was tried and reverted; history:
+  // see mjpc/tasks/humanoid_bench/HISTORY.md.)
   double *pelvis_up = SensorByName(model, data, "pelvis_up");
   // ITER 31 (2026-05-18): pelvis-tilt residual gives 60° of free forward
   // bow during arm-contact phases, then penalises beyond. Iter 30 made it
@@ -1690,20 +1643,12 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // so it is held at its keyframe (rest) pose while the reaching arm + legs (= stand)
   // stay free. reach_brace_hold = boost factor (effective arm Posture = Posture *
   // this), live-tunable. Reach-gated -> all other strategies byte-identical.
-  // 2026-06-25: TRIED extending this lock to counterbalance_standing (strat 16) so
-  // 16's right arm would also hold forward instead of swinging back to -0.8 m. A/B on
-  // the deploy twin (gravcomp 0.85, seed 0) REJECTED it: WITH lock 16 fell at 14.3 s,
-  // WITHOUT lock at 23.5 s — the lock makes 16 topple ~9 s SOONER. 16's free-standing
-  // lean USES the reaching arm as part of its emergent counterbalance; locking it
-  // steals that DOF and it falls backward earlier (the documented "forcing the arm
-  // topples 16" finding). So the lock stayed reach_to_target (strat 21) ONLY.
-  // 2026-06-26: RE-ENABLED for counterbalance_standing (16) — the prior rejection
-  // locked the right arm with NO replacement counterweight. Now the
-  // counterbalance_standing keyframe drives the LEFT (non-reaching) arm fully BACK
-  // (qpos[20]=+1.3); brace_hold pins it there as an EXPLICIT counterweight, so the
-  // right arm can hold forward AND the body stays balanced (the two arms counterweight
-  // each other -> CoM centered -> ankle unloaded -> both extend). User's figure-skater
-  // insight; supplies exactly the balance DOF the bare lock removed.
+  // Applies to BOTH reach_to_target (21) AND counterbalance_standing (16): 16's
+  // keyframe drives the LEFT (non-reaching) arm fully BACK (qpos[20]=+1.3) and
+  // brace_hold pins it there as an EXPLICIT counterweight, so the right arm can
+  // hold forward while the two arms counterweight each other (CoM centered ->
+  // ankle unloaded -> both extend). (history of the reject-then-re-enable arc:
+  // see mjpc/tasks/humanoid_bench/HISTORY.md)
   if (residual_keyframe_.name == "reach_to_target" ||
       residual_keyframe_.name == "counterbalance_standing") {
     int rh_id2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_hand");
@@ -1784,18 +1729,19 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // ----- control ----- //
   mju_sub(&residual[counter], data->ctrl, posture_target + 7,
           model->nu);  // because of pos control (tracks pose-library key)
-  // ANKLE-ACTION TAX (2026-07-11, hip-strategy rebalance): the free-standing cost
-  // set prices a hip correction ~50x above an ankle one (AngMom + linear Pelvis
-  // Tilt + the 3.5x hip-pitch Posture anchor all tax the hip throw; NOTHING taxes
+  // ANKLE-ACTION TAX (hip-strategy rebalance): the free-standing cost set
+  // prices a hip correction far above an ankle one (AngMom + linear Pelvis
+  // Tilt + the hip-pitch Posture anchor all tax the hip throw; NOTHING taxes
   // ankle action while the foot stays flat), so the sampler does ALL fore-aft
   // correction on the ankle channel -- exactly the joint with the per-power-on
-  // zero-lottery error and the 60/54 Nm rail (real stand parks forward, hunts,
-  // rails LankP at 80-89%). Multiply ONLY the ankle rows (nu-idx 4/5 L, 10/11 R)
-  // of the Control residual: sustained ankle targets get expensive, correction
-  // authority shifts to the hips. kCosh is ~quadratic near 0 -> effective ankle
-  // control weight scales ~gain^2. <numeric name="ankle_ctrl_gain"> 1.0 = OFF
-  // (byte-identical). Free-standing STAND-family only: brace tasks 0-5 unchanged,
-  // trot/stumble keep free ankles for stepping.
+  // zero-lottery error and the 60/54 Nm rail. Multiply ONLY the ankle-PITCH
+  // rows (nu-idx 4 L, 10 R -- see below) of the Control residual: sustained
+  // ankle targets get expensive, correction authority shifts to the hips.
+  // kCosh is ~quadratic near 0 -> effective ankle control weight scales
+  // ~gain^2. <numeric name="ankle_ctrl_gain"> 1.0 = OFF (byte-identical).
+  // Free-standing STAND-family only: brace tasks unchanged, trot/stumble keep
+  // free ankles for stepping. (history: see
+  // mjpc/tasks/humanoid_bench/HISTORY.md)
   if (!arm_contact_or_lean && !is_trot && !is_stumble) {
     double ankle_gain = GetNumberOrDefault(1.0, model, "ankle_ctrl_gain");
     // PITCH rows only (4/10): taxing ROLL too made the sampler widen the stance
@@ -1892,9 +1838,9 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // the H1-2 home keyframe the ankle_roll_link inertial offset places the
   // foot COM at x = 0.2196, not pelvis_x = 0.19. The old 0.19 constant
   // (copied from the pelvis qpos) made the residual +0.03 at home, adding
-  // a continuous 3 cm backward pull on both feet. (2026-05-26: leg-lift is
-  // DROPPED — both feet stay grounded; the "right foot freed" branch below is
-  // dormant. See is_leg_lift_stage_early and the lean.h header.)
+  // a continuous 3 cm backward pull on both feet. (Leg-lift is DROPPED — both
+  // feet stay grounded; the "right foot freed" branch below is dormant. See
+  // is_leg_lift_stage_early.)
   static constexpr double kRightFootHomeXY[2] = {0.2196, -0.163};
   static constexpr double kLeftFootHomeXY[2]  = {0.2196,  0.163};
 
@@ -2417,12 +2363,13 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
         // invisible and only ESCAPES from it trigger counter-momentum.
         ex_t -= s_cap_ex_dc;
         ey_t -= s_cap_ey_dc;
-        // EXCURSION DEADBAND (2026-07-11): the 07-08 gain-300 A/B failed because
-        // g_cap_ex is NOT ~0 at the nominal stance (XML:484 post-mortem) -- the
-        // gain made a PERSISTENT angmom target -> continuous hip pumping + fwd
-        // drift. Only the excursion BEYOND the deadband commands counter-momentum;
-        // inside it the target is exactly 0, so the calm stand is byte-identical
-        // to gain 0. stumble keeps its tuned catch-march path unchanged.
+        // EXCURSION DEADBAND: g_cap_ex is NOT ~0 at the nominal stance, so an
+        // un-deadbanded gain makes a PERSISTENT angmom target (continuous hip
+        // pumping + fwd drift; history: see
+        // mjpc/tasks/humanoid_bench/HISTORY.md). Only the excursion BEYOND the
+        // deadband commands counter-momentum; inside it the target is exactly
+        // 0, so the calm stand is byte-identical to gain 0. stumble keeps its
+        // tuned catch-march path unchanged.
         double db = GetNumberOrDefault(0.0, model, "stand_recover_deadband");
         ex_t = (mju_abs(ex_t) > db) ? ex_t - (ex_t > 0 ? db : -db) : 0.0;
         ey_t = (mju_abs(ey_t) > db) ? ey_t - (ey_t > 0 ? db : -db) : 0.0;
@@ -2546,10 +2493,10 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // (N-step capturability, Koolen/Pratt), extending the recoverable region far
   // beyond the ankle limit -- the gradient-free win for a weak-ankle robot.
   if (is_stumble) {
-    // Cartesian step height TARGET: kStepHeight (0.022) scaled by the trot-window
-    // swing scale (default 1 outside the window). At swing_scale 2.5 the target is
-    // ~0.055 m -- between the quadruped trot (0.03) and Unitree humanoid walk
-    // (0.08) clearance, sized for the bigger H1-2 foot.
+    // Cartesian step height TARGET: kStepHeight (0.06, the gait constant near
+    // the top of Residual, sized toward the Unitree H1-2 0.08 clearance) scaled
+    // by the trot-window swing scale (default 1 outside the window; at
+    // swing_scale 2.5 the target is ~0.15 m).
     double amp = kStepHeight * g_amp * trot_swing_scale;   // ramped Cartesian step height [m]
     // --- Gait foot-height (dim 2): reinforce the SWING foot rising its bump in
     //     task space; STANCE foot untracked (residual 0). Ground reference = the
@@ -2653,15 +2600,10 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     double kStanceOffX = (sox_id >= 0)
         ? model->numeric_data[model->numeric_adr[sox_id]] : 0.13;
     constexpr double kStanceOffY = 0.26;
-    // NOTE (2026-06-18): a STAGGERED/braced stance (L foot fore, R foot aft, via a
-    // staggered stumble_march keyframe + kStagger here) was TESTED to ~double the
-    // fore-aft support polygon (0.26->0.46 m). It improved the static baseline (4/4)
-    // but did NOT improve fwd/back PUSH survival and slightly hurt lateral -> REVERTED.
-    // Root cause: fore-aft recovery is reaction-BANDWIDTH limited (the planner doesn't
-    // exploit the bigger base / use the ankle headroom fast enough at spline 5), not
-    // support-geometry limited. The remaining principled lever is the HIP/arm
-    // angular-momentum strategy (ankle->HIP->step hierarchy) — unbuilt. The foot is
-    // already reference-grade fore-aft (G1 0.17 m / H1 0.20 m) so do NOT lengthen it.
+    // Stagger is OFF: a staggered/braced stance was tested and reverted --
+    // fore-aft recovery is reaction-BANDWIDTH limited, not support-geometry
+    // limited, so do NOT lengthen the stance (history: see
+    // mjpc/tasks/humanoid_bench/HISTORY.md).
     constexpr double kStagL = 0.0, kStagR = 0.0;   // stagger off (see note)
     residual[counter++] = (g_bump_l > 0.0)
         ? (foot_left_pos[0]  - (com_pos[0] + kStanceOffX + kStagL + off_x)) : 0.0;
@@ -2692,14 +2634,13 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = 0.0;  // Step Place Ly
     residual[counter++] = 0.0;  // Step Place Rx
     residual[counter++] = 0.0;  // Step Place Ry
-    // R7 (2026-07-10, stand anti-shuffle): Foot Slip was gait-only; the free
-    // STAND wrote 0 here, so sliding a planted foot was a FREE extra DoF the
-    // sampler used to null CoM error every correction cycle -- the measured
-    // real-robot shuffling (research doc 2026-07-09 §2.7/§3). Write the real
-    // tangential speed of BOTH feet (double support: both are stance). Cost
-    // stays 0 for every strategy whose JSON does not set "Foot Slip" (XML
+    // Foot Slip for NON-gait strategies (stand anti-shuffle): write the real
+    // tangential speed of BOTH feet (double support: both are stance) so
+    // sliding a planted foot is never a FREE extra DoF for nulling CoM error.
+    // Cost stays 0 for every strategy whose JSON does not set "Foot Slip" (XML
     // default weight 0) -> placeholders/lean phases byte-identical; the stand
     // JSON opts in at 25 (same weight the stumble/trot/walk JSONs use).
+    // (history: see mjpc/tasks/humanoid_bench/HISTORY.md)
     double const *vfl = SensorByName(model, data, "foot_left_velocity");
     double const *vfr = SensorByName(model, data, "foot_right_velocity");
     residual[counter++] = mju_sqrt(vfl[0]*vfl[0] + vfl[1]*vfl[1]);  // Foot Slip L
@@ -2789,49 +2730,6 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
         10.0 * mju_max(0.0, capture_point[0] - cc_midfoot_x - kComCapMargin);  // CoM Cap
   }
 
-  // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
-  // // Check if we have elbow sensors (indicates H12_Hands model)
-  // bool has_elbow_sensors = false;
-  // for (int i = 0; i < model->nsensor; i++) {
-  //   if (std::string(model->names + model->name_sensoradr[i]) == "left_elbow_pos") {
-  //     has_elbow_sensors = true;
-  //     break;
-  //   }
-  // }
-  
-  // if (has_elbow_sensors) {
-  //   // Get elbow positions for bracing arm
-  //   double const *left_elbow_pos = SensorByName(model, data, "left_elbow_pos");
-  //   double const *right_elbow_pos = SensorByName(model, data, "right_elbow_pos");
-  //   double const *bracing_elbow = left_reaches ? right_elbow_pos : left_elbow_pos;
-    
-  //   // Get elbow orientation (z-axis should point along forearm)
-  //   double const *left_elbow_zaxis = SensorByName(model, data, "left_elbow_zaxis");
-  //   double const *right_elbow_zaxis = SensorByName(model, data, "right_elbow_zaxis");
-  //   double const *bracing_elbow_zaxis = left_reaches ? right_elbow_zaxis : left_elbow_zaxis;
-    
-  //   // Ideal forearm position: between palm and elbow, on table surface
-  //   double ideal_forearm[3] = {
-  //       (bracing_palm[0] + bracing_elbow[0]) * 0.5,
-  //       bracing_hand[1],
-  //       table_pos[2]  // On table surface
-  //   };
-    
-  //   // Distance from ideal forearm contact point
-  //   mju_sub3(&residual[counter], bracing_elbow, ideal_forearm);
-  //   counter += 3;
-    
-  //   // Forearm orientation: want forearm parallel to table (z-axis perpendicular to table normal)
-  //   // If forearm is flat, dot product with table normal should be ~0
-  //   double table_normal[3] = {0, 0, 1};
-  //   double forearm_alignment = mju_abs(mju_dot3(bracing_elbow_zaxis, table_normal));
-  //   residual[counter++] = forearm_alignment;  // Should be close to 0 when parallel
-    
-  //   // Optional: Check for forearm contact (if you add touch sensor)
-  //   // This would require adding a touch sensor to the elbow_link geoms
-  // }
-  // // ========== END FOREARM BRACING ========== //
-
   // sensor dim sanity check
   int user_sensor_dim = 0;
   for (int i = 0; i < model->nsensor; i++) {
@@ -2847,7 +2745,7 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     if (!printed) {
       printed = true;
       mju_warning(
-          "Lean residual length %d != user_sensor_dim %d. Per-sensor:",
+          "Stabilize residual length %d != user_sensor_dim %d. Per-sensor:",
           counter, user_sensor_dim);
       for (int i = 0; i < model->nsensor; i++) {
         if (model->sensor_type[i] == mjSENS_USER) {
@@ -2894,23 +2792,22 @@ void stabilize::ResidualFn::ContactResidual(const mjModel *model, const mjData *
   }
 }
 
-// -------- Transition for humanoid_bench lean task -------- //
-// ------------------------------------------------------------ //
+// -------- Transition for the humanoid_bench stabilize task -------- //
+// ------------------------------------------------------------------ //
 //
-// ITER 26 (2026-05-18): removed the iter-23 equality-weld toggle. Single-
-// point/SE3 pins on the foot felt unnatural (sway-spring behaviour); foot
-// anchoring is now done by real physics (gravcomp 0.97 → 0.90 gives ~49 N
-// of net body weight on each foot, enough friction to hold against the
-// soft cost gradients without artificial pins).
+// Foot anchoring is real physics — gravcomp leaves ~49 N of net body weight
+// on each foot, enough friction to hold against the soft cost gradients —
+// with no equality-weld pins (history: see
+// mjpc/tasks/humanoid_bench/HISTORY.md).
 void stabilize::TransitionLocked(mjModel *model, mjData *data) {
-  // ---- DC-BLIND HIP RECOVERY baseline (2026-07-11) ------------------------- //
+  // ---- DC-BLIND HIP RECOVERY baseline -------------------------------------- //
   // With an ankle zero error the robot PARKS off-vertical (+4..6 deg fwd = cap
-  // excursion ~0.09 m), so an ABSOLUTE-excursion recover tier sees the park as a
-  // permanent "falling" signal and throws counter-momentum continuously -- the
-  // 07-11 real A/B: backward overshoot (CoM_margin -0.165) -> fwd flail -> crouch
-  // jam. Fix: EMA the MEASURED excursion here (real state, once per plan) and let
-  // the recovery tier react only to the deviation FROM that baseline (escapes),
-  // never the standing offset. stand_recover_washout_sec = EMA tau; 0 = off.
+  // excursion ~0.09 m), so an ABSOLUTE-excursion recover tier would read the
+  // park as a permanent "falling" signal and throw counter-momentum
+  // continuously. So: EMA the MEASURED excursion here (real state, once per
+  // plan) and let the recovery tier react only to the deviation FROM that
+  // baseline (escapes), never the standing offset. stand_recover_washout_sec =
+  // EMA tau; 0 = off. (history: see mjpc/tasks/humanoid_bench/HISTORY.md)
   {
     int ws_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_recover_washout_sec");
     double wtau = (ws_id >= 0)
@@ -2938,10 +2835,10 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       s_cap_ey_dc += a * (ey - s_cap_ey_dc);
       s_cap_dc_t = data->time;
       if (ttau > 0.0) {
-        // T1 trim: lean park_dc -> Balance fore-aft bias. C2pure live: symmetric
-        // ±stand_trim_max let bring-up wind trim_x to -0.08 and leave it there
-        // after park_dc~0 -> permanent "hold CoM forward" (operator push from front).
-        // Asymmetric: +side still uses stand_trim_max; -side uses stand_trim_neg_max.
+        // T1 trim: lean park_dc -> Balance fore-aft bias. Caps are ASYMMETRIC:
+        // +side uses stand_trim_max, -side uses stand_trim_neg_max (a symmetric
+        // cap let bring-up wind in a permanent negative trim; history: see
+        // mjpc/tasks/humanoid_bench/HISTORY.md).
         int td_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_delay");
         double tdelay = (td_id >= 0)
             ? model->numeric_data[model->numeric_adr[td_id]] : 0.0;
@@ -2963,26 +2860,6 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
           last_print = data->time;
           std::printf("[trim] t=%.1f park_dc=%+.3f m trim_x=%+.3f m armed=%d\n",
                       data->time, s_cap_ex_dc, s_trim_x, trim_armed ? 1 : 0);
-          // #region agent log
-          {
-            std::ofstream lf(
-                "/home/the2xman/Desktop/h12/.cursor/debug-c2ebbf.log",
-                std::ios::app);
-            if (lf) {
-              lf << "{\"sessionId\":\"c2ebbf\",\"runId\":\"packC2n\","
-                    "\"hypothesisId\":\"H_NEG_TRIM_CAP\",\"location\":"
-                    "\"stabilize.cc:trim\",\"message\":\"trim_tick\","
-                    "\"data\":{\"t\":" << data->time
-                 << ",\"park_dc\":" << s_cap_ex_dc
-                 << ",\"trim_x\":" << s_trim_x
-                 << ",\"ttau\":" << ttau
-                 << ",\"tmax_neg\":" << tmax_neg
-                 << ",\"armed\":" << (trim_armed ? 1 : 0)
-                 << "},\"timestamp\":" << static_cast<long long>(data->time * 1000)
-                 << "}\n";
-            }
-          }
-          // #endregion
         }
       } else {
         s_trim_x = 0.0;
@@ -3000,7 +2877,9 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
   // shared model->eq_data here is thread-safe -- the deploy node's arm_aware
   // (h12_lower_body_controller fill_state), moved into the planner task so the
   // agent_server itself anticipates the arm's CoM instead of toppling toward it.
-  // Numeric arm_aware_plan (default 1 = on; 0 = legacy home-locked stand).
+  // Numeric arm_aware_plan (absent => 1 = on; 0 = legacy home-locked stand).
+  // NOTE: the shipped Stabilize_H12_Magpie.xml pins arm_aware_plan=0, so the
+  // effective default for THIS task is OFF.
   // F1b (2026-07-02): TRAJECTORY feedforward. Retarget not to where the arm IS but
   // to where it is GOING -- the lead-extrapolated pose q + arm_lead_sec * qdot
   // (measured arm velocity). On a HELD arm (qdot~0) this is identical to F1-A; DURING
@@ -3121,12 +3000,11 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       double ey = zc * ty + tau_c * vy;
       double ey_pos = zc * ty;              // lateral: tilt only (rock-immune)
       double danger = mju_sqrt(ex * ex + ey_pos * ey_pos);
-      // march latch threshold is its OWN numeric (v5.2): reusing catch_full
-      // coupled the latch to the legacy COST-side overlay band (trig..full)
-      // -- lowering it to 0.07 for the latch collapsed that band and sent
-      // the cost side into a full march on ANY 0.07+ danger while the freeze
-      // only played backward => fwd 0.5 fell (half-machinery again).
-      // catch_trig/catch_full stay at their validated 0.12/0.24.
+      // march latch threshold is its OWN numeric: reusing catch_full coupled
+      // the latch to the COST-side overlay band (trig..full), and moving one
+      // mis-drove the other (history: see
+      // mjpc/tasks/humanoid_bench/HISTORY.md). catch_trig/catch_full stay at
+      // their validated 0.12/0.24.
       int cmt_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_march_thresh");
       int cf_id = mj_name2id(model, mjOBJ_NUMERIC, "catch_full");
       double kCatchFull = (cmt_id >= 0)
@@ -3143,20 +3021,15 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       double t_ep = data->time - residual_.catch_ep_t0_;
       // no latch during bring-up (mirror the gait arm, kArmSec 2.0 + margin);
       // kCatchSec <= 0 disables the whole feature (byte-identical fallback).
-      // BACKWARD-DOMINANT ONLY (v5.1, 2026-07-03): the march latches solely
-      // on a backward capture escape (-ex). Backward is the one axis whose
-      // support polygon is structurally deficient (heel lever 0.035 m vs toe
-      // 0.115 m, lateral hip load/unload bulletproof); fwd/lateral already
-      // recover QUIETLY (hip-throw + capture-lateral + weight-shift), and the
-      // 8-cell matrix showed an omni latch REGRESSES them (fwd 0.5 RECOVER
-      // 6.4deg -> DRIFT 29deg; left 0.3 peak 2.2 -> 24.8deg) -- the march's
-      // own motion becomes the disturbance on axes that don't need a step.
-      // NOTE (v5.4 REVERTED): a backward-DOMINANCE condition ((-ex) >= |ey|)
-      // was tried to silence marches on lateral pushes -- it VETOED genuine
-      // backward latches instead (|ey| = zc*ty tilt-amplified sway routinely
-      // exceeds the barely-crossing -ex ~ 0.07; back 0.3 dropped 3/3 -> 1/3
-      // with legs ~16deg = march never fired) and did not change the lateral
-      // peaks it targeted. Backward-threshold-only is the validated form.
+      // BACKWARD-ONLY: the march latches solely on a backward capture escape
+      // (-ex). Backward is the one axis whose support polygon is structurally
+      // deficient (heel lever 0.035 m vs toe 0.115 m); fwd/lateral already
+      // recover QUIETLY (hip-throw + capture-lateral + weight-shift), and an
+      // omni latch REGRESSES them -- the march's own motion becomes the
+      // disturbance on axes that don't need a step. A backward-DOMINANCE
+      // condition was also tried and reverted (it vetoed genuine backward
+      // latches); backward-threshold-only is the validated form (measured A/B
+      // history: see mjpc/tasks/humanoid_bench/HISTORY.md).
       // R3 persistence (2026-07-04): the crossing must be SUSTAINED
       // catch_persist_sec before it can latch -- sway/EKF noise spikes on the
       // real robot are brief, a genuine backward fall is not. 0 = off.
@@ -3251,8 +3124,8 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
     // (knees ≈ 0, hip pitch ≈ 0, pelvis translates forward, CoM goes past
     // midfoot) vs the squat-and-lean strategy (knees + hip pitch flexing,
     // pelvis stays back). qpos indices follow the actuator order in
-    // lean.cc::kJointVelLimit: L_hip_pitch=1, L_knee=3, R_hip_pitch=7,
-    // R_knee=9 → qpos[7+i].
+    // kJointVelLimit (above in this file): L_hip_pitch=1, L_knee=3,
+    // R_hip_pitch=7, R_knee=9 → qpos[7+i].
     double L_hip_pitch_deg = data->qpos[7 + 1] * 180.0 / M_PI;
     double L_knee_deg      = data->qpos[7 + 3] * 180.0 / M_PI;
     double R_hip_pitch_deg = data->qpos[7 + 7] * 180.0 / M_PI;
@@ -3318,9 +3191,9 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
     if (hand_dist < 0.05) {
       std::random_device rd;
       std::mt19937 gen(rd());
-      // TEST #16 (2026-05-18): target x range 1.4-1.6 → 1.2-1.4. Closer to
-      // robot so static reach is within natural-posture range; combined with
-      // kp_ankle 20→40 should let stand-and-lean be stable.
+      // target x range 1.2-1.4: close enough that a static reach stays within
+      // natural-posture range. MUST match the same distribution in
+      // ResetLocked below.
       std::uniform_real_distribution<> dis_x(1.2, 1.4);
       std::uniform_real_distribution<> dis_y(-0.3, 0.3);
       target_position_ = {dis_x(gen), dis_y(gen), 0.83};
@@ -3934,10 +3807,9 @@ void stabilize::ResetLocked(const mjModel *model) {
   } else {
     std::random_device rd;
     std::mt19937 gen(rd());
-    // TEST #16 (2026-05-18): target x range 1.4-1.6 → 1.2-1.4 (matches
-    // the same fix in TransitionLocked above). Missing this caused the
-    // FIRST target on every reset to spawn far at [1.4, 1.6] — robot
-    // couldn't reach without losing balance, and user saw the tipping.
+    // target x range 1.2-1.4 — MUST match the same distribution in
+    // TransitionLocked above (a mismatch makes the FIRST target on every
+    // reset spawn out of balanced reach).
     std::uniform_real_distribution<> dis_x(1.2, 1.4);
     std::uniform_real_distribution<> dis_y(-0.3, 0.3);
     target_position_ = {dis_x(gen), dis_y(gen), 0.83};
@@ -3954,20 +3826,6 @@ void stabilize::ResetLocked(const mjModel *model) {
   }
 }
 
-// ============================================================================
-// ModifyControl — CAPTURE-POINT FOOTSTEP CONTROLLER for the TROT strategy
-// (slot 23, phase "stumble_trot"). Called by Task::ModifyControl after the
-// policy fills ctrl and before mj_step, in EVERY rollout (NoisyRollout) AND on
-// the executed action (CEM ActionFromPolicy). Open-loop drives ONLY the swing
-// leg: lift for clearance mid-swing, then PLACE the foot at the capture point
-//   xi = v * sqrt(z/g)   (inverted-pendulum "catch" spot)
-// by touchdown, so single-support is a PLANNED CATCH, not an unguided fall. The
-// sampler still owns the stance leg + torso (balance). A desired CoM velocity
-// (numerics trot_des_vel_x/y, default 0) biases the step: 0 = step in place
-// (trot/stumble), >0 = WALK forward -- ONE generalized controller. is_trot-
-// gated: strat 20 + every other strategy byte-identical. ctrl[i] == joint
-// target for qpos[7+i] (position-servo). FK-measured gains (twin model): +hip_
-// pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both legs.
 // ============================================================================
 // ARM_PLAN mode-2 rollout injection (2026-07-10). Called per rollout step on
 // the WORKER's own mjData (Trajectory::NoisyRollout, before mj_step). While a
@@ -4032,6 +3890,23 @@ void stabilize::ModifyRolloutState(const mjModel *model, mjData *data) const {
   }
 }
 
+// ============================================================================
+// ModifyControl — CAPTURE-POINT FOOTSTEP CONTROLLER for the TROT strategy
+// family (slots 22-24, keyframes carrying "trot") plus the stumble (strat 20)
+// catch-march episode. Called by Task::ModifyControl after the policy fills
+// ctrl and before mj_step, in EVERY rollout (NoisyRollout) AND on the executed
+// action (CEM ActionFromPolicy). Open-loop drives ONLY the swing leg: lift for
+// clearance mid-swing, then PLACE the foot at the capture point
+//   xi = v * sqrt(z/g)   (inverted-pendulum "catch" spot)
+// by touchdown, so single-support is a PLANNED CATCH, not an unguided fall. The
+// sampler still owns the stance leg + torso (balance). A desired CoM velocity
+// (numerics trot_des_vel_x/y, default 0) biases the step: 0 = step in place
+// (trot/stumble), >0 = WALK forward -- ONE generalized controller. Name-gated
+// on the stumble/trot keyframes: every other strategy is untouched. ctrl[i] ==
+// joint target for qpos[7+i] (position-servo). FK-measured gains (twin model):
+// +hip_pitch -> foot BACK (0.80/rad), +hip_roll -> foot +y (0.79/rad), both
+// legs.
+// ============================================================================
 void stabilize::ModifyControl(const mjModel *model, const double *qpos,
                          const double *qvel, double time, double *ctrl) const {
   const std::string &kfname = residual_.residual_keyframe_.name;
@@ -4049,16 +3924,14 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   };
 
   // amplitude: TROT = continuous forced-march arm-ramp (matches the residual
-  // `arm`, kArmSec 2.0). STUMBLE quiet stand (v5, 2026-07-03) = a CATCH-MARCH
-  // episode: when TransitionLocked latched danger > catch_full, run THIS SAME
-  // clock-driven march (the twin-validated 9/9 in-place trot -- clock, cost,
-  // and freeze coherent by construction) for catch_step_sec with an ease-in/
-  // out envelope, then hand back to the quiet stand. v1-v4 tried a scripted
-  // SINGLE catch-step instead and hit a ~1-in-6 coin flip: breaking symmetric
-  // double support, unloading, swinging far, and stabilising the stance leg
-  // in 0.3 s FROM ZERO RHYTHM is the hard problem; the march always has
-  // rhythm, a push only modulates its placement. "Push -> stumble (march) ->
-  // settle -> keep standing."
+  // `arm`, kArmSec 2.0). STUMBLE quiet stand = a CATCH-MARCH episode: when
+  // TransitionLocked latched danger > catch_full, run THIS SAME clock-driven
+  // march (clock, cost, and freeze coherent by construction) for
+  // catch_step_sec with an ease-in/out envelope, then hand back to the quiet
+  // stand. A march beats a scripted single catch-step because the march always
+  // has rhythm -- a push only modulates its placement. "Push -> stumble
+  // (march) -> settle -> keep standing." (history: see
+  // mjpc/tasks/humanoid_bench/HISTORY.md)
   constexpr double kArmSec = 2.0;
   double g_amp;
   if (is_trot) {
@@ -4299,70 +4172,37 @@ void stabilize::ModifyControl(const mjModel *model, const double *qpos,
   do_leg(ph_r, 7, 8, 9, 10, -1.0);   // RIGHT swing window ph_r in [duty,1]
 }
 
-// ============================================================================
-// ComputeMetrics — phase-aware monitoring metrics for the Research GUI /
-// headless analyzer. Reads the current keyframe + sensor stack; no rollout
-// hot-path work. See QUANTIFICATION_PLAN.html for the 10 metrics surfaced
-// here (reach, CoP, ICP, brace force, saturation, ...).
-// ============================================================================
 std::map<std::string, double> stabilize::PlannerNumericOverrides(int strategy) const {
   const auto names = GetStrategyNames();
   if (strategy < 0 || strategy >= static_cast<int>(names.size())) return {};
   const std::string &name = names[strategy];
-  // "Stumble" is the only stepping strategy: its gait clock oscillates the legs,
-  // which the stand-tuned sampling_spline_points=3 cannot represent (the swing
-  // foot never lifts). spline=5 is the twin-validated sweet spot -- spline=8
-  // over-actuates and destabilises even a plain stand (2026-06-18). exploration
-  // 0.05 == the XML default, pinned here so stumble is unaffected if that
-  // default ever changes. Keyed by NAME so both the Lean_H12 and Lean_H12_Hands
-  // stumble slots match. Adding a future strategy that needs a different planner
-  // bandwidth is a one-line edit HERE (fork side) -- the deploy node stays
-  // strategy-agnostic and never changes.
-  // TROT (slot 23, capture-point footstep controller, stabilize::ModifyControl): like
-  // stumble needs spline 5 for the swing, but ALSO needs MORE rollouts to balance
-  // single-support around the forced swing. Twin hold-rate: 16 trajectories = 1/5
-  // (sampler runs out of balancing budget); 36 = 5/5 at the full ~5cm lift. The
-  // marginality was a SAMPLING-BUDGET limit, not a controller flaw. NOTE: 36 ~=
-  // 2.25x compute -> verify real-time on the deploy CPU (or use a GPU/more cores);
-  // on the lockstep twin it's free. Keyed by NAME (Lean_H12 + Hands trot slots).
-  // STAND (slot 6) planner-resolution override: TESTED AND REJECTED 2026-07-10.
-  // Theory (research doc h12/stabilize_stand_robustness_research_2026-07-09.md):
-  // the task-default 3 knots over the 1.0s horizon = 0.495s ZERO-ORDER-HOLD
-  // blocks (CEM is hard-wired kZeroSpline, cross_entropy/planner.h:148) = 1.65x
-  // the pendulum time constant -> can't represent small fast corrections ->
-  // overcorrection sway. Twin A/B (3x30s, plan-hz 80, flat-foot keyframes):
-  //   spline 3 / elite 6 (default): fwd pk-pk 2.4deg, shuffle 0.04m  <- BEST
-  //   spline 5 / elite 3:           fwd pk-pk 3.2deg, shuffle 0.15m
-  //   spline 5 / elite 6:           fwd pk-pk 3.8deg
-  // At 10 rollouts the extra knot dimensions cost more sampling variance than
-  // the resolution buys -- the same lesson as the 2026-06-18 "spline 8
-  // destabilises even a plain stand" note above. NO override for the stand.
-  // The knot-coarseness theory may still hold on REAL (23-60Hz replan makes a
-  // committed ZOH block live 2-4x longer than on the 80Hz twin) but that must
-  // be tested on real WITH a rollout bump (e.g. spline 5 + trajectories 36 like
-  // the trot below), not shipped twin-regressed.
+  // Stepping strategies (stumble 20, walk 22, trot 23, drive 24) need a
+  // different planner bandwidth than the pose strategies: the gait clock
+  // oscillates the legs, which the stand-tuned sampling_spline_points=3 cannot
+  // represent (the swing foot never lifts). spline=5 is the validated sweet
+  // spot (spline=8 over-actuates and destabilises even a plain stand).
+  // exploration 0.05 == the XML default, pinned here so the stepping slots are
+  // unaffected if that default ever changes. Keyed by strategy NAME; adding a
+  // future strategy that needs a different planner bandwidth is a one-line
+  // edit HERE (fork side) -- the deploy node stays strategy-agnostic and never
+  // changes.
+  // STAND (slot 6): deliberately NO override -- a planner-resolution bump
+  // (spline 5) was tested and rejected on the twin, where the extra knot
+  // dimensions cost more sampling variance than the resolution buys (history +
+  // the untested-on-real caveat: see mjpc/tasks/humanoid_bench/HISTORY.md).
   // ===== STEPPING STRATEGIES (walk 22, trot 23, drive 24): the DEPLOY-REAL budget =====
   // spline 5: the stand-tuned 3 knots cannot represent the leg oscillation.
-  //
-  // trajectories 17 (WAS 36 -- and 36 was WRONG on the real robot). 36 came from
-  // the LOCKSTEP twin (16 traj = 1/5 hold, 36 = 5/5), but the lockstep twin is
-  // STRUCTURALLY BLIND to plan rate: it waits for physics, so rollouts are free.
-  // On hardware they are not. CEM schedules trajectories + 1 jobs (the nominal
-  // rollout rides along) and blocks on ALL of them, so one plan iteration costs
-  // ceil((N+1)/threads) thread-WAVES. 36 traj on a 12-thread pool = 4 waves =
-  // 27-30 plans/s MEASURED on the robot -- far below the 50-100 Hz band every
-  // real legged sampling-MPC deployment needs (CMU's Go1 whole-body MPPI runs 30
-  // samples at 100 Hz on CPU and says outright that limited compute is much
-  // better spent reaching a ~100 Hz policy than on more samples; Unitree's own
-  // H1-2 RL deploys decide at 50 Hz). Re-measured at 18 traj / 18 threads: 45-52
-  // plans/s = in band. 17 and not 18 because the nominal is scheduled alongside:
-  // 17 + 1 = 18 jobs = exactly ONE wave on the auto-sized 18-thread pool, where
-  // 18 + 1 = 19 spills a second wave the whole pool then waits on for a single
-  // straggler. The deploy node prints a PLAN-RATE WARNING when (traj+1) > threads.
-  //
-  // Rate beats samples here because the swing is FORCED open-loop by
-  // stabilize::ModifyControl (rate-independent) -- the sampler only has to
-  // BALANCE, and the stance-leg weight shift is exactly what starves first.
+  // trajectories 17: CEM schedules trajectories + 1 jobs (the nominal rollout
+  // rides along) and blocks on ALL of them, so one plan iteration costs
+  // ceil((N+1)/threads) thread-WAVES. 17 + 1 = 18 jobs = exactly ONE wave on
+  // the auto-sized 18-thread pool (18 + 1 = 19 spills a second wave the whole
+  // pool then waits on for a single straggler); measured 45-52 plans/s = inside
+  // the 50-100 Hz band real legged sampling-MPC needs. Plan RATE beats samples
+  // here because the swing is FORCED open-loop by stabilize::ModifyControl
+  // (rate-independent) -- the sampler only has to BALANCE, and the stance-leg
+  // weight shift is exactly what starves first. The deploy node prints a
+  // PLAN-RATE WARNING when (traj+1) > threads. (history of the 36-trajectory
+  // twin tuning this replaced: see mjpc/tasks/humanoid_bench/HISTORY.md)
   if (name == "stabilize_simple_trot" || name == "stabilize_simple_walk" ||
       name == "stabilize_simple_drive") {
     return {{"sampling_spline_points", 5.0},
@@ -4386,6 +4226,12 @@ std::map<std::string, double> stabilize::PlannerNumericOverrides(int strategy) c
   return {};
 }
 
+// ============================================================================
+// ComputeMetrics — phase-aware monitoring metrics for the Research GUI /
+// headless analyzer. Reads the current keyframe + sensor stack; no rollout
+// hot-path work. See QUANTIFICATION_PLAN.html for the 10 metrics surfaced
+// here (reach, CoP, ICP, brace force, saturation, ...).
+// ============================================================================
 void stabilize::ComputeMetrics(const mjModel *model, const mjData *data,
                           std::map<std::string, double> *metrics,
                           std::string *phase_name) const {

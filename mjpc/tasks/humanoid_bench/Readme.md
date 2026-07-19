@@ -12,12 +12,11 @@ In addition to the reward residual, we also add additional residuals. We found t
 To get the 'vanilla' version of the task, you can set the additional residuals weights to zero, using the sliders in the GUI.
 
 ## Robots
-In the original implementation, they use a position controlled H1 robot from unitree. In each task, there are different versions of the robot, available. 
-In Addition to the 'normal' one, also one version which is stronger, and also versions with various hands attached to the robot.
+In the original implementation, they use a position controlled H1 robot from unitree, with per-task variants ('normal', a stronger version, and versions with various hands attached).
 
-We use also the position controlled H1 robot, but the version with hands is only included in tasks, were the hands are beneficial to solve the task (i.e. tasks that are not pure locomotion).
+In this fork the primary robot is the position controlled Unitree H1-2 (the `*_H12` task variants: Walk, Push, Avoid, Lean, Stabilize, Upper). The original H1 is still registered for the Walk, Stand and Push tasks. A hands-equipped variant exists only where hands help (Lean H12 Hands); there are no 'stronger' variants here.
 
-In addition, in some of the tasks we also include the G1 robot from unitree. This robot is torque controlled.
+G1 (torque controlled) task classes and scene XMLs exist in the source (`Stand_G1`, `Walk_G1`, `G1_push`) but are not registered in `tasks.cc` and the build does not generate their base model assets, so they cannot be selected or run in this fork.
 
-## Punch Task
-This task is not part of the original benchmark. It is a task where the robot has to punch a target. The target is a sphere, which is placed at a random position in front of the robot. The robot has to punch the target with alternating hands.
+## Punch Task (not ported to this fork)
+This task is not part of the original benchmark and has not been ported to this fork — no punch task exists here. (Upstream description: the robot has to punch a sphere target placed at a random position in front of it, with alternating hands.)

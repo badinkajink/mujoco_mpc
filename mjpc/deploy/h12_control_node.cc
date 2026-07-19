@@ -1,7 +1,7 @@
 // MJPC embedded DDS control node for the Unitree H1-2 (digital twin + real robot).
 // FULL-BODY variant: nu=27 (legs + torso + arms), task "Lean H12 Magpie",
 // publishes the safety layer's full-body channel rt/safety/lowcmd_in.
-// See README_EMBED.md.  Build: cmake .. -DMJPC_BUILD_DEPLOY=ON  (needs unitree_sdk2).
+// See mjpc/deploy/README.md.  Build: cmake .. -DMJPC_BUILD_DEPLOY=ON  (needs unitree_sdk2).
 //
 // WHY THIS EXISTS
 //   The Python gRPC bridge proved the control logic (every free-standing simple
@@ -22,8 +22,8 @@
 //
 // The shared implementation lives in deploy_common.cc (this file is a thin main:
 // per-node gain tables + the surviving CLI flags -> NodeConfig -> RunDeployNode).
-// Settled values (ctrl_hz 200, twin-time clocking, latency comp, plan threads 12,
-// ramp/hold/blend timings, torque-budget clamp, ...) are compiled-in constants --
+// Settled values (ctrl_hz 200, twin-time clocking, latency comp, AUTO-sized plan
+// threads, ramp/hold/blend timings, ...) are compiled-in constants --
 // see deploy_common.h for the full flag-diet rationale.
 
 #include <cstdlib>
@@ -47,7 +47,7 @@ ABSL_FLAG(std::string, task, "Lean H12 Magpie", "MJPC task id");
 ABSL_FLAG(int, strategy, 6,
           "Lean Strategy parameter (6=stand 8=crouch 11=arms_overhead 13=lean_left "
           "16=counterbalance 18=squatter 20=stumble 21=reach 23=trot "
-          "25=straighten/bring-up 31-35=lean pipeline ...). For slumped/leaning "
+          "25=straighten/bring-up 31-35=lean ladder ...). For slumped/leaning "
           "power-on boot with --strategy 25: phase 0 drives to upright+centered "
           "from the measured pose, then a basin gate (tilt<=3deg, z>=1.00, "
           "knees<=0.50rad i.e. legs actually extended, quiescent, 1.5s "
@@ -119,14 +119,16 @@ ABSL_FLAG(bool, cost, false,
           "dump the per-term cost breakdown to stderr once/sec (debug). OFF by default -- the "
           "concise [node] status line is unaffected.");
 ABSL_FLAG(int, frc_parity, -1,
-          "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to the "
-          "torque the node can actually emit (0.9 x tau_estop = the H2 clamp budget), so the "
-          "sampler stops planning balance it cannot execute. The planner model shipped ankle "
-          "+/-75 Nm and torso +/-200 Nm while the node emits at most 48.6 / 36.0 -- on the real "
+          "ACTUATOR-AUTHORITY PARITY: tighten the PLANNER model's actuator forceranges to "
+          "0.9 x tau_estop (the safety-layer torque budget), so the sampler stops planning "
+          "balance the safety envelope cannot deliver. The planner model shipped ankle "
+          "+/-75 Nm and torso +/-200 Nm against budgets of 48.6 / 36.0 -- on the real "
           "trot BOTH railed at exactly their budget for 6 s and the stance knee locked to a "
-          "passive prop (the weak-ankle crutch). -1 = task default (ON for the stepping "
-          "strategies via PlannerNumericOverrides), 0 = OFF (legacy model, byte-identical), "
-          "1 = force ON. Kill switch for a real-robot A/B: --frc_parity=0.");
+          "passive prop (the weak-ankle crutch). The torque-budget clamp is REMOVED: emitted "
+          "torque is unclamped and CAN trip the safety estop, so parity is the intended "
+          "mitigation. -1 = task default (the `deploy_frc_parity` numeric; the Lean XMLs "
+          "ship 0 and lean.cc never sets it -> OFF), 0 = force OFF (legacy model, "
+          "byte-identical), 1 = force ON.");
 ABSL_FLAG(double, stale_sec, 0.05,
           "H1 stale-input watchdog threshold (s): either state stream older than this -> "
           "damping safe-hold. DEFAULT 0.05 = the REAL-robot value (1 kHz lowstate). Loosen "
@@ -153,10 +155,11 @@ const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80,
                         30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
-// SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit, from
-// default_safety_full.yaml + h12_safety_layer/core/joint_limits.py). Basis of the
-// H2 torque-budget clamp: |tau_ff + KP*(tgt-q) + KV*dq| is capped at 0.9x these,
-// so a commanded position can never demand estop-level torque.
+// SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit) -- MUST
+// equal default_safety_full.yaml + h12_safety_layer/core/joint_limits.py. Feeds the
+// over-budget telemetry (ticks where |tau_ff + KP*(tgt-q) + KV*dq| > 0.9x these) and
+// the --frc_parity forcerange patch; emitted torque is NOT clamped -- the safety
+// layer's estop is the backstop.
 const double TAU_ESTOP[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36,  40,
                                32, 32, 14.4, 14.4, 9.5, 9.5, 9.5,
                                32, 32, 14.4, 14.4, 9.5, 9.5, 9.5};

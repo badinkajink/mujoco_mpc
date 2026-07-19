@@ -44,7 +44,6 @@ class MotionStrategy {
       : contact_keyframes_(keyframes), current_keyframe_index_(0) {}
 
   void Reset();
-  void Clear();
 
   bool HasKeyframes() const { return !contact_keyframes_.empty(); }
   ContactKeyframe& GetCurrentKeyframe() {
