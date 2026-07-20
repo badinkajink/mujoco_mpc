@@ -229,6 +229,10 @@ struct NodeConfig {
                                        // Loosen ONLY for sims whose lowstate publisher stalls
                                        // on a shared sim lock (RoboCasa sensor renders: 50-60ms
                                        // gaps -> permanent safe-hold at the default).
+  double latency_extra_ms = 4.0;       // latency-comp ADDITIVE ms on top of measured compute time
+                                       // (transport + plant zero-order-hold). 2026-07-19 A/B lever:
+                                       // the twin cannot test this axis (clean timing), so it is
+                                       // probed on real: 4 (default) vs 8 vs 12.
   double latency_rtf = 1.0;            // latency-comp sim-time scale = measured real-time factor.
                                        // The predict-forward horizon dlt is a WALL-clock duration
                                        // but predict_forward rolls it as SIM steps; on a below-

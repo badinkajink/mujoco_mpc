@@ -1272,7 +1272,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   // so this rollout reproduces the twin's joint law; we only add the gravity tau_ff the twin also
   // applies. Object/task slots are left at home (we copy only the robot dofs back). NaN-guarded.
   const double lat_fixed = kLatencyFixedMs * 1e-3;
-  const double lat_extra = kLatencyExtraMs * 1e-3;
+  const double lat_extra = cfg.latency_extra_ms * 1e-3;   // default 4.0 == old kLatencyExtraMs
   const double lat_max   = kLatencyMaxMs * 1e-3;
   const double pred_dt   = g_model->opt.timestep;     // native model step (0.002) == twin granularity
   double ewma_comp = 1.0 / ctrl_hz;                   // measured per-tick compute time (EWMA), seeded

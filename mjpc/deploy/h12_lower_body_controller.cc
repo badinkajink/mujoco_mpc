@@ -284,6 +284,10 @@ ABSL_FLAG(double, stale_sec, 0.05,
           "ONLY for heavyweight sims whose lowstate publisher stalls on a shared sim lock "
           "(RoboCasa's sensor renders hold it 50-60 ms -> permanent safe-hold at 0.05; "
           "0.15 rides the stalls out while still catching a genuinely dead stream).");
+ABSL_FLAG(double, lat_extra_ms, 4.0,
+          "latency-comp ADDITIVE milliseconds on top of the measured per-tick compute "
+          "time (transport + plant zero-order-hold). Default 4.0 = prior baked-in value. "
+          "A/B lever for the fore-aft pump: 4 vs 8 vs 12.");
 ABSL_FLAG(double, latency_rtf, 1.0,
           "latency-comp sim-time scale = measured real-time factor. The predict-forward "
           "horizon is a WALL-clock duration rolled forward as SIM steps; on a below-realtime "
@@ -451,6 +455,7 @@ int main(int argc, char** argv) {
   cfg.straighten_start = absl::GetFlag(FLAGS_straighten_start);
   cfg.frc_parity = absl::GetFlag(FLAGS_frc_parity);
   cfg.stale_sec = absl::GetFlag(FLAGS_stale_sec);
+  cfg.latency_extra_ms = absl::GetFlag(FLAGS_lat_extra_ms);
   cfg.latency_rtf = absl::GetFlag(FLAGS_latency_rtf);
   cfg.plan_pub_topic = absl::GetFlag(FLAGS_plan_topic);   // "" = OFF (debug only)
   cfg.plan_pub_hz = absl::GetFlag(FLAGS_plan_hz);
