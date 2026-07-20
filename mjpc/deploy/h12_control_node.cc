@@ -89,6 +89,43 @@ ABSL_FLAG(double, ankle_pitch_offset_l_deg, 0.0,
           "belief/command pairing as the roll offsets. Measure with ankle_zero_snap.py.");
 ABSL_FLAG(double, ankle_pitch_offset_r_deg, 0.0,
           "RIGHT ankle-pitch zero-offset calibration (deg); see --ankle_pitch_offset_l_deg.");
+ABSL_FLAG(bool, ankle_autocalib, false,
+          "SELF-CALIBRATE the per-power-on ankle zeros at bring-up: during the scripted ramp "
+          "HOLD (robot still, feet LOADED, planner muzzled) sample the raw encoders + IMU, "
+          "solve the flat-sole ankle angles (the floor is the reference -- same validated math "
+          "as ankle_zero_snap.py), and REPLACE the four --ankle_*_offset flags with the result "
+          "before policy handover. The H1-2 stores no ankle calibration and the zero re-rolls "
+          "EVERY power-on (and can move on a violent event), so a per-bring-up self-check "
+          "catches every case. FAIL-SAFE: if the window is not LOADED (>15 Nm legs) + SETTLED "
+          "(|dq|<0.03) + STABLE (base std<0.5 deg) + self-consistent (halves agree <0.5 deg, "
+          "|off|<8 deg cap), it applies NOTHING and keeps the manual flags. Requires the feet "
+          "on the ground during bring-up (suspended -> clean REJECT). Skipped under "
+          "--straighten_start. OFF by default = byte-identical. (Ported from "
+          "h12_lower_body_controller 2026-07-20; the machinery is shared deploy_common.)");
+ABSL_FLAG(bool, ankle_autocalib_selftest, false,
+          "Validate the auto-calib solver against planted +-6 deg offsets (no robot, no DDS) "
+          "and exit 0/1. Run after any edit to the anklecalib:: code.");
+ABSL_FLAG(double, ac_hold_extra, 3.5,
+          "EXTENDED CALIB HOLD (2026-07-19): extra seconds of scripted post-ramp hold when "
+          "--ankle_autocalib is on, so BOTH calib windows (witness + confirm) and the APPLY land "
+          "BEFORE policy handover. The stock 3.0s hold fits only one window; the confirm then "
+          "measures a robot the policy is already fighting (6-deg zeros -> never quiet -> ran "
+          "uncalibrated, real 07-19 runs 2+4). 0 = stock timing.");
+ABSL_FLAG(bool, ac_imu_align, true,
+          "SESSION IMU ALIGNMENT (2026-07-19): when --ankle_autocalib APPLIES, also correct the "
+          "PLANNER's perceived orientation by the measured gravity-vs-fused delta (mean of the "
+          "witness+confirm windows, cap 4 deg, blended). Real 07-19: the fused frame is a CONSTANT "
+          "~+2.3 deg pitch off the plumb-line across runs -- the planner balanced around a vertical "
+          "~3 cm off-centre (40% of the heel margin). Requires --ac_gravity. 0 = planner keeps the "
+          "static --imu_pitch_offset_deg frame only.");
+ABSL_FLAG(bool, ac_gravity, true,
+          "GRAVITY ANCHOR for --ankle_autocalib (2026-07-18): take the solve's base tilt from "
+          "the time-averaged RAW accelerometer in a ZUPT-verified still window (| |a|-g |<0.5, "
+          "std|a|<0.35, mean|gyro|<0.15) instead of the fused IMU quat. The fused quat carried "
+          "0.5-0.7 deg of run-to-run support-handling error (same power-on zeros solved "
+          "pitch L +4.19 vs +3.50 across two runs); gravity is an absolute plumb-line no "
+          "static support force can bias. Empty accel stream (twin) -> auto-fallback to the "
+          "fused quat. 0 = exact pre-2026-07-18 fused-quat behavior.");
 ABSL_FLAG(std::string, network_interface, "",
           "DDS network interface (empty = auto-pin the 192.168.123.x robot NIC when present, "
           "else autodetermine/loopback for the twin)");
@@ -211,6 +248,11 @@ int main(int argc, char** argv) {
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
   cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
   cfg.ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
+  cfg.ankle_autocalib = absl::GetFlag(FLAGS_ankle_autocalib);
+  cfg.ankle_autocalib_selftest = absl::GetFlag(FLAGS_ankle_autocalib_selftest);
+  cfg.ankle_autocalib_gravity = absl::GetFlag(FLAGS_ac_gravity);
+  cfg.ankle_autocalib_imu_align = absl::GetFlag(FLAGS_ac_imu_align);
+  cfg.ac_hold_extra_sec = absl::GetFlag(FLAGS_ac_hold_extra);
   cfg.network_interface = absl::GetFlag(FLAGS_network_interface);
   cfg.domain_id = absl::GetFlag(FLAGS_domain_id);
   cfg.grpc_port = absl::GetFlag(FLAGS_grpc_port);
