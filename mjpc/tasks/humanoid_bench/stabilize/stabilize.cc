@@ -15,13 +15,31 @@ namespace mjpc {
 // read by rollout workers in Residual (benign double read; changes on a seconds
 // timescale). Used by the DC-blind hip recovery tier.
 static double s_cap_ex_dc = 0.0, s_cap_ey_dc = 0.0, s_cap_dc_t = -1.0;
-// T1 REFERENCE TRIM (2026-07-11 pivot: trim the reference to the robot). Slow
-// integrator on the DC capture excursion -> added to the Balance capture-point
-// fore-aft offset (same knob as the manual com_x_offset sysid, automated). A
-// zero-error park (ex_dc > 0) grows the trim until the planner holds the CoM
-// far enough back that the park returns to the DESIGNED nominal (ex_dc = 0).
-// stand_trim_tau numeric (s): 0 = OFF (trim forced 0, byte-identical).
-static double s_trim_x = 0.0;
+// T1 REFERENCE TRIM v2 (2026-07-18 rebuild to the published integral-balance
+// recipe: Stephens IROS'07 integral CoP/posture control; Caron ICRA'19 leaky
+// DCM-integral -- the HRP-4/mc_rtc stabilizer). Slow integrator on the DC
+// capture excursion -> added to the Balance capture-point offset (same knob as
+// the manual com_x_offset sysid, automated). The 2026-07-11 v1 hunted on real
+// (07-14: trim=0 stood 59 s, trim on swung fore-aft) for four defects, each
+// fixed here:
+//   1. pure integrator, no leak -> bring-up garbage stayed wound in (C2pure:
+//      trim saturated -0.08 and STAYED). v2: leaky integrator
+//      (stand_trim_leak), any wound-in transient self-unwinds.
+//   2. WORLD-frame error (tup[0]/cvel[0]) while the correction is applied along
+//      fwd_ax -> the same yaw disease the 2026-07-16 balance_frame fix killed.
+//      v2: error measured in the SUPPORT frame (feet's own mean heading).
+//   3. nominal = lean_nominal_x (0.06 m FORWARD -- a strat-20 LEAN constant!)
+//      -> on the STAND the "zero-error" park was 6 cm forward of vertical; the
+//      integrator drove the CoM toward the toe. v2: stand_trim_nominal_x
+//      numeric, default 0 (upright); lean users set it to their lean nominal.
+//   4. integrated through pushes/catches (only a time delay armed it) -> wound
+//      the transient into the reference = the hunt. v2: QUIET gate -- only the
+//      steady park (|ex - ex_dc| < stand_trim_quiet) integrates; transients
+//      freeze the trim.
+// Plus a LATERAL channel (s_trim_y along lat_ax, tight cap): same recipe, roll
+// analog -- mops up the residual lateral park a 0.2-0.3 deg calib error leaves.
+// stand_trim_tau numeric (s): 0 = OFF (both trims forced 0, byte-identical).
+static double s_trim_x = 0.0, s_trim_y = 0.0;
 
 namespace {
 // Swing-foot clearance bell (WSS "quiet stepping" port, 2026-07-12). Replaces
@@ -1235,6 +1253,29 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // Apply the accumulated fore-aft bias along the robot's OWN forward axis.
     capture_point[0] += com_fwd_bias * fwd_ax[0];
     capture_point[1] += com_fwd_bias * fwd_ax[1];
+    // T1 v2 LATERAL trim (2026-07-18): the roll analog, applied along the
+    // support frame's lateral axis. ey_dc > 0 = parked LEFT -> trim_y grows ->
+    // the planner believes the capture point is further left than measured ->
+    // holds the CoM RIGHT (mirror of the fore-aft semantics above). 0 when
+    // stand_trim_tau = 0 (byte-identical).
+    capture_point[0] += s_trim_y * lat_ax[0];
+    capture_point[1] += s_trim_y * lat_ax[1];
+    // com_y_offset (2026-07-18 ton9): static lateral sibling of com_x_offset,
+    // same semantics as s_trim_y above. The real robot parks its CoM 2-4cm to
+    // one side with a LEVEL base (ton9: gravity-vs-fused roll agrees to 0.2deg
+    // -> not an IMU bias; constant across power cycles -> not the ankle
+    // lottery; = lateral mass-model asymmetry, e.g. the right-side magpie arm).
+    // The lateral trim converged to -0.03..-0.05 in every run it ran before
+    // saturating; this bakes that DC value in statically so the sided park (and
+    // the right-foot unload -> skate it seeds) is countered from t=0.
+    {
+      int com_y_id = mj_name2id(model, mjOBJ_NUMERIC, "com_y_offset");
+      if (com_y_id >= 0) {
+        double cyb = model->numeric_data[model->numeric_adr[com_y_id]];
+        capture_point[0] += cyb * lat_ax[0];
+        capture_point[1] += cyb * lat_ax[1];
+      }
+    }
   }
 
   // project onto support polygon
@@ -2012,8 +2053,24 @@ void stabilize::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // the operator watched the feet "move around by dragging" and the live stagger_S readout
   // collapsed 0.157 -> 0.103 (toward S=0) before the fall. Anchoring to the MEASURED feet
   // makes the term mean "stay where you are" for ANY stance, which is what it always meant.
+  // STAND (strat 6, 2026-07-18): same disease measured on real -- the ton2
+  // recording showed Foot Stability as the DOMINANT cost (mean 225 weighted,
+  // 10x Balance) because the session's odometry had drifted ~13 m across the
+  // day's runs and the home constants live in that frame: the planner spent
+  // every run pulled toward a point metres away ("it keeps trying to lean
+  // backward"), scaling with odometric drift = why later runs felt worse.
+  // STUMBLE (strat 20, 2026-07-19): joins the re-pin for real deployment. Its
+  // quiet phase is the same both-feet stand (weight 2, same drifting-frame
+  // disease as the stand's 225-cost run), and the catch-march is IN-PLACE, so
+  // "do not plan to move the feet over the horizon" is the intended meaning
+  // there too (planned swing displacement is cm-scale at weight 2 = noise).
+  // Exact-name gate: trot/walk/drive (stumble_trot*) keep the home constants --
+  // their feet are SUPPOSED to travel, and their twin tuning was done against
+  // the constants; re-anchoring them is a separate, unvalidated change.
   const bool anchor_to_measured =
-      straighten_seeded_ || residual_keyframe_.name.rfind("stagger", 0) == 0;
+      straighten_seeded_ || residual_keyframe_.name.rfind("stagger", 0) == 0 ||
+      residual_keyframe_.name == "stand_up" ||
+      residual_keyframe_.name == "stumble_march";
   if (anchor_to_measured) {
     rf_home = straighten_foot_anchor_;
     lf_home = straighten_foot_anchor_ + 2;
@@ -3158,10 +3215,8 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
       s_cap_ey_dc += a * (ey - s_cap_ey_dc);
       s_cap_dc_t = data->time;
       if (ttau > 0.0) {
-        // T1 trim: lean park_dc -> Balance fore-aft bias. C2pure live: symmetric
-        // ±stand_trim_max let bring-up wind trim_x to -0.08 and leave it there
-        // after park_dc~0 -> permanent "hold CoM forward" (operator push from front).
-        // Asymmetric: +side still uses stand_trim_max; -side uses stand_trim_neg_max.
+        // ---- T1 v2 (2026-07-18): leaky, support-frame, quiet-gated ---------- //
+        // (see the s_trim_x file-scope comment for the four v1 defects fixed)
         int td_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_delay");
         double tdelay = (td_id >= 0)
             ? model->numeric_data[model->numeric_adr[td_id]] : 0.0;
@@ -3172,40 +3227,82 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
         int tn_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_neg_max");
         double tmax_neg = (tn_id >= 0)
             ? model->numeric_data[model->numeric_adr[tn_id]] : tmax_pos;
-        if (trim_armed) {
-          s_trim_x += (dt / ttau) * s_cap_ex_dc;
-          s_trim_x = mju_min(tmax_pos, mju_max(-tmax_neg, s_trim_x));
-        } else {
-          s_trim_x = 0.0;
+        int tl_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_leak");
+        double tleak = (tl_id >= 0)
+            ? model->numeric_data[model->numeric_adr[tl_id]] : 60.0;
+        int tq_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_quiet");
+        double tquiet = (tq_id >= 0)
+            ? model->numeric_data[model->numeric_adr[tq_id]] : 0.03;
+        int ty_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_lat_max");
+        double tlat_max = (ty_id >= 0)
+            ? model->numeric_data[model->numeric_adr[ty_id]] : 0.02;
+        int tnx_id = mj_name2id(model, mjOBJ_NUMERIC, "stand_trim_nominal_x");
+        double tnom = (tnx_id >= 0)
+            ? model->numeric_data[model->numeric_adr[tnx_id]] : 0.0;
+        // SUPPORT frame from the feet's own mean heading (same midFeetZUp rule
+        // as the Residual's balance_frame; degenerate feet -> world axes).
+        double fwd[2] = {1.0, 0.0}, lat[2] = {0.0, 1.0};
+        {
+          double const *flf = SensorByName(model, data, "foot_left_forward");
+          double const *frf = SensorByName(model, data, "foot_right_forward");
+          double fx = 0.0, fy = 0.0;
+          if (flf && frf) { fx = flf[0] + frf[0]; fy = flf[1] + frf[1]; }
+          double len = mju_sqrt(fx * fx + fy * fy);
+          if (len > 1.0e-6) {
+            fwd[0] = fx / len; fwd[1] = fy / len;
+            lat[0] = -fwd[1];  lat[1] = fwd[0];
+          }
         }
+        // capture excursion in the SUPPORT frame, nominal = stand_trim_nominal_x
+        // (0 = upright; a lean strategy sets its lean nominal here).
+        double exf = zc * ((tup[0] * fwd[0] + tup[1] * fwd[1]) - tnom) +
+                     tau_c * (cvel[0] * fwd[0] + cvel[1] * fwd[1]);
+        double eyl = zc * (tup[0] * lat[0] + tup[1] * lat[1]) +
+                     tau_c * (cvel[0] * lat[0] + cvel[1] * lat[1]);
+        // trim's own DC EMA (4 s), separate from the washout EMA above (that one
+        // keeps its validated recover-tier semantics untouched).
+        static double s2_ex = 0.0, s2_ey = 0.0;
+        double a2 = (dt > 0.0) ? mju_min(1.0, dt / 4.0) : 1.0;
+        s2_ex += a2 * (exf - s2_ex);
+        s2_ey += a2 * (eyl - s2_ey);
+        // QUIET gate: integrate only a steady park. During a push/catch the
+        // instantaneous excursion leaves its DC -> freeze (v1 wound these
+        // transients into the reference; that was the hunt).
+        const bool quiet = std::fabs(exf - s2_ex) < tquiet &&
+                           std::fabs(eyl - s2_ey) < tquiet;
+        if (trim_armed && quiet) {
+          s_trim_x += (dt / ttau) * s2_ex;
+          s_trim_y += (dt / ttau) * s2_ey;
+        } else if (!trim_armed) {
+          s_trim_x = 0.0; s_trim_y = 0.0;
+        }
+        // LEAK (Caron'19): the trim decays toward 0 with tau = stand_trim_leak.
+        // A true constant bias re-wins every tick (steady state trim =
+        // ex_dc * tleak/ttau, residual park = trim * ttau/tleak -- at the
+        // 60/15 defaults a 4 cm need leaves ~1 cm park); wound-in garbage from
+        // a transient has no source and self-unwinds. 0 = no leak (pure v1
+        // integrator, not recommended).
+        if (tleak > 0.0 && dt > 0.0) {
+          double decay = 1.0 - mju_min(1.0, dt / tleak);
+          s_trim_x *= decay;
+          s_trim_y *= decay;
+        }
+        s_trim_x = mju_min(tmax_pos, mju_max(-tmax_neg, s_trim_x));
+        s_trim_y = mju_min(tlat_max, mju_max(-tlat_max, s_trim_y));
         static double last_print = -1.0e9;
         if (data->time - last_print > 5.0) {
           last_print = data->time;
-          std::printf("[trim] t=%.1f park_dc=%+.3f m trim_x=%+.3f m armed=%d\n",
-                      data->time, s_cap_ex_dc, s_trim_x, trim_armed ? 1 : 0);
-          // #region agent log
-          {
-            std::ofstream lf(
-                "/home/the2xman/Desktop/h12/.cursor/debug-c2ebbf.log",
-                std::ios::app);
-            if (lf) {
-              lf << "{\"sessionId\":\"c2ebbf\",\"runId\":\"packC2n\","
-                    "\"hypothesisId\":\"H_NEG_TRIM_CAP\",\"location\":"
-                    "\"stabilize.cc:trim\",\"message\":\"trim_tick\","
-                    "\"data\":{\"t\":" << data->time
-                 << ",\"park_dc\":" << s_cap_ex_dc
-                 << ",\"trim_x\":" << s_trim_x
-                 << ",\"ttau\":" << ttau
-                 << ",\"tmax_neg\":" << tmax_neg
-                 << ",\"armed\":" << (trim_armed ? 1 : 0)
-                 << "},\"timestamp\":" << static_cast<long long>(data->time * 1000)
-                 << "}\n";
-            }
-          }
-          // #endregion
+          // stderr on purpose: stdout is block-buffered when redirected to a
+          // log file and the line vanishes if the process is killed unflushed.
+          std::fprintf(stderr,
+                       "[trim] t=%.1f park(fwd%+.3f lat%+.3f) m trim(x%+.3f "
+                       "y%+.3f) m armed=%d quiet=%d\n",
+                       data->time, s2_ex, s2_ey, s_trim_x, s_trim_y,
+                       trim_armed ? 1 : 0, quiet ? 1 : 0);
         }
       } else {
         s_trim_x = 0.0;
+        s_trim_y = 0.0;
       }
     } else if (ema_tau <= 0.0) {
       s_cap_ex_dc = 0.0; s_cap_ey_dc = 0.0; s_cap_dc_t = -1.0;  // off = raw
@@ -3943,7 +4040,15 @@ void stabilize::TransitionLocked(mjModel *model, mjData *data) {
   //  0.0028*25 = 0.07 cost units. Invisible. Position-over-horizon is the version with teeth.)
   //
   // Every other strategy is untouched: they keep the home constants / straighten's frozen seed.
-  if (residual_.residual_keyframe_.name.rfind("stagger", 0) == 0) {
+  // STAND (strat 6) joins the re-pin (2026-07-18): see the anchor_to_measured
+  // note in Residual -- unseeded home constants in the drifting odometric frame
+  // measured as the DOMINANT cost on real (ton2 recording, ~13 m drift).
+  // STUMBLE (strat 20) joins the per-tick re-pin (2026-07-19): see the
+  // anchor_to_measured note in Residual. Exact name -- trot/walk/drive
+  // ("stumble_trot*") deliberately excluded.
+  if (residual_.residual_keyframe_.name.rfind("stagger", 0) == 0 ||
+      residual_.residual_keyframe_.name == "stand_up" ||
+      residual_.residual_keyframe_.name == "stumble_march") {
     double *frp = SensorByName(model, data, "foot_right_pos");
     double *flp = SensorByName(model, data, "foot_left_pos");
     if (frp && flp) {
