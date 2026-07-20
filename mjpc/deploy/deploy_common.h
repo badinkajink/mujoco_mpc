@@ -151,6 +151,31 @@ struct NodeConfig {
   // nothing and keeps the manual flags. OFF by default = byte-identical.
   bool ankle_autocalib = false;
   bool ankle_autocalib_selftest = false;  // run the planted-offset solver selftest and exit
+  // GRAVITY ANCHOR (2026-07-18): base tilt for the autocalib solve from the
+  // time-averaged RAW accelerometer in a ZUPT-verified still window instead of
+  // the fused quat (which carried 0.5-0.7 deg of run-to-run support-handling
+  // error -- the same power-on zeros solved differently across two runs).
+  // Adds gates: | |a|-g | < 0.5, std|a| < 0.35, mean|gyro| < 0.15. Empty accel
+  // stream (twin bridges) auto-falls back to the fused quat. --ac_gravity=0
+  // reverts to the exact pre-2026-07-18 behavior without a rebuild.
+  bool ankle_autocalib_gravity = true;
+  // SESSION IMU ALIGNMENT (2026-07-19): when the autocalib APPLIES, also add the
+  // measured gravity-vs-fused pitch/roll delta (mean of witness+confirm windows,
+  // capped +-4 deg) to the planning-path IMU correction -- real 07-19 evidence:
+  // the fused frame is a CONSTANT ~+2.3 deg pitch off the plumb-line (7 windows,
+  // 3 runs), i.e. the planner balanced around a vertical ~3 cm off-centre.
+  // Requires ankle_autocalib_gravity. --ac_imu_align=0 reverts.
+  bool ankle_autocalib_imu_align = true;
+  // EXTENDED CALIB HOLD (2026-07-19): with the stock 3.0 s hold only ONE calib
+  // window fits before policy handover -- the confirm window then measures a
+  // robot the policy is already fighting (with ~6 deg zeros it never re-quiets:
+  // real runs 2 & 4 of 07-19 burned all 10 windows on MOVING rejects and ran
+  // uncalibrated). Extending the scripted hold by this many seconds (ONLY when
+  // ankle_autocalib is on; 0 = stock timing) fits witness + confirm + APPLY
+  // before the planner gets a vote -- the original "solve BEFORE handover"
+  // design intent. 3.5 => hold 6.5 s: witness ~3.3-5.5, confirm ~6.5-8.7,
+  // apply ~8.7, handover ~9.3.
+  double ac_hold_extra_sec = 3.5;
   // ---- PHASE-A START-POSE ALIGN (2026-07-13) ----
   // Power-on leg geometry is arbitrary (twisted / fore-aft / one knee folded), and the operator
   // was hand-straightening the legs before every run. With align_start the node does it itself:

@@ -225,6 +225,12 @@ struct StateData {
                                        // (motor 12..26, legs-only node); leg-aware = the 12 legs
                                        // (motor 0..11, upper-body node)
   double quat[4] = {1, 0, 0, 0}, gyro[3] = {0};  // rt/lowstate IMU (wxyz, body gyro)
+  double acc[3] = {0};   // rt/lowstate IMU accelerometer (specific force, sensor frame):
+                         // at rest = R^T*(0,0,+9.81) = an ABSOLUTE inclinometer. Consumed
+                         // by the autocalib gravity anchor (fused-quat pitch/roll carries
+                         // filter lag + support-motion error; time-averaged raw gravity
+                         // in a verified-still window does not -- Guedelha 2016 / INS
+                         // "levelling update").
   double site_p[3] = {0}, site_v[3] = {0};       // rt/sportmodestate (IMU-site world pose)
   uint8_t mode_machine = 0;
   uint32_t tick = 0;          // rt/lowstate tick = twin sim-step count (twin sim_time = tick * twin_dt)
@@ -300,6 +306,40 @@ inline void SolveFlat(const mjModel* m, mjData* d, double* qpos, int bid,
   *sr = qpos[adr_r];
 }
 
+// GRAVITY ANCHOR (2026-07-18). The solve's base-orientation input was the FUSED
+// IMU quaternion -- an estimate that carries gyro-bias leakage, filter lag after
+// motion, and accel-fusion corruption from the operator handling the robot during
+// bring-up. Measured cost on real: the same power-on zeros solved 0.5-0.7 deg
+// apart across two runs (pitch L +4.19 vs +3.50) -- run-to-run calibration
+// variance that IS the "autocalib lottery on top of the encoder lottery".
+// The fix is the standard one (Guedelha Humanoids'16; INS levelling update):
+// during a VERIFIED-STILL window the time-averaged raw accelerometer reads the
+// gravity plumb-line exactly -- an absolute inclinometer (~0.05-0.1 deg MEMS
+// floor) that no support force can bias (a static hold changes contact forces,
+// never the direction of gravity in the sensor frame).
+//   At rest the specific force is f = R^T * (0,0,+g)  (third ROW of the
+//   world-from-body matrix), so with ZYX Euler angles:
+//     pitch = atan2(-fx, hypot(fy, fz)),  roll = atan2(fy, fz).
+// Yaw is copied from the fused quat purely for log readability: FootPR reads the
+// third row of the foot xmat, and a world-yaw premultiplication Rz*R leaves that
+// row untouched, so the flat-sole solve is yaw-INVARIANT by construction.
+inline void GravityQuat(const double f[3], const double* quat_fused,
+                        double out[4]) {
+  double pitch = std::atan2(-f[0], std::hypot(f[1], f[2]));
+  double roll = std::atan2(f[1], f[2]);
+  double w = quat_fused[0], x = quat_fused[1], y = quat_fused[2],
+         z = quat_fused[3];
+  double yaw = std::atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+  double qz[4], qy[4], qx[4], t[4];
+  const double az[3] = {0, 0, 1}, ay[3] = {0, 1, 0}, ax[3] = {1, 0, 0};
+  mju_axisAngle2Quat(qz, az, yaw);
+  mju_axisAngle2Quat(qy, ay, pitch);
+  mju_axisAngle2Quat(qx, ax, roll);
+  mju_mulQuat(t, qz, qy);
+  mju_mulQuat(out, t, qx);
+  mju_normalize4(out);
+}
+
 struct Result {
   bool ok = false;
   double poff_l = 0, roff_l = 0, poff_r = 0, roff_r = 0;  // DEG, off = encoder - true
@@ -367,8 +407,12 @@ inline int Selftest(const mjModel* m) {
   FootPR(d->xmat + 9 * bl, &ref[0], &ref[1]);
   FootPR(d->xmat + 9 * br, &ref[2], &ref[3]);
   const int aLP = 11, aLR = 12, aRP = 17, aRR = 18;
-  struct Case { double off_p, off_r, base_pitch_deg; };
-  const Case cases[] = {{+6, 0, 0}, {+6, 0, +2}, {-6, 0, -1}, {+6, +3, +2}, {+4.01, +5.95, +1}};
+  struct Case { double off_p, off_r, base_pitch_deg, base_roll_deg; };
+  const Case cases[] = {{+6, 0, 0, 0},    {+6, 0, +2, 0},      {-6, 0, -1, 0},
+                        {+6, +3, +2, 0},  {+4.01, +5.95, +1, 0},
+                        // gravity-anchor era: base ROLL tilt too (the plumb-line
+                        // now supplies roll as well as pitch)
+                        {+3.5, -2, +1, +2}, {-4, +4, -2, -1.5}};
   double worst = 0.0;
   for (const Case& c : cases) {
     // physically-consistent truth: tilt the base, SOLVE the flat ankles there
@@ -376,6 +420,10 @@ inline int Selftest(const mjModel* m) {
     mju_copy(truth, key, nq);
     double tilt_q[4], ax[3] = {0, 1, 0}, t4[4];
     mju_axisAngle2Quat(tilt_q, ax, c.base_pitch_deg * M_PI / 180.0);
+    mju_mulQuat(t4, truth + 3, tilt_q);
+    mju_copy4(truth + 3, t4);
+    double axr[3] = {1, 0, 0};
+    mju_axisAngle2Quat(tilt_q, axr, c.base_roll_deg * M_PI / 180.0);
     mju_mulQuat(t4, truth + 3, tilt_q);
     mju_copy4(truth + 3, t4);
     mju_normalize4(truth + 3);
@@ -396,10 +444,32 @@ inline int Selftest(const mjModel* m) {
                          std::fmax(std::fabs(r.roff_l - c.off_r), std::fabs(r.roff_r - c.off_r)));
     worst = std::fmax(worst, e);
     std::fprintf(stderr,
-                 "[autocalib-selftest] plant P%+.2f R%+.2f @basePitch%+.0f -> "
+                 "[autocalib-selftest] plant P%+.2f R%+.2f @baseP%+.1f R%+.1f -> "
                  "P L%+.2f R%+.2f  R L%+.2f R%+.2f  err %.4f deg  %s\n",
-                 c.off_p, c.off_r, c.base_pitch_deg, r.poff_l, r.poff_r, r.roff_l,
+                 c.off_p, c.off_r, c.base_pitch_deg, c.base_roll_deg,
+                 r.poff_l, r.poff_r, r.roff_l,
                  r.roff_r, e, (r.ok && e < 0.05) ? "OK" : "FAIL <<<");
+    // GRAVITY PATH: synthesize the still-window accel this truth pose would
+    // produce, f = R^T*(0,0,g) (f_i = g*R[6+i], row-major world-from-body),
+    // rebuild the base quat via GravityQuat, and demand the SAME recovery.
+    // This closes the loop on the accel->tilt math and its sign conventions.
+    {
+      double R9[9];
+      mju_quat2Mat(R9, truth + 3);
+      double f[3] = {9.81 * R9[6], 9.81 * R9[7], 9.81 * R9[8]};
+      double bq_g[4];
+      GravityQuat(f, truth + 3, bq_g);
+      Result rg = Solve(m, q12, bq_g);
+      double eg = std::fmax(
+          std::fmax(std::fabs(rg.poff_l - c.off_p), std::fabs(rg.poff_r - c.off_p)),
+          std::fmax(std::fabs(rg.roff_l - c.off_r), std::fabs(rg.roff_r - c.off_r)));
+      worst = std::fmax(worst, eg);
+      std::fprintf(stderr,
+                   "[autocalib-selftest]   gravity path                  -> "
+                   "P L%+.2f R%+.2f  R L%+.2f R%+.2f  err %.4f deg  %s\n",
+                   rg.poff_l, rg.poff_r, rg.roff_l, rg.roff_r, eg,
+                   (rg.ok && eg < 0.05) ? "OK" : "FAIL <<<");
+    }
   }
   mj_deleteData(d);
   std::fprintf(stderr, "[autocalib-selftest] worst %.4f deg -> %s\n", worst,
@@ -822,6 +892,7 @@ int RunDeployNode(const NodeConfig& cfg) {
         }
         for (int k = 0; k < 4; k++) rs.d.quat[k] = s->imu_state().quaternion().at(k);
         for (int k = 0; k < 3; k++) rs.d.gyro[k] = s->imu_state().gyroscope().at(k);
+        for (int k = 0; k < 3; k++) rs.d.acc[k] = s->imu_state().accelerometer().at(k);
         rs.d.mode_machine = s->mode_machine();
         rs.d.tick = s->tick();
         rs.d.ls_stamp = std::chrono::steady_clock::now();   // H1 watchdog stamp
@@ -1075,6 +1146,30 @@ int RunDeployNode(const NodeConfig& cfg) {
   // around a false vertical -> a steady lean (sim-confirmed). Cancel it here.
   const double imu_pitch_off = cfg.imu_pitch_offset_deg * M_PI / 180.0;
   const double imu_roll_off = cfg.imu_roll_offset_deg * M_PI / 180.0;
+  // SESSION IMU ALIGNMENT (2026-07-19, --ac_imu_align): the autocalib's gravity
+  // anchor measures the fused quat's pitch/roll error against the plumb-line in
+  // every still window -- and on real it came out CONSTANT (+2.1..+2.6 deg pitch
+  // across 7 windows / 3 runs). The PLANNER, however, keeps balancing in the
+  // fused frame: its "upright" is that same ~2.3 deg from true, which parks the
+  // believed CoM ~z*tan(2.3) ~ 3 cm off-centre -- 40% of the 8 cm heel margin
+  // spent before any disturbance. Fix: when the autocalib APPLIES, also add the
+  // measured (mean witness+confirm) gravity-vs-fused delta to the planning-path
+  // IMU correction, blended with the same jolt-free ramp as the ankle offsets.
+  // Written only from the main control loop (same thread as fill_state) => no
+  // race. Cap +-4 deg; 0 windows with a gravity fix -> stays 0 (old behavior).
+  double imu_align_p = 0.0, imu_align_r = 0.0;   // rad, additive to the corr above
+  // EXTENDED CALIB HOLD (see Cfg::ac_hold_extra_sec): autocalib needs TWO quiet
+  // windows (witness + confirm) BEFORE policy handover; the stock 3.0 s hold
+  // fits one. Only --ankle_autocalib runs are affected; 0 extra = stock timing.
+  const double ramp_hold_eff =
+      kRampHoldSec + ((cfg.ankle_autocalib && cfg.motor_offset == 0)
+                          ? std::fmax(0.0, cfg.ac_hold_extra_sec) : 0.0);
+  if (ramp_hold_eff != kRampHoldSec)
+    std::fprintf(stderr,
+                 "[node] autocalib EXTENDED HOLD: scripted post-ramp hold %.1fs "
+                 "(stock %.1fs + %.1fs) so witness+confirm+apply land BEFORE "
+                 "policy handover (--ac_hold_extra 0 for stock timing)\n",
+                 ramp_hold_eff, kRampHoldSec, ramp_hold_eff - kRampHoldSec);
   if (imu_pitch_off != 0.0 || imu_roll_off != 0.0)
     std::printf("[node] IMU zero-offset calibration ON: perceived base orientation rotated "
                 "pitch%+.2f roll%+.2f deg before planning\n",
@@ -1108,14 +1203,17 @@ int RunDeployNode(const NodeConfig& cfg) {
     // post-multiply by the small pitch/roll correction; wxyz, MuJoCo convention).
     double bq[4];
     mju_copy4(bq, cur.quat);
-    if (imu_pitch_off != 0.0) {
+    // static mount corr + session gravity alignment (same axis => additive angle)
+    const double pcorr = imu_pitch_off + imu_align_p;
+    const double rcorr = imu_roll_off + imu_align_r;
+    if (pcorr != 0.0) {
       double d[4], ax[3] = {0, 1, 0}, t[4];
-      mju_axisAngle2Quat(d, ax, imu_pitch_off);
+      mju_axisAngle2Quat(d, ax, pcorr);
       mju_mulQuat(t, bq, d); mju_copy4(bq, t);
     }
-    if (imu_roll_off != 0.0) {
+    if (rcorr != 0.0) {
       double d[4], ax[3] = {1, 0, 0}, t[4];
-      mju_axisAngle2Quat(d, ax, imu_roll_off);
+      mju_axisAngle2Quat(d, ax, rcorr);
       mju_mulQuat(t, bq, d); mju_copy4(bq, t);
     }
     mju_normalize4(bq);
@@ -1375,6 +1473,11 @@ int RunDeployNode(const NodeConfig& cfg) {
       static double ac_q[12] = {0}, ac_q1[12] = {0};   // full-window + first-half sums
       static double ac_quat[4] = {0}, ac_load = 0, ac_dq = 0;
       static double ac_ps = 0, ac_pss = 0, ac_rs = 0, ac_rss = 0;  // base pitch/roll stats (deg)
+      // GRAVITY ANCHOR accumulators (2026-07-18): raw accel mean (the plumb-line),
+      // |a| mean/var (ZUPT still-detector: |a| != g or noisy |a| = the robot is
+      // being handled/accelerating -> window rejected), mean |gyro| (rotating).
+      static double ac_acc[3] = {0}, ac_an = 0, ac_ann = 0, ac_gy = 0;
+      static double ac_load_l = 0, ac_load_r = 0;  // per-leg |tau| sums (both feet must carry)
       // RETRY + BLEND state (2026-07-17): a squat start eats the whole ramp, so the
       // first window lands on a still-recovering robot -> gate REJECT. The old
       // one-shot then ran the WHOLE SESSION UNCALIBRATED (observed on real: 74s of
@@ -1388,7 +1491,11 @@ int RunDeployNode(const NodeConfig& cfg) {
       static int ac_attempt = 0;
       static double ac_t0 = -1.0, ac_t1 = -1.0;
       static bool ac_blending = false;
-      static double ac_from[4], ac_to[4], ac_blend_t0 = 0.0;
+      // blend slots 0-3 = ankle offsets, 4-5 = session IMU alignment (pitch, roll)
+      static double ac_from[6], ac_to[6], ac_blend_t0 = 0.0;
+      // gravity-vs-fused delta (deg) measured by the anchor, per window + witness
+      static double ac_dg[2] = {0, 0};      static bool ac_have_dg = false;
+      static double ac_wit_dg[2] = {0, 0};  static bool ac_wit_have_dg = false;
       // DRIFT WITNESS (2026-07-17 night, 3rd gate hole learned on real): a true
       // encoder zero is boot-CONSTANT, so every valid window must solve to the
       // same offsets. On a badly-yawed placement the feet CREEP out of flat --
@@ -1406,13 +1513,18 @@ int RunDeployNode(const NodeConfig& cfg) {
         ankle_poff_r = ac_from[1] + f * (ac_to[1] - ac_from[1]);
         ankle_off_l = ac_from[2] + f * (ac_to[2] - ac_from[2]);
         ankle_off_r = ac_from[3] + f * (ac_to[3] - ac_from[3]);
+        imu_align_p = ac_from[4] + f * (ac_to[4] - ac_from[4]);
+        imu_align_r = ac_from[5] + f * (ac_to[5] - ac_from[5]);
         ankle_calib_on = true;
         if (f >= 1.0) ac_blending = false;
       }
       if (!ac_done) {
         if (ac_t0 < 0.0) {                                         // arm the first window
           ac_t0 = std::fmax(ramp_eff, warmup_sec) + 0.5;           // settle after the ramp motion
-          ac_t1 = ramp_eff + kRampHoldSec - 0.3;                   // solve BEFORE handover
+          // first window is ~2.2s (matching the retry windows), NOT the whole
+          // hold: with the extended hold the confirm window must also fit
+          // before handover (hold end = ramp_eff + ramp_hold_eff).
+          ac_t1 = std::fmin(ac_t0 + 2.2, ramp_eff + ramp_hold_eff - 0.3);
           if (ac_t1 < ac_t0 + 1.0) ac_t1 = ac_t0 + 2.2;            // degenerate ramp: keep 2.2s
         }
         const double t0s = ac_t0;
@@ -1422,6 +1534,11 @@ int RunDeployNode(const NodeConfig& cfg) {
           for (int i = 0; i < 12 && i < cfg.nu; i++) {
             ac_q[i] += cur.q[i];
             load += std::fabs(cur.tau[i]);
+            // PER-LEG load (2026-07-18): the summed gate passes with ONE foot
+            // carrying everything -- the unloaded sole need not be flat and its
+            // solve is garbage. Legs are motor 0-5 (L) / 6-11 (R).
+            if (i < 6) ac_load_l += std::fabs(cur.tau[i]);
+            else       ac_load_r += std::fabs(cur.tau[i]);
             dqm += std::fabs(cur.dq[i]);
           }
           if (phase_t < 0.5 * (t0s + t1s)) {           // temporal first half (agreement gate)
@@ -1431,6 +1548,17 @@ int RunDeployNode(const NodeConfig& cfg) {
           ac_load += load;
           ac_dq += dqm / 12.0;
           for (int k = 0; k < 4; k++) ac_quat[k] += cur.quat[k];
+          {  // gravity anchor: accumulate raw specific force + stillness stats
+            double an = std::sqrt(cur.acc[0] * cur.acc[0] +
+                                  cur.acc[1] * cur.acc[1] +
+                                  cur.acc[2] * cur.acc[2]);
+            for (int k = 0; k < 3; k++) ac_acc[k] += cur.acc[k];
+            ac_an += an;
+            ac_ann += an * an;
+            ac_gy += std::sqrt(cur.gyro[0] * cur.gyro[0] +
+                               cur.gyro[1] * cur.gyro[1] +
+                               cur.gyro[2] * cur.gyro[2]);
+          }
           double w = cur.quat[0], x = cur.quat[1], y = cur.quat[2], z = cur.quat[3];
           double bp = std::asin(std::fmax(-1.0, std::fmin(1.0, 2 * (w * y - z * x)))) * 180.0 / M_PI;
           double brl = std::atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)) * 180.0 / M_PI;
@@ -1477,6 +1605,11 @@ int RunDeployNode(const NodeConfig& cfg) {
             }
             mju_normalize4(bq);
             if (ac_load / ac_n < 15.0) rej = "NOT LOADED (sum|tau| legs < 15 Nm -- feet not carrying weight)";
+            // per-leg: each foot must carry real load or its sole isn't
+            // necessarily flat (one-footed pass was a gate hole)
+            if (!rej && (ac_load_l / ac_n < 5.0 || ac_load_r / ac_n < 5.0))
+              rej = "ONE FOOT UNLOADED (per-leg sum|tau| < 5 Nm -- that sole may "
+                    "not be flat; re-place the stance)";
           }
           // loose plausibility gates: slow motion keeps the q/quat means valid; the
           // agreement gate below is what separates a good pose from a wrong one
@@ -1486,6 +1619,73 @@ int RunDeployNode(const NodeConfig& cfg) {
             double vr = ac_rss / ac_n - (ac_rs / ac_n) * (ac_rs / ac_n);
             if (std::sqrt(std::fmax(0.0, vp)) > 2.0 || std::sqrt(std::fmax(0.0, vr)) > 2.0)
               rej = "BASE MOVING (pitch/roll std > 2 deg)";
+          }
+          // ---- GRAVITY ANCHOR (2026-07-18, see anklecalib::GravityQuat) -------
+          // ZUPT gates on the raw accel, then swap the solve's base-orientation
+          // reference from the fused quat to the gravity plumb-line. If the accel
+          // stream is EMPTY (twin bridges that don't populate it), fall back to
+          // the fused quat -- twin/bench behavior unchanged.
+          if (!rej && ac_n > 0 && cfg.ankle_autocalib_gravity) {
+            double am[3] = {ac_acc[0] / ac_n, ac_acc[1] / ac_n, ac_acc[2] / ac_n};
+            double an_mean = ac_an / ac_n;
+            double an_std = std::sqrt(
+                std::fmax(0.0, ac_ann / ac_n - an_mean * an_mean));
+            double gy_mean = ac_gy / ac_n;
+            if (an_mean < 3.0) {
+              // < 3 covers BOTH an unpopulated stream (~0, twin bridges) and a
+              // bridge reporting in g-units (~1.0) -- either way the m/s^2
+              // plumb-line math doesn't apply; fall back rather than flip-flop
+              // around a tight threshold. The logged value says which case.
+              static bool warned = false;
+              if (!warned) {
+                warned = true;
+                std::fprintf(stderr,
+                             "[autocalib] gravity anchor: accel stream unusable "
+                             "(|a| ~ %.2f, expected ~9.81 m/s^2) -> fused-quat "
+                             "reference (empty stream? g-units bridge?)\n",
+                             an_mean);
+              }
+            } else if (std::fabs(an_mean - 9.81) > 0.5) {
+              rej = "EXTERNAL ACCEL (| |a| - g | > 0.5 m/s^2 -- robot moving or "
+                    "being handled; gravity reference invalid)";
+            } else if (an_std > 0.35) {
+              rej = "ACCEL NOISY (std |a| > 0.35 m/s^2 -- vibrating/handled; "
+                    "not a still window)";
+            } else if (gy_mean > 0.15) {
+              rej = "GYRO ACTIVE (mean |w| > 0.15 rad/s -- rotating; not a "
+                    "still window)";
+            } else {
+              // still + gravity-clean: rebuild bq from the plumb-line (keeps the
+              // fused yaw), then re-apply the SAME imu mount corrections.
+              double bq_grav[4];
+              anklecalib::GravityQuat(am, quatm, bq_grav);
+              if (imu_pitch_off != 0.0) {
+                double dq4[4], axm[3] = {0, 1, 0}, t4[4];
+                mju_axisAngle2Quat(dq4, axm, imu_pitch_off);
+                mju_mulQuat(t4, bq_grav, dq4); mju_copy4(bq_grav, t4);
+              }
+              if (imu_roll_off != 0.0) {
+                double dq4[4], axm[3] = {1, 0, 0}, t4[4];
+                mju_axisAngle2Quat(dq4, axm, imu_roll_off);
+                mju_mulQuat(t4, bq_grav, dq4); mju_copy4(bq_grav, t4);
+              }
+              mju_normalize4(bq_grav);
+              // log the anchor swap: how far the fused tilt was from gravity
+              // (this delta IS the run-to-run variance source being removed)
+              double gp = std::atan2(-am[0], std::hypot(am[1], am[2])) * 180.0 / M_PI;
+              double gr = std::atan2(am[1], am[2]) * 180.0 / M_PI;
+              std::fprintf(stderr,
+                           "[autocalib] gravity anchor: base P%+.2f R%+.2f deg "
+                           "(accel, |a|=%.2f+-%.2f) vs fused P%+.2f R%+.2f -> "
+                           "d P%+.2f R%+.2f deg (using GRAVITY)\n",
+                           gp, gr, an_mean, an_std,
+                           ac_ps / ac_n, ac_rs / ac_n,
+                           gp - ac_ps / ac_n, gr - ac_rs / ac_n);
+              ac_dg[0] = gp - ac_ps / ac_n;   // deg: what the PLANNER's frame is
+              ac_dg[1] = gr - ac_rs / ac_n;   // missing vs the plumb-line
+              ac_have_dg = true;
+              mju_copy4(bq, bq_grav);
+            }
           }
           if (!rej && ac_n1 > 20) {              // halves agreement on the measured ankles
             const int aidx[4] = {4, 5, 10, 11};
@@ -1515,6 +1715,8 @@ int RunDeployNode(const NodeConfig& cfg) {
               ac_wit = true;
               ac_wit_off[0] = r.poff_l; ac_wit_off[1] = r.poff_r;
               ac_wit_off[2] = r.roff_l; ac_wit_off[3] = r.roff_r;
+              ac_wit_dg[0] = ac_dg[0]; ac_wit_dg[1] = ac_dg[1];
+              ac_wit_have_dg = ac_have_dg;
               ac_wit_t = t0s;
               std::fprintf(stderr,
                            "[autocalib] WITNESS @%.1f-%.1fs: pitch L%+.2f R%+.2f roll "
@@ -1538,6 +1740,35 @@ int RunDeployNode(const NodeConfig& cfg) {
                 ac_to[1] = 0.5 * (r.poff_r + ac_wit_off[1]) * M_PI / 180.0;
                 ac_to[2] = 0.5 * (r.roff_l + ac_wit_off[2]) * M_PI / 180.0;
                 ac_to[3] = 0.5 * (r.roff_r + ac_wit_off[3]) * M_PI / 180.0;
+                // SESSION IMU ALIGNMENT: also hand the planner the measured
+                // gravity-vs-fused delta (mean over the windows that have one).
+                ac_from[4] = imu_align_p; ac_from[5] = imu_align_r;
+                ac_to[4] = imu_align_p; ac_to[5] = imu_align_r;   // default: unchanged
+                if (cfg.ankle_autocalib_gravity && cfg.ankle_autocalib_imu_align) {
+                  double dp = 0, dr = 0; int nd = 0;
+                  if (ac_wit_have_dg) { dp += ac_wit_dg[0]; dr += ac_wit_dg[1]; nd++; }
+                  if (ac_have_dg)     { dp += ac_dg[0];     dr += ac_dg[1];     nd++; }
+                  if (nd > 0) {
+                    dp /= nd; dr /= nd;
+                    if (std::fabs(dp) <= 4.0 && std::fabs(dr) <= 4.0) {
+                      ac_to[4] = dp * M_PI / 180.0;
+                      ac_to[5] = dr * M_PI / 180.0;
+                      std::fprintf(stderr,
+                                   "[autocalib] SESSION IMU ALIGN: planner frame "
+                                   "corrected by the measured gravity-vs-fused delta "
+                                   "P%+.2f R%+.2f deg (on top of the static "
+                                   "%+.2f/%+.2f flags; blended over %.1fs; "
+                                   "--ac_imu_align=0 disables)\n",
+                                   dp, dr, cfg.imu_pitch_offset_deg,
+                                   cfg.imu_roll_offset_deg, kAcBlendSec);
+                    } else {
+                      std::fprintf(stderr,
+                                   "[autocalib] SESSION IMU ALIGN skipped: measured "
+                                   "delta P%+.2f R%+.2f deg exceeds the 4 deg cap "
+                                   "(check IMU/accel health)\n", dp, dr);
+                    }
+                  }
+                }
                 ac_blend_t0 = phase_t;
                 ac_blending = true;
                 std::fprintf(stderr,
@@ -1567,6 +1798,10 @@ int RunDeployNode(const NodeConfig& cfg) {
               // path a freshly-recorded witness takes to get its confirm window)
               ac_n = 0; ac_n1 = 0; ac_load = 0; ac_dq = 0;
               ac_ps = 0; ac_pss = 0; ac_rs = 0; ac_rss = 0;
+              ac_an = 0; ac_ann = 0; ac_gy = 0;
+              ac_load_l = 0; ac_load_r = 0;
+              ac_have_dg = false;
+              for (int k = 0; k < 3; k++) ac_acc[k] = 0;
               for (int k = 0; k < 12; k++) { ac_q[k] = 0; ac_q1[k] = 0; }
               for (int k = 0; k < 4; k++) ac_quat[k] = 0;
               ac_t0 = phase_t + 1.0;
@@ -1929,7 +2164,8 @@ int RunDeployNode(const NodeConfig& cfg) {
         // risen, moving robot topples it -- bench-proven), then HOLD the stance scripted
         // for kRampHoldSec more so CEM converges around the STATIC operating pose
         // before getting authority (kills the hand-off "first tug" toward the old basin).
-        const double t_ho = ramp_dur + kRampHoldSec;
+        // hold end = ramp + the (possibly autocalib-extended) scripted hold.
+        const double t_ho = ramp_dur + ramp_hold_eff;
         const double pblend = kPolicyBlendSec;
         double tgt;
         if (aa < 1.0 || warming || i >= nact || phase_t < t_ho) {
