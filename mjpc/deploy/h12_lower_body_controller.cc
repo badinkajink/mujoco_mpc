@@ -184,19 +184,21 @@ ABSL_FLAG(double, twin_dt, 0.005,
 ABSL_FLAG(std::string, sportstate_topic, "rt/sportmodestate",
           "DDS SportModeState input topic (IMU-site world pose). Pass rt/sportmodestate_est "
           "to run on the base estimator's output instead of plant truth (A2 rung).");
-ABSL_FLAG(double, imu_pitch_offset_deg, 1.6,
-          "IMU pitch zero-offset CALIBRATION (deg) -- DEFAULT 1.6 = the MEASURED offset for THIS "
-          "H1-2 (body verified truly vertical reads -1.6 deg on the IMU; +1.6 zeroes it). The "
-          "perceived base orientation is rotated by this about the body pitch axis before planning. "
-          "Validated on real (most-upright stand to date). Pass --imu_pitch_offset_deg 0 for the "
-          "TWIN (no IMU mounting offset there) or to A/B against the raw IMU.");
+ABSL_FLAG(double, imu_pitch_offset_deg, 0.0,
+          "IMU pitch zero-offset CALIBRATION (deg). DEFAULT 0.0 = the 2026-07-20 imu_zero_check "
+          "plumb-line verdict for the FUSED quaternion this node consumes (fused pitch read +0.04 "
+          "vs phone level; the +2.35 bias lives in the RAW-ACCEL path only -> ac_gravity=0). "
+          "Do NOT copy offsets from other stacks (ALMI -2.5 corrects ITS observation path, not "
+          "ours; real A/B 2026-07-20: -2.5 here = persistent forward lean, operator had to push). "
+          "Historical: 1.6 = 2026-07 fit, superseded by the plumb-line measurement.");
 ABSL_FLAG(double, bad_orient_rad, 0.9,
           "R6 bad-orientation damp fallback (rad). Base tilt beyond this latches a permanent "
           "kp=0/kd=3/tau=0 damp command until restart (Unitree deploy parity: bad_orientation(1.0) "
           "-> Passive) so the planner never thrashes an unrecoverable fall. 0 disables. "
           "Default 0.9 rad (~52 deg) = engaged well past the 35 deg fall verdict.");
-ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
-          "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
+ABSL_FLAG(double, imu_roll_offset_deg, 1.3,
+          "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll "
+          "axis). DEFAULT 1.3 = 2026-07-20 plumb-line measurement (fused roll read -1.29 steady).");
 ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
           "LEFT ankle-roll zero-offset calibration (deg): SUBTRACTED from the perceived roll AND "
           "ADDED to the command, so a foot the encoder reports rolled is both reasoned about and "
