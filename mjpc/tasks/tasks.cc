@@ -49,6 +49,7 @@
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
 #include "mjpc/tasks/humanoid_bench/stabilize/stabilize.h"
 #include "mjpc/tasks/humanoid_bench/upper/upper.h"
+#include "mjpc/tasks/humanoid_bench/grasp/grasp.h"
 #include "mjpc/tasks/humanoid_bench/avoid/avoid.h"
 
 namespace mjpc {
@@ -77,6 +78,9 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
 
       // H1_2 upper-body-only (nu=15) MPC controller (FrameTask replacement)
       std::make_shared<Upper_H12_Magpie>(),
+
+      // H1_2 full-body (nu=27) GRASP controller (reach 6-DOF pose + close)
+      std::make_shared<Grasp_H12_Magpie>(),
 
       std::make_shared<Acrobot>(),
       std::make_shared<Allegro>(),

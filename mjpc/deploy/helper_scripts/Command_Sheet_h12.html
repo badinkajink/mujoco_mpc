@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>H1-2 Deploy Command Sheet — A1 / A2 / A3 / B (Lean ‖ Stabilize)</title>
+<title>H1-2 Deploy Command Sheet — A1 / A2 / A3 / B (Lean ‖ Stabilize) / C (Grasp)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -724,6 +724,203 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
     </ul>
   </section>
 
+  <!-- ──────────────── C SECTION — GRASP (full-body MPC pick-place) ──────────────── -->
+  <section id="c" class="space-y-5 scroll-mt-6">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="display text-2xl">C — Grasp: whole-body MPC pick-and-place</h2>
+      <span class="eyebrow">container-native HAMS bringup · two boxes over DDS · crane ON</span>
+    </div>
+
+    <article class="card card-hair p-6 space-y-5" style="border-color:rgba(245,158,11,.4)">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="display text-xl">Reach · latch · close · (opt-in) lift + place</h2>
+        <span class="pill pill-amber">▶ NEXT — hardware</span>
+        <span class="pill pill-rose">ROBOT</span>
+        <span class="pill pill-sky">FULL-BODY SAFETY</span>
+      </div>
+      <p class="text-sm text-slate-300 leading-relaxed">
+        The <em>same</em> whole-body MPC as B-Lean, now driven to a target. The node owns
+        <strong>all 27 joints</strong> (arms <em>and</em> legs) — there is no FrameTask arm controller. It
+        <strong>balances while it reaches</strong> (velocity-capped ≤0.10 m/s via <code class="text-amber-300">Reach X/Y/Z</code>),
+        then on the dwell it <strong>arms the deploy latch</strong> — the right arm freezes at the IK <code>q*</code>
+        (onboard PD) for a mm-precise close while legs/torso/left-arm stay on MPC — and <strong>force-closes the
+        Magpie</strong>. Lift + place on a camera-detected plate is <strong>opt-in</strong>.
+      </p>
+
+      <div class="rounded-lg border border-amber-900/60 bg-amber-950/20 p-3.5 text-xs text-amber-100/90 leading-relaxed">
+        <strong class="text-amber-200">Container-native, two boxes over DDS.</strong> Unlike A/B (host binary),
+        the grasp stack runs inside <code>hams_ros</code>: the node is <code>mjpc_fullbody_core</code> launched by
+        ROS. <strong>Robot box</strong> = <code>h1_real_robot_full_bringup</code> (full_body_mode safety + drivers,
+        <em>no</em> FrameTask). <strong>Companion box</strong> = <code>h1_real_desktop_full_bringup</code> (estimator +
+        MPC + perception + the grasp seam). They share only <code>ROS_DOMAIN_ID=0</code> + the LAN.
+        <span class="text-rose-200">Do NOT pair with the split <code>h1_real_robot_bringup</code></span> — its
+        <code>split_mode</code> safety ignores our <code>rt/safety/lowcmd_in</code> and the robot won't move.
+      </div>
+
+      <!-- robot box -->
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#f87171"></span>
+          <span class="term-dot" style="background:#fbbf24"></span>
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">robot PC (SSH) · full_body_mode safety + drivers · NO FrameTask</span>
+        </div>
+<pre class="cmd"><span class="c"># source the ACTIVE workspace, export the domain, then ONE bringup:</span>
+<span class="c"># estop + safety layer in FULL-BODY mode (relax_safety_full -> reads rt/safety/lowcmd_in) + drivers + nav.</span>
+source ~/HAMS/core_ws/install/setup.bash &amp;&amp; export ROS_DOMAIN_ID=0
+ros2 launch h1_bringup <span class="hl">h1_real_robot_full_bringup.launch.py</span>
+
+<span class="c"># tighten clamps later:  safety_config:=default_safety_full.yaml  (or tight_safety_full.yaml)</span>
+<span class="c"># confirm full-body safety actually loaded (NOT split):</span>
+ps aux | grep safety_node | grep -v grep   <span class="c"># expect: --config relax_safety_full.yaml</span></pre>
+      </div>
+
+      <!-- companion box -->
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">your device — inside hams_ros (docker) · ROS_DOMAIN_ID=0</span>
+        </div>
+<pre class="cmd"><span class="c"># estimator + mjpc_fullbody_core (ExecuteProcess, DRIVE24 flags) + perception + adapter + orchestrator.</span>
+<span class="c"># start_position_verified GATES the MPC+estimator: bare launch = perception only (no robot commands).</span>
+cd ~/Desktop/HAMS/docker/scripts &amp;&amp; ./docker_run.sh ros
+<span class="c">#   then inside the container shell:</span>
+ros2 launch h1_bringup <span class="k">h1_real_desktop_full_bringup.launch.py</span> <span class="hl">start_position_verified:=true</span></pre>
+      </div>
+
+      <!-- knobs -->
+      <div class="card card-hair overflow-hidden">
+        <table class="spec">
+          <thead><tr><th>Launch arg</th><th>Default</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td class="mono text-amber-300">task</td><td class="mono text-[11px]">Grasp H12 Magpie</td>
+              <td>Cost model. The Grasp XML = Lean's + the 8 <code>Arm Hold</code> latch params. Swap
+                <code class="text-slate-300">Lean H12 Magpie</code> for a plain stand → latch is <strong>inert</strong>.</td></tr>
+            <tr><td class="mono text-amber-300">strategy</td><td class="mono text-[11px]">6</td>
+              <td>6 = stand (identical to B-Lean). Live-switch to <code class="text-slate-300">21</code> = the balanced grasp-reach weights.</td></tr>
+            <tr><td class="mono text-amber-300">object_name</td><td class="mono text-[11px]">Screw</td>
+              <td>What perception grasps (gemini→sam→graspgen, or YOLO for battery parts).</td></tr>
+            <tr><td class="mono text-amber-300">place_object</td><td class="mono text-[11px]">(empty)</td>
+              <td>Empty = grasp only (v1: reach + close, stop). Set e.g. <code class="text-slate-300">plate</code> →
+                camera-detects the plate + does <strong>lift → carry → drop → retreat</strong>.</td></tr>
+            <tr><td class="mono text-amber-300">start_position_verified</td><td class="mono text-[11px]">false</td>
+              <td>Interlock. <code>true</code> starts the estimator + MPC; bare launch = perception only.</td></tr>
+            <tr><td class="mono text-amber-300">safety_config</td><td class="mono text-[11px]">relax_safety_full.yaml</td>
+              <td><em>Robot bringup arg.</em> full_body_mode config. Tighten → <code>default_</code>/<code>tight_safety_full.yaml</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- drive a grasp -->
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#7dd3fc"></span>
+          <span class="lbl ml-2">drive a grasp — camera OR a manual target</span>
+        </div>
+<pre class="cmd"><span class="c"># ★ ONCE STANDING — one action = "see it and pick it up". Reuses the split stack's</span>
+<span class="c"># SkillGrasp/SkillPickPlace, so the SAME client drives it. Feedback streams the phase.</span>
+ros2 action send_goal <span class="hl">/skill/pick_place</span> custom_ros_messages/action/SkillPickPlace \
+  <span class="hl">"{target_object: 'Screw', place_target: 'plate', arm: 'right'}"</span> --feedback
+<span class="c"># grasp only (no place):</span>
+ros2 action send_goal <span class="hl">/skill/grasp</span> custom_ros_messages/action/SkillGrasp \
+  <span class="hl">"{target_object: 'Screw', arm: 'right'}"</span> --feedback
+
+<span class="c"># ── low-level path (no action) — the same seam, by hand ──────────────────────</span>
+<span class="c"># WITH camera: adapter runs gemini→sam→graspgen, walks ranked candidates,</span>
+<span class="c"># publishes the FIRST IK-reachable pose on /graspgen/grasp_pose (pelvis frame):</span>
+ros2 service call /graspgen_pose_adapter/perceive std_srvs/srv/Trigger {}
+<span class="c"># VALIDATE FIRST: echo /graspgen/grasp_pose + eyeball in RViz — it must land ON the object BEFORE the arm moves.</span>
+
+<span class="c"># NO camera (C2/C3): publish ONE known pelvis-frame target (~30 cm fwd, right side, chest height):</span>
+ros2 topic pub --once /graspgen/grasp_pose geometry_msgs/PoseStamped \
+  <span class="hl">'{header: {frame_id: "pelvis"}, pose: {position: {x: 0.45, y: -0.17, z: 1.05}, orientation: {w: 1.0}}}'</span>
+
+<span class="c"># enable lift + place on a camera-detected plate (C5, opt-in):</span>
+ros2 param set /graspgen_pose_adapter place_object <span class="hl">plate</span></pre>
+      </div>
+
+      <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
+        <strong class="text-rose-200">Crane ON for every reach layer.</strong> The latch is <strong>right-arm only</strong>
+        (legs/torso/left-arm keep balancing). Boot check: the node log must say
+        <code>grasp arm-hold latch: present</code> — that only prints under the Grasp task. One publisher on
+        <code>rt/sportmodestate</code> (the estimator). Capture <code>/tmp/h12_safety_layer</code> before any reboot.
+      </div>
+    </article>
+
+    <!-- collision-aware IK (opt-in) -->
+    <article class="card card-hair p-6 space-y-4" style="border-color:rgba(56,189,248,.35)">
+      <div class="flex flex-wrap items-center gap-3">
+        <h3 class="display text-lg">Collision-aware IK — mink QP <span class="text-slate-500 text-sm">(opt-in)</span></h3>
+        <span class="pill pill-sky">OPT-IN</span>
+        <span class="pill pill-amber">unvalidated</span>
+      </div>
+      <p class="text-sm text-slate-300 leading-relaxed">
+        The <code>q*</code> solver is pluggable. Default <code class="text-amber-300">ik_backend:=dls</code>
+        is the shipped damped-least-squares (joint limits only, <strong>no collision avoidance</strong>).
+        Opt into <code class="text-amber-300">ik_backend:=mink</code> for QP IK that adds <strong>hard
+        self-collision</strong> (arm ↔ torso/head/hip/left-arm) + an optional <strong>virtual table</strong>,
+        and can stream a <strong>collision-free path</strong> instead of the straight approach. The MPC is
+        <em>unchanged</em> — mink only computes the seed/path (sampling-MPC still balances + tracks).
+      </p>
+<pre class="cmd"><span class="c"># one-time: install mink + a QP solver INSIDE the container</span>
+pip install mink daqp qpsolvers
+
+<span class="c"># run the orchestrator on the mink backend (self-collision on):</span>
+ros2 run h12_deploy_mjpc grasp_orchestrator --ros-args <span class="hl">-p ik_backend:=mink</span>
+<span class="c"># + virtual table (P3): pelvis-frame Z of the table top steers the reach AROUND the edge</span>
+  <span class="hl">-p table_height_m:=0.78 -p table_center_xy:="[0.45, -0.15]"</span>
+<span class="c"># + path mode (P4): stream mink's collision-free waypoints when they bend > 3 cm off-straight</span>
+  <span class="hl">-p ik_path_deviation_m:=0.03</span></pre>
+      <p class="text-xs text-slate-500 leading-relaxed">
+        Boot log tells you which is live: <code>IK solver ready (... DLS ...)</code> vs
+        <code>mink IK ready (... N collision pair-set(s) ...)</code>. mink missing → auto-falls back to DLS.
+        Validate headless → twin → crane before trusting it.
+      </p>
+    </article>
+
+    <!-- go/no-go layer gates -->
+    <div class="card card-hair overflow-hidden">
+      <table class="spec">
+        <thead><tr><th>Gate</th><th>What runs</th><th>Pass / watch</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="pill pill-slate">C1 stand</span></td>
+            <td>Grasp task, strat 6, no reach</td>
+            <td class="text-slate-300">Stands exactly like B-Lean. Log: <code class="text-[11px]">task nu=27</code> + <code class="text-[11px]">latch: present</code>.</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-amber">C2 reach</span></td>
+            <td>manual free-space target · no camera/gripper</td>
+            <td class="text-slate-300">Holds balance as the arm extends — <strong>the P3 claim</strong>. Shoulder stays under the band.</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-amber">C3 latch+close</span></td>
+            <td>measured KNOWN object · latch arms + Magpie closes</td>
+            <td class="text-slate-300"><code class="text-[11px]">Arm Hold=1</code>; arm steady (no snap/drift); legs keep balancing; gripper grips.</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-sky">C4 camera</span></td>
+            <td>/perceive → graspgen → grasp</td>
+            <td class="text-slate-300">grasp_pose lands ON the object (validate in RViz FIRST — accuracy is the known failure mode).</td>
+          </tr>
+          <tr>
+            <td><span class="pill pill-emer">C5 place</span></td>
+            <td><code class="text-[11px]">place_object:=plate</code> · lift + carry + drop</td>
+            <td class="text-slate-300">LIFT→TRANSPORT→RELEASE→RETREAT. Watch base tilt / z on the lift transient. Light part first.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-xs text-slate-500 leading-relaxed max-w-3xl">
+      <strong class="text-slate-400">Quick path (no docker), C1–C2 only:</strong> the host binary balances under the
+      Grasp task too —
+      <code class="text-slate-300">./build/bin/h12_control_node --task "Grasp H12 Magpie" --strategy 6 --gravity_ff 0.85 --twin_dt 0.001</code>
+      + the host <code>default_safety_full</code> layer + <code>ros2 run h12_deploy_mjpc grasp_orchestrator</code>. No camera,
+      no place. Use the container bringup once you want perception + the full pick-place.
+    </p>
+  </section>
+
   <!-- ──────────────── WASD TELEOP V0 ──────────────── -->
   <section id="wasd" class="card card-hair p-6 space-y-3">
     <h2 class="display text-xl">WASD teleop (V0) — live cmd_vel drive of the trot</h2>
@@ -754,7 +951,7 @@ python3 mjpc/deploy/helper_scripts/wasd_teleop.py</code></pre>
       <strong>B2</strong> on OptiTrack mocap — plus the Stabilize legs-only track.
     </p>
     <p class="text-xs text-slate-500 pt-1">
-      Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#a3">A3 RoboCasa</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a>
+      Jump to a phase: <a class="anchor" href="#a1">A1</a> · <a class="anchor" href="#a2">A2</a> · <a class="anchor" href="#a3">A3 RoboCasa</a> · <a class="anchor" href="#b-lean">B Lean</a> · <a class="anchor" href="#b-stabilize">B Stabilize</a> · <a class="anchor" href="#c">C Grasp</a>
     </p>
   </section>
 

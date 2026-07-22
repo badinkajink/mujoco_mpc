@@ -796,6 +796,48 @@ int RunDeployNode(const NodeConfig& cfg) {
   const int nq = g_model->nq, nv = g_model->nv, nu = g_model->nu;
   const int nact = nu < cfg.nu ? nu : cfg.nu;
 
+  // ---- GRASP arm-hold latch: resolve the LIVE q*-hold params by NAME so the
+  // control loop can freeze the RIGHT ARM at the orchestrator's IK q* during the
+  // gripper close -- the precise terminal pose the sampling-MPC can't hit. These
+  // params exist ONLY on the Grasp task (appended after Cmd Wz so lean.h indices
+  // never shift), so this resolves to -1/disabled on Lean/Stabilize/etc, and stays
+  // OFF until the orchestrator sets "Arm Hold"=1 over gRPC -> every non-grasp run,
+  // and every grasp run before the close, is byte-identical. Right arm = actuator
+  // /motor rows 20..26 == qadr 27..33 (verified 2026-07-21). ----
+  int armhold_idx = -1;
+  int armhold_q_idx[7] = {-1, -1, -1, -1, -1, -1, -1};
+  double armhold_lo[7] = {0}, armhold_hi[7] = {0};
+  {
+    auto pidx = [&](const char* nm) -> int {              // task->parameters index by name
+      int id = mj_name2id(g_model, mjOBJ_NUMERIC,
+                          (std::string("residual_") + nm).c_str());
+      if (id < 0) return -1;
+      int first = 0;
+      for (; first < g_model->nnumeric; first++) {
+        const char* n = mj_id2name(g_model, mjOBJ_NUMERIC, first);
+        if (n && std::string(n).rfind("residual_", 0) == 0) break;
+      }
+      return id - first;
+    };
+    const char* qn[7] = {"Arm Hold qR0", "Arm Hold qR1", "Arm Hold qR2", "Arm Hold qR3",
+                         "Arm Hold qR4", "Arm Hold qR5", "Arm Hold qR6"};
+    int a = pidx("Arm Hold");
+    bool ok = (a >= 0) && (cfg.nu >= 27) && (g_model->nu >= 27);
+    for (int k = 0; k < 7 && ok; k++) { armhold_q_idx[k] = pidx(qn[k]); ok = armhold_q_idx[k] >= 0; }
+    if (ok) {
+      armhold_idx = a;
+      for (int k = 0; k < 7; k++) {                        // clamp bounds = right-arm joint limits
+        int jid = g_model->actuator_trnid[(20 + k) * 2];
+        armhold_lo[k] = g_model->jnt_range[jid * 2];
+        armhold_hi[k] = g_model->jnt_range[jid * 2 + 1];
+      }
+    }
+    std::fprintf(stderr, "[node] grasp arm-hold latch: %s\n",
+                 armhold_idx >= 0
+                     ? "present (right arm 20..26 <- IK q* when 'Arm Hold'=1; OFF until signalled)"
+                     : "absent (non-grasp task)");
+  }
+
   // ---- ACTIVE-CONFIG ECHO: print the LIVE strat-21 reach numerics this binary
   // actually loaded, so a stale binary / wrong value is obvious in the log header
   // (the 2026-06-23 "node 2h stale, reach_com_back ignored" class). g_model is the
@@ -2279,6 +2321,20 @@ int RunDeployNode(const NodeConfig& cfg) {
                      "latching damp mode (kp=0, kd=3) until restart\n",
                      std::acos(up_z) * 180.0 / M_PI,
                      cfg.bad_orient_rad * 180.0 / M_PI);
+      }
+    }
+
+    // ---- GRASP arm-hold latch: overwrite the right-arm command rows with the held
+    // IK q* so the onboard PD holds the precise grasp pose stiff while the Magpie
+    // closes. Legs/torso/left-arm keep their MPC command; kp/kd + gravity-FF tau are
+    // unchanged (gravity FF prevents droop at the arm's kp=40). OFF unless the
+    // orchestrator set "Arm Hold"=1 -> a normal stand/reach run never enters here.
+    // tgt_q is final by this point (last write/clamp @ ~2262); clamped to the joint
+    // limits, and the safety layer clamps again downstream. ----
+    if (armhold_idx >= 0 && g_task->parameters[armhold_idx] > 0.5) {
+      for (int k = 0; k < 7; k++) {
+        double q = g_task->parameters[armhold_q_idx[k]];
+        tgt_q[20 + k] = std::fmin(armhold_hi[k], std::fmax(armhold_lo[k], q));
       }
     }
 

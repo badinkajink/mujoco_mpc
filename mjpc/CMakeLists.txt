@@ -105,6 +105,7 @@ add_library(
   tasks/humanoid_bench/stabilize/stabilize.h
   tasks/humanoid_bench/upper/upper.cc
   tasks/humanoid_bench/upper/upper.h
+  tasks/humanoid_bench/grasp/grasp.h
   tasks/humanoid_bench/avoid/avoid.cc
   tasks/humanoid_bench/avoid/avoid.h
   tasks/humanoid_bench/avoid/offline_obstacles.h
