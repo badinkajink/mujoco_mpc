@@ -186,7 +186,15 @@ constexpr int kNU = 27;  // actuated joints on the handless H1-2
 // hip_yaw kp LEFT AT ORIGINAL: lowering torso/hipY kp + tightening leg forceranges REGRESSED the hold
 // (fell ~15s vs ~30s); the strut/lean is a SEPARATE balance problem, not a gain issue. Patched into the
 // planner+latency model (PatchActuators) so node KP[]/KV[] == planner kp/kv == twin PD.
-const double KP[kNU] = {150, 200, 200, 200, 80, 80,  150, 200, 200, 200, 80, 80,  200,
+// ANKLE-PITCH kp 80 -> 200 (2026-07-20 DIAGNOSTIC): the deploy gravity feedforward is
+// FREE-BODY qfrc_bias (deploy_common.cc:1929) -> ankle_pitch tau_ff = -0.2 Nm (only the 0.85 kg
+// foot is outboard). Standing needs 17-44 Nm there, so at kp=80 the ankle can only make that
+// torque by drooping 18 deg (kp*err), and that droop IS the forward lean (verified: required
+// droop == observed droop to 0.5 deg across back3/back5). Raising kp to 200 (== hip/knee) cuts
+// the droop to ~7 deg for the same torque. This is a MITIGATION test for the real fix
+// (support-aware feedforward); ankle ROLL (idx 5,11) left at 80. Clamp still bounds
+// |tau| <= 0.9*54 = 48.6 Nm, so at kp=200 the clamp bites past 13.9 deg error -> safe.
+const double KP[kNU] = {150, 200, 200, 200, 200, 80,  150, 200, 200, 200, 200, 80,  200,
                         30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
