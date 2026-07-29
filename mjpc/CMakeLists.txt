@@ -84,6 +84,8 @@ add_library(
   tasks/go1/quadruped.h
   tasks/swimmer/swimmer.cc
   tasks/swimmer/swimmer.h
+  tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.cc
+  tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.h
   tasks/walker/walker.cc
   tasks/walker/walker.h
   planners/planner.cc
@@ -230,6 +232,27 @@ target_include_directories(testspeed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_compile_options(testspeed PUBLIC ${MJPC_COMPILE_OPTIONS})
 target_link_options(testspeed PRIVATE ${MJPC_LINK_OPTIONS})
 target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
+
+# Task-level benchmark for the triple-pendulum-cartpole corridor task. Reports
+# goal / corridor / collision outcomes that testspeed's aggregate cost cannot
+# distinguish. See mjpc/planners/agile_rrt/AGILE_RRT.md.
+add_executable(
+  corridor_benchmark
+  tasks/triple_pendulum_cartpole/benchmark/corridor_benchmark.cc
+)
+target_link_libraries(
+  corridor_benchmark
+  libmjpc
+  mujoco::mujoco
+  threadpool
+  Threads::Threads
+  absl::flags
+  absl::flags_parse
+)
+target_include_directories(corridor_benchmark
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_options(corridor_benchmark PUBLIC ${MJPC_COMPILE_OPTIONS})
+target_link_options(corridor_benchmark PRIVATE ${MJPC_LINK_OPTIONS})
 
 add_subdirectory(tasks)
 
