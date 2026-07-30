@@ -39,6 +39,37 @@ class TriplePendulumCartpole : public Task {
   std::string Name() const override;
   std::string XmlPath() const override;
 
+  // Geometry of the obstacle corridor: which sites are the link heads, which
+  // geoms are the disks, and how the clearance between them is measured.
+  //
+  // Both the Avoidance residual and the benchmark's collision metric need
+  // this, and they have to agree. If one measured 3-D distance and the other
+  // in-plane distance, a run could be scored as clear while being charged for
+  // a collision, or the reverse. Keeping the names and the distance convention
+  // in one place is what makes them agree by construction.
+  struct Corridor {
+    static constexpr int kNumLinks = 3;
+    static constexpr int kNumObstacles = 2;
+
+    // resolve site and geom ids against the model; errors if any are missing
+    void Initialize(const mjModel* model);
+
+    // Signed clearance of link head `link` from disk `obstacle`, measured in
+    // the x-z plane -- the disks are cylinders extruded along y, so the
+    // out-of-plane distance is not part of the constraint. Negative means the
+    // head is inside the disk.
+    double Clearance(const mjData* data, int link, int obstacle) const;
+
+    // smallest clearance over every (head, disk) pair
+    double MinClearance(const mjData* data) const;
+
+    // site ids of the three link heads (end of link 1, 2, 3)
+    int head_site_id[kNumLinks] = {-1, -1, -1};
+    // geom ids and radii of the disk obstacles
+    int obstacle_geom_id[kNumObstacles] = {-1, -1};
+    double obstacle_radius[kNumObstacles] = {0.0, 0.0};
+  };
+
   class ResidualFn : public BaseResidualFn {
    public:
     explicit ResidualFn(const TriplePendulumCartpole* task)
@@ -58,15 +89,7 @@ class TriplePendulumCartpole : public Task {
    private:
     friend class TriplePendulumCartpole;
 
-    // number of pendulum links, and number of disk obstacles
-    static constexpr int kNumLinks = 3;
-    static constexpr int kNumObstacles = 2;
-
-    // site ids of the three link heads (end of link 1, 2, 3)
-    int head_site_id_[kNumLinks] = {-1, -1, -1};
-    // geom ids and radii of the disk obstacles
-    int obstacle_geom_id_[kNumObstacles] = {-1, -1};
-    double obstacle_radius_[kNumObstacles] = {0.0, 0.0};
+    Corridor corridor_;
   };
 
   TriplePendulumCartpole() : residual_(this) {}

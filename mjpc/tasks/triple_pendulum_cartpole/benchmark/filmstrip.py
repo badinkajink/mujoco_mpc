@@ -42,13 +42,26 @@ def default_xml():
 
 
 def load_dump(path):
-    """Read a corridor_benchmark --dump CSV into a dict of arrays."""
+    """Read a corridor_benchmark --dump CSV into (arrays, stage).
+
+    The file may open with `# key=value` comment lines. corridor_benchmark
+    writes the stage there, which is what lets the render reconstruct the world
+    the run actually used rather than whatever task.xml says today.
+    """
+    meta = {}
     with open(path) as f:
-        rows = list(csv.DictReader(f))
+        lines = []
+        for line in f:
+            if line.startswith("#"):
+                k, _, v = line[1:].strip().partition("=")
+                meta[k.strip()] = v.strip()
+            else:
+                lines.append(line)
+        rows = list(csv.DictReader(lines))
     if not rows:
         sys.exit(f"empty dump: {path}")
     cols = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
-    return cols
+    return cols, meta.get("stage")
 
 
 def pick_frames(d, n, explicit=None):
@@ -181,13 +194,14 @@ def main():
                         "no longer a fixed reference)")
     p.add_argument("--stage", default=None,
                    choices=["corridor", "balance", "combined"],
-                   help="stage the dump came from. 'balance' removes the "
-                        "obstacles, matching what corridor_benchmark did to "
-                        "the model; without this the render draws a corridor "
-                        "the run never had.")
+                   help="stage the dump came from. Read from the dump's "
+                        "`# stage=` header by default; pass this only to "
+                        "override it or for dumps written before the header "
+                        "existed.")
     args = p.parse_args()
 
-    d = load_dump(args.dump)
+    d, dump_stage = load_dump(args.dump)
+    stage = args.stage or dump_stage
     model = mujoco.MjModel.from_xml_path(args.xml)
 
     # corridor_benchmark's balance stage moves the disks out of the plane of
@@ -195,7 +209,7 @@ def main():
     # disk and so would otherwise show them at their XML position -- a corridor
     # that was not in the simulation being replayed. The dumped min_clearance
     # (~1413 m) is the tell.
-    if args.stage == "balance":
+    if stage == "balance":
         for name in ("obstacle_upper", "obstacle_lower"):
             g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
             if g >= 0:
@@ -213,7 +227,7 @@ def main():
     # ---------- the numbers that pair with the picture ----------
     cosmin = np.minimum.reduce([np.cos(d["th1"]), np.cos(d["th2"]), np.cos(d["th3"])])
     print(f"dump: {args.dump}   {len(d['step'])} steps, "
-          f"{d['time'][-1]:.2f} s simulated")
+          f"{d['time'][-1]:.2f} s simulated   stage: {stage or 'unspecified'}")
     print(f"  cart:  start {d['cart'][0]:+.3f}  max {d['cart'].max():+.3f}  "
           f"final {d['cart'][-1]:+.3f}")
     print(f"  worst cos(theta) at end: {cosmin[-1]:+.3f}   "

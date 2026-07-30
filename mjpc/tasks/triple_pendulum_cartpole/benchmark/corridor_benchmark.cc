@@ -54,6 +54,7 @@
 #include "mjpc/states/state.h"
 #include "mjpc/task.h"
 #include "mjpc/tasks/tasks.h"
+#include "mjpc/tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.h"
 #include "mjpc/threadpool.h"
 #include "mjpc/utilities.h"
 
@@ -196,7 +197,8 @@ struct RunResult {
 };
 
 RunResult RunOnce(const std::string& task_name, int planner_override,
-                  Stage stage, int pso_publish_evaluated,
+                  Stage stage, const std::string& stage_name,
+                  int pso_publish_evaluated,
                   double total_time, int planner_thread_count,
                   int steps_per_planning_iteration, double goal_tolerance,
                   double upright_tolerance, double penetration_tolerance,
@@ -250,19 +252,10 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
   g_task = agent.ActiveTask();
   mjcb_sensor = &ResidualCallback;
 
-  // ---- model ids for the outcome metrics ----
-  const char* head_names[3] = {"head1", "head2", "tip"};
-  int head_site[3];
-  for (int i = 0; i < 3; i++) {
-    head_site[i] = mj_name2id(model, mjOBJ_SITE, head_names[i]);
-  }
-  const char* obstacle_names[2] = {"obstacle_upper", "obstacle_lower"};
-  int obstacle_geom[2];
-  double obstacle_radius[2];
-  for (int i = 0; i < 2; i++) {
-    obstacle_geom[i] = mj_name2id(model, mjOBJ_GEOM, obstacle_names[i]);
-    obstacle_radius[i] = model->geom_size[3 * obstacle_geom[i]];
-  }
+  // Same corridor geometry the Avoidance residual uses, so "collided" here and
+  // "charged for clearance" there cannot disagree about what counts as close.
+  mjpc::TriplePendulumCartpole::Corridor corridor;
+  corridor.Initialize(model);
   double goal = mjpc::GetNumberOrDefault(6.0, model, "residual_Goal");
 
   mjpc::ThreadPool pool(planner_thread_count);
@@ -280,6 +273,11 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
       std::cerr << "could not open --dump path '" << dump_path << "'\n";
       std::exit(1);
     }
+    // Record the stage in the dump. The balance stage removes the obstacles
+    // from the model, so a renderer that reloads task.xml without knowing that
+    // draws a corridor the run never had. Carrying it in the file means the
+    // render cannot be wrong about which world it is showing.
+    std::fprintf(dump, "# stage=%s\n", stage_name.c_str());
     std::fprintf(dump, "step,time,cart,th1,th2,th3,dcart,dth1,dth2,dth3,"
                        "ctrl,cost,ncon,min_clearance\n");
   }
@@ -301,16 +299,7 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
     // ---- outcome metrics ----
     r.max_cart = std::max(r.max_cart, data->qpos[0]);
     if (data->ncon > 0) r.contact_steps++;
-    double step_min_clearance = 1e9;
-    for (int h = 0; h < 3; h++) {
-      const double* head = data->site_xpos + 3 * head_site[h];
-      for (int o = 0; o < 2; o++) {
-        const double* obs = data->geom_xpos + 3 * obstacle_geom[o];
-        double dx = head[0] - obs[0], dz = head[2] - obs[2];
-        double clearance = std::sqrt(dx * dx + dz * dz) - obstacle_radius[o];
-        step_min_clearance = std::min(step_min_clearance, clearance);
-      }
-    }
+    double step_min_clearance = corridor.MinClearance(data);
     r.min_clearance = std::min(r.min_clearance, step_min_clearance);
 
     // ---- was the goal state reached at this step? ----
@@ -402,9 +391,9 @@ int main(int argc, char** argv) {
                   ? kPlannerLabel[planner]
                   : "(xml)",
               absl::GetFlag(FLAGS_total_time), repeats);
-  std::printf("%-4s %7s %6s %8s %8s %8s %7s %7s  %s\n", "run", "t_solve",
+  std::printf("%-4s %7s %6s %8s %8s %8s %7s %7s %7s  %s\n", "run", "t_solve",
               "held%", "cart_end", "cos_end", "spd_end", "cont%", "cost",
-              "outcome");
+              "wall_s", "outcome");
 
   // For repeats > 1, suffix each dump so runs do not overwrite each other.
   const std::string dump_flag = absl::GetFlag(FLAGS_dump);
@@ -420,7 +409,7 @@ int main(int argc, char** argv) {
   int solved = 0, corridor = 0, collided = 0;
   int held_to_end = 0;
   for (int k = 0; k < repeats; k++) {
-    RunResult r = RunOnce(task_name, planner, stage,
+    RunResult r = RunOnce(task_name, planner, stage, stage_name,
                           absl::GetFlag(FLAGS_pso_publish_evaluated),
                           absl::GetFlag(FLAGS_total_time),
                           absl::GetFlag(FLAGS_planner_thread),
@@ -468,16 +457,21 @@ int main(int argc, char** argv) {
     } else {
       outcome = "past corridor, never at goal upright";
     }
+    // wall time is the planner's cost: same simulated seconds and the same
+    // number of planning iterations for every planner, so the difference is
+    // entirely how expensive each iteration was.
     if (r.first_solve_time >= 0) {
-      std::printf("%-4d %7.2f %5.1f%% %8.3f %8.3f %8.2f %6.1f%% %7.2f  %s\n", k,
-                  r.first_solve_time, 100.0 * r.solved_fraction, r.final_cart,
-                  r.min_cos_upright, r.final_speed,
-                  100.0 * r.contact_fraction, r.mean_cost, outcome);
+      std::printf("%-4d %7.2f %5.1f%% %8.3f %8.3f %8.2f %6.1f%% %7.2f %7.1f"
+                  "  %s\n", k, r.first_solve_time, 100.0 * r.solved_fraction,
+                  r.final_cart, r.min_cos_upright, r.final_speed,
+                  100.0 * r.contact_fraction, r.mean_cost, r.wall_time,
+                  outcome);
     } else {
-      std::printf("%-4d %7s %5.1f%% %8.3f %8.3f %8.2f %6.1f%% %7.2f  %s\n", k,
-                  "never", 100.0 * r.solved_fraction, r.final_cart,
-                  r.min_cos_upright, r.final_speed,
-                  100.0 * r.contact_fraction, r.mean_cost, outcome);
+      std::printf("%-4d %7s %5.1f%% %8.3f %8.3f %8.2f %6.1f%% %7.2f %7.1f"
+                  "  %s\n", k, "never", 100.0 * r.solved_fraction,
+                  r.final_cart, r.min_cos_upright, r.final_speed,
+                  100.0 * r.contact_fraction, r.mean_cost, r.wall_time,
+                  outcome);
     }
   }
   if (stage == Stage::kBalance) {

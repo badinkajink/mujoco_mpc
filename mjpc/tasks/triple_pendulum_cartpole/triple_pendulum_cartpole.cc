@@ -14,7 +14,9 @@
 
 #include "mjpc/tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.h"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 
 #include <mujoco/mujoco.h>
@@ -30,26 +32,50 @@ std::string TriplePendulumCartpole::Name() const {
   return "Triple Pendulum Cartpole";
 }
 
-void TriplePendulumCartpole::ResetLocked(const mjModel* model) {
+void TriplePendulumCartpole::Corridor::Initialize(const mjModel* model) {
   // link head sites, ordered base to tip
-  const char* head_names[ResidualFn::kNumLinks] = {"head1", "head2", "tip"};
-  for (int i = 0; i < ResidualFn::kNumLinks; i++) {
-    residual_.head_site_id_[i] = mj_name2id(model, mjOBJ_SITE, head_names[i]);
-    if (residual_.head_site_id_[i] < 0) {
+  const char* head_names[kNumLinks] = {"head1", "head2", "tip"};
+  for (int i = 0; i < kNumLinks; i++) {
+    head_site_id[i] = mj_name2id(model, mjOBJ_SITE, head_names[i]);
+    if (head_site_id[i] < 0) {
       mju_error_s("site '%s' not found", head_names[i]);
     }
   }
 
   // disk obstacles: cylinders whose axis is along y, so geom_size[0] is the
   // disk radius in the x-z plane
-  const char* obstacle_names[ResidualFn::kNumObstacles] = {"obstacle_upper",
-                                                           "obstacle_lower"};
-  for (int i = 0; i < ResidualFn::kNumObstacles; i++) {
+  const char* obstacle_names[kNumObstacles] = {"obstacle_upper",
+                                               "obstacle_lower"};
+  for (int i = 0; i < kNumObstacles; i++) {
     int id = mj_name2id(model, mjOBJ_GEOM, obstacle_names[i]);
     if (id < 0) mju_error_s("geom '%s' not found", obstacle_names[i]);
-    residual_.obstacle_geom_id_[i] = id;
-    residual_.obstacle_radius_[i] = model->geom_size[3 * id];
+    obstacle_geom_id[i] = id;
+    obstacle_radius[i] = model->geom_size[3 * id];
   }
+}
+
+double TriplePendulumCartpole::Corridor::Clearance(const mjData* data, int link,
+                                                   int obstacle) const {
+  const double* head = data->site_xpos + 3 * head_site_id[link];
+  const double* disk = data->geom_xpos + 3 * obstacle_geom_id[obstacle];
+  double dx = head[0] - disk[0];
+  double dz = head[2] - disk[2];
+  return std::sqrt(dx * dx + dz * dz) - obstacle_radius[obstacle];
+}
+
+double TriplePendulumCartpole::Corridor::MinClearance(
+    const mjData* data) const {
+  double smallest = std::numeric_limits<double>::infinity();
+  for (int i = 0; i < kNumLinks; i++) {
+    for (int j = 0; j < kNumObstacles; j++) {
+      smallest = std::min(smallest, Clearance(data, i, j));
+    }
+  }
+  return smallest;
+}
+
+void TriplePendulumCartpole::ResetLocked(const mjModel* model) {
+  residual_.corridor_.Initialize(model);
 }
 
 // ------- Residuals for triple pendulum cartpole ------
@@ -72,7 +98,7 @@ void TriplePendulumCartpole::ResidualFn::Residual(const mjModel* model,
   // theta_i = 0 points link i along +z. cos(theta) - 1 is zero exactly at the
   // upright equilibrium and is smooth across the +/-pi wrap, so the planner
   // never sees an artificial discontinuity from angle unwrapping.
-  for (int i = 0; i < kNumLinks; i++) {
+  for (int i = 0; i < Corridor::kNumLinks; i++) {
     residual[counter++] = std::cos(data->qpos[1 + i]) - 1.0;
   }
 
@@ -95,17 +121,11 @@ void TriplePendulumCartpole::ResidualFn::Residual(const mjModel* model,
   // into a disk is additionally penalised by the dynamics. This cost exists to
   // give the sampler a gradient *before* contact, which contact alone (a
   // discontinuity) does not provide.
-  double clearance = parameters_[1];
-  for (int i = 0; i < kNumLinks; i++) {
-    const double* head = data->site_xpos + 3 * head_site_id_[i];
-    for (int j = 0; j < kNumObstacles; j++) {
-      const double* obstacle = data->geom_xpos + 3 * obstacle_geom_id_[j];
-      // distance in the x-z plane (obstacle cylinders are extruded along y)
-      double dx = head[0] - obstacle[0];
-      double dz = head[2] - obstacle[2];
-      double distance = std::sqrt(dx * dx + dz * dz);
-      double threshold = obstacle_radius_[j] + clearance;
-      residual[counter++] = std::max(0.0, threshold - distance);
+  double margin = parameters_[1];
+  for (int i = 0; i < Corridor::kNumLinks; i++) {
+    for (int j = 0; j < Corridor::kNumObstacles; j++) {
+      residual[counter++] =
+          std::max(0.0, margin - corridor_.Clearance(data, i, j));
     }
   }
 

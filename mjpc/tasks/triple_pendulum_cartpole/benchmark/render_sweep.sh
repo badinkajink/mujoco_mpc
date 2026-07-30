@@ -22,12 +22,11 @@ TRACE="$OUT/traces.txt"
 
 for csv in "$SWEEP"/dumps/*_"$REP".csv; do
   base=$(basename "$csv" "_$REP.csv")
-  stage=${base%%_*}
   echo "=== $base ===" | tee -a "$TRACE"
-  # --stage matters: the balance stage ran with the obstacles removed, and
-  # without telling the renderer that, every balance video shows a corridor
-  # that was not there.
-  python3 "$HERE/filmstrip.py" --dump "$csv" --stage "$stage" \
+  # filmstrip.py reads the stage from the dump's header, so the balance videos
+  # are rendered without the obstacles the run did not have -- no need to
+  # recover it from the filename.
+  python3 "$HERE/filmstrip.py" --dump "$csv" \
       --out "$OUT/$base.png" --video "$OUT/$base.mp4" \
       --video-stride 8 2>&1 | tee -a "$TRACE"
   echo | tee -a "$TRACE"

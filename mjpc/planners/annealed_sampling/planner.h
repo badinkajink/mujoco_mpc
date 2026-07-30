@@ -113,9 +113,6 @@ class AnnealedSamplingPlanner : public RankedPlanner {
   // improvement
   double improvement;
 
-  // flags
-  int processed_noise_status;
-
   // timing
   std::atomic<double> noise_compute_time;
   double rollouts_compute_time;
