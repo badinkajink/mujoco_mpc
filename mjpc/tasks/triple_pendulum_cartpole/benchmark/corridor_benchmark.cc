@@ -25,13 +25,18 @@
 // capture the pendulum once past it, and one aggregate number cannot say
 // which. --stage splits them:
 //
-//   corridor  obstacles, goal x=6, Upright and Velocity weights zeroed.
-//             Only asks: can the cart be driven to the goal without putting a
-//             head inside a disk? Pure obstacle avoidance under the same
-//             underactuated dynamics.
-//   balance   no obstacles, goal x=0, started fully hung. Only asks: can this
-//             planner erect a 3-link underactuated pendulum and hold it?
+//   corridor  obstacles, goal x=6, Upright and Velocity weights zeroed and
+//             Avoidance raised. Only asks: can the cart be driven to the goal
+//             without putting a head inside a disk? Pure obstacle avoidance
+//             under the same underactuated dynamics.
+//   balance   no obstacles, goal x=0, started fully hung, Upright and Velocity
+//             raised. Only asks: can this planner erect a 3-link underactuated
+//             pendulum and hold it at rest?
 //   combined  the paper's task, unchanged: thread the corridor, then capture.
+//
+// Each stage reweights toward what it scores, so a planner is never judged
+// against an objective it was not given. That also means costs are comparable
+// across planners within a stage but not across stages.
 //
 // A planner that passes both isolated stages and fails combined is failing at
 // the composition, which is a different diagnosis from failing a component.
@@ -123,6 +128,30 @@ void SetTermWeight(mjModel* model, const char* sensor_name, double weight) {
   model->sensor_user[id * model->nuser_sensor + 1] = weight;
 }
 
+// Stage cost weights. An isolation stage exists to make one capability the
+// dominant term in the objective, so each stage reweights toward the thing it
+// is scoring rather than inheriting the combined task's balance.
+//
+// corridor: Avoidance is what is being measured, so it outweighs Cart by 30x
+// instead of 5x -- reaching the goal a little later is cheap, touching a disk
+// is not. The margin is widened with it: the residual is a hinge loss that is
+// exactly zero until a head is within `margin` of a disk, so at 0.08 m the
+// penalty arrives about one control interval before contact, which is too late
+// to steer around. At 0.25 m the sampler feels the disk while it can still act
+// on it. Widening the margin, not just the weight, is what turns the term from
+// a fine into a barrier.
+//
+// balance: the two terms that define capture. Upright is the reorientation
+// (get every link to theta = 0) and Velocity is the hold (arrive at rest, not
+// swinging through). Velocity moves the most, 0.1 -> 3.0, because that is the
+// term the combined task under-weights: the measured median speed in the goal
+// configuration is 4.7 rad/s, i.e. planners were passing through the goal
+// rather than stopping in it.
+constexpr double kCorridorAvoidanceWeight = 300.0;
+constexpr double kCorridorClearanceMargin = 0.25;
+constexpr double kBalanceUprightWeight = 80.0;
+constexpr double kBalanceVelocityWeight = 3.0;
+
 // Which keyframe a stage starts from, and how the model is altered for it.
 // Returns the keyframe name.
 const char* ConfigureStage(mjModel* model, Stage stage) {
@@ -140,6 +169,10 @@ const char* ConfigureStage(mjModel* model, Stage stage) {
       // is an easier objective, not an easier system.
       SetTermWeight(model, "Upright", 0.0);
       SetTermWeight(model, "Velocity", 0.0);
+      SetTermWeight(model, "Avoidance", kCorridorAvoidanceWeight);
+      if (double* c = mjpc::GetCustomNumericData(model, "residual_Clearance")) {
+        *c = kCorridorClearanceMargin;
+      }
       return "home";
 
     case Stage::kBalance:
@@ -158,6 +191,8 @@ const char* ConfigureStage(mjModel* model, Stage stage) {
       if (double* g = mjpc::GetCustomNumericData(model, "residual_Goal")) {
         *g = 0.0;
       }
+      SetTermWeight(model, "Upright", kBalanceUprightWeight);
+      SetTermWeight(model, "Velocity", kBalanceVelocityWeight);
       return "hanging";
   }
   return "home";
@@ -391,6 +426,20 @@ int main(int argc, char** argv) {
                   ? kPlannerLabel[planner]
                   : "(xml)",
               absl::GetFlag(FLAGS_total_time), repeats);
+  switch (stage) {
+    case Stage::kCorridor:
+      std::printf("  stage weights: Avoidance %.0f (margin %.2f m), "
+                  "Upright/Velocity 0\n",
+                  kCorridorAvoidanceWeight, kCorridorClearanceMargin);
+      break;
+    case Stage::kBalance:
+      std::printf("  stage weights: Upright %.0f, Velocity %.1f\n",
+                  kBalanceUprightWeight, kBalanceVelocityWeight);
+      break;
+    case Stage::kCombined:
+      std::printf("  stage weights: task.xml defaults\n");
+      break;
+  }
   std::printf("%-4s %7s %6s %8s %8s %8s %7s %7s %7s  %s\n", "run", "t_solve",
               "held%", "cart_end", "cos_end", "spd_end", "cont%", "cost",
               "wall_s", "outcome");
