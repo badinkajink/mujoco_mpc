@@ -84,6 +84,8 @@ add_library(
   tasks/go1/quadruped.h
   tasks/swimmer/swimmer.cc
   tasks/swimmer/swimmer.h
+  tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.cc
+  tasks/triple_pendulum_cartpole/triple_pendulum_cartpole.h
   tasks/walker/walker.cc
   tasks/walker/walker.h
   planners/planner.cc

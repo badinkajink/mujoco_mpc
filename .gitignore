@@ -33,3 +33,8 @@ MJDATA.TXT
 MJMODEL.TXT
 # Python
 python/dist/
+
+# Vendored upstream clone of Caldwell & Correll's AgileRRT reference
+# implementation (https://github.com/timocaldwell/agile_rrt). Third-party code
+# with its own git history; cloned here for line-level reference only.
+mjpc/tasks/triple_pendulum_cartpole/agile_rrt/
