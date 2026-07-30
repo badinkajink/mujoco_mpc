@@ -128,6 +128,8 @@ add_library(
   planners/ilqs/planner.h
   planners/pso/planner.cc
   planners/pso/planner.h
+  planners/annealed_sampling/planner.cc
+  planners/annealed_sampling/planner.h
   estimators/batch.cc
   estimators/batch.h
   estimators/estimator.h
