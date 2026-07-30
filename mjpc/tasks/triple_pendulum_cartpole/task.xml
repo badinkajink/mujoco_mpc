@@ -42,12 +42,23 @@
     <numeric name="agent_timestep" data="0.005" />
     <numeric name="agent_policy_width" data="0.0035" />
 
-    <!-- sampling / cross-entropy share these -->
+    <!-- sampling / cross-entropy / pso share these -->
     <numeric name="sampling_spline_points" data="12" />
     <numeric name="sampling_exploration" data="0.4" />
     <numeric name="sampling_representation" data="1" />
-    <numeric name="sampling_trajectories" data="10" />
     <numeric name="gradient_spline_points" data="12" />
+
+    <!-- Rollout budget, stated explicitly so the planners are comparable.
+         The library defaults disagree: SamplingPlanner and CrossEntropy
+         default to 10 trajectories but PSO defaults to 20 particles, so
+         leaving these unset silently hands PSO twice the rollouts of
+         everything it is being compared against. -->
+    <numeric name="sampling_trajectories" data="10" />
+    <numeric name="pso_num_particles" data="10" />
+
+    <!-- 1: PSO publishes the parameters it rolled out. 0: it publishes the
+         post-swarm-update iterate, whose cost was never evaluated. -->
+    <numeric name="pso_publish_evaluated" data="1" />
 
     <!-- goal cart position; slider range is [-1, 8] -->
     <numeric name="residual_Goal" data="6.0 -1.0 8.0" />
