@@ -239,6 +239,27 @@ target_compile_options(testspeed PUBLIC ${MJPC_COMPILE_OPTIONS})
 target_link_options(testspeed PRIVATE ${MJPC_LINK_OPTIONS})
 target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
 
+# Task-level benchmark for the triple-pendulum-cartpole corridor task. Reports
+# goal / corridor / collision outcomes that testspeed's aggregate cost cannot
+# distinguish.
+add_executable(
+  corridor_benchmark
+  tasks/triple_pendulum_cartpole/benchmark/corridor_benchmark.cc
+)
+target_link_libraries(
+  corridor_benchmark
+  libmjpc
+  mujoco::mujoco
+  threadpool
+  Threads::Threads
+  absl::flags
+  absl::flags_parse
+)
+target_include_directories(corridor_benchmark
+                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_compile_options(corridor_benchmark PUBLIC ${MJPC_COMPILE_OPTIONS})
+target_link_options(corridor_benchmark PRIVATE ${MJPC_LINK_OPTIONS})
+
 add_subdirectory(tasks)
 
 if(BUILD_TESTING AND MJPC_BUILD_TESTS)
