@@ -24,6 +24,7 @@
 #include "mjpc/planners/annealed_sampling/planner.h"
 #include "mjpc/planners/planner.h"
 #include "mjpc/planners/pso/planner.h"
+#include "mjpc/planners/random_shooting/planner.h"
 #include "mjpc/planners/robust/robust_planner.h"
 #include "mjpc/planners/sample_gradient/planner.h"
 #include "mjpc/planners/sampling/planner.h"
@@ -38,7 +39,8 @@ const char kPlannerNames[] =
     "Cross Entropy\n"
     "Sample Gradient\n"
     "PSO\n"
-    "Annealed Sampling";
+    "Annealed Sampling\n"
+    "Random Shooting";
 
 // load all available planners
 std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
@@ -55,6 +57,7 @@ std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
   planners.emplace_back(new mjpc::SampleGradientPlanner);
   planners.emplace_back(new mjpc::PSOPlanner);
   planners.emplace_back(new mjpc::AnnealedSamplingPlanner);
+  planners.emplace_back(new mjpc::RandomShootingPlanner);
   return planners;
 }
 

@@ -130,6 +130,8 @@ add_library(
   planners/pso/planner.h
   planners/annealed_sampling/planner.cc
   planners/annealed_sampling/planner.h
+  planners/random_shooting/planner.cc
+  planners/random_shooting/planner.h
   estimators/batch.cc
   estimators/batch.h
   estimators/estimator.h
