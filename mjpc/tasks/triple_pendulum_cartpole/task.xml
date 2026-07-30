@@ -147,5 +147,17 @@
   <keyframe>
     <!-- start: cart at x=0, all three links at the upright (unstable) equilibrium -->
     <key name="home" qpos="0 0 0 0" qvel="0 0 0 0"/>
+    <!--
+      Fully hanging: theta_i = pi puts every link along -z. Used by the
+      `balance` stage of corridor_benchmark.
+
+      The `home` pose cannot serve as a balance test: it is a zero-control
+      equilibrium, so "hold it" is solved by emitting u = 0 and every planner
+      passes without searching. Starting hung makes swing-up and capture the
+      only way to score, which is the capability the combined task actually
+      needs and the one it cannot measure separately.
+    -->
+    <key name="hanging" qpos="0 3.14159265 3.14159265 3.14159265"
+         qvel="0 0 0 0"/>
   </keyframe>
 </mujoco>

@@ -20,8 +20,24 @@
 // asks for: did the cart get through the obstacle corridor to the goal with the
 // pendulum re-erected, and was any obstacle penetrated on the way.
 //
+// The combined task confounds two capabilities. A planner that never reaches
+// the goal upright might be failing to thread the corridor, or failing to
+// capture the pendulum once past it, and one aggregate number cannot say
+// which. --stage splits them:
+//
+//   corridor  obstacles, goal x=6, Upright and Velocity weights zeroed.
+//             Only asks: can the cart be driven to the goal without putting a
+//             head inside a disk? Pure obstacle avoidance under the same
+//             underactuated dynamics.
+//   balance   no obstacles, goal x=0, started fully hung. Only asks: can this
+//             planner erect a 3-link underactuated pendulum and hold it?
+//   combined  the paper's task, unchanged: thread the corridor, then capture.
+//
+// A planner that passes both isolated stages and fails combined is failing at
+// the composition, which is a different diagnosis from failing a component.
+//
 // Usage:
-//   corridor_benchmark --planner=0 --total_time=20 --repeats=3
+//   corridor_benchmark --planner=0 --stage=combined --total_time=20 --repeats=3
 
 #include <chrono>
 #include <cmath>
@@ -46,6 +62,10 @@ ABSL_FLAG(int, planner, -1,
           "0=PredictiveSampling 1=Gradient 2=iLQG 3=iLQS 4=RobustSampling "
           "5=CrossEntropy 6=SampleGradient 7=PSO 8=AnnealedSampling "
           "9=RandomShooting. -1 keeps the XML value.");
+ABSL_FLAG(std::string, stage, "combined",
+          "Which capability to isolate: 'corridor' (obstacle avoidance only), "
+          "'balance' (swing-up and capture only), or 'combined' (the full "
+          "task). See the file comment.");
 ABSL_FLAG(double, total_time, 20.0, "Simulated seconds per repeat.");
 ABSL_FLAG(int, repeats, 1, "Number of repeats.");
 ABSL_FLAG(int, planner_thread, mjpc::NumAvailableHardwareThreads() - 5,
@@ -75,6 +95,68 @@ ABSL_FLAG(int, pso_publish_evaluated, -1,
           "evaluated (the original behaviour). -1 keeps the XML value.");
 
 namespace {
+
+enum class Stage { kCorridor, kBalance, kCombined };
+
+Stage ParseStage(const std::string& s) {
+  if (s == "corridor") return Stage::kCorridor;
+  if (s == "balance") return Stage::kBalance;
+  if (s == "combined") return Stage::kCombined;
+  std::cerr << "unknown --stage '" << s
+            << "'; expected corridor, balance, or combined\n";
+  std::exit(1);
+}
+
+// Set a cost term's weight by sensor name. Task::Initialize reads weights out
+// of model->sensor_user (see mjpc/task.cc, "user data: [norm, weight, ...]"),
+// so editing the model before Agent::Initialize is enough -- and it reaches
+// the planner's internal rollouts too, which writing to task->weight after
+// initialization would not do reliably.
+void SetTermWeight(mjModel* model, const char* sensor_name, double weight) {
+  int id = mj_name2id(model, mjOBJ_SENSOR, sensor_name);
+  if (id < 0) mju_error_s("sensor '%s' not found", sensor_name);
+  model->sensor_user[id * model->nuser_sensor + 1] = weight;
+}
+
+// Which keyframe a stage starts from, and how the model is altered for it.
+// Returns the keyframe name.
+const char* ConfigureStage(mjModel* model, Stage stage) {
+  const char* obstacle_names[2] = {"obstacle_upper", "obstacle_lower"};
+
+  switch (stage) {
+    case Stage::kCombined:
+      return "home";
+
+    case Stage::kCorridor:
+      // Zero the two terms that ask for capture, keeping Cart, Control and
+      // Avoidance. What remains scores exactly one thing: reaching x=6 without
+      // driving a head into a disk. The pendulum is free to flail, so the
+      // dynamics stay as underactuated and chaotic as in the full task -- this
+      // is an easier objective, not an easier system.
+      SetTermWeight(model, "Upright", 0.0);
+      SetTermWeight(model, "Velocity", 0.0);
+      return "home";
+
+    case Stage::kBalance:
+      // Remove the corridor entirely: push the disks far off in y (so the
+      // Avoidance residual, which measures distance in the x-z plane, still
+      // sees them -- hence also clear their contact bits) and detach them from
+      // collision. Goal moves to x=0 so the cart is not asked to travel.
+      for (int i = 0; i < 2; i++) {
+        int id = mj_name2id(model, mjOBJ_GEOM, obstacle_names[i]);
+        if (id < 0) mju_error_s("geom '%s' not found", obstacle_names[i]);
+        model->geom_pos[3 * id + 0] = 1e3;  // out of the x-z plane of motion
+        model->geom_pos[3 * id + 2] = 1e3;
+        model->geom_contype[id] = 0;
+        model->geom_conaffinity[id] = 0;
+      }
+      if (double* g = mjpc::GetCustomNumericData(model, "residual_Goal")) {
+        *g = 0.0;
+      }
+      return "hanging";
+  }
+  return "home";
+}
 
 mjpc::Task* g_task;
 void ResidualCallback(const mjModel* model, mjData* data, int stage) {
@@ -110,11 +192,12 @@ struct RunResult {
 };
 
 RunResult RunOnce(const std::string& task_name, int planner_override,
-                  int pso_publish_evaluated, double total_time,
-                  int planner_thread_count, int steps_per_planning_iteration,
-                  double goal_tolerance, double upright_tolerance,
-                  double penetration_tolerance,
-                  double contact_fraction_tolerance, double speed_tolerance) {
+                  Stage stage, int pso_publish_evaluated,
+                  double total_time, int planner_thread_count,
+                  int steps_per_planning_iteration, double goal_tolerance,
+                  double upright_tolerance, double penetration_tolerance,
+                  double contact_fraction_tolerance,
+                  double speed_tolerance) {
   RunResult r;
 
   mjpc::Agent agent;
@@ -145,8 +228,12 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
     if (p) *p = static_cast<double>(pso_publish_evaluated);
   }
 
+  // Alter the model for the stage before Agent::Initialize reads it, so the
+  // planner optimizes the same objective the run is scored against.
+  const char* key_name = ConfigureStage(model, stage);
+
   mjData* data = mj_makeData(model);
-  int key_id = mj_name2id(model, mjOBJ_KEY, "home");
+  int key_id = mj_name2id(model, mjOBJ_KEY, key_name);
   if (key_id >= 0) mj_resetDataKeyframe(model, data, key_id);
   mj_forward(model, data);
 
@@ -212,8 +299,15 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
       step_min_cos = std::min(step_min_cos, std::cos(data->qpos[1 + j]));
     }
     double speed = mju_norm(data->qvel, model->nv);
-    if (std::abs(data->qpos[0] - goal) < goal_tolerance &&
-        step_min_cos > upright_tolerance && speed < speed_tolerance) {
+    // The corridor stage is not asked to capture anything, so requiring the
+    // pendulum to be upright and at rest there would score it against an
+    // objective it was not optimizing -- its Upright and Velocity weights are
+    // zero. Reaching the goal box is the whole test.
+    bool in_goal_config = stage == Stage::kCorridor
+                              ? true
+                              : (step_min_cos > upright_tolerance &&
+                                 speed < speed_tolerance);
+    if (std::abs(data->qpos[0] - goal) < goal_tolerance && in_goal_config) {
       r.solved_steps++;
       if (!r.ever_solved) {
         r.ever_solved = true;
@@ -235,8 +329,9 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
   r.solved_fraction = static_cast<double>(r.solved_steps) / total_steps;
   r.final_speed = mju_norm(data->qvel, model->nv);
   r.reached_goal = std::abs(r.final_cart - goal) < goal_tolerance;
-  r.upright = r.min_cos_upright > upright_tolerance &&
-              r.final_speed < speed_tolerance;
+  r.upright = stage == Stage::kCorridor ||
+              (r.min_cos_upright > upright_tolerance &&
+               r.final_speed < speed_tolerance);
   // Two independent ways to fail the obstacle constraint: go deep into a disk
   // once, or ride along one for a sustained fraction of the run.
   r.collided = r.min_clearance < -penetration_tolerance ||
@@ -255,6 +350,8 @@ int main(int argc, char** argv) {
   const std::string task_name = "Triple Pendulum Cartpole";
   int planner = absl::GetFlag(FLAGS_planner);
   int repeats = absl::GetFlag(FLAGS_repeats);
+  const std::string stage_name = absl::GetFlag(FLAGS_stage);
+  Stage stage = ParseStage(stage_name);
 
   // Index 0 is Predictive Sampling, not MPPI: it publishes the single best
   // candidate (mjpc/planners/sampling/planner.cc CopyCandidateToPolicy), not
@@ -266,8 +363,8 @@ int main(int argc, char** argv) {
   constexpr int kNumPlannerLabels =
       sizeof(kPlannerLabel) / sizeof(kPlannerLabel[0]);
 
-  std::printf("task: %s   planner: %s   %.0fs x %d repeat(s)\n",
-              task_name.c_str(),
+  std::printf("task: %s   stage: %s   planner: %s   %.0fs x %d repeat(s)\n",
+              task_name.c_str(), stage_name.c_str(),
               (planner >= 0 && planner < kNumPlannerLabels)
                   ? kPlannerLabel[planner]
                   : "(xml)",
@@ -279,7 +376,7 @@ int main(int argc, char** argv) {
   int solved = 0, corridor = 0, collided = 0;
   int held_to_end = 0;
   for (int k = 0; k < repeats; k++) {
-    RunResult r = RunOnce(task_name, planner,
+    RunResult r = RunOnce(task_name, planner, stage,
                           absl::GetFlag(FLAGS_pso_publish_evaluated),
                           absl::GetFlag(FLAGS_total_time),
                           absl::GetFlag(FLAGS_planner_thread),
@@ -300,16 +397,29 @@ int main(int argc, char** argv) {
 
     // describe the dominant outcome, most informative first
     const char* outcome;
-    if (held) {
+    if (stage == Stage::kBalance) {
+      if (held) {
+        outcome = "SOLVED, held to end";
+      } else if (reached) {
+        outcome = "erected, then fell";
+      } else if (r.min_cos_upright > 0.0) {
+        outcome = "partly erected, never captured";
+      } else {
+        outcome = "never left hanging";
+      }
+    } else if (held) {
       outcome = "SOLVED, held to end";
     } else if (reached) {
-      outcome = "SOLVED, then lost balance";
+      outcome = stage == Stage::kCorridor ? "SOLVED, drifted off goal"
+                                          : "SOLVED, then lost balance";
     } else if (r.collided && r.ever_solved) {
       outcome = "reached goal but collided";
     } else if (r.collided) {
       outcome = "collided";
     } else if (!r.passed_corridor) {
       outcome = "stuck before corridor";
+    } else if (stage == Stage::kCorridor) {
+      outcome = "past corridor, never reached goal";
     } else {
       outcome = "past corridor, never at goal upright";
     }
@@ -325,15 +435,32 @@ int main(int argc, char** argv) {
                   100.0 * r.contact_fraction, r.mean_cost, outcome);
     }
   }
-  std::printf("summary: reached goal state %d/%d | held to end %d/%d | "
-              "past corridor %d/%d | collided %d/%d\n",
-              solved, repeats, held_to_end, repeats, corridor, repeats,
-              collided, repeats);
-  std::printf("  (goal set = cart within %.2f m, all cos(theta) > %.2f, "
-              "||qvel|| < %.2f;\n   t_solve = first entry, held%% = "
-              "fraction of the run inside it)\n",
-              absl::GetFlag(FLAGS_goal_tolerance),
-              absl::GetFlag(FLAGS_upright_tolerance),
-              absl::GetFlag(FLAGS_speed_tolerance));
+  if (stage == Stage::kBalance) {
+    std::printf("summary[balance]: erected %d/%d | held to end %d/%d\n",
+                solved, repeats, held_to_end, repeats);
+    std::printf("  (goal set = cart within %.2f m of x=0, all cos(theta) > "
+                "%.2f, ||qvel|| < %.2f)\n",
+                absl::GetFlag(FLAGS_goal_tolerance),
+                absl::GetFlag(FLAGS_upright_tolerance),
+                absl::GetFlag(FLAGS_speed_tolerance));
+  } else {
+    std::printf("summary[%s]: reached goal state %d/%d | held to end %d/%d | "
+                "past corridor %d/%d | collided %d/%d\n",
+                stage_name.c_str(), solved, repeats, held_to_end, repeats,
+                corridor, repeats, collided, repeats);
+    if (stage == Stage::kCorridor) {
+      std::printf("  (goal set = cart within %.2f m of x=6; Upright and "
+                  "Velocity weights are zero for this stage, so pendulum "
+                  "state is not scored)\n",
+                  absl::GetFlag(FLAGS_goal_tolerance));
+    } else {
+      std::printf("  (goal set = cart within %.2f m, all cos(theta) > %.2f, "
+                  "||qvel|| < %.2f;\n   t_solve = first entry, held%% = "
+                  "fraction of the run inside it)\n",
+                  absl::GetFlag(FLAGS_goal_tolerance),
+                  absl::GetFlag(FLAGS_upright_tolerance),
+                  absl::GetFlag(FLAGS_speed_tolerance));
+    }
+  }
   return 0;
 }
