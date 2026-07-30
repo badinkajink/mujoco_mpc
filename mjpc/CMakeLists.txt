@@ -126,6 +126,12 @@ add_library(
   planners/ilqg/settings.h
   planners/ilqs/planner.cc
   planners/ilqs/planner.h
+  planners/pso/planner.cc
+  planners/pso/planner.h
+  planners/annealed_sampling/planner.cc
+  planners/annealed_sampling/planner.h
+  planners/random_shooting/planner.cc
+  planners/random_shooting/planner.h
   estimators/batch.cc
   estimators/batch.h
   estimators/estimator.h
