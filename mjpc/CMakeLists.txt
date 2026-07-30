@@ -241,7 +241,7 @@ target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
 
 # Task-level benchmark for the triple-pendulum-cartpole corridor task. Reports
 # goal / corridor / collision outcomes that testspeed's aggregate cost cannot
-# distinguish.
+# distinguish. See mjpc/planners/agile_rrt/AGILE_RRT.md.
 add_executable(
   corridor_benchmark
   tasks/triple_pendulum_cartpole/benchmark/corridor_benchmark.cc
