@@ -93,6 +93,10 @@ ABSL_FLAG(int, pso_publish_evaluated, -1,
           "PSO only. 1: publish the parameters that were rolled out. 0: "
           "publish the post-swarm-update iterate, whose cost was never "
           "evaluated (the original behaviour). -1 keeps the XML value.");
+ABSL_FLAG(std::string, dump, "",
+          "If set, write a per-step trajectory CSV to this path (run index is "
+          "appended for repeats > 1). Render it with "
+          "mjpc/tasks/triple_pendulum_cartpole/benchmark/filmstrip.py");
 
 namespace {
 
@@ -196,8 +200,8 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
                   double total_time, int planner_thread_count,
                   int steps_per_planning_iteration, double goal_tolerance,
                   double upright_tolerance, double penetration_tolerance,
-                  double contact_fraction_tolerance,
-                  double speed_tolerance) {
+                  double contact_fraction_tolerance, double speed_tolerance,
+                  const std::string& dump_path) {
   RunResult r;
 
   mjpc::Agent agent;
@@ -265,6 +269,21 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
   int total_steps = std::ceil(total_time / model->opt.timestep);
   double total_cost = 0;
 
+  // Optional per-step trajectory dump. Aggregate cost cannot distinguish
+  // "swung up and reached the goal" from "drove the cart there with the
+  // pendulum hanging"; the dump exists so the rollout can be rendered and
+  // looked at. See benchmark/filmstrip.py.
+  std::FILE* dump = nullptr;
+  if (!dump_path.empty()) {
+    dump = std::fopen(dump_path.c_str(), "w");
+    if (!dump) {
+      std::cerr << "could not open --dump path '" << dump_path << "'\n";
+      std::exit(1);
+    }
+    std::fprintf(dump, "step,time,cart,th1,th2,th3,dcart,dth1,dth2,dth3,"
+                       "ctrl,cost,ncon,min_clearance\n");
+  }
+
   auto loop_start = std::chrono::steady_clock::now();
   for (int i = 0; i < total_steps; i++) {
     agent.ActiveTask()->Transition(model, data);
@@ -274,7 +293,8 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
                                            agent.state.time(),
                                            /*use_previous=*/false);
     mj_step(model, data);
-    total_cost += agent.ActiveTask()->CostValue(data->sensordata);
+    double cost = agent.ActiveTask()->CostValue(data->sensordata);
+    total_cost += cost;
 
     if (i % steps_per_planning_iteration == 0) agent.PlanIteration(&pool);
 
@@ -314,7 +334,20 @@ RunResult RunOnce(const std::string& task_name, int planner_override,
         r.first_solve_time = data->time;
       }
     }
+
+    if (dump) {
+      std::fprintf(dump, "%d,%.4f", i, data->time);
+      for (int j = 0; j < model->nq; j++) {
+        std::fprintf(dump, ",%.6f", data->qpos[j]);
+      }
+      for (int j = 0; j < model->nv; j++) {
+        std::fprintf(dump, ",%.6f", data->qvel[j]);
+      }
+      std::fprintf(dump, ",%.6f,%.6f,%d,%.6f\n", data->ctrl[0], cost,
+                   data->ncon, step_min_clearance);
+    }
   }
+  if (dump) std::fclose(dump);
   r.wall_time = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - loop_start)
                     .count() / 1e6;
@@ -373,6 +406,17 @@ int main(int argc, char** argv) {
               "held%", "cart_end", "cos_end", "spd_end", "cont%", "cost",
               "outcome");
 
+  // For repeats > 1, suffix each dump so runs do not overwrite each other.
+  const std::string dump_flag = absl::GetFlag(FLAGS_dump);
+  auto dump_path_for_run = [&dump_flag, repeats](int k) -> std::string {
+    if (dump_flag.empty()) return "";
+    if (repeats == 1) return dump_flag;
+    size_t dot = dump_flag.rfind('.');
+    if (dot == std::string::npos) return dump_flag + "_" + std::to_string(k);
+    return dump_flag.substr(0, dot) + "_" + std::to_string(k) +
+           dump_flag.substr(dot);
+  };
+
   int solved = 0, corridor = 0, collided = 0;
   int held_to_end = 0;
   for (int k = 0; k < repeats; k++) {
@@ -385,7 +429,8 @@ int main(int argc, char** argv) {
                           absl::GetFlag(FLAGS_upright_tolerance),
                           absl::GetFlag(FLAGS_penetration_tolerance),
                           absl::GetFlag(FLAGS_contact_fraction_tolerance),
-                          absl::GetFlag(FLAGS_speed_tolerance));
+                          absl::GetFlag(FLAGS_speed_tolerance),
+                          dump_path_for_run(k));
     // "reached" = the goal state was attained at some point without a
     // disqualifying collision. "held" = it was still there at the end.
     bool reached = r.ever_solved && !r.collided;

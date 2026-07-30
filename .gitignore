@@ -38,3 +38,6 @@ python/dist/
 # implementation (https://github.com/timocaldwell/agile_rrt). Third-party code
 # with its own git history; cloned here for line-level reference only.
 mjpc/tasks/triple_pendulum_cartpole/agile_rrt/
+
+# local render artifacts from benchmark/filmstrip.py
+renders/
