@@ -23,6 +23,51 @@ designed for.
 
 ---
 
+## Correction (2026-07-29): two bugs in the prototype, and the tree actually run
+
+The first version of this document was written against a prototype with two
+defects. Both are fixed in
+[`prototype/steering_test.py`](prototype/steering_test.py); the numbers below
+supersede the originals wherever they disagree. **The verdict is unchanged and
+slightly strengthened.**
+
+1. **The Gramian was missing its `dt`.** Eq 15 is a continuous-time integral
+   over `B_c R⁻¹ B_cᵀ`, but `mjd_transitionFD` returns the *discrete*
+   `B_d ≈ B_c·dt`. Substituting `B_d` directly makes every `W_K` a factor `dt`
+   too small — 200× at this timestep — and the steering that falls out uses
+   **0.21 N of a 20 N actuator**. With `B_d/dt` (and the matching `dt` on
+   `S_K`), the same steer uses 11.9 N and travels 10× further.
+
+2. **`Phi_K(k,0)` is numerically singular, not merely ill-conditioned.** The
+   original formed `Phi_K(k_h,k) = Phi_K(k_h,0)·inv(Phi_K(k,0))`, following the
+   reference code. At `t_h = 1.0 s` from a non-equilibrium vertex that inverse
+   **throws `Singular matrix`** — a stable closed loop makes `Acl` contractive,
+   so a 200-step product collapses. Accumulating `w_k = Phi_K(k_h,k)ᵀη`
+   backwards via `w_{k-1} = Acl_{k-1}ᵀ w_k` needs no inverse, matches the
+   explicit form to `8e-7` where that form still evaluates, and is faster
+   (`Alg 4 full`: 0.64 ms vs 3.0 ms).
+
+Re-measured, `t_h = 1.0 s`:
+
+| quantity | was | now |
+|---|---|---|
+| per-vertex linearization + precompute | 8.1 ms | **18.8 ms** (15.3 linearize + 3.5 precompute) |
+| per nearest-neighbour test | 7.8 µs | **8.1 µs** |
+| per extend (Alg 4 full + projection) | 3.0 ms | **3.5 ms** |
+| `x_zero` vs `x0` advantage at 1.0 s | 2.8× | **2.0×** (9.29 vs 18.40) |
+| crossover horizon | `t_h ≈ 0.4 s` | **`t_h ≈ 0.6 s`** |
+
+**And the tree has now actually been run**, standalone, in
+[`prototype/agile_rrt_run.py`](prototype/agile_rrt_run.py) — see
+[Running the tree standalone](#running-the-tree-standalone). The extrapolated
+"≈15 s for 1000 vertices" was optimistic by ~8×: the measured cost is **1200
+vertices in 125 s**, because the extrapolation counted nearest-neighbour as a
+fixed per-iteration cost when it is `O(N)` per extend and therefore `O(N²)`
+overall. Measured, **92% of wall time goes to nearest-neighbour**, not to the
+per-vertex precompute the paper optimizes.
+
+---
+
 ## Verdict
 
 **The steering primitive ports cleanly and cheaply. The tree search does not fit
@@ -532,6 +577,60 @@ MUJOCO_GL=egl python3 \
   --dump /tmp/mppi.csv --at 190,215,400,470,508,560,700,1000 \
   --track --distance 2.6 --out /tmp/upright_fail.png
 ```
+
+### Running the tree standalone
+
+[`prototype/agile_rrt_run.py`](prototype/agile_rrt_run.py) runs the whole
+algorithm — Alg 4 steering, Eq 26 projection, and the Alg 6 tree loop —
+against the real MuJoCo model, deliberately *not* wrapped in MJPC's `Planner`
+interface. It emits a solution trajectory in `corridor_benchmark --dump`
+format, so `filmstrip.py` renders it and the result sits next to the MJPC
+planners on the same axes.
+
+```bash
+python3 mjpc/planners/agile_rrt/prototype/agile_rrt_run.py \
+    --max-vertices 1200 --out renders/agile_rrt_solution.csv
+MUJOCO_GL=egl python3 \
+    mjpc/tasks/triple_pendulum_cartpole/benchmark/filmstrip.py \
+    --dump renders/agile_rrt_solution.csv \
+    --out renders/agile_rrt.png --video renders/agile_rrt.mp4
+```
+
+Measured, `T_h = {0.2, 0.5, 1.0} s`, two tree budgets:
+
+```
+tree: 1200 vertices in 124.6s        tree: 3000 vertices in 379.4s
+  extends attempted   : 3952           extends attempted   : 6008
+  rejected (collision): 2753 (69.7%)   rejected (collision): 3009 (50.1%)
+  time in nearest-nbr : 114.4s (92%)   time in nearest-nbr : 363.7s (96%)
+  time in precompute  :   9.9s ( 8%)   time in precompute  :  24.9s ( 7%)
+  time in extend      :  10.0s ( 8%)   time in extend      :  15.4s ( 4%)
+  best dist to goal   : 4.314          best dist to goal   : 2.117
+```
+
+Three things this shows that the cost model alone did not:
+
+- **Nearest-neighbour is the bottleneck, not the precompute.** The paper's
+  contribution is making the per-vertex cache cheap enough to reuse across
+  horizons, and it succeeds — precompute is 7–8% of runtime. But brute-force NN
+  is `O(N)` per extend and therefore `O(N²)` overall; it is 96% of runtime by
+  `N = 3000`. Any real deployment needs a spatial index over a *non-metric*
+  steering cost, which is the hard open problem here — and it is a problem the
+  paper's contribution does not address.
+- **The steering primitive threads the corridor cleanly, better than any MJPC
+  planner on this task.** The 3000-vertex solution passes `x = 3.0` with
+  `+0.235 m` clearance and records **zero contacts over all 13.9 s**, against
+  0.2–50% contact fractions for the MJPC planners (see
+  [MJPC's existing planners on this task](#mjpcs-existing-planners-on-this-task)).
+  Rejecting a colliding extension outright is simply stronger than charging a
+  soft penalty for it.
+- **It then fails at exactly the point every MJPC planner fails.** The cart
+  arrives (`+5.599`, goal `6.0`) but `cos_min = -0.005` — the pendulum is
+  horizontal, not captured. Of the residual distance 2.117, almost none is cart
+  position. A global tree search and a receding-horizon sampler, with nothing in
+  common, land on the same failure: **terminal capture, not navigation.** That
+  is strong evidence the bottleneck is the task's goal set and cost, not the
+  search method.
 
 ### Reproducing
 

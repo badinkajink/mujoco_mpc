@@ -48,6 +48,19 @@
     <numeric name="sampling_representation" data="1" />
     <numeric name="gradient_spline_points" data="12" />
 
+    <!-- Rollout budget, stated explicitly so the planners are comparable.
+         The library defaults disagree: SamplingPlanner, CrossEntropy and
+         AnnealedSampling default to 10 trajectories but PSO defaults to 20
+         particles, so leaving these unset silently hands PSO twice the
+         rollouts of everything it is being compared against. -->
+    <numeric name="sampling_trajectories" data="10" />
+    <numeric name="pso_num_particles" data="10" />
+
+    <!-- 1: PSO publishes the parameters it rolled out. 0: it publishes the
+         post-swarm-update iterate, whose cost was never evaluated. Declared
+         here so corridor_benchmark can flip it and measure the difference. -->
+    <numeric name="pso_publish_evaluated" data="1" />
+
     <!-- goal cart position; slider range is [-1, 8] -->
     <numeric name="residual_Goal" data="6.0 -1.0 8.0" />
     <!-- clearance (m) added to the obstacle radius before the avoidance cost
@@ -135,5 +148,17 @@
   <keyframe>
     <!-- start: cart at x=0, all three links at the upright (unstable) equilibrium -->
     <key name="home" qpos="0 0 0 0" qvel="0 0 0 0"/>
+    <!--
+      Fully hanging: theta_i = pi puts every link along -z. Used by the
+      `balance` stage of corridor_benchmark.
+
+      The `home` pose cannot serve as a balance test: it is a zero-control
+      equilibrium, so "hold it" is solved by emitting u = 0 and every planner
+      passes without searching. Starting hung makes swing-up and capture the
+      only way to score, which is the capability the combined task actually
+      needs and the one it cannot measure separately.
+    -->
+    <key name="hanging" qpos="0 3.14159265 3.14159265 3.14159265"
+         qvel="0 0 0 0"/>
   </keyframe>
 </mujoco>

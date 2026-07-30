@@ -98,17 +98,24 @@ def precompute(As, Bs, Q, R, P1lqr):
         P = 0.5 * (P + P.T)
 
     # ---- Eq 15: W_K,  Eq 17: S_K,  closed-loop STM Phi_K ----
-    W = np.zeros((N, N)); S = np.zeros((N, N)); Phi = np.eye(N)
-    WKs, SKs, Phis = [W.copy()], [S.copy()], [Phi.copy()]
+    # Eq 15 is a continuous-time integral over B_c R^-1 B_c', but
+    # mjd_transitionFD returns the discrete B_d ~ B_c dt. Dividing by dt
+    # recovers B_c; the matching dt on M' R M keeps the cost integral
+    # consistent. Without these the Gramian is a factor dt (200x here) too
+    # small and the steering it produces uses ~1% of the available actuator.
+    inv_dt = 1.0 / DT
+    W = np.zeros((N, N)); S = np.zeros((N, N))
+    WKs, SKs, Acls = [W.copy()], [S.copy()], []
     for k in range(steps):
         A, B, K = As[k], Bs[k], Ks[k]
         Acl = A - B @ K
-        M = K @ W - Rinv @ B.T
-        S = Acl @ S @ Acl.T + M.T @ R @ M;  S = 0.5 * (S + S.T)
-        W = Acl @ W @ Acl.T + B @ Rinv @ B.T;  W = 0.5 * (W + W.T)
-        Phi = Acl @ Phi
-        WKs.append(W.copy()); SKs.append(S.copy()); Phis.append(Phi.copy())
-    return dict(Ks=Ks, WKs=WKs, SKs=SKs, Phis=Phis, Rinv=Rinv, R=R)
+        M = K @ W - Rinv @ B.T * inv_dt
+        S = Acl @ S @ Acl.T + M.T @ R @ M * DT;  S = 0.5 * (S + S.T)
+        W = Acl @ W @ Acl.T + B @ Rinv @ B.T * inv_dt;  W = 0.5 * (W + W.T)
+        Acls.append(Acl)
+        WKs.append(W.copy()); SKs.append(S.copy())
+    return dict(Ks=Ks, WKs=WKs, SKs=SKs, Acls=Acls, Rinv=Rinv, R=R,
+                inv_dt=inv_dt)
 
 
 def steer(pre, xzero, x_des, kh, P1):
@@ -119,7 +126,7 @@ def steer(pre, xzero, x_des, kh, P1):
     reference trajectory that the projection will track.
     """
     WK, SK = pre["WKs"][kh], pre["SKs"][kh]
-    Rinv, R, Ks, Phis = pre["Rinv"], pre["R"], pre["Ks"], pre["Phis"]
+    Rinv, R, Ks = pre["Rinv"], pre["R"], pre["Ks"]
 
     # Eq 23: P_th = (W_K P1 W_K + S_K)^-1 W_K P1 ; eta* = P_th (x_zero(t_h) - x_des)
     err = xzero[kh] - x_des
@@ -131,16 +138,23 @@ def steer(pre, xzero, x_des, kh, P1):
     J = 0.5 * eta @ (SK @ eta) + 0.5 * resid @ (P1 @ resid)
 
     # Eq 24: z*(t) = -W_K(t) Phi_K(t_h,t)' eta,  v*(t) = [K W_K - Rinv B'] Phi_K' eta
-    Phi_kh = Phis[kh]
+    #
+    # w_k = Phi_K(kh,k)' eta is accumulated backwards from w_kh = eta via
+    # w_{k-1} = Acl_{k-1}' w_k. The reference implementation instead forms
+    # Phi_K(kh,0) inv(Phi_K(k,0)); that inverse throws "Singular matrix" here,
+    # because a stable closed loop makes the 200-step product Phi_K(k,0)
+    # numerically singular. The recursion is the same quantity without it.
     x_tilde = np.zeros((kh + 1, N))
     u_tilde = np.zeros((kh, NU))
-    for k in range(kh + 1):
-        # Phi_K(kh, k) = Phi_K(kh,0) inv(Phi_K(k,0))
-        Phi_kh_k = Phi_kh @ np.linalg.inv(Phis[k])
-        w = Phi_kh_k.T @ eta
+    Acls = pre["Acls"]
+    w = eta.copy()
+    for k in range(kh, -1, -1):
         x_tilde[k] = xzero[k] - pre["WKs"][k] @ w
         if k < kh:
-            u_tilde[k] = (Ks[k] @ pre["WKs"][k] - Rinv @ Bs_cache[k].T) @ w
+            u_tilde[k] = (Ks[k] @ pre["WKs"][k]
+                          - Rinv @ Bs_cache[k].T * pre["inv_dt"]) @ w
+        if k > 0:
+            w = Acls[k - 1].T @ w
     return J, x_tilde, u_tilde
 
 

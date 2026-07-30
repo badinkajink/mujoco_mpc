@@ -179,10 +179,30 @@ def main():
     p.add_argument("--track", action="store_true",
                    help="camera follows the cart (pendulum legible, obstacles "
                         "no longer a fixed reference)")
+    p.add_argument("--stage", default=None,
+                   choices=["corridor", "balance", "combined"],
+                   help="stage the dump came from. 'balance' removes the "
+                        "obstacles, matching what corridor_benchmark did to "
+                        "the model; without this the render draws a corridor "
+                        "the run never had.")
     args = p.parse_args()
 
     d = load_dump(args.dump)
     model = mujoco.MjModel.from_xml_path(args.xml)
+
+    # corridor_benchmark's balance stage moves the disks out of the plane of
+    # motion and clears their contact bits. filmstrip.py reloads task.xml from
+    # disk and so would otherwise show them at their XML position -- a corridor
+    # that was not in the simulation being replayed. The dumped min_clearance
+    # (~1413 m) is the tell.
+    if args.stage == "balance":
+        for name in ("obstacle_upper", "obstacle_lower"):
+            g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
+            if g >= 0:
+                model.geom_pos[g] = [1e3, 0.0, 1e3]
+                model.geom_contype[g] = 0
+                model.geom_conaffinity[g] = 0
+
     data = mujoco.MjData(model)
     lookat = [float(v) for v in args.lookat.split(",")]
     cam = make_camera(model, args.distance, args.azimuth, args.elevation, lookat)
