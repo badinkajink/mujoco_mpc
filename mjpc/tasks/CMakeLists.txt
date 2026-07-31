@@ -373,6 +373,48 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/h1_2
   COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/h1_2
+  # Lean task: same mesh plumbing as stabilize/upper below. HISTORICAL HOLE
+  # (fixed 2026-07-30): lean/ had NO rule at all and worked only because three
+  # symlinks had been created BY HAND in the build tree (meshes -> .., h1_2,
+  # assets). copy_resources uses copy_directory, which does not reproduce
+  # symlinks, so any clean/fresh build tree loaded Lean_H12.xml straight into
+  # "Error opening file 'meshes/h1_2/pelvis.STL'".
+  # The leading `rm -rf` converts that legacy `meshes -> ..` LINK into the real
+  # directory the canonical pattern wants. It is safe and idempotent: cmake -E
+  # rm -rf UNLINKS a symlink-to-directory without recursing into its target
+  # (verified), so the parent humanoid_bench/ is untouched; on later builds it
+  # simply removes the real meshes/ dir this rule itself created. Plain `rm -f`
+  # must NOT be used here -- it refuses to remove a directory and exits 1,
+  # which would abort copy_model_resources on the second build.
+  COMMAND ${CMAKE_COMMAND} -E rm -rf
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/meshes
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/h1_2
+  # Beginning task (frozen Lean snapshot): same mesh plumbing as stabilize/upper
+  # above. The models resolve their STLs as `meshes/h1_2/<part>.STL` relative to
+  # the loaded XML's directory, and copy_resources' copy_directory does NOT
+  # produce symlinks -- without these two the model dies with
+  # "Error opening file 'meshes/h1_2/pelvis.STL'". (lean/ works only because the
+  # equivalent links were made by hand in the build tree and no rule recreates
+  # them; a clean rebuild of lean/ has the same latent hole.)
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml

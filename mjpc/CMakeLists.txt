@@ -101,6 +101,12 @@ add_library(
   tasks/humanoid_bench/push/push.h
   tasks/humanoid_bench/lean/lean.cc
   tasks/humanoid_bench/lean/lean.h
+  # Frozen pre-refurbish snapshot of the Lean task, registered as its own
+  # "Beginning H12*" tasks so the compacted lean/ can be A/B'd against it in
+  # one binary. Self-contained: reads beginning/strategies/, loads
+  # beginning/Beginning_H12*.xml. Nothing in deploy/ points here.
+  tasks/humanoid_bench/beginning/beginning.cc
+  tasks/humanoid_bench/beginning/beginning.h
   tasks/humanoid_bench/stabilize/stabilize.cc
   tasks/humanoid_bench/stabilize/stabilize.h
   tasks/humanoid_bench/upper/upper.cc

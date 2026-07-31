@@ -47,6 +47,7 @@
 #include "mjpc/tasks/humanoid_bench/stand/stand.h"
 #include "mjpc/tasks/humanoid_bench/walk/walk.h"
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
+#include "mjpc/tasks/humanoid_bench/beginning/beginning.h"
 #include "mjpc/tasks/humanoid_bench/stabilize/stabilize.h"
 #include "mjpc/tasks/humanoid_bench/upper/upper.h"
 #include "mjpc/tasks/humanoid_bench/grasp/grasp.h"
@@ -72,6 +73,16 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Magpie>(),
       std::make_shared<Lean_H12_Hands>(),
+
+      // H1_2 Beginning Task: the frozen pre-refurbish snapshot of Lean above
+      // (identical costs/strategies/models, own strategies/ + XMLs). Kept
+      // directly after Lean so it stays reachable in the non-scrolling GUI
+      // combobox. Appending here shifts the indices of everything below, which
+      // is safe: every selector resolves by NAME (main.cc name scan,
+      // deploy_common.cc GetTaskIdByName) -- no index is persisted anywhere.
+      std::make_shared<Beginning_H12>(),
+      std::make_shared<Beginning_H12_Magpie>(),
+      std::make_shared<Beginning_H12_Hands>(),
 
       // H1_2 lower-body-only (nu=12) Stabilize Task
       std::make_shared<Stabilize_H12_Magpie>(),

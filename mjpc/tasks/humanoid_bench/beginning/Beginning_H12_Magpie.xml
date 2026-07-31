@@ -1,0 +1,1375 @@
+<mujoco model="Beginning H12 Magpie">
+    <include file="../h1_2/h1_2_modified_magpie.xml"/>
+    <include file="beginning.xml"/>
+    <include file="../../common.xml" />
+    <include file="../assets/floor.xml" />
+
+    <!-- Use implicitfast integrator: MuJoCo-recommended default for
+         damping-heavy PD systems (mujoco.readthedocs.io/option#integrator).
+         Handles velocity-dependent forces (kv terms, joint damping)
+         implicitly, so position-actuated humanoids stay stable at the
+         control rates we run MJPC at. Euler (default) "quickly diverges"
+         on biped balance per the docs. -->
+    <!-- CONTACT (Title-7), CORRECTED 2026-06-05: impratio 1 -> 100. The 2026-06-04 "1"
+         was wrong on two counts: (a) it matched the SLIPPY setting, not the twin's intent --
+         the team's own h1_2_pos.xml sets impratio=100 "to prevent contact slipping for stable,
+         non-jerky control" and explicitly cites arXiv:2503.04613; only the handless twin
+         lacked the line (now also set to 100); (b) at impratio=1 a SAMPLED rollout predicts
+         ONE stochastic foot-slip realization while the twin produces a DIFFERENT one, so the
+         planner cannot predict its own contact -> asymmetric crouch (one knee bends, a foot
+         slides) -> topple, exactly the live symptom. impratio=100 makes contact deterministic
+         on BOTH sides so rollouts match the twin. arXiv:2503.04613 Fig.4 = impratio=100 is the
+         single headline contact fix (default 1 -> nonphysical slip -> jerky/dangerous targets).
+         cone pyramidal KEPT (twin/team default; elliptic ~15% costlier, no accuracy gain here).
+         integrator KEPT implicitfast (Euler diverges on biped balance per the docs, above).
+         CAVEAT: the table-lean pipeline (0-5) brace was tuned at impratio 10 -> re-validate it. -->
+    <option integrator="implicitfast" cone="pyramidal" impratio="100"/>
+
+    <keyframe>
+        <key name="home"
+        qpos="0.19 0 1.028 1 0 0 0 0 0 0.12 0 0 0 0 0 -0.12 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- soft-knee stand (2026-06-09): stand (strategy 6, phase "stand_up") and the
+             squat top (strategy 17, phase "stand") previously fell back to home with knee
+             target 0.0 — sitting 0.12 rad from the knee lock-out floor (-0.12), so one knee
+             cheaply slid into a passive straight-leg strut. Crouch never struts because its
+             0.7 knee target is 0.82 rad from the floor (enabler = target proximity to the
+             floor, not the lean which is only the trigger). These two keys replicate crouch's
+             immunity for stand/squat-top: a mild bent-knee target (hip -0.1 / knee 0.175 /
+             ankle -0.075 = the validated squat_q1 leg triad; z 1.028->1.024 keeps feet flat
+             so the Base Height anchor doesn't re-pull the legs straight into the strut).
+             Routed by the name-match at beginning.cc:210; HOME stays byte-identical so the
+             table-lean tasks 0-5 (which also fall back to home) are unchanged. Revert: delete
+             these two keys -> stand/squat-top fall back to home (straight-knee) again. -->
+        <!-- 2026-07-20 PERPENDICULAR-TORSO FIX (hipP -0.25 -> -0.14 on both legs).
+             The shipped pose declared base quat = identity (pelvis vertical) while the
+             sagittal chain summed hipP(-0.25)+knee(+0.35)+ankP(-0.21) = -0.11 rad = -6.30 deg.
+             That sum MUST be 0 for a vertical pelvis on FLAT soles, so the keyframe described
+             a robot standing upright on feet tilted 6.4 deg -- impossible on a flat floor.
+             The floor wins: soles go flat and the TORSO absorbs the 6.4 deg. FK with soles
+             forced flat: shipped -> torso +6.36 deg / CoM +6.9 cm; real 07-20 measured
+             lean +5.7 deg / CoM_margin +5..7 cm = the same pose. So the chronic "forward lean"
+             was the posture TARGET, not a bias, not calibration, not the controller.
+             FIX BY THE HIP, not the ankle: straightening the ankle instead (-0.21 -> -0.10)
+             also verticalises the torso but parks the CoM at -2.5 cm, only 5.4 cm from the
+             heel edge -- and the heel is the WEAK lever (~27 Nm vs 44.8 Nm at the toe).
+             Un-flexing the hip keeps the shank's forward lean, so the CoM stays at +4.8 cm
+             (8.5 cm to toe, 12.7 cm to heel) = the "strong plantarflexion" park the 07-18
+             work argued for, WITH a perpendicular torso. Knee/ankle/hip-roll/pelvis-z all
+             unchanged, so crouch depth and stance width are untouched.
+             FK after: torso +0.06 deg, soles flat, CoM +4.8 cm.
+             BOTH keys change together: 'stand' is the bring-up ramp destination and
+             'stand_up' is the residual's posture target; a split would ramp to one pose and
+             then be pulled toward another. Beginning_H12.xml carries the IDENTICAL defect and is
+             deliberately left alone until this is validated on Magpie. -->
+        <key name="stand_up" qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stand"    qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- straighten (strategy 25, pre-stand bring-up): CoM-CENTERED stand pose (hip
+             -0.15/knee 0.35/ankle -0.28) = the wide-basin handoff target. stand_up plants
+             the feet ~68mm ahead of the CoM (backward-tippy => harness-release fall); this
+             triad re-centers the CoM over the support (fwd 0.142/back 0.119 vs stand_up
+             0.160). Mirror of Beginning_H12.xml; the deploy (Magpie) model needs its own copy so
+             strategy 25 resolves the keyframe here too. -->
+        <key name="straighten" qpos="0.19 0 1.020 1 0 0 0 0 -0.15 0.12 0.35 -0.28 0 0 -0.15 -0.12 0.35 -0.28 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- counterbalance_standing (strategy 16): MUST exist so 16's Posture targets a
+             BENT-knee stand (knees 0.35) instead of falling back to home (key 0 = STRAIGHT
+             knees), which — with the JSON "Knees Straight" weight — drove 16's legs straight
+             into the strut/hyperextend (knee -0.11) → topple. Copy of "stand". 2026-06-25. -->
+        <key name="counterbalance_standing" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 1.05 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- forearm_brace_lean (2026-07-01, RE-TUNED for the REAL 87 cm lab table): a MODERATE
+             (not deep) bow so the LEFT forearm seats on the 0.87 m surface while the RIGHT arm
+             reaches UP IN THE AIR toward the object (user: right arm must not brace/touch the table).
+             FK-verified on the 0.87 model (fk_place.py, feet planted): base z0.738, left_forearm_brace
+             site z0.873 (= the 0.87 surface, pad seats) x0.44 (on the table past the near edge 0.40);
+             right_hand z1.303 x0.756 (well above the table, extended forward = in the air); CoM x0.298
+             sits INSIDE the foot support (feet ~0.22, front edge ~0.33) so the pose is statically
+             stable even before the brace loads. Higher table -> shallower bow than 0.77's base 0.688:
+             base 0.738 BOTH seats the forearm AND is a hold-able bow (0.77 needed an un-hold-able 0.63
+             to seat). Legs hip-1.27/knee1.52/ankle-0.30; LEFT arm (brace) sh-0.6/roll0.15/elbow0.95
+             reaches forward-down onto the table; RIGHT arm (reach) sh-1.1/roll-0.1/elbow0.25 up-forward.
+             Object rests at z0.95 (0.87 + half-height 0.08).
+
+             ★★ WRIST COCK (2026-07-13, PHANTOM-BRACE FIX): left wrist_pitch 0 -> -0.40 rad
+             (-23 deg, inside the +/-0.4625 joint limit). Until now the gripper was kept off the
+             table by an <exclude> -- i.e. it was NOT kept off the table at all, it was driven
+             12 cm THROUGH it. With the wrist/gripper now solid, the hand has to be lifted by
+             POSE. The gripper box sits ~0.12 m past the wrist-pitch joint, so cocking the wrist
+             up buys ~0.12*sin(23 deg) = ~4.7 cm of lift -- enough to clear a gripper whose
+             underside otherwise rides within ~1 cm of the forearm pad's contact plane.
+
+             ★★ ARM RE-SOLVED (brace_pose_solve.py, FK, feet planted, base UNCHANGED at 0.738):
+             LEFT arm sh_pitch -0.673 / roll -0.064 / yaw -0.307 / elbow 0.582 / wrist_roll -0.083
+             / wrist_pitch -0.427. Verified geometry:
+                 pad UNDERSIDE z = 0.870  = exactly ON the 0.87 surface (seats)
+                 gripper lowest  = 0.888  = +1.8 cm ABOVE the surface (clears)
+                 forearm slope   = -0.1 deg (LEVEL)      pad x = 0.457 (past the 0.40 edge)
+
+             ★ TWO BUGS THIS REPLACES (both measured, not guessed):
+             (1) THE OLD KEYFRAME WAS NEVER SEATED -- IT WAS BURIED. The 2026-07-01 FK check
+                 compared the forearm_brace SITE CENTRE (z 0.873) against the 0.87 surface and
+                 called it seated. But the pad is a CAPSULE of radius 0.035: to REST on the
+                 surface its centre must be at 0.870 + 0.035 = 0.905. At 0.873 the pad's
+                 UNDERSIDE is at 0.820 = 5.0 cm INSIDE the tabletop. Always measure the contact
+                 plane (lowest point), never the site centre.
+             (2) THE FOREARM WAS DIVING at +22.6 deg, so its distal end plunged: the gripper sat
+                 10.0 cm under the wood. The wrist cannot rescue that -- a full-range cock is
+                 worth only ~5-6 cm (swept: brace_wrist_clearance_sweep.py found NO (roll,pitch)
+                 that clears at the old forearm pose). Levelling the forearm via the ELBOW +
+                 SHOULDER is what makes the wrist cock sufficient.
+
+             ★ JAW ORIENTATION (user asked for fingers left/right, not up/down): the model cannot
+             express it -- the gripper is ONE welded box (half-extents .035/.05/.06) whose
+             thinnest axis already points down at roll=0, so rolling 90 deg makes the vertical
+             profile WORSE (.035 -> .05). Clearance is won by the PITCH cock, not the roll. The
+             solver left roll near 0 (-0.083). If the real jaws hang DOWN at roll=0 the box
+             under-bounds them and must be re-sized to enclose the OPEN jaws first. -->
+        <!-- ★★★ JAWS-LATERAL BRACE POSE (2026-07-24, brace_jaw_solve.py). The previous pose
+             left the magpie's JAW-SEPARATION AXIS VERTICAL (laterality 0.11), so the lower
+             finger hung toward the wood with only +15 mm clearance -- and the old single-box
+             gripper collision model hid it, reporting +33 mm. With the real jaws modelled
+             (h1_2_modified_magpie: *_gripper_jaw_a/b from the finger STLs) this pose gives:
+                 jaw-separation axis laterality 1.00 (exactly left/right, vertical 0.00)
+                 FLAT: forearm pad ends -0.0 / +2.6 mm, axis tilt 1.59 deg
+                       wrist   pad ends +1.2 / +4.0 mm, axis tilt 1.90 deg
+                 min jaw clearance  +31.3 mm  (was +15.0 mm with the jaws pointing DOWN)
+                 every arm joint >= 0.168 rad off its hard stop (no strut/jam parking)
+             ★ FLATNESS IS THE POINT, and seating only each pad's LOWEST POINT does not give it:
+             an intermediate solve scored -0.9 mm "seated" while the forearm sat at 8.4 deg with
+             its far end +12.5 mm in the air (a point-prop, not a brace). The criterion here is
+             BOTH ENDS of each pad capsule within a few mm of the top AND axis tilt <= 2 deg.
+             ★ ~30 mm is the NATURAL jaw clearance for a flat brace: with the forearm and wrist
+             both down, the gripper sits one wrist-radius above the wood, so the lateral jaws
+             ride ~3 cm over it. More clearance is only buyable by lifting the forearm off flat.
+             Deltas from the pre-fix pose: wrist_roll -0.083 -> -1.553 (the ~89 deg roll that
+             turns the jaws sideways), wrist_pitch -0.427 -> +0.181, wrist_yaw 0 -> -0.009,
+             shoulder roll/yaw + elbow re-solved to lay the forearm flat. Old pose kept below. -->
+        <key name="forearm_brace_lean" qpos="0.19 0 0.738 1 0 0 0 0 -1.27 0.12 1.52 -0.3 0 0 -1.27 -0.12 1.52 -0.3 0 0 -0.6671 0.1496 0.316 0.6473 -1.553 0.181 -0.872665 -1.1 -0.1 0 0.25 0 0 0 1.5 0 0.95 1 0 0 0"/>
+        <!-- PRE-JAW-FIX pose (jaws vertical, +15 mm finger clearance) -- do not reuse:
+        <key name="forearm_brace_lean" qpos="0.19 0 0.738 1 0 0 0 0 -1.27 0.12 1.52 -0.3 0 0 -1.27 -0.12 1.52 -0.3 0 0 -0.673 -0.064 -0.307 0.582 -0.083 -0.427 0 -1.1 -0.1 0 0.25 0 0 0 1.5 0 0.95 1 0 0 0"/> -->
+        <!-- reach_to_target (strategy 21): posture keyframe MUST exist with this exact
+             name so (a) the spherical-clamp reach branch in beginning.cc fires (it keys on
+             residual_keyframe_.name=="reach_to_target") AND (b) the Posture target is a
+             BENT-knee upright stand (= copy of "stand", knees 0.35) instead of falling back
+             to "home" (straight knees), which made Posture+Knees-Straight lock the knees
+             straight -> topple ~10 s. Arms at home; the Reaching Hand Dist cost extends the
+             chosen arm toward the (gravity-guarded, sphere-clamped) target while the body
+             stays upright. -->
+        <!-- 2026-06-25: right_shoulder_pitch 0 -> -0.35 (qpos[27]) so the Posture target HOLDS
+             the right arm STRETCHED FORWARD (Rhand_fwd 0.49 m, ABOVE the 0.404 m home) instead
+             of at home. Discovery: every prior "reach" (0.27-0.37) was BELOW the 0.404 home =
+             the arm never reached forward; the gravity-guard drop only angled it DOWN. Holding
+             a full forward stretch costs ~4 Nm at the elbow (22% of 18) -> the elbow was NEVER
+             the limit. Legs/left-arm unchanged. -->
+        <key name="reach_to_target" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 -0.1 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- hip_roll splayed +/-0.07 (2026-06-06): wider stance = bigger lateral support
+             polygon so the ankle can hold STRAIGHT legs without twisting/failing (the
+             stand "twisted its ankles" at leg_extension_gain=3.5). H1-2 feet are narrow
+             laterally; this is the research's lateral-margin lever. Stand targets this home
+             pose, so it widens the stand stance. Revert: set both hip_roll back to 0. -->
+        <!-- Pose-library targets for the standalone simple-task strategies
+             (Strategy 8-15). The phase name in each strategy JSON matches one
+             of these keyframe names; beginning.cc points the Posture + Control
+             costs at the matching key. qpos = home with only the relevant
+             joints set (validated vs joint limits + self-collision by
+             strategies/_gen_simple_strategies.py). -->
+        <key name="crouch" qpos="0.19 0 0.97 1 0 0 0 0 -0.4 0.12 0.7 -0.3 0 0 -0.4 -0.12 0.7 -0.3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- crouch_mid: TRUE midpoint between stand_up (knee 0.35, z 1.020) and crouch
+             (knee 0.70, z 0.97) for the NATIVE squatter (strategy 18, h12_simple_squatter.json).
+             Staging pose on BOTH the descent and the ascent so each stand<->crouch transition is
+             HALVED: standing up no longer snaps the full 0.35 rad and launches the body forward
+             (the ~t20s 9deg->39deg->86deg fall), and the descent pauses here so the gantry harness
+             can be paid out on real hardware. Monotonic z (0.995, between 1.020 and 0.97) keeps the
+             Base-Height anchor (beginning.cc:1413) from fighting the descent. Wide stance hip_roll
+             +/-0.12 kept. Leg triad = mean(stand_up, crouch): hip_pitch -0.325, knee 0.525,
+             ankle_pitch -0.255. Distinct from the parked strat-17 squat_mid/q3 (do NOT reuse those:
+             squat_q3 z=1.028 would pull the base UP mid-descent). -->
+        <key name="crouch_mid" qpos="0.19 0 0.995 1 0 0 0 0 -0.325 0.12 0.525 -0.255 0 0 -0.325 -0.12 0.525 -0.255 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- squat_mid: HALF-crouch staging pose for the cyclic squat strategy
+             (idx 17). Halves the leg flexion (hip_pitch -0.2, knee 0.35, ankle
+             -0.15) so the crouch<->stand transition passes through a mid pose;
+             combined with the beginning.cc target-pose ramp this keeps the live
+             ~60/s planner from injecting a momentum kick it cannot recover.
+             Wide stance (hip_roll +/-0.07) kept. -->
+        <key name="squat_mid" qpos="0.19 0 1.00 1 0 0 0 0 -0.14 0.12 0.35 -0.21 0 0 -0.14 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- squat_q1 / squat_q3: QUARTER and THREE-QUARTER crouch staging poses
+             for the cyclic squat (idx 17). With squat_mid these split the deep
+             crouch<->stand traverse into quarter steps so each descent SNAP and
+             ascent RAMP perturbs the robot only 1/4 of the full leg extension —
+             the per-transition disturbance is what tips it at the live ~60/s
+             plan rate (settle time does NOT help; smaller steps do). Leg flexion
+             scaled from crouch (hip -0.4/knee 0.7/ankle -0.3): q1 = x0.25, q3 =
+             x0.75. Wide stance (hip_roll +/-0.07) kept throughout. -->
+        <key name="squat_q1" qpos="0.19 0 1.028 1 0 0 0 0 -0.1 0.12 0.175 -0.075 0 0 -0.1 -0.12 0.175 -0.075 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="squat_q3" qpos="0.19 0 1.028 1 0 0 0 0 -0.3 0.12 0.525 -0.225 0 0 -0.3 -0.12 0.525 -0.225 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="arms_sideways" qpos="0.19 0 1.024 1 0 0 0 0 -0.1 0.12 0.175 -0.075 0 0 -0.1 -0.12 0.175 -0.075 0 0 0 1.5 0 0 0 0 0 0 -1.5 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="arms_forward" qpos="0.19 0 1.028 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.3 0 0 0 0 0 0 -1.3 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="arms_overhead" qpos="0.19 0 1.024 1 0 0 0 0 -0.1 0.12 0.175 -0.075 0 0 -0.1 -0.12 0.175 -0.075 0 0 0 2.9 0 0 0 0 0 0 -2.9 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="single_arm_raise" qpos="0.19 0 1.028 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.5 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="lean_left" qpos="0.19 0 1.028 1 0 0 0 0 0 0.3 0 0 0 0 0 0.3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="lean_right" qpos="0.19 0 1.028 1 0 0 0 0 0 -0.3 0 0 0 0 0 -0.3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="torso_twist" qpos="0.19 0 1.028 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- jab (strategy 19): standing boxing jab. Both arms up in a guard
+             (elbows bent -1.0 rad, fists at chin height); the RIGHT arm punches
+             straight forward (shoulder_pitch -1.0, elbow straightens to 0) then
+             retracts. Left arm held identical in both frames = the static guard.
+             Legs/base = the proven "stand" pose. Right fist travels +0.23 m
+             forward at shoulder height; whole-body CoM shifts <2 mm. -->
+        <!-- jab keyframes use a CENTERED stand pose (hip_pitch -0.18, ankle_pitch
+             -0.29) instead of the shared stand_up's hip -0.25/ankle -0.21. fk_analyze
+             showed the stand_up pose plants the feet ~6cm ahead of the CoM => CoM
+             22mm BEHIND the heels => statically tipped backward => the cold-start
+             topples backward (~3s) on the faithful twin. The reduced hip_pitch both
+             moves the CoM inside the support AND cuts the back-pitch the hip target
+             induces during the ramp; the ankle compensates to keep the foot flat at
+             z=1.020. Scoped to the jab (stand-6/squatter keep their stand_up). -->
+        <key name="jab_stand"  qpos="0.19 0 1.020 1 0 0 0 0 -0.18 0.12 0.35 -0.29 0 0 -0.18 -0.12 0.35 -0.29 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="jab_guard"  qpos="0.19 0 1.020 1 0 0 0 0 -0.18 0.12 0.35 -0.29 0 0 -0.18 -0.12 0.35 -0.29 0 0 -0.30 0.15 0 -1.00 0 0 0 -0.30 -0.15 0 -1.00 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="jab_extend" qpos="0.19 0 1.020 1 0 0 0 0 -0.18 0.12 0.35 -0.29 0 0 -0.18 -0.12 0.35 -0.29 0 0 -0.30 0.15 0 -1.00 0 0 0 -1.00 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- stumble_march: the gait-clock STEPPING pose (strategy 20). Identical
+             to stand_up (validated stand: hip -0.25 / knee 0.35 / ankle -0.21,
+             z=1.020) -- the Posture cost holds this stance at LOW weight while
+             the Gait cost overrides the swing leg's vertical motion each cycle.
+             The phase name must begin with "stumble" (the beginning.cc name-gate). -->
+        <key name="stumble_march" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stumble_trot"  qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- WSS drive (strat 24): posture keyframe for the stand<->trot teleop FSM. Byte-copy of
+             stumble_trot; the "drive" token makes is_drive detectable while "stumble"+"trot" keep
+             is_stumble/is_trot true so the gait+velocity machinery works. Idle g_amp=0 => stand. -->
+        <!-- hipPitch -0.25 -> -0.14 (2026-07-20): the OLD value made the sagittal
+             chain hipP+knee+ankP = -0.25+0.35-0.21 = -0.11 rad = -6.3 deg, which
+             for a vertical pelvis on flat soles is kinematically IMPOSSIBLE, so on
+             a flat floor physics forces the soles flat and the TORSO takes the
+             6.3 deg forward -> a permanent forward lean, CoM ~+6.9 cm, "stands a
+             while then tips forward" (observed on real drive-24 idle 2026-07-20).
+             -0.14 zeroes the chain (-0.14+0.35-0.21 = 0) => vertical torso, flat
+             feet, CoM ~+4.8 cm (8.5 to toe / 12.7 to heel = centred). Knee 0.35
+             and ankP -0.21 UNCHANGED so the trot gait's crouch/tuning is preserved
+             -- only the standing posture is squared. Identical class of fix to the
+             one that took the strat-6 stand keyframe to 0 deg and a 112 s record.
+             Touches stumble_trot_drive ONLY -> strat 23 (stumble_trot) untouched. -->
+        <key name="stumble_trot_drive" qpos="0.19 0 1.020 1 0 0 0 0 -0.14 0.12 0.35 -0.21 0 0 -0.14 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- JUMP (strat 26, 2026-07-11): one-shot in-place hop. jump_stand is the
+             phase keyframe (byte-copy of stand: settle before + stand after the hop);
+             jump_crouch / jump_launch / jump_land are the time-scheduled targets the
+             beginning.cc jump block blends through (quadruped-flip-pattern residual
+             schedule). All jump-prefixed for the is_jump name gate. Legs only, arms
+             home. FK-consistent base z (thigh/shank 0.4 m): crouch drop ~12 cm,
+             launch = full extension, land = pre-flexed absorption pose. -->
+        <key name="jump_stand"  qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <!-- CROUCH/LAND (v8 2026-07-11, THE backward-fall fix): FK-designed in the
+             FEET frame, not the keyframe frame. With an upright torso HIP FLEXION
+             drives the pelvis BACKWARD: the old -0.78/1.25/-0.47 put the CoM 6.8 cm
+             BEHIND the ankle (heel edge; ~46 Nm of a 75 Nm ankle just to hold it) ->
+             the planner had to fall backward to track it, and it did (user's GUI +
+             the dt-0.002 plant probe). Less hip flexion + much MORE ankle
+             dorsiflexion gives a DEEPER crouch (CoM drop 0.123 m vs 0.114 m) with the
+             CoM essentially OVER the ankle (-0.010 m) and flat feet -- and makes
+             crouch->launch a PURE VERTICAL push (CoM fore-aft shift -0.003 m; it was
+             a +0.055 m forward lurch). base_z = FK-true with feet on the ground. -->
+        <key name="jump_crouch" qpos="0.19 0 0.780 1 0 0 0 0 -1.00 0.12 1.60 -0.72 0 0 -1.00 -0.12 1.60 -0.72 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="jump_launch" qpos="0.19 0 1.035 1 0 0 0 0 -0.05 0.12 0.10 -0.05 0 0 -0.05 -0.12 0.10 -0.05 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="jump_land"   qpos="0.19 0 0.956 1 0 0 0 0 -0.45 0.12 0.80 -0.45 0 0 -0.45 -0.12 0.80 -0.45 0 0 -0.30 0 0 0 0 0 0 -0.30 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+    </keyframe>
+    
+    <!-- 0.03 0.03 are the gripper pos for parallel jaw -->
+    <!-- <keyframe>
+        <key name="home"
+        qpos="0.19 0 1.028 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.03 0.03 0 0 0 0 0 0 0 0.03 0.03 1.2 0 0.95 1 0 0 0"/>
+    </keyframe> -->
+
+    <custom>
+        <!-- Planner: 0=Sampling 1=Gradient 2=iLQG 3=iLQS 4=Robust 5=CrossEntropy 6=SampleGradient.
+             Derivative-based planners (iLQG, iLQS) fail on contact-rich tasks because
+             dynamics gradients are noisy/discontinuous through contact. Sampling-based
+             planners (Predictive Sampling, CEM, Sample Gradient) handle contact cleanly.
+             For this lean task: Cross Entropy (5) is the sweet spot — keeps the best
+             samples each iteration and refits the noise distribution, more sample-
+             efficient than Sampling alone. -->
+        <!-- deploy_frc_parity (2026-07-11): ACTUATOR-AUTHORITY PARITY switch, read by the
+             DEPLOY node (deploy_common PatchActuators), NOT by the planner itself. 1 =>
+             tighten every planner actuator forcerange to the torque the node can actually
+             emit (0.9 x tau_estop = the H2 command clamp). The stock model hands the planner
+             ankle +/-75 Nm and torso +/-200 Nm while the node emits at most 48.6 / 36.0 Nm,
+             so the sampler plans single-support balance on 1.5-5.6x PHANTOM authority; on the
+             REAL trot (2026-07-11, plan rate healthy 45-52/s) the stance ankle railed at
+             exactly 48.6 and the torso at exactly 36.0 for 6 s while the stance knee locked
+             to a passive prop against a weight-200 anti-strut cost = the weak-ankle crutch.
+             DEFAULT 0 here (= every strategy byte-identical); Task::PlannerNumericOverrides
+             turns it ON for the STEPPING strategies only (trot 23 / drive 24), so nothing
+             real-validated (stand/crouch/reach/lean/stumble) changes. CLI kill: --frc_parity=0. -->
+        <numeric name="deploy_frc_parity" data="0"/>
+        <numeric name="agent_planner" data="5"/>
+        <!-- horizon restored to 1.0s (was 0.6) because the real-hardware-spec PD
+             gains (ankle kp=20, knee kp=200 — IsaacLab H1_CFG / Opt2Skill) are
+             too weak for MPC to recover balance within 0.6s of lookahead. 1.0s
+             lets the planner anticipate small drifts and apply the gradual
+             position offsets that turn into stabilising torques given the soft
+             PD. Sampling cost rises ~40% but balance is non-negotiable. -->
+        <numeric name="agent_horizon" data="1.0"/>
+        <!-- agent_timestep 0.015 -> 0.010 (2026-06-07): THE sim2sim fix for the live
+             twin crouch-and-fall. agent.cc:288 sets model.opt.timestep = agent_timestep,
+             so the planner ROLLS OUT (predicts) at this dt. At 0.015 (15ms) the planner
+             mis-predicts how the twin (which runs physics at 5ms + external PD) tracks its
+             position targets -> the policy slowly fails to hold the twin -> the ~80s crouch
+             topple (reproduced exactly on the closed-loop discriminator vs scene_handless).
+             Halving to 0.010 closes most of the 3x prediction gap (twin holds 95s on the
+             disc, incl. 30ms latency + IMU-reconstructed state) while staying fast enough:
+             0.005 (full match) triples per-iter cost -> planner drops below the ~50/s it
+             needs to stay reactive and falls again. 0.010 is the accuracy/throughput sweet
+             spot (live plans ~53-67/s here). Sampling-only; no feedback gains. Keep the
+             planner well-fed (>=~50/s): high --plan_threads, don't let the twin starve it. -->
+        <numeric name="agent_timestep" data="0.010"/>
+        <numeric name="sampling_spline_points" data="3"/>
+        <!-- exploration kept at 0.05 (CrossEntropy noise std). An earlier
+             attempt to bump this to 0.12 made knee buckling worse: knee
+             ctrlrange is [-0.12, 2.19] (asymmetric), so σ=0.12 caused the
+             negative tail to clip at the lower bound and biased CEM elites
+             toward positive (= flexion) commands. Same story for hip_roll
+             [-0.43, 3.14]. Keep σ small relative to the tightest one-sided
+             ctrlrange (knee's -0.12) so samples stay in the unclipped band. -->
+        <numeric name="sampling_exploration" data="0.05"/>
+        <!-- CEM sampler knobs (foot-lift Tier C). LEGACY-SAFE defaults here
+             (= current behaviour for stand/crouch/reach); bumped for stumble
+             ONLY via beginning::PlannerNumericOverrides so the calm strats are
+             unaffected. std_initial=CEM init std; explore_fraction=share of
+             samples at the wide std each step; sampling_knot_var_growth=far-
+             horizon knots noisier (action-level annealing). -->
+        <numeric name="sampling_trajectories" data="10"/>
+        <numeric name="std_initial" data="0.1"/>
+        <numeric name="explore_fraction" data="0.0"/>
+        <numeric name="sampling_knot_var_growth" data="0.0"/>
+        <numeric name="gradient_spline_points" data="5"/>
+        <!-- CEM elite-set size: default is max(num_trajectory/10, 2) → only ~3 elites
+             with 30 rollouts. That's too few — one outlier sample dominates the
+             refit each step, producing the periodic Brace Force spikes. 6 elites
+             (~20%) smooths the mean policy without losing selection pressure
+             (iCEM-style recommendation: small but not tiny). -->
+        <numeric name="n_elite" data="6"/>
+        <!-- Free-standing UPRIGHT gain (2026-06-05): scales the sharpened sin(tilt)
+             pelvis-upright residual (beginning.cc free-standing branch). 1.0 = the fix
+             (linear, pulls torso erect); 0 = legacy cos-flat behaviour for A/B.
+             Lower toward 0.3-0.5 if the stand over-stiffens/oscillates. -->
+        <numeric name="upright_gain" data="1.0"/>
+        <!-- Targeted knee+hip-pitch extension anchor (2026-06-06): amplifies ONLY the
+             leg entries of the free-standing Posture residual (beginning.cc) so the legs hold
+             their keyframe target (straight=stand, 0.7=crouch) and stop the slow knee-creep
+             sink, WITHOUT the asymmetry that raising global Posture caused. 1.0 = off. -->
+        <numeric name="leg_extension_gain" data="3.5"/>
+        <numeric name="crouch_leg_extension_gain" data="4.5"/>
+        <!-- com_x_offset (2026-06-13): meters to bias the fore-aft CoM balance target.
+             RAISE if the REAL robot leans forward (compensates the real CoM sitting ahead of
+             the un-sysid'd model). The value that stands it upright == the real CoM forward
+             offset. XML-tunable, no rebuild. Default 0 = exact prior behavior. Try ~0.04. -->
+        <!-- 2026-07-20 SET LIVE at +0.05 (was 0.0). FIRST fully UNSUPPORTED run (harness
+             slack; the 83s/112s runs had a taut harness quietly holding the robot BACK)
+             showed a sustained forward park: CoM_margin +0.05 early -> +0.09 mid -> +0.11-0.15
+             late, i.e. AT/PAST the toe edge (+0.133), with BOTH ankles budget-clamped
+             (LankP 28.7% / RankP 18.7% out-of-authority, tau ~31-33 Nm vs 19-21 in the
+             harness-assisted run). That is exactly the symptom this knob was created for
+             (2026-06-13): the REAL CoM sits ahead of the un-sysid'd model's, so a
+             model-centred balance target leaves the REAL CoM forward.
+             TUNING RULE (unchanged): RAISE if it still leans forward, LOWER if it starts
+             parking backward; the value that stands it upright == the real CoM forward gap.
+             +0.05 should move the park from ~+0.09 to ~+0.04 = the polygon centre (+0.027),
+             leaving 12.9cm to the heel and 8.3cm to the toe. XML-only, no rebuild to retune.
+             NOTE this is now applied in the SUPPORT frame (beginning.cc), not world +x. -->
+        <numeric name="com_x_offset" data="0.0"/>
+        <!-- 2026-07-20 REVERTED 0.05 -> 0.0 after one real run: it changed NOTHING
+             (CoM_margin still +0.07..+0.15) because the ANKLES WERE SATURATED --
+             LankP 20.1% / RankP 25.8% budget-clamped, peaks 48.2/48.3 Nm against a
+             48.6 budget. A planner-belief knob cannot move a robot whose actuators are
+             already railed; the binding constraint was torque, not intent. The fix has
+             to REDUCE the torque demand (see the pose change below), not ask harder. -->
+        <!-- ===== T1 REFERENCE TRIM v2 (ported from stabilize 2026-07-20) =====
+             Leaky, support-frame, quiet-gated integrator on the DC capture park
+             -> Balance capture-point bias (= com_x_offset, but found automatically
+             and continuously). Built for the 07-20 real failure: with the IMU
+             finally honest (pitch 0.0 / roll 1.3) the stand held 83 s but walked
+             a slow forward ramp (+0.2 -> +6.8 deg) that pinned LankP at its
+             44.8 Nm cap (49.3% budget-clamped) until the left leg gave up. The
+             driving bias is ankle-zero + CoM-model error, which DRIFTS 4-8 deg
+             within a single run -> no constant can cancel it; an integrator can.
+             stand_trim_tau = 0 => OFF, byte-identical. Gated to the 'stand_up'
+             keyframe in beginning.cc, so trot/walk/drive/reach are untouched at any
+             value. Prints "[trim] park/trim" to stderr every 5 s when on. -->
+        <!-- ★ 2026-07-22 TRIM ON (tau 0->15, the recommended value): measured on real (ankleidk
+             npz): ZMP sits +3.5 cm ahead of the model CoM at QUIET stance, early AND late =
+             ~24 Nm of constant forward moment the model does not contain (>half the ankle
+             budget) -> chronic forward park, ankles pinned, tips into the harness. Keyframe
+             FKs to torso pitch 0.00 and IMU/ankle-zero/contact-set were all eliminated by
+             direct test (3 A/B runs, 2026-07-22). The leak-60 trim is the designed lever for a
+             true constant bias. ⚠ judge it only on UNASSISTED runs -- the quiet gate cannot
+             see harness force. -->
+        <!-- ★ STATIC CoM-back bias (2026-07-22, support-frame; heading-proof). The MEASURED
+             +3.5cm ZMP-vs-modelCoM gap put in DIRECTLY -- the trim run proved the integrator
+             loses the race (armed t=20, robot already at 7 deg). Trim now mops the REMAINDER. -->
+        <numeric name="com_x_offset_support" data="0.035"/>
+        <numeric name="stand_trim_tau" data="6.0"/> <!-- integrator tau (s). 0 = OFF byte-identical. 15->6 2026-07-22: with the static 0.035 carrying the bulk, the trim only tracks the residual -- faster is safe. -->
+        <numeric name="stand_trim_delay" data="8.0"/> <!-- freeze trim=0 until data->time >= this (s). 20->8 2026-07-22: the ratchet reaches the ~5 deg ankle-authority cliff by t~12-16, so t=20 arming is guaranteed too late; bring-up ends ~5s and the quiet gate covers the rest. -->
+        <numeric name="stand_trim_max" data="0.08"/> <!-- trim_x saturation (m), POSITIVE side (hold CoM back vs a forward park). -->
+        <numeric name="stand_trim_neg_max" data="0.06"/> <!-- |negative| trim_x cap. v1 saturated at -0.08 during bring-up and STAYED, permanently biasing the CoM forward. -->
+        <numeric name="stand_trim_leak" data="60.0"/> <!-- Caron'19 leak tau (s): trim decays toward 0, so a true constant bias re-wins every tick while wound-in transients self-unwind. At 60/15 a 4cm need leaves ~1cm residual park. 0 = pure v1 integrator (NOT recommended -- that was the 07-14 hunt). -->
+        <numeric name="stand_trim_quiet" data="0.03"/> <!-- QUIET gate (m): integrate only while |instantaneous excursion - its 4s DC| < this in BOTH axes. A steady park integrates; a push/catch/operator-hand freezes the trim. ⚠the gate cannot see an external force -> never judge the trim from an ASSISTED run. -->
+        <numeric name="stand_trim_lat_max" data="0.05"/> <!-- lateral trim_y cap (m), symmetric. Tight on purpose: Lateral Center does the primary work; trim_y only mops up the residual park left by a few tenths of a degree of roll-calib error. 0 = lateral trim off. -->
+        <numeric name="stand_trim_nominal_x" data="0.0"/> <!-- designed fore-aft park nominal (m, support-frame forward). 0 = upright, THE stand value. v1 wrongly used the strat-20 lean nominal 0.06 and drove the stand's CoM 6cm toward the toe. -->
+        <numeric name="com_y_offset" data="0.0"/> <!-- static lateral sibling of com_x_offset (support-frame lat axis, trim_y semantics). 0 = off. Only dial this from an UNASSISTED run; the 07-20 roll fix (imu_roll_offset_deg 1.3) already took lat lean to ~0, so it should stay 0 unless a sided park returns. -->
+        <!-- stumble_balance_gated (2026-06-19, strategy 20 only): 1 = STAND STILL
+             (bent-knee) and step ONLY when balance is being lost (tilt / fore-aft
+             CoM speed past a deadband), easing back to a still stand on recovery.
+             0 = legacy ALWAYS-ON in-place march. XML-tunable, no rebuild. -->
+        <numeric name="stumble_balance_gated" data="1.0"/>
+        <!-- TROT REMOVED (2026-06-23): the in-place "trot warmup" + the cost-side
+             stepping amplification (swing-scale, gait-boost, contact-schedule) were
+             removed because the balance-first real-time sampling planner will NOT
+             lift a foot off the ground on this marginal-balance biped -- verified:
+             even cranked to the max the foot cleared ~1 cm (invisible) and a 70 N
+             push was absorbed by the ankle with NO step. With these trot numerics
+             absent the code defaults make the trot window never open (trot_sec->0,
+             scales->1), so strategy 20 is a quiet balance-gated stand (no warmup).
+             A real rhythmic foot-lift trot/walk needs a trained RL policy, not
+             real-time sampling-MPC. The dead trot code in beginning.cc is inert. -->
+        <numeric name="stumble_trot_sec" data="0.0"/>
+        <!-- TROT (slot 23) capture-point footstep knobs (beginning::ModifyControl +
+             cost-side Step-Place/CoM-Vel residuals). is_trot-gated, trot-only; all
+             vanish at trot_des_vel_x/y=0 so the DEFAULT is the validated 9/9 in-place
+             trot (lifts feet ~5cm, holds 24s). FORWARD-WALK (2026-06-28, /mujoco-docs
+             + /unitree-docs research): the come-to-rest capture point (xi=v/omega) is
+             ~2x too long a step -> bleeds momentum -> backward fall. FIX = (a) pure
+             velocity-ERROR catch placement (no Raibert neutral feedfwd, which backfires
+             near rest), (b) a CoM-Vel velocity-tracking COST (trot_vel_w) as the
+             propulsion (foot placement alone can't move the body vs the balancing
+             sampler), (c) demote the FORE-AFT come-to-rest Balance barrier
+             (trot_bal_scale) so velocity tracking wins -- lateral kept full (weak axis).
+               trot_cap_gain  = capture over-step (1=deadbeat; 2.2 = in-place trot).
+               trot_des_vel_x = forward CoM vel cmd [m/s] (0=in place; >0=walk). NAV hook.
+               trot_walk_gain = Raibert neutral-step gain (0; >0 backfires near rest).
+               trot_vel_w     = forward velocity-track weight x10 (1=base). WALK ~6.
+               trot_bal_scale = fore-aft Balance demotion when walking (1=off). WALK ~0.5.
+             [STALE 2026-06-28 verdict removed: the "forward not cracked" result was
+             the phantom-table parity bug -- planner table in the walk path, twin
+             bare floor. See 2026-06-29/07-02 below.]
+             ★ VALIDATED WALK CONFIGS (2026-07-02 A/B campaign, faithful twin, 36
+             traj, flat ground = table moved to x=100 in the BUILD beginning.xml for
+             walk-logic tests only):
+               ROBUST FWD:  des_vel 0.15 / vel_w 12 / bal_scale 0.5 / angmom_w 3 /
+                            lat_w 6 -> +2.3-2.5 m/24 s, |dy|<=0.61, 8/8 HOLDS
+                            (3/3 + 5/5 verify). FAST-MARGINAL: des_vel 0.20 -> +3.2 m
+                            (~0.13 m/s realized, 4/5 hold, drift-prone) -- demo, not
+                            deploy. BACKWARD: des_vel -0.10 (same knobs) -> -2.2 m,
+                            5/5 hold.
+               IN-PLACE:    defaults, 5/5 hold -- BUT station-keeping creep is REAL:
+                            dx -1 to -3 m/24 s backward (cap 2.2 over-step rebound)
+                            + lateral wander to ~1.4 m. Open axis: null the creep
+                            (small +vdes bias / stance_off_x / cap gain) before
+                            table-relative work.
+             R4/R5/R6 knobs below (trot_release / trot_step_width /
+             trot_settle_thresh) A/B'd 2026-07-02 at 0.20: NONE adopted (R4 no
+             effect at margin -- twin sampler already loads the landing leg; R6
+             fell 1/3 during gait ramp-in, needs an arming delay before retry; R5
+             neutral fwd, halves in-place lateral wander -- candidate for the
+             in-place/station-keeping fix). All default-0 = byte-identical; kept
+             for the REAL robot where "lands weak" was observed. -->
+        <numeric name="trot_cap_gain" data="2.2"/>
+        <numeric name="trot_walk_gain" data="0.0"/>
+        <!-- TELEOP UNIFIED CONFIG (2026-07-03): walk knobs baked as defaults so
+             teleop can slew in-place<->walk without a config swap. In-place
+             trot RE-GATED under these values: 5/5 HOLDS, fit 9.32-9.34 (was
+             9.35 at the old defaults vel_w1/lat1/bal1/angmom0). v_des=0 gates
+             every walk term off, which is why in-place is unaffected. -->
+        <numeric name="trot_vel_w" data="12.0"/>
+        <numeric name="trot_lat_w" data="6.0"/>
+        <numeric name="trot_bal_scale" data="0.5"/>
+        <numeric name="trot_des_vel_x" data="0.0"/>
+        <numeric name="trot_des_vel_y" data="0.0"/>
+        <!-- WSS drive (strat 24) teleop envelopes: strafe (V2) + yaw-rate (V3).
+             Governor clamps live A/D vy to +/-drive_vy_max and Q/E wz to
+             +/-drive_wz_max. Weak axes; twin-campaign the values here. -->
+        <numeric name="drive_vy_max" data="0.06"/>
+        <numeric name="drive_wz_max" data="0.3"/>
+        <!-- drive_settle_thresh (2026-07-08, strat 24 ONLY): the reactive settle
+             governor drive-scoped so strat 23's trot_settle_thresh stays 0
+             (byte-identical). Capture-error band [m] on |v-v_des|*tau; beyond it
+             v_des fades to 0 -> auto-revert to the validated in-place trot until
+             the walk re-stabilises (raises sustained-walk survival + softens the
+             stop). is_drive reads THIS instead of trot_settle_thresh. -->
+        <numeric name="drive_settle_thresh" data="0.12"/>
+        <!-- trot_angmom_w = trot-WALK angular-momentum (forward-pitch-runaway) catch
+             gain; gated to trot-walk in beginning.cc (0 = the prior no-catch behavior).
+             WALK ~3. Pairs with the Angular Momentum carrier weight above. -->
+        <numeric name="trot_angmom_w" data="3.0"/>
+        <!-- STEP-AND-SETTLE: pulse v_des -> walk for trot_step_walk s, then SETTLE
+             (v_des=0 = robust in-place trot, all walk terms gate off) for the rest
+             of trot_step_period s. Decomposes continuous walk (bistable) into
+             discrete forward steps each caught by the validated in-place trot.
+             trot_step_period=0 => continuous (no pulse). e.g. period 4 / walk 1. -->
+        <numeric name="trot_step_period" data="0.0"/>
+        <numeric name="trot_step_walk" data="0.0"/>
+        <!-- ROBUSTIFICATION R4-R6 (2026-07-01). ALL default-0 = OFF = byte-
+             identical (in-place trot 9/9 + walk configs unchanged unless set):
+             trot_release       = fraction of swing over which the scripted swing
+                                  fades BACK to the sampler before touchdown, so
+                                  the landing leg is LOAD-driven not POSITION-
+                                  driven (the real-robot "lands weak" fix). Try
+                                  0.15-0.25.
+             trot_step_width    = per-leg lateral placement DELTA [m] from home
+                                  stance width (L +w/2 out, R -w/2 out): lateral
+                                  limit-cycle reference + anti-scissor. Try
+                                  0.02-0.06.
+             trot_settle_thresh = capture-error band [m] on |v-v_des|*tau; beyond
+                                  it v_des fades to 0 (reactive step-and-settle:
+                                  auto-revert to the robust in-place trot until
+                                  recovered). Applied cost + swing sides. Try
+                                  0.08-0.15. -->
+        <numeric name="trot_release" data="0.0"/>
+        <numeric name="trot_step_width" data="0.0"/>
+        <numeric name="trot_settle_thresh" data="0.0"/>
+        <!-- ★ trot_rock_ff [m] (2026-07-20, default 0 = OFF = byte-identical) —
+             THE SAG FIX. Commanded pelvis LATERAL shift at full swing bump, driven
+             OPEN-LOOP onto the STANCE hip_roll (and the Hip Roll cost target moved
+             by the identical delta, so the weight-30 pin asks for the rock instead
+             of fighting it — one formula, TrotRockHipRoll, two readers).
+             WHY: the swing is already forced open-loop and is rate-independent, but
+             the WEIGHT SHIFT that unloads the foot was sampler-owned — the half that
+             starves when the plan rate drops (the node's own PLAN-RATE WARNING says
+             so: "the stance-leg weight shift is SAMPLER-owned and starves first
+             (feet cycle, never unload)"). Async twin, strat 24 yaw 0.3, est real:
+             28 Hz unload 2-7% / z 0.75 / knee 1.0 -> FELL 0/3, vs lockstep unload
+             25.8% / z 0.99 -> HELD 3/3 — it cannot commit to a step, it SAGS (the
+             same crouch the real robot froze in 2026-07-13).
+             ★★ MEASURED NULL — DO NOT RE-RUN THIS SWEEP (2026-07-20, async twin,
+             strat 24 yaw 0.3 @ pp7, est real, n=3/condition, mean survival):
+                 rock 0 (baseline)      12.3 s   <- BEST
+                 rock 0.07 lead 0.20    11.5 s
+                 rock 0.07 lead 0.30    10.6 s
+                 rock 0.10 lead 0.20    10.4 s
+             0/3 HELD everywhere; every armed setting was NEUTRAL-to-WORSE than
+             OFF. Kept default 0 and documented (same as trot_release/step_width)
+             so the hypothesis is not retried. ⚠Run-to-run spread at a FIXED seed
+             was large (identical baseline config gave unload 3.8% and 13.7%,
+             fall 9.5 s and 13.4 s) — agent_server CEM is not seed-deterministic,
+             so n=1 differences here are noise.
+             ⚠⚠ AND THE PREMISE WAS PARTLY AN ARTIFACT: estimator_ab.py:806 sets
+             `upright = z_all > 0.75` and reports metrics ONLY over the upright
+             window, so z_min in ANY fallen run is pinned at ~0.75 BY
+             CONSTRUCTION. The "28 Hz z 0.75 vs lockstep 0.99" contrast that
+             motivated this knob was measuring FELL-vs-HELD, not sag depth.
+             What survives as real: foot UNLOAD (2-7% async) and knee_max
+             (~1.0 vs 0.92) — but the lockstep 25.8% unload figure is n=1. -->
+        <!-- ★ drive_foot_anchor (0 = OFF = pre-2026-07-20 behaviour, DEFAULT).
+             1 = anchor Foot Stability to the MEASURED stance for the DRIVE
+             keyframe instead of kRight/kLeftFootHomeXY.
+             ⚠ SHIPPED OFF AFTER A REAL-ROBOT FAULT (2026-07-20): with it on, the
+             first real strat-24 launch DRAGGED THE ROBOT SIDEWAYS at startup. The
+             pin fired at cold start and only null-checked the sensor POINTERS, so
+             an uninitialised estimate could pin both anchors near the origin --
+             and a weight-8 cost then hauls both feet toward it. Now guarded (pin
+             only after settle_sec with plausibility bounds) but UNPROVEN on real:
+             leave 0 unless you are deliberately testing it, with a hand on the
+             robot. The underlying bug it targets is real though -- measured stance
+             x=0.030 vs the constant's 0.2196 = a static 19 cm forward pull. -->
+        <numeric name="drive_foot_anchor" data="0"/>
+        <numeric name="trot_rock_ff" data="0.0"/>
+        <!-- ★ trot_rock_lead [cycle fractions] (default 0). PHASE ADVANCE for the
+             rock. With duty 0.60 the swing bump is 0 at liftoff (ph 0.60) and
+             peaks mid-swing (0.80) -- so at lead=0 the weight shift is zero
+             exactly when the foot needs to unload and maximal once it is already
+             airborne. lead = (1-duty)/2 = 0.20 puts the peak exactly AT liftoff.
+             ★ MEASURED NULL alongside trot_rock_ff (2026-07-20): correcting the
+             timing did NOT rescue it -- lead 0.20 = 11.5 s and lead 0.30 =
+             10.6 s mean survival, both WORSE than the 12.3 s rock-OFF baseline.
+             See the trot_rock_ff verdict above, incl. the z_min upright-window
+             artifact that motivated both knobs. Inert while trot_rock_ff = 0. -->
+        <numeric name="trot_rock_lead" data="0.0"/>
+        <!-- ★ trot_heading_lock (1 = ON, default). BUGFIX 2026-07-12: aim the Body Yaw
+             reference at the LATCHED/commanded heading instead of at reach_dir. reach_dir
+             points at the mocap reach target, which the lean constructor RANDOMIZES
+             (y in [-0.3,0.3] at x~1.5 => up to +/-11 deg of random heading bias, re-rolled
+             per process) -- and Body Yaw is weight 40 in the stepping JSONs. That random
+             yaw demand makes a trot-WALK crab (world-frame v_des vs a yawed body) and gives
+             the in-place trot its lateral wander. 0 = the legacy random-reach-axis
+             behaviour, kept purely so this can be A/B'd without a rebuild. Applies to
+             trot + drive; stumble and every pose strategy are untouched. -->
+        <numeric name="trot_heading_lock" data="1.0"/>
+        <!-- reach_hand (2026-06-20, strategy 21 only): which hand reaches the
+             target. 0 = AUTO (nearer hand by target side), 1 = force LEFT,
+             2 = force RIGHT (keeps the other arm free for a future brace/grasp).
+             XML-tunable, no rebuild. -->
+        <numeric name="reach_hand" data="2"/>
+        <!-- reach_target (2026-06-22): hardcoded ASSUMED target for deterministic
+             real testing of the lean pipeline (applies to pre-leans 21/16/22 AND
+             lean 32/33/34). y=-0.15 fronts the RIGHT shoulder (reach_hand=2 = right
+             reaches, left braces); z=0.90 = table-object height. beginning.cc pins
+             data->mocap_pos to this, no vision needed. Set reach_hand=0 + remove this
+             numeric when wiring nav2+vision. Placed BEYOND max reach (x=1.4) so every
+             phase max-extends/leans toward it; z=0.90 = table-object height.
+             ★ 2026-06-25, NEARER-TARGET FIX for strat 16 = REJECTED by twin. Hypothesis:
+             x=1.4 (1.21 m fwd of the x=0.19 midfoot) over-leans 16 vs the branch's 0.70 m
+             design (beginning.cc:563) -> tried x=0.95 to get a controlled lean. FAITHFUL twin
+             (gravcomp 0.85, handless-magpie) FELL FASTER, not slower: x=0.95 fell @7.5 s
+             (twin_dt 0.005) and @3.5 s (twin_dt 0.001), vs x=1.4 ~23 s — BACKWARD+left
+             both times. Mechanism: a nearer target needs LESS forward lean, but the
+             planner still does the emergent BACK-swing (hips+free arm) -> with less fwd
+             lean to offset it the CoM goes backward -> topples back SOONER. ⇒ target
+             distance is NOT a safe knob; 16's free-standing stretched-arm lean is at its
+             topple boundary regardless (re-confirms the 2026-06-23 deep-dive). Reverted to
+             1.4 (also preserves the braced pipeline 33/34 deep reach). Robust "stretched
+             arm that holds" = strat 21 (upright, held 128 s); "stretched arm + LEAN that
+             holds" = braced 33/34. [[project_counterbalance_strat16]] -->
+        <numeric name="reach_target" data="1.4 -0.15 0.895"/>
+        <!-- reach_radius / reach_drop (strategy 21): the HOLDABLE-workspace knobs.
+             reach_radius = the arm's commanded extension toward the target [m];
+             reach_drop = how far BELOW the shoulder the hand is pulled [m].
+             ★ 2026-06-23, MAGPIE-FAITHFUL FIX (radius 0.46->0.52, drop 0.36->0.34):
+             the OLD 0.46 UNDER-EXTENDED. The magpie arm rests ~0.404 m FORWARD of the
+             shoulder (near full extension, arm length ~0.52). radius 0.46 + drop 0.36
+             commands the hand to only sqrt(0.46^2-0.36^2)=0.286 m forward -- BEHIND
+             the rest pose -- so the "reach" was a RETRACTION, and the planner pitched
+             the heavy arm BACKWARD (+8..+20 deg shoulder) as a balance counterweight
+             (the back-swing the user saw in the magpie GUI + on real). Setting radius
+             to the full arm length (0.52) commands a forward-DOWN MAX-EXTEND at the
+             target's bearing -> the shoulder pitches FORWARD (-10 deg on the deploy
+             twin), elbow near-straight, only 41% of the 18 N.m elbow estop. Validated
+             on the MAGPIE deploy twin (scene_handless_magpie + gravcomp 0.85 + the
+             gripper mass the old handless-twin bench was missing). Note: the GUI
+             own-sim (no gravity FF) under-represents this -> it looks milder there
+             than on real (which sends the 0.85 FF, like the deploy twin). TUNE ON
+             REAL: drop 0.34 is the holdable sweet spot; LOWER drop (0.28) reaches a
+             touch higher but spikes the elbow to 84% (thrash risk). No rebuild.
+             ★ 2026-06-25, STRETCH STEP (drop 0.34->0.28): the 128 s real run held with
+             the knee anchor pinning knees at 0.35 -> shoulder stays HIGH -> elbow only
+             32% mean / 73% peak (ankle 81% is now the limiter, NOT the elbow). radius
+             0.58 EXCEEDS the ~0.52 m arm length so it is SATURATED -- raising it does
+             nothing; the forward/down SPLIT is set by drop. drop 0.34 commanded only
+             sqrt(0.52^2-0.34^2)=0.39 m forward (hand hung forward-DOWN = "never
+             stretched"). drop 0.28 -> 0.438 m forward (+4.5 cm visible stretch). The
+             old 0.28->84% elbow was PRE-anchor (sunk body, bad elbow angle); the anchor
+             keeps it holdable. WATCH Relb tau% on real: sustained >70% = back off to
+             0.32; comfortable = push to 0.24 (0.461 m fwd). No rebuild. -->
+        <!-- ★ 2026-06-26 CHIN-TUCK FIX 0.40->0.48: when the sphere clamp fires the hand is
+             commanded EXACTLY `radius` from the shoulder, but the magpie arm RESTS at ~0.524 m
+             extension. radius 0.40 = hand 0.124 m CLOSER than rest -> the elbow MUST fold that
+             far -> the "near-chin, folded elbow, drifts to the side" the user saw on real (the
+             big folded-arm null-space lets Posture/Symmetry tuck the hand off-bearing). NOT a
+             target error (target bearing = straight forward, az~0). 0.48 = only 0.044 m inside
+             rest -> elbow near-straight, tight null-space -> hand points at the target bearing.
+             Drop raised 0.20->0.28 IN STEP so forward reach stays ~0.39 m (≈ the held 0.346)
+             = ankle load ~unchanged. WATCH on real: RankP tau% (forward CoM) and Relb tau%;
+             if RankP sustains >80% drop radius to 0.46, if the elbow still folds push to 0.50.
+             No rebuild (runtime numeric). -->
+        <numeric name="reach_radius" data="0.46"/>
+        <!-- ★ 2026-06-25 CORRECTED 0.28->0.12: the elbow was NEVER the reach limit (static hold
+             of a FULL forward stretch = ~4 Nm = 22% of 18). The drop only angled the arm DOWN,
+             pulling Rhand_fwd BELOW the 0.404 m home pose = the "never stretched" the user saw.
+             0.12 < the natural 0.156 target-drop so the gravity guard no longer fires -> the
+             reach aims forward-HORIZONTAL. Paired with reach_to_target keyframe Rsh_pitch=-0.35.
+             (Ignore the 0.84-elbow warnings above — those were DYNAMIC crouch-thrash, not a
+             static reach limit.) Raise toward 0.20 if the forward arm over-shifts CoM.
+             ★ 2026-06-27 0.28->0.34 (with radius 0.48): harnessed 500 Hz bench confirmed radius
+             0.48 straightens the elbow (Relb 23-33%, Rhand_fwd 0.40, no fold) but the fwd reach
+             crept CoM forward (balance-coupled = the real chin-tuck IS the planner folding the arm
+             to recover fwd-CoM). radius sets elbow straightness; DROP sets fwd/down split=CoM. At
+             0.48/0.34, horiz=sqrt(0.48^2-0.34^2)=0.339 m == the proven-holding 0.40/0.20 (0.346) ->
+             SAME ankle/CoM as the modest reach the user accepted, but STRAIGHT elbow not folded.
+             Arm aims fwd-DOWN ~45deg. Lower drop toward 0.28/0.24 ON REAL for a more horizontal
+             reach while watching RankP (was 83% at this load); horizontal = strat-16-lean regime. -->
+        <numeric name="reach_drop" data="0.400"/>
+        <!-- reach_com_back (strat 21): EXTRA forward-CoM bias [m] applied ONLY during
+             the reach, so the planner holds the CoM that much BACK to counterbalance
+             the forward arm (the real-chain forward creep the lockstep twin can't show).
+             Reach-gated (stand byte-identical). TUNE ON REAL: raise if it still leans
+             forward, lower if it leans back. No rebuild to change the value. -->
+        <numeric name="reach_com_back" data="0.00"/>
+        <!-- reach_brace_hold (strat 21): how firmly the NON-reaching (left, brace)
+             arm is pinned to its rest/brace pose = boost factor on its Posture
+             residual (effective weight = Posture * this). Stops the idle arm
+             flailing for balance (which looked like the reach "switching arms").
+             reach_hand picks the reaching arm (2=right); the OTHER is held. Raise
+             if the brace arm still drifts, lower toward 1 to free it. No rebuild. -->
+        <numeric name="reach_brace_hold" data="4"/>
+        <numeric name="reach_arm_lock" data="4"/>
+        <!-- reach_knee_anchor (strat 21, 2026-06-25): one-sided crouch-depth floor.
+             On real the reach held ~73 s then the body sank (knee 0.35->0.53) and the
+             right elbow saturated holding the heavy gripper out -> arm folded. This
+             amplifies the knee Posture residual ONLY when the knee bends PAST its
+             keyframe (sinking deeper), stacking on crouch_leg_extension_gain, so the
+             shoulder stays high and the elbow keeps its holdable geometry. 1 = off.
+             Raise if it still sinks, lower if the legs get jittery/stiff. No rebuild. -->
+        <!-- 2026-06-25: drop 0.28 (deeper stretch) re-triggered the end-crouch at t27 on
+             real (knee 0.34->0.71, elbows 94% -> arms flailed inward, near gripper
+             collision) — the heavier forward arm strengthens the crouch pull enough to
+             overpower anchor=3 (which held 128 s at drop 0.34). Raised 3->5 to resist it
+             while keeping the 0.28 stretch. If real STILL crouches, back drop to 0.31. -->
+        <numeric name="reach_knee_anchor" data="5"/>
+        <!-- reach_deadband (2026-07-25): radius [m] of a ZERO-cost, ZERO-slope ball
+             around the reach target, applied to BOTH reach terms (Object Dist and
+             Reaching Hand Dist are the SAME error vector). 0 = OFF = byte-identical.
+             WHY: every shipped reach target is DELIBERATELY unreachable (1.4 m out vs a
+             ~0.52 m arm), so the reach residual never nulls and keeps a permanent
+             forward slope for the whole run. A sampling planner rectifies that constant
+             bias out of control noise into a forward CoM RATCHET -- measured +0.364 m
+             of drift over 600 s, ending with the robot draped on the table. Inside the
+             ball the residual is exactly 0, so no sampled perturbation there is
+             preferred over any other and there is nothing left to rectify.
+             ⚠ MODEL-GLOBAL: acts on every phase with a nonzero Object Dist / Reaching
+             Hand Dist weight (16, 19, 21, 22 and the 31-35 pipeline). Live-tunable. -->
+        <numeric name="reach_deadband" data="0.0"/>
+        <!-- counterbalance_radius (2026-07-25): arm-reach sphere radius [m] for the
+             counterbalance_standing target, i.e. the same spherical workspace clamp
+             reach_to_target applies via reach_radius. 0 = OFF = byte-identical = the
+             historic UNCLAMPED out-of-reach target. Purpose: strat 16's target sits
+             ~0.9 m beyond the hand, so no finite reach_deadband can ever cover that
+             error -- clamping makes the target attainable so the deadband can engage.
+             Arm reaches ~0.524 m, so the useful window is ~0.45..0.52.
+             ⚠⚠ DO NOT ENABLE YET — UNRESOLVED, found in adversarial review 2026-07-25
+             and NOT yet bench-tested. `reach_target` is ALIASED: the clamp does not only
+             shrink the reach residual, it also redefines
+             `reach_dir = normalize(reach_target - torso_pos)` (~beginning.cc:1985), which
+             drives `Torso Forward Tilt` (1 - dot(torso_forward, reach_dir), weight 8).
+             The projection sphere is centred on the SHOULDER (torso_z + 0.219) while
+             reach_dir is measured from TORSO_POS, so pulling the target in to ~0.5 m
+             lets that 0.219 m offset dominate and the elevation FLIPS SIGN: measured at
+             the counterbalance keyframe, −14.9 deg (below horizontal) becomes +1.7 deg
+             at R=0.50 (+4.5 at 0.45, +0.7 at 0.52). Torso Forward Tilt would then reward
+             a NOSE-UP torso = a BACKWARD lean, which beginning.cc:1129-1134 already records as
+             a measured failure ("a shoulder-height target gave reach_dir UP, so the only
+             balance response to the forward arm was a BACKWARD lean, measured −7.5 deg")
+             — and a backward topple is the one mode this strategy cannot recover (planted
+             feet, no step, no brace). My original note here claimed the lean would then
+             come from "Pelvis Tilt / Torso Forward Tilt": WRONG on both halves. Torso
+             Forward Tilt is itself driven by the flipped reach_dir, and Pelvis Tilt for
+             counterbalance_standing takes the free-standing branch
+             upright_gain*max(0, sin_tilt) at weight 110, i.e. it PENALISES any tilt.
+             BEFORE ENABLING: decouple the two uses — write the clamped point into a
+             separate storage consumed ONLY by the reach residual, leaving reach_target
+             (and therefore reach_dir) on the original forward-DOWN bearing. -->
+        <numeric name="counterbalance_radius" data="0.46"/>
+        <!-- brace_gate_fix (2026-07-25): 0 = OFF = byte-identical, 1 = key the
+             Brace-Force proximity gate on the pad's CLEARANCE ABOVE THE PHYSICAL TABLE
+             FACE instead of its 3-D distance to the (deliberately sub-surface) drive
+             target. This RESTORES THE DOCUMENTED DESIGN -- see the ideal_brace comment
+             ~beginning.cc:1333, which already says the gate "is decoupled below (keyed on
+             the pad's height above the PHYSICAL surface, not this deliberately-
+             unreachable drive target)". The code never did that, and the consequence is
+             measured: `table_surface_pos` is a framepos on the table_top GEOM FRAME
+             (z 0.820), 50 mm BELOW the physical face (z 0.870), and ideal_brace sits a
+             further 60 mm under it (z 0.760) -- so a PERFECTLY SEATED pad is 0.1745 m
+             from it, past the 0.15 m gate span, and brace_force_prox_gate is EXACTLY
+             0.000. The whole Brace-Force demand (weight 60, target 50 N, ~2230/step)
+             is multiplied by zero even when the brace is seated, which is why the
+             forearm hovered a median 19 mm for 75 s in 2/2 runs and why three weight
+             sweeps moved nothing. With the fix: seated pad -> gate 1.000, 19 mm hover
+             -> 0.956, 150 mm -> 0.000 (so the anti-dive behaviour the gate exists for
+             is preserved). The gate falls back to the legacy 3-D distance whenever the
+             pad is off the slab, so it cannot reward pressing at thin air. ideal_brace
+             itself is deliberately NOT changed: its deep sub-surface drive is what bows
+             the body, and raising it slackens the pull (verified on the 0.87 probe).
+             forearm-brace phase only.
+             ⚠ REVIEW NOTE (2026-07-25): the gap is a CONTINUOUS distance-to-slab
+             (hypot of the horizontal overshoot and the height gap), NOT a boolean
+             over-table switch. A boolean would step this gate 0.000 -> 0.956 across
+             ~2 mm of pad travel at the near edge x=0.400, and since the Brace-Force
+             residual is a one-sided SHORTFALL max(0, 50 N - F), crossing that edge
+             before force exists would COST ~2100/step while staying outside costs 0 --
+             so the planner would hover just short of the edge, i.e. the same hover this
+             fix cures, relocated. The seated pad sits only 62 mm inside that edge, so
+             the cliff would have been squarely in the operating region.
+             ⚠ SECOND-ORDER, UNTESTED: brace_force_prox_gate has THREE consumers, not
+             one. Besides the Brace-Force demand it also feeds
+             brace_reach_gate = 0.40 + 0.60*max(gate, F/F_des) (so the reach residual
+             roughly TRIPLES once the gate opens) and the P3 pelvis-forward load-transfer
+             drive. Both are forward-CoM pulls that have NEVER EXECUTED, because the gate
+             has always been 0. Expect strat 22 to behave qualitatively differently the
+             first time this is on, and watch for a forward dive on contact. -->
+        <numeric name="brace_gate_fix" data="1.0"/>
+        <!-- lean_recover_bound / lean_recover_span (2026-07-27): 0 = OFF = BYTE-IDENTICAL.
+             Forward excursion [m] of the CAPTURE POINT past the MIDFOOT (feet frame, mean of
+             the feet's own headings) beyond which the two big forward demands -- Brace Force
+             and both reach residuals -- are faded out by a smoothstep over `lean_recover_span`
+             (default 0.10 m when unset).
+             WHY: the reach residual's own comment claims it is "intentionally NOT balance-
+             capped ... Balance's edge_amplifier is what forces the trade-off". MEASURED, in
+             the active brace phase, that contest is ~380 : 1 AGAINST balance --
+               Brace Force  w60 SmoothAbs p15 one-sided  -> 2232 /step uncontacted
+               Reach Hand   w80 vs a target 1.0 m out on a 0.52 m arm (never nulls) -> ~56 /step
+               Balance      w2.5 incl. the 10x edge amp AND the 0.80 braced fwd discount
+                                                          -> ~6 /step at 0.30 m over-excursion
+             So the planner correctly BUYS CoM excursion with brace reward. On the A2 twin this
+             produced a real, flat 39 s forearm brace (53% of frames, pad tilt 0.01 deg) sitting
+             at CoM margin +0.553 m = 4x the toe limit +0.133, which then FELL FORWARD at 115.9 s.
+             Raising Balance has been tried 3x and fails: it removes the drape without offering a
+             feasible alternative, so it falls sooner. The asymmetry must be fixed on the DEMAND
+             side.
+             ★ Keyed on FEET-ONLY excursion on purpose. Balance's polygon credits a hand vertex
+             from the INSTANTANEOUS measured force (min(0.9, F/140)) -- press harder, get licensed
+             further out -- which is positive feedback with no requirement that the CoM could
+             return if that force lapses. A brace may still carry real load; it may not buy
+             UNRECOVERABLE excursion.
+             Suggested first value 0.16 (just past the measured toe limit +0.133); the support
+             polygon is heel -0.079 / centre +0.027 / toe +0.133. Live-tunable, no rebuild. -->
+        <numeric name="lean_recover_bound" data="0.0"/>
+        <numeric name="lean_recover_span" data="0.10"/>
+        <!-- ★★★ posture_leg_level (2026-07-27): 0 = OFF = BYTE-IDENTICAL. 1 = rewrite the
+             POSTURE TARGET's hip_pitch so the leg PITCH chain hipP+knee+ankleP closes to
+             zero, i.e. the posture target becomes realisable with both soles FLAT and the
+             pelvis UPRIGHT.
+             THE DEFECT (measured on the compiled model, left leg):
+               stand / stand_up          -0.360 +0.550 -0.190 = +0.0000  ->   0.00 deg
+               reach_to_target           -0.250 +0.350 -0.210 = -0.1100  -> +6.30 deg FWD
+               counterbalance_standing   -0.250 +0.350 -0.210 = -0.1100  -> +6.30 deg FWD
+               stumble_trot              -0.250 +0.350 -0.210 = -0.1100  -> +6.30 deg FWD
+               stumble_trot_drive        -0.140 +0.350 -0.210 = -0.0000  ->   0.00 deg
+             So strat 21 / 16 carry a STANDING ORDER to pitch the pelvis 6.3 deg forward, at
+             every rollout, for the whole run. Posture weight is 12.0 in strat 21 and 12.0 in
+             strat 6 -- IDENTICAL -- so the forward pull was never in a weight. That is why
+             ~50 cost-re-weighting runs failed to remove it.
+             ★ THE SAME BUG WAS FIXED ONCE ALREADY WITH THE SAME NUMBER: 2026-07-20 DRIVE-24
+             "idle-tips-fwd keyframe lean FIXED hipP -0.25 -> -0.14 (drive-only)", which is
+             exactly -(knee + ankleP) = -0.140. It was never propagated to reach/counterbalance.
+             ★ Independent corroboration: over n=30 genuinely-upright lean stages in the 78-run
+             corpus the median-of-run-max forward tilt is 6.3 deg -- the keyframe's built-in
+             +6.30 deg to two decimals. That IS the measured fixed point.
+             NO-OP for every keyframe whose chain already closes (stand, stand_up, crouch,
+             squat_*, stumble_trot_drive, jump_launch), so strategy 6 is byte-identical even
+             with this ON. Needs no base-z change: at hipP -0.14 / base z 1.020 the sole sits
+             at z +0.0059 vs stand's +0.0056. Live-tunable, no rebuild.
+             ⚠ ALSO in scope, not separately gated: straighten (-0.080) and forearm_brace_lean
+             (-0.050). The brace is a deep chair-sit whose -0.050 may be intentional; if the
+             brace regresses with this ON, scope the leveller to the reach/counterbalance
+             keyframes rather than abandoning it. -->
+        <numeric name="posture_leg_level" data="0.0"/>
+        <!-- ★★★★★ table_contact_exclusive (2026-07-27): 0 = OFF = BYTE-IDENTICAL (legacy
+             pelvis+torso-only penalty). >0 = enforce the ACTUAL requirement: the only
+             load-bearing contacts with the table are the LEFT FOREARM and the two FEET;
+             every other robot geom touching the table is charged its normal force.
+             WHY (measured with table_contact_ledger.py on plant traces, not inferred):
+               ladder 21->16->22 : pelvis 433-521 N, torso 112-148 N, hip links, gripper
+                                   -- while left_forearm_pad carried 22-44 N. On a 674 N
+                                   robot. It was LYING ON THE TABLE.
+               direct 6->22      : pelvis stays off, but the WHOLE RIGHT ARM lands
+                                   (right_forearm_pad 115 N, right_shoulder_yaw 78 N,
+                                   jaws, wrist pad); left_forearm_pad median 7.9 N.
+             Two holes caused it: the old penalty NAMED only pelvis+torso (nothing watched
+             arms/hips/grippers), and its gate (!any_arm_contact || is_forearm_brace)
+             DISABLED it during reach(21) and counterbalance(16) -- so the body lay down
+             for free and by the brace phase escaping meant lifting 500 N.
+             ⇒ every brace/lean verdict from 07-24..27 measured illegal contact.
+             Allow-list is by EXCLUSION on purpose; a two-body allow-list is what failed.
+             Legacy palm-brace phases (arm_plant / lean_forward / deep_reach / leg_lift)
+             stay exempt -- they intentionally plant other links.
+             Same residual slot/dim/weight as before (Body Table Clearance, w150 in the
+             brace JSON, norm "6 5.0 0.0 200.0 20.0") so the parameter ladder is unchanged.
+             Live-tunable, no rebuild. -->
+        <numeric name="table_contact_exclusive" data="0.0"/>
+        <!-- brace_press_depth (2026-07-27): how far BELOW the table's physical face the
+             Brace-Pos DRIVE target sits, in m. 0.06 = shipped legacy = BYTE-IDENTICAL.
+             The target is deliberately unreachable so the pull persists into contact; the
+             side effect is that at w120 the body BOWS to chase a point 115 mm INSIDE the
+             wood -- the keyframe commands +2.9 deg of pelvis pitch and the plant reaches
+             42-44 deg. That bow is what drops the RIGHT arm onto the slab
+             (right_forearm_pad 103-182 N peak, right_shoulder_yaw 107-146 N) and drives
+             the whole-body CoM to +0.4 (toe limit +0.133).
+             ★The 0.06 was tuned 2026-05-22 and re-affirmed 07-01 while the proximity gate
+             was DEAD (it read 0.000 even perfectly seated; fixed 07-25 by brace_gate_fix),
+             so Brace Pos was then the ONLY downward pull and needed a deep target. With
+             Brace Force restored (w60, ~2232/step uncontacted) that pull now exists
+             directly, so the deep sink should be redundant. Try 0.01-0.02 for a SHALLOW
+             brace. Live-tunable, no rebuild. -->
+        <numeric name="brace_press_depth" data="0.02"/>
+        <!-- brace_target_face (2026-07-27): 0 = OFF = BYTE-IDENTICAL, 1 = ON.
+             ★ `brace_press_depth` above is measured from `table_surface_pos`, which is a
+             framepos on the table_top GEOM = its CENTRE (z 0.810), NOT the physical face
+             (z 0.865). So depth 0.06 aims 115 mm INSIDE the wood and even depth 0.00 aims
+             55 mm inside: the knob CANNOT express "press at the surface". That is why the
+             07-27 sweep found it SATURATING (34 deg) rather than shallowing the bow, and
+             why its refutation does not stand -- the control could not reach the value it
+             needed. At Brace Pos w120 the un-nullable residual keeps the body bowing until
+             the PELVIS lands on the slab (brace22_1: pad seated 79.2 % of frames, pelvis
+             486 N MEDIAN, torso 406 N, vs the only allowed contact -- the left forearm --
+             at 50 N). Turn ON and the depth means what it says, measured from the FACE.
+             Same frame bug class as the one brace_gate_fix repaired on 07-25. -->
+        <numeric name="brace_target_face" data="1.0"/>
+        <!-- phase_ramp_sec (2026-07-28): 0 = OFF = BYTE-IDENTICAL (1.5 s, the compiled
+             kPhaseRampSeconds). >0 sets the cost-surface + WEIGHT ramp for EVERY phase
+             transition, in seconds.
+             ★ WHY: with the strat-16 clamp / strat-21 radius fixes in, every remaining
+             failure lands at 58-61 s -- about 2 s after the 57 s switch, i.e. exactly as
+             the 1.5 s ramp completes and the full new cost surface arrives. The same
+             configs hold 240 s once they survive that instant, so this is a HANDOVER
+             TRANSIENT rather than a steady-state balance loss. Non-brace transitions had
+             no knob at all: the JSONs' own `target_ramp_sec` is gated on a brace
+             transition, so 16's and 21's values were silently ignored. Try 4-6 s. -->
+        <numeric name="phase_ramp_sec" data="0.0"/>
+        <!-- table_clear_margin (2026-07-27): metres of clearance above the slab FACE that
+             guarded parts (pelvis, torso, hips, elbows, wrists, grippers) must keep when
+             table_contact_exclusive >= 2. Default 0.08. The barrier charges
+             (margin - clearance) x100 so it rises BEFORE contact, where escape is still
+             cheap -- mode 1 charged contact FORCE, which arrives too late (at w150 =
+             ~82,000/step a run still parked its torso for 25% of frames). -->
+        <numeric name="table_clear_margin" data="0.08"/>
+        <!-- catch_trig / catch_full (2026-06-20, strategy 20 only): the DECISIVE
+             omnidirectional catch-step trigger. danger = z*sin(tilt) + sqrt(z/g)*|fore-aft vel|
+             (capture-point excursion, m). danger>catch_trig => step toward the fall;
+             danger>=catch_full => full-authority snap. LOWER catch_trig = steps earlier
+             (more decisive, risk false-steps); RAISE = waits longer. XML-tunable, no rebuild.
+             2026-06-22: RAISED 0.06->0.12 (band 0.12->0.24). On the REAL robot normal
+             standing sway + the noisy HW base-velocity estimate pushed danger past the old
+             0.06 -> the gate cracked open during a quiet stand -> spurious micro-steps that
+             the planner counter-rotated with the shoulders (the "arms taking shifts" flail,
+             live-only; the twin's clean velocity never showed it). 0.12 sits ABOVE the
+             observed sway envelope so the stand stays quiet, while a genuine push (danger
+             0.2+) still triggers a decisive catch-step. Dial down if pushes need to step
+             sooner; dial up if it still micro-steps while standing. -->
+        <numeric name="catch_trig" data="0.12"/>
+        <numeric name="catch_full" data="0.24"/>
+        <!-- stance_off_x (2026-06-20, strategy 20): feet planted this far AHEAD of
+             the CoM (m). LOWER -> CoM more centred -> better BACKWARD margin; HIGHER
+             -> more forward margin. XML-tunable, no rebuild. -->
+        <numeric name="stance_off_x" data="0.13"/>
+        <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
+             torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
+             is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
+        <numeric name="lean_nominal_x" data="0.06"/>
+        <!-- recover_pitch_gain / recover_roll_gain (2026-06-20, strategy 20): the
+             HIP/ARM angular-momentum RECOVERY tier. Targets counter-momentum =
+             gain * capture_excursion (throw torso+arms opposite the fall) so the CoM
+             is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
+        <numeric name="recover_pitch_gain" data="0.0"/> <!-- PHASE 1 2026-06-26: tested +10 (2/6=33%) and +30 (6/12=50% on twin) = NO robust catch-step fix (the 4/4@30 was variance). Reverted to 0. Frontier needs concurrent lateral-CoM + recovery, not pitch gain alone. -->
+        <numeric name="recover_roll_gain" data="0.0"/>
+        <!-- Default 1.70 matches the actual head-feet error at the home
+             pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
+             The old 1.65 made the Height residual +0.05 at home with cost
+             ~1.1 per timestep (~76 over the 1.0s horizon), pulling the head
+             down by 5 cm during the upright stand_up phase. Max raised to
+             2.0 so the slider can sweep above the home value if needed. -->
+        <!-- brace_wrist_cock_deg (2026-07-29): target angle [deg] for the BRACING arm's
+             wrist_yaw during `forearm_brace_lean`, held by the `Brace Wrist Cock` cost.
+             0 = OFF = BYTE-IDENTICAL (the residual is written as exactly 0).
+             -50 is the measured sweet spot: wrist clearance 8.7 -> 40.3 mm and gripper
+             19.7 -> 71.9 mm, with forearm seating UNCHANGED at -3.5 mm (the pad is on
+             left_elbow_link, proximal to the wrist, so this DOF cannot move it).
+             The joint range is -58..+58 deg, so -50 keeps margin off the hard stop; the
+             cost clamps into the range anyway. ⚠ MUST sit BEFORE the first `residual_*`
+             numeric -- mjpc::ParameterIndex counts from the first residual_ entry, so a
+             numeric added after it shifts every task parameter index. -->
+        <numeric name="brace_wrist_cock_deg" data="-50.0"/>
+        <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
+             ON aims the brace POSITION target at the slab's NEAR EDGE + inset instead of the
+             legacy `torso + 0.4*(table-torso)`, which lands SHORT of the edge and, combined
+             with brace_press_depth, sits buried inside the slab's front face. That buried
+             point is reachable ONLY in the PLANNER's own sim, which <exclude>s the table from
+             the entire arm chain so the arm passes THROUGH the wood while an inert pad
+             reports newtons. On the solid twin the residual can never null and the body keeps
+             bowing to chase it until the PELVIS lands on the slab -- the "drape" (measured
+             pelvis 486 N / torso 406 N while the only ALLOWED contact, the forearm pad,
+             carried 50 N). It is also why the 07-13 own-sim video looked correct.
+             ★ inset MUST exceed the pad capsule's ~46 mm rear-end offset or the rear end
+             overhangs thin air -- 28 mm of overhang alone took seating to 0 %.
+             Pair with a SHALLOW brace_press_depth (~0.008): the deep 0.06 was tuned in the
+             phantom-arm world where nothing arrested the pad. -->
+        <numeric name="brace_target_slab" data="0.0"/>
+        <numeric name="brace_target_inset" data="0.05"/>
+        <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
+        <!-- Slider → strategy (user's 6-phase decomposition):
+               0 = pipeline_stand             (stand_up)
+               1 = pipeline_arm_extend        (+ arm out, body upright)
+               2 = pipeline_lean_no_brace     (+ body tilts forward, arm out)
+               3 = pipeline_brace_hand_lean   (+ hand lands, deeper lean)
+               4 = pipeline_forearm_brace     (+ elbow lands, deeper lean)
+               5 = pipeline_full_pipeline     (= forearm_brace; held two-foot
+                   braced lean) — DEFAULT
+             DESIGN (2026-05-26): the leg-lift phase is DROPPED — BOTH feet
+             stay grounded through every phase; only WBC-driven foot
+             re-placement / hip twist for the brace is allowed, never a leg
+             lift. So slot 5 now == slot 4.
+             Each slot truncates the index-5 pipeline at one of the user's
+             phase boundaries; last keyframe of each is indefinite.
+             Indices 6-15 are the standalone single-skill tasks (see
+             GetStrategyNames in beginning.h): 6 stand, 7 reach_forward, 8 crouch,
+             9 arms_sideways, 10 arms_forward, 11 arms_overhead,
+             12 single_arm_raise, 13 lean_left, 14 lean_right, 15 torso_twist,
+             16 counterbalance, 17 squat (cyclic), 18 squatter (native
+             stand<->crouch auto-cycle, made of strat 6 + 8),
+             19 jab (standing boxing jab: left arm guard, right arm punches
+             forward and retracts; 3-phase stand_up->jab_guard->jab_extend
+             auto-cycle with a stand lead-in; jab_extend gets a dedicated
+             right-hand forward reach reward so the punch fully extends).
+             Slider max raised 5 → 19 so these are reachable. -->
+        <numeric name="residual_Strategy" data="5 0 35" />
+        <!-- Manual phase scrubber. -1 = auto-advance through keyframes
+             (default behaviour, runs the whole loaded pipeline). 0..6 =
+             hold at that keyframe index regardless of progress; auto-
+             advance disabled. Body state and weights smooth-ramp into
+             the new phase rather than reloading the strategy. Use this
+             to inspect transitions one-by-one (e.g. set Strategy=5 then
+             slide Phase 3→4→5) without the body snapping back to
+             stand_up on every strategy switch. -->
+        <numeric name="residual_Phase" data="-1 -1 5" />
+        <!-- LIVE reach target (2026-07-02, vision/nav integration). gRPC-settable
+             (SetTaskParameters "Reach Active"/"Reach X"/"Reach Y"/"Reach Z"), same
+             path as Strategy/Phase. Reach Active=1 makes beginning.cc use (X,Y,Z) as the
+             reach target INSTEAD of the hardcoded `reach_target` numeric above;
+             Reach Active=0 (default) keeps the legacy static-numeric behaviour so
+             nothing changes until a bridge drives it. X/Y/Z are in the MJPC
+             planner-world frame -- the core_ws ROS2 bridge converts the perception
+             PoseStamped (published in the `pelvis` frame after graspgen) to MJPC
+             world via the node's GetState base pose before setting them. Ranges are
+             generous world bounds (m). Applies to every reach strategy (16/21/22 and
+             the lean pipeline 32/33/34) since they all read the same target. -->
+        <numeric name="residual_Reach Active" data="0 0 1" />
+        <numeric name="residual_Reach X" data="0 -5 5" />
+        <numeric name="residual_Reach Y" data="0 -5 5" />
+        <numeric name="residual_Reach Z" data="0.9 0 2.5" />
+        <!-- LIVE cmd_vel teleop params (2026-07-03): BODY-frame m/s, driven by
+             wss_cmd_bridge / wasd_teleop via gRPC SetTaskParameters. The
+             TransitionLocked governor clamps to the validated envelope (vx
+             [-0.10,+0.15]; vy LOCKED to 0 until the V2 lateral campaign),
+             slews at 0.08 m/s^2, and yaw-rotates body->world. Cmd Seq =
+             client heartbeat counter (unchanged >1 s -> watchdog zero). -->
+        <numeric name="residual_Cmd Active" data="0 0 1" />
+        <numeric name="residual_Cmd Vx" data="0 -0.2 0.2" />
+        <numeric name="residual_Cmd Vy" data="0 -0.2 0.2" />
+        <numeric name="residual_Cmd Seq" data="0 0 1000000" />
+        <numeric name="residual_Cmd Wz" data="0 -1 1" />   <!-- V3 yaw-rate [rad/s], drive strat -->
+
+        <!-- JUMP (strat 26) schedule numerics, 2026-07-11. Read by the beginning.cc
+             jump block via GetNumberOrDefault (absent => code defaults, listed
+             here). is_jump-gated: inert for every other strategy.
+               jump_delay       [s] settle time after strategy engage before the
+                                hop fires (twin harness/bring-up needs ~4 s)
+               jump_crouch_sec  [s] countermovement duration (stand -> crouch)
+               jump_push_sec    [s] extension push duration (crouch -> launch)
+               jump_apex        [m] TARGET ballistic apex above launch height;
+                                v0 = sqrt(2*g*apex). The sweep knob for the
+                                clearance sweet spot.
+               jump_land_sec    [s] absorption hold at the pre-flexed land pose
+               jump_recover_sec [s] blend land pose -> stand (one-shot done) -->
+        <numeric name="jump_delay" data="3.0" />
+        <numeric name="jump_crouch_sec" data="1.60" />
+        <numeric name="jump_push_sec" data="0.28" />
+        <numeric name="jump_apex" data="0.10" />
+        <numeric name="jump_land_sec" data="0.50" />
+        <numeric name="jump_recover_sec" data="1.0" />
+        <numeric name="jump_assist" data="1.0" />   <!-- ModifyControl push-assist authority 0..1; 0 = sampler-only -->
+        <numeric name="jump_overdrive" data="2.0" />   <!-- push ref extrapolation past full extension (PD torque survives liftoff) -->
+        <numeric name="jump_posture_boost" data="3.0" />   <!-- posture authority DURING the hop; 3.0 = the stand's own (NO boost). Boosting pins the ANKLE (= the only balance actuator) to the scheduled pose -> the body rotates backward about the ankle during the descent. -->
+        <numeric name="jump_balance_boost" data="2.5" />   <!-- CoM-over-feet barrier amplifier during the hop -->
+        <numeric name="jump_crouch_pitch_deg" data="6.7" />   <!-- FORWARD trunk pitch commanded through the crouch (0 = bolt upright = the backward-topple mode); erects to vertical by takeoff -->
+        <numeric name="jump_angmom_w" data="12.0" />   <!-- centroidal angular-momentum regulation through crouch+push: takeoff pitch is conserved in flight, so it must be killed BEFORE liftoff -->
+        <numeric name="jump_pelvis_w" data="3.0" />   <!-- trunk-attitude authority during the hop (Base Height 450 otherwise out-votes Pelvis Tilt 100 and buys depth with backward pitch) -->
+        <numeric name="jump_ankle_od" data="0.35" />   <!-- TAKEOFF-ROTATION TRIM: partial ankle toe-push. 0 = nose-down launch (lands rotating fwd, tips past the toe); 1 = -14deg backward launch. Trim for zero takeoff pitch-rate. -->
+
+    </custom>
+
+    <sensor>
+        <!--        cost terms for lean task-->
+        <user name="humanoid_bench" dim="1" user="6 0.0 0.0 100.0 0.01"/>
+        <user name="Height" dim="1" user="6 100.0 0.0 100.0 0.1"/>
+        <user name="CoM Vel." dim="2" user="0 10.0 0.0 100.0"/>
+        <user name="Joint Vel." dim="27" user="0 0.01 0.0 0.1"/>
+        <!-- <user name="Joint Vel." dim="31" user="0 0.01 0.0 0.1"/> -->
+        <user name="Balance" dim="2" user="6 20.0 0.0 100.0 0.02"/>
+        <user name="Torso Forward Tilt" dim="1" user="6 3.0 0.0 25.0 0.1"/>
+        <!-- ITER 37 (2026-05-18): Pelvis Tilt weight 50 → 100. Iter 36's
+             50 still let body drift past the 60° cap during dynamic
+             transients. Doubling to 100: 75° tilt costs ~16, 90° costs
+             ~41 — gives MPC strong recovery authority when body is
+             about to fall past the natural braced-lean ceiling. -->
+        <user name="Pelvis Tilt" dim="1" user="6 100.0 0.0 200.0 0.1"/>
+        <!-- ITER 30 (2026-05-18): foot-up weight 500 → 2000. Iter 29's 500
+             still wasn't dominant — heel still lifting per user. At 2000:
+             30° heel-lift costs ~134, 45° costs ~320. Now overwhelmingly
+             exceeds reach gradient (~45 at full extension), so MPC MUST
+             find a posture that keeps the foot flat. The available
+             alternative is deep hip-pitch flex (90°+), enabled by the
+             companion changes below: Pelvis Tilt residual goes to zero
+             during arm-contact phases, and Hip Clearance weight drops
+             120 → 40 so pelvis can duck under the table front edge. -->
+        <user name="Foot Right Up" dim="1" user="6 2000.0 0.0 3000.0 0.1"/>
+        <user name="Foot Left Up" dim="1" user="6 2000.0 0.0 3000.0 0.1"/>
+        <user name="Waist Yaw" dim="1" user="6 30.0 0.0 100.0 0.1"/>
+        <user name="Hip Yaw L" dim="1" user="6 20.0 0.0 100.0 0.1"/>
+        <user name="Hip Roll L" dim="1" user="6 20.0 0.0 100.0 0.1"/>
+        <user name="Hip Yaw R" dim="1" user="6 20.0 0.0 100.0 0.1"/>
+        <user name="Hip Roll R" dim="1" user="6 20.0 0.0 100.0 0.1"/>
+        <user name="Posture" dim="27" user="0 0.015 0 1.0"/>
+        <!-- <user name="Posture" dim="31" user="0 0.015 0 1.0"/> -->
+        <user name="Velocity" dim="2" user="7 0.625 0 25.0 0.2 4.0"/>
+        <user name="Control" dim="27" user="3 0.0 0 1.0 0.3"/>
+        <!-- <user name="Control" dim="31" user="3 0.0 0 1.0 0.3"/> -->
+
+        <!--        task specific cost terms-->
+        <!-- TEST #14: weight back to 30 (test 13's 50 was too rigid
+             given asymmetric reach targets). Y is clamped (not fixed)
+             inside beginning.cc to give the body room to twist for reaches. -->
+        <user name="Brace Pos" dim="3" user="6 80.0 0.0 100.0 0.1"/>
+        <!-- ITER 22 (2026-05-18): Brace Force is now ONE-SIDED in beginning.cc
+             (residual = max(0, target - actual)). Test 18's failure with
+             symmetric weight=75 doesn't apply — the planner is no longer
+             penalised for exceeding the target, only for under-supporting.
+             Combined with per-keyframe targets ramped 25 → 70 → 120 N in
+             the extended strategy JSON, MPC now has a clear gradient
+             saying "push DOWN harder, that's GOOD". Weight stays at 25
+             so the per-newton cost gradient is the same; the change is
+             that there's no longer a counter-gradient pulling it down. -->
+        <user name="Brace Force" dim="1" user="6 60.0 0.0 100.0 15.0"/>
+        <!-- Reverted to 50 (test 21 Object Dist=30 was too weak — planner
+             stopped trying to fully extend the reach). Keep Contact=150
+             which DID help anchor the foot. -->
+        <user name="Object Dist" dim="3" user="6 50.0 0.0 100.0 0.1"/>
+        <user name="Reaching Hand Dist" dim="3" user="6 20.0 0.0 100.0 0.1"/>
+        <user name="Foot Stability" dim="4" user="6 15.0 0.0 100.0 0.1"/>
+        <!-- ITER 30 (2026-05-18): Hip + Leg Clearance dropped 120 → 40.
+             The deep-bow posture (hip flex 90°, knees slightly bent) puts
+             the pelvis at ~x=0.566 — well past the previous 0.32 threshold,
+             with 120 weight that was a sustained cost of ~25/step blocking
+             the only flat-foot lean posture available. At weight 40 the
+             same overshoot costs ~8 — still nudges MPC away from physical
+             collision with the table front face, but doesn't prevent the
+             pelvis from ducking UNDER the table edge during a deep bow
+             (pelvis_z at 0.40 < table_z 0.55 → no actual collision).
+             Physical pelvis-table contact is still enabled as the hard
+             safety net (R12 removed those excludes). -->
+        <user name="Hip Clearance" dim="1" user="6 40.0 0.0 300.0 0.04"/>
+        <user name="Leg Clearance" dim="2" user="6 40.0 0.0 300.0 0.04"/>
+        <!-- ITER 22 (2026-05-18): Left Leg Anchor 100 → 250. Combined with
+             the tightened foot-float threshold in beginning.cc (0.05 → 0.02 m),
+             this 2.5× boost makes the "left foot must stay pressed down"
+             constraint actually competitive with the reach gradient. -->
+        <user name="Left Leg Anchor" dim="1" user="6 250.0 0.0 500.0 0.08"/>
+        <!-- ITER 22 (2026-05-18): Right Foot Lift 60 → 180. Same reasoning
+             as Left Leg Anchor — the foot-anchor weights were too gentle
+             relative to reach; once arm contact triggered, the planner
+             was happy to lift the right foot to gain torso reach. -->
+        <user name="Right Foot Lift" dim="1" user="6 180.0 0.0 300.0 0.3"/>
+        <!-- Pelvis Forward: penalises pelvis sitting behind the midfoot
+             line during braced/leaning phases. Without this, the planner
+             escapes forward reach demand by squatting + folding at the
+             hip (butt back, knees forward), which sets the body up to
+             tip backward. Residual = max(0, midfoot_x + 0.05 - pelvis_x)
+             so being AT or AHEAD of midfoot costs nothing; being behind
+             grows linearly. Gated on arm_contact_or_lean in beginning.cc so
+             phase 1 (arm_extend_standing, body upright at home pose where
+             pelvis IS behind feet by 3 cm) doesn't get pulled forward. -->
+        <user name="Pelvis Forward" dim="1" user="6 100.0 0.0 300.0 0.05"/>
+        <!-- ITER 37 (2026-05-18): Contact weight 400 → 1000. After iter 36
+             elbow-in-lean_forward was reverted (geometry infeasible — H1-2
+             forearm is 0.40 m but spec required 0.10 m compression), the
+             left-foot anchor in lean_forward is the only thing holding
+             standing leg position. Bumping to 1000 makes a 5 cm drift
+             cost ~12 (was 5 at weight 400), a 20 cm drift cost ~124 —
+             strong enough to actually anchor the leg during dynamic
+             lean transients without an explicit hard constraint. -->
+        <user name="Contact" dim="15" user="6 1000.0 0.0 2000.0 0.1"/>
+        <!-- Joint Vel. Limit: one-sided penalty for joint velocities above
+             85% of the URDF ω_max. Keeps MJPC plans within hardware-feasible
+             velocity envelope — a plan that exceeds ω_max would simply not
+             execute on the real robot. Type 0 (quadratic), weight 5. -->
+        <user name="Joint Vel. Limit" dim="27" user="0 5.0 0.0 100.0"/>
+        <!-- Support Polygon: perpendicular offset of the capture point
+             from the REACH axis (midfoot → reach_target), 5 cm margin.
+             Active only when the bracing arm is on the table. Aligned
+             with the direction the body needs to advance, so forward
+             reach is free and only true lateral excursion (the original
+             brace-push bug) costs. See beginning.cc Support Polygon block
+             for the full rationale + design history. -->
+        <user name="Support Polygon" dim="1" user="6 80.0 0.0 300.0 0.05"/>
+        <!-- Body Yaw: xy-projected alignment of torso_forward with the
+             reach direction. Decoupled from pitch (pitching changes
+             torso_forward's xy length but not its xy direction), so the
+             lean is unpenalised but world-frame body yaw — which has no
+             other direct cost in the stack — is. See beginning.cc Body Yaw
+             block for diagnosis (planner uses foot-on-floor pivot to
+             yaw rigidly without paying any joint-level cost). -->
+        <user name="Body Yaw" dim="1" user="6 60.0 0.0 200.0 0.1"/>
+        <user name="Body Table Clearance" dim="1" user="6 5.0 0.0 200.0 20.0"/>
+        <user name="Knees Straight" dim="2" user="6 40.0 0.0 300.0 0.25"/>
+        <user name="Symmetry" dim="3" user="0 0.0 0.0 100.0"/>
+        <user name="Base Height" dim="1" user="0 0.0 0.0 100.0"/>
+        <!-- Angular Momentum: weight is now a nonzero CARRIER (1.0). The residual
+             is gated to 0 in beginning.cc for every strategy EXCEPT trot-WALK (is_trot &&
+             v_des!=0), where it = trot_angmom_w * 0.1 * angmom (pitch+yaw catch).
+             So cost = 1.0*Norm(0) = 0 = byte-identical for all non-trot-walk; only
+             trot-walk sees the active angular-momentum (forward-pitch runaway) catch.
+             Tune the trot-walk strength via the trot_angmom_w numeric, NOT this weight. -->
+        <user name="Angular Momentum" dim="3" user="0 1.0 0.0 100.0"/>
+        <user name="Lateral Center" dim="1" user="0 0.0 0.0 100.0"/>
+        <!-- Gait / Step Place: strategy-20 "stumble" stepping. Default weight 0
+             (inert for strategies 0-19, exactly like Symmetry/Angular Momentum/
+             Lateral Center above); enabled per-phase by h12_simple_stumble.json
+             and computed only when the keyframe name starts with "stumble"
+             (beginning.cc name-gate). Gait(2)=swing-foot height per foot; Step
+             Place(4)=swing-foot xy capture-point/Raibert target (L xy, R xy).
+             These MUST stay the LAST two <user> sensors (residual append order). -->
+        <user name="Gait" dim="2" user="0 0.0 0.0 100.0"/>
+        <user name="Step Place" dim="4" user="0 0.0 0.0 100.0"/>
+        <user name="Foot Slip" dim="2" user="0 0.0 0.0 100.0"/>
+        <!-- Brace Wrist Cock (dim 1, 2026-07-29). Holds the BRACING arm's wrist_yaw at
+             `brace_wrist_cock_deg` during the `forearm_brace_lean` phase ONLY, so the
+             hand/gripper stay lifted and the FOREARM is the lowest part of the arm.
+             Needed because no other term owns that DOF: `Brace Pos` fixes the forearm
+             SITE POSITION and leaves wrist yaw free, so the -50 deg baked into the
+             keyframe was tracked to only -8 deg. Default weight 0 AND default numeric
+             0 => byte-identical until BOTH are set.
+             ⚠ MUST STAY THE LAST <user> SENSOR -- beginning.cc appends this residual after
+             Foot Slip. (The older comment above claiming Gait/Step Place are last is
+             STALE: Foot Slip was appended after them, and now this.) -->
+        <user name="Brace Wrist Cock" dim="1" user="0 0.0 0.0 200.0"/>
+
+        <!--        traces-->
+        <framepos name="trace0" objtype="body" objname="torso_link"/>
+        <framepos name="trace1" objtype="body" objname="right_ankle_roll_link"/>
+        <framepos name="trace2" objtype="body" objname="left_ankle_roll_link"/>
+
+        <!-- residual -->
+        <framepos name="torso_position" objtype="body" objname="torso_link"/>
+        <!-- head_position must point at the head site (z=+0.7 relative to
+             torso_link), not the torso_link body origin. The body origin sits
+             at pelvis_z ~1.028m, so the head_feet_error residual was off by
+             ~0.7m and the Height cost (weight 100) was pulling the robot to
+             extend ankles/knees by an unphysical amount. With the real-hardware
+             PD gains (ankle kp=20) the misalignment finally destabilises
+             standing balance. -->
+        <framepos name="head_position" objtype="site" objname="head"/>
+        <subtreecom name="torso_subcom" body="torso_link"/>
+        <subtreelinvel name="torso_subtreelinvel" body="torso_link"/>
+        <framepos name="foot_right_pos" objtype="body" objname="right_ankle_roll_link"/>
+        <framepos name="foot_left_pos" objtype="body" objname="left_ankle_roll_link"/>
+        <framepos name="left_knee_pos" objtype="body" objname="left_knee_link"/>
+        <framepos name="right_knee_pos" objtype="body" objname="right_knee_link"/>
+        <framepos name="pelvis_position" objtype="body" objname="pelvis"/>
+        <framezaxis name="torso_up" objtype="xbody" objname="torso_link"/>
+        <framezaxis name="pelvis_up" objtype="xbody" objname="pelvis"/>
+        <framezaxis name="foot_right_up" objtype="xbody" objname="right_ankle_roll_link"/>
+        <framezaxis name="foot_left_up" objtype="xbody" objname="left_ankle_roll_link"/>
+        <framexaxis name="torso_forward" objtype="xbody" objname="torso_link"/>
+        <framexaxis name="pelvis_forward" objtype="xbody" objname="pelvis"/>
+        <framexaxis name="foot_right_forward" objtype="xbody" objname="right_ankle_roll_link"/>
+        <framexaxis name="foot_left_forward" objtype="xbody" objname="left_ankle_roll_link"/>
+        <subtreelinvel name="waist_lower_subcomvel" body="pelvis"/>
+        <framelinvel name="torso_velocity" objtype="body" objname="torso_link"/>
+        <framelinvel name="foot_right_velocity" objtype="body" objname="right_ankle_roll_link"/>
+        <framelinvel name="foot_left_velocity" objtype="body" objname="left_ankle_roll_link"/>
+        <subtreelinvel name="torso_subcomvel" body="torso_link"/>
+        <subtreelinvel name="foot_right_vel" body="right_ankle_roll_link"/>
+        <subtreelinvel name="foot_left_vel" body="left_ankle_roll_link"/>
+
+        <framepos name="object_pos" objtype="body" objname="object"/>
+        <framepos name="table_surface_pos" objtype="geom" objname="table_top"/>
+
+        <framepos name="left_hand_pos" objtype="site" objname="left_hand"/>
+        <framepos name="right_hand_pos" objtype="site" objname="right_hand"/>
+        <framelinvel name="left_hand_vel" objtype="site" objname="left_hand"/>
+        <framelinvel name="right_hand_vel" objtype="site" objname="right_hand"/>
+        <touch name="left_hand_contact" site="left_hand"/>
+        <touch name="right_hand_contact" site="right_hand"/>
+        <!-- ★ 2026-07-13: these touch sensors are now DIAGNOSTIC ONLY. The brace cost no longer
+             reads them -- it sums the real table<->arm contact forces in beginning.cc
+             (TableBraceForce), because a touch sensor CANNOT measure this brace:
+             engine_sensor.c (mjSENS_TOUCH) only sums contacts involving the SITE'S OWN BODY, so
+             a site on the elbow link is blind to the wrist links -- and with the arm now solid,
+             the brace load rides on the WRIST. Widening the sensor zone does not help and must
+             not be attempted again; that was tried and measured 0.0 N through a full braced hold
+             while 38 N was flowing. The wider _zone sites are kept only because they cover the
+             forearm-pad contact area better than the narrow position site.
+             beginning.cc still uses left/right_forearm_brace as the Brace-Pos POSITION target. -->
+        <touch name="left_forearm_contact" site="left_forearm_brace_zone"/>
+        <touch name="right_forearm_contact" site="right_forearm_brace_zone"/>
+    </sensor>
+
+    <!-- Strip non-essential collision pairs for real-time MPC.
+         arXiv 2503.04613 disabled upper-body collision for parts that
+         don't participate in contact. For h12_table_lean_reach, only
+         the right hand contacts the table; the left arm, the head, and
+         the pelvis-vs-table never collide in valid plans. -->
+    <contact>
+        <!-- FORCE-CLOSE the forearm brace (2026-07-01). Explicit pairs override the raw-mesh
+             table exclude below AND the table's priority=1 arbitration, so the tuned INERT
+             forearm pad is the ONE forearm<->table contact. condim4 = torsional friction
+             (resists yaw-spin of the flat forearm); solref 0.02 = firm at the 2*dt planner
+             floor; solimp go2-curve = soft onset for the CEM slam.
+
+             ★ margin 0.015 -> 0.002 (2026-07-13, PHANTOM-BRACE FIX). MuJoCo generates contact
+             force for any pair closer than `margin`, so a 15 mm margin let the pad float 12 mm
+             ABOVE the wood and still report ~30 N. Measured at the strat-22 hold: pad
+             dist=+0.0120, Fnormal=29.8 N -- i.e. the entire brace load was force-at-a-distance
+             and the forearm never touched the table. 2 mm keeps a discoverable basin for the
+             sampler without inventing a load the real robot will not have. -->
+        <pair name="left_forearm_brace_pair" geom1="left_forearm_pad" geom2="table_top_collision" condim="4" friction="1.0 1.0 0.02 0.0001 0.0001" solref="0.02 1" solimp="0.015 1 0.022" margin="0.002" gap="0"/>
+        <pair name="right_forearm_brace_pair" geom1="right_forearm_pad" geom2="table_top_collision" condim="4" friction="1.0 1.0 0.02 0.0001 0.0001" solref="0.02 1" solimp="0.015 1 0.022" margin="0.002" gap="0"/>
+        <!-- ★ WRIST pads vs the table (2026-07-13). The wrist_yaw link's collision capsule
+             (r 0.025) UNDER-BOUNDS its real mesh (underside at local z -0.0425), so the wrist
+             housing still sank 1.4 cm into the tabletop after the gripper was fixed. These pairs
+             activate the inert wrist pads, which bound the true underside. Same contact params as
+             the forearm pads so the whole braced underside behaves as one surface. -->
+        <pair name="left_wrist_brace_pair" geom1="left_wrist_pad" geom2="table_top_collision" condim="4" friction="1.0 1.0 0.02 0.0001 0.0001" solref="0.02 1" solimp="0.015 1 0.022" margin="0.002" gap="0"/>
+        <pair name="right_wrist_brace_pair" geom1="right_wrist_pad" geom2="table_top_collision" condim="4" friction="1.0 1.0 0.02 0.0001 0.0001" solref="0.02 1" solimp="0.015 1 0.022" margin="0.002" gap="0"/>
+        <!-- Shoulder never reaches the table in any valid plan; the ELBOW raw mesh stays
+             excluded because the inert forearm pad above IS its contact proxy (a primitive
+             capsule is far cheaper than raw-mesh<->box for the planner). -->
+        <exclude body1="table" body2="left_shoulder_pitch_link"/>
+        <exclude body1="table" body2="left_shoulder_roll_link"/>
+        <exclude body1="table" body2="left_shoulder_yaw_link"/>
+        <exclude body1="table" body2="left_elbow_link"/>
+        <!-- ★★★ PHANTOM-ARM FIX (2026-07-13). The table<->wrist and table<->gripper excludes
+             are DELETED. They made the distal arm a ghost: at the strat-22 brace hold the
+             measured pose had the left GRIPPER 12.0 cm, the wrist links 6.8-8.9 cm, and the
+             forearm mesh 3.0-3.4 cm INSIDE the tabletop, with the hovering pad as the only
+             contact. Replaying that same pose in a twin WITHOUT these excludes
+             (scene_handless_magpie_table.xml) drives the gripper 119.8 mm into the wood and the
+             solver answers with kN-scale rejection -- i.e. the pose does not exist on a real
+             table, and the whole "firm 30 N forearm brace" was resting on geometry the robot
+             cannot occupy.
+
+             The old comment here said the gripper "would else point-contact the table (~2 cm)
+             in the flat-forearm pose" and excluded it to keep the gripper clean. But deleting a
+             contact does not keep the gripper off the table -- it just stops the planner from
+             SEEING the table, so it drove the hand straight through. The gripper is kept off
+             the wood by POSE (wrist cocked up in the forearm_brace_lean keyframe), not by
+             pretending the wood is not there.
+
+             The wrist links and the gripper both already carry cheap PRIMITIVE collision geoms
+             (wrist capsule+sphere; left/right_gripper_collision box), so making them solid costs
+             the planner little. ★GATE: re-check the planner rate after this -- if it drops, name
+             the wrist primitives and switch these bodies to explicit <pair>s instead, the same
+             way the forearm pad is done above. -->
+        <!-- (deleted) exclude table <-> left_wrist_roll_link / _pitch_link / _yaw_link -->
+        <!-- (deleted) exclude table <-> left_magpie_gripper / right_magpie_gripper -->
+        <!-- NOTE: deliberately NOT adding right-arm excludes here. The right arm is the
+             REACHING arm and must keep full collision against the table -- excluding it would
+             just mint the same phantom on the other side. -->
+
+        <!-- TEST #15 (2026-05-18): pelvis/torso table excludes REMOVED. The
+             "arXiv 2503.04613 says exclude non-contacting parts" rationale
+             was misapplied — in valid plans they don't touch, but in INVALID
+             plans the planner exploits the no-collision to push pelvis
+             through the table edge. Real collision forces the planner to
+             find a feasible motion. User observed "torso even goes through
+             the table" because of these excludes. -->
+        <!-- <exclude body1="table" body2="pelvis"/> -->
+        <!-- <exclude body1="table" body2="torso_link"/> -->
+        <!-- self-collision pruning across the kinematic chain
+             (these can't collide given the joint ranges) -->
+        <exclude body1="pelvis" body2="left_knee_link"/>
+        <exclude body1="pelvis" body2="right_knee_link"/>
+        <exclude body1="torso_link" body2="left_elbow_link"/>
+        <exclude body1="torso_link" body2="right_elbow_link"/>
+        <!-- adjacent arm-segment excludes (auto-injected) -->
+        <exclude body1="right_shoulder_pitch_link" body2="right_shoulder_roll_link"/>
+        <exclude body1="right_shoulder_roll_link" body2="right_shoulder_yaw_link"/>
+        <exclude body1="right_shoulder_yaw_link" body2="right_elbow_link"/>
+        <exclude body1="right_elbow_link" body2="right_wrist_roll_link"/>
+        <exclude body1="right_wrist_roll_link" body2="right_wrist_pitch_link"/>
+        <exclude body1="right_wrist_pitch_link" body2="right_wrist_yaw_link"/>
+        <exclude body1="left_shoulder_pitch_link" body2="left_shoulder_roll_link"/>
+        <exclude body1="left_shoulder_roll_link" body2="left_shoulder_yaw_link"/>
+        <exclude body1="left_shoulder_yaw_link" body2="left_elbow_link"/>
+        <exclude body1="left_elbow_link" body2="left_wrist_roll_link"/>
+        <exclude body1="left_wrist_roll_link" body2="left_wrist_pitch_link"/>
+        <exclude body1="left_wrist_pitch_link" body2="left_wrist_yaw_link"/>
+        <!-- skip-one roll<->yaw self-overlap (the wrist geoms overlap ~1.8cm at rest; the
+             consecutive-pair excludes above miss it). Harmless at impratio<=10 but explodes
+             to ~125kN at impratio=100 (internal force, net-zero on CoM, but numerically ugly
+             and a parity gap vs the handless twin which has no wrist collision geoms). 2026-06-05. -->
+        <exclude body1="right_wrist_roll_link" body2="right_wrist_yaw_link"/>
+        <exclude body1="left_wrist_roll_link" body2="left_wrist_yaw_link"/>
+    </contact>
+</mujoco>
