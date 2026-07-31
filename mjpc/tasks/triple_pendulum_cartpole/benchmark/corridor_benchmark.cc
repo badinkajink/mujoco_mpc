@@ -25,10 +25,10 @@
 // capture the pendulum once past it, and one aggregate number cannot say
 // which. --stage splits them:
 //
-//   corridor  obstacles, goal x=6, Upright and Velocity weights zeroed and
+//   corridor  obstacles, goal x=6, Upright zeroed, Velocity small and
 //             Avoidance raised. Only asks: can the cart be driven to the goal
-//             without putting a head inside a disk? Pure obstacle avoidance
-//             under the same underactuated dynamics.
+//             without putting a head inside a disk? Obstacle avoidance under
+//             the same underactuated dynamics.
 //   balance   no obstacles, goal x=0, started fully hung, Upright and Velocity
 //             raised. Only asks: can this planner erect a 3-link underactuated
 //             pendulum and hold it at rest?
@@ -141,6 +141,17 @@ void SetTermWeight(mjModel* model, const char* sensor_name, double weight) {
 // on it. Widening the margin, not just the weight, is what turns the term from
 // a fine into a barrier.
 //
+// corridor keeps a small Velocity weight rather than zeroing it, which is a
+// change from treating this stage as "Upright and Velocity off". Zeroing both
+// leaves the pendulum ballistic -- measured 14.7 rad/s at the end of a run --
+// and at that speed a single cart actuator has no authority over where the
+// heads go inside a 1 s horizon. The avoidance term then has nothing to act
+// through, and no weight rescues it: collisions were insensitive to raising
+// Avoidance while Velocity was zero. At 0.5 the pendulum settles to 1-4 rad/s
+// and collisions roughly halve, so the stage measures obstacle avoidance
+// instead of measuring luck. It is still far below the balance stage's 3.0,
+// and Upright stays at zero, so the stage does not start scoring capture.
+//
 // balance: the two terms that define capture. Upright is the reorientation
 // (get every link to theta = 0) and Velocity is the hold (arrive at rest, not
 // swinging through). Velocity moves the most, 0.1 -> 3.0, because that is the
@@ -149,6 +160,7 @@ void SetTermWeight(mjModel* model, const char* sensor_name, double weight) {
 // rather than stopping in it.
 constexpr double kCorridorAvoidanceWeight = 300.0;
 constexpr double kCorridorClearanceMargin = 0.25;
+constexpr double kCorridorVelocityWeight = 0.5;
 constexpr double kBalanceUprightWeight = 80.0;
 constexpr double kBalanceVelocityWeight = 3.0;
 
@@ -168,7 +180,7 @@ const char* ConfigureStage(mjModel* model, Stage stage) {
       // dynamics stay as underactuated and chaotic as in the full task -- this
       // is an easier objective, not an easier system.
       SetTermWeight(model, "Upright", 0.0);
-      SetTermWeight(model, "Velocity", 0.0);
+      SetTermWeight(model, "Velocity", kCorridorVelocityWeight);
       SetTermWeight(model, "Avoidance", kCorridorAvoidanceWeight);
       if (double* c = mjpc::GetCustomNumericData(model, "residual_Clearance")) {
         *c = kCorridorClearanceMargin;
@@ -429,8 +441,9 @@ int main(int argc, char** argv) {
   switch (stage) {
     case Stage::kCorridor:
       std::printf("  stage weights: Avoidance %.0f (margin %.2f m), "
-                  "Upright/Velocity 0\n",
-                  kCorridorAvoidanceWeight, kCorridorClearanceMargin);
+                  "Velocity %.1f, Upright 0\n",
+                  kCorridorAvoidanceWeight, kCorridorClearanceMargin,
+                  kCorridorVelocityWeight);
       break;
     case Stage::kBalance:
       std::printf("  stage weights: Upright %.0f, Velocity %.1f\n",

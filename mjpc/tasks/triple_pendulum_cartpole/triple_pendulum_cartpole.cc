@@ -33,13 +33,18 @@ std::string TriplePendulumCartpole::Name() const {
 }
 
 void TriplePendulumCartpole::Corridor::Initialize(const mjModel* model) {
-  // link head sites, ordered base to tip
+  // link head sites, ordered base to tip, and the collision spheres they sit
+  // at the centre of (site names and geom names differ for the tip)
   const char* head_names[kNumLinks] = {"head1", "head2", "tip"};
+  const char* head_geom_names[kNumLinks] = {"head1", "head2", "head3"};
   for (int i = 0; i < kNumLinks; i++) {
     head_site_id[i] = mj_name2id(model, mjOBJ_SITE, head_names[i]);
     if (head_site_id[i] < 0) {
       mju_error_s("site '%s' not found", head_names[i]);
     }
+    int geom = mj_name2id(model, mjOBJ_GEOM, head_geom_names[i]);
+    if (geom < 0) mju_error_s("geom '%s' not found", head_geom_names[i]);
+    head_radius[i] = model->geom_size[3 * geom];
   }
 
   // disk obstacles: cylinders whose axis is along y, so geom_size[0] is the
@@ -60,7 +65,8 @@ double TriplePendulumCartpole::Corridor::Clearance(const mjData* data, int link,
   const double* disk = data->geom_xpos + 3 * obstacle_geom_id[obstacle];
   double dx = head[0] - disk[0];
   double dz = head[2] - disk[2];
-  return std::sqrt(dx * dx + dz * dz) - obstacle_radius[obstacle];
+  return std::sqrt(dx * dx + dz * dz) - obstacle_radius[obstacle] -
+         head_radius[link];
 }
 
 double TriplePendulumCartpole::Corridor::MinClearance(

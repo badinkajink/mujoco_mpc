@@ -54,17 +54,23 @@ class TriplePendulumCartpole : public Task {
     // resolve site and geom ids against the model; errors if any are missing
     void Initialize(const mjModel* model);
 
-    // Signed clearance of link head `link` from disk `obstacle`, measured in
-    // the x-z plane -- the disks are cylinders extruded along y, so the
-    // out-of-plane distance is not part of the constraint. Negative means the
-    // head is inside the disk.
+    // Signed surface-to-surface clearance of link head `link` from disk
+    // `obstacle`, in the x-z plane -- the disks are cylinders extruded along y,
+    // so the out-of-plane distance is not part of the constraint.
+    //
+    // Both radii are subtracted, so zero means the sphere is exactly touching
+    // the disk and negative is real overlap. That matters: measuring from the
+    // head's centre instead would put the cost's idea of "touching" a full head
+    // radius inside MuJoCo's, so the avoidance term would still read as
+    // clearance while the contact solver was already pushing back.
     double Clearance(const mjData* data, int link, int obstacle) const;
 
     // smallest clearance over every (head, disk) pair
     double MinClearance(const mjData* data) const;
 
-    // site ids of the three link heads (end of link 1, 2, 3)
+    // site ids and sphere radii of the three link heads (end of link 1, 2, 3)
     int head_site_id[kNumLinks] = {-1, -1, -1};
+    double head_radius[kNumLinks] = {0.0, 0.0, 0.0};
     // geom ids and radii of the disk obstacles
     int obstacle_geom_id[kNumObstacles] = {-1, -1};
     double obstacle_radius[kNumObstacles] = {0.0, 0.0};
