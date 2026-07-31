@@ -854,6 +854,24 @@ int RunDeployNode(const NodeConfig& cfg) {
       rh, rh == 2 ? "RIGHT" : rh == 1 ? "LEFT" : "auto",
       NUM("reach_radius", 0.46), NUM("reach_drop", 0.36),
       NUM("reach_com_back", 0.0), NUM("reach_brace_hold", 1.0));
+
+    // ---- LEAN GATE ECHO (2026-07-28). The line above covers strat 21 only, and
+    // that cost us: the 07-28 overnight batch produced ONE full-pipeline completion
+    // whose counterbalance_radius / brace_target_face values could not be recovered
+    // afterwards, because the driver lived in a scratchpad that was cleared and NO
+    // log recorded them. Every gate that changes lean behaviour is echoed here so a
+    // trace is always self-documenting. Printed only when the lean gates exist, so
+    // non-lean tasks keep their current header verbatim.
+    if (mj_name2id(g_model, mjOBJ_NUMERIC, "counterbalance_radius") >= 0) {
+      std::fprintf(stderr,
+        "[node] lean gates (LIVE numerics): counterbalance_radius=%.3f brace_target_face=%.0f "
+        "brace_press_depth=%.3f phase_ramp_sec=%.2f table_contact_exclusive=%.0f "
+        "com_x_offset_support=%.3f posture_leg_level=%.0f brace_gate_fix=%.0f\n",
+        NUM("counterbalance_radius", 0.0), NUM("brace_target_face", 0.0),
+        NUM("brace_press_depth", 0.06), NUM("phase_ramp_sec", 0.0),
+        NUM("table_contact_exclusive", 0.0), NUM("com_x_offset_support", 0.0),
+        NUM("posture_leg_level", 0.0), NUM("brace_gate_fix", 0.0));
+    }
   }
   std::fprintf(stderr,
                "[node] task='%s' nq=%d nv=%d nu=%d strategy=%d gravity_ff=%.2f ctrl_hz=%.0f\n",
