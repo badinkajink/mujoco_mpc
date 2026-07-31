@@ -389,6 +389,89 @@ cd ~/Desktop/h12/h1_mujoco
     </ul>
   </article>
 
+  <!-- ──────────────── ESTIMATOR VERSIONS CARD (2026-07-29) ──────────────── -->
+  <article id="est-versions" class="card card-hair p-6 space-y-4 scroll-mt-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <h2 class="display text-xl">E — Estimator versions v1→v4 + ArUco anchor</h2>
+      <span class="pill pill-sky">DROP-IN</span>
+      <span class="pill pill-amber">v4+tags: 0 real runs</span>
+    </div>
+    <p class="text-sm text-slate-300 leading-relaxed">
+      Four generations, <strong>identical wire contract</strong> (rt/lowstate in →
+      SportModeState_ out): in ANY recipe on this sheet, swap the T4 filename and nothing
+      else changes. All live in <code>mjpc/deploy/helper_scripts/</code>. Purpose of v4+tags:
+      <strong>estimator only</strong> — when load bearing degrades the planted-foot assumption,
+      the tag bundle is the drift-free anchor. Zero role in the lean pipeline.
+    </p>
+    <ul class="space-y-1.5 text-xs">
+      <li class="flex items-start gap-2"><span class="pill pill-sky mt-0.5">v1</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node.py</code> — shipped rw-ekf (default filter). The 112 s real record ran on this. Rollback of last resort. Opt-in: <code>--filter kf12</code>, <code>--zupt</code>.</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-amber mt-0.5">v2</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v2.py</code> — kf12 research branch. <strong>Refuted twice on the bench</strong>; parked until foot-force hardware. Do not deploy.</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v3</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v3.py</code> — rw-ekf + waist-fix + upright-gated ZUPT + slip monitor + stale guard. Grid A (90 s stand ×4 paired seeds): <span class="mono">v3 HELD 2/4 vs v1 0/4; both v3 holds v_err peak 0.05</span>. Frozen A/B baseline.</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v4</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v4.py</code> — <strong>THE node to run</strong>: v3 + aux bus (<code>rt/aux_odom</code>). No bridge running ⇒ byte-identical to v3 (selftest-proven). Bridges: <code>lio_bridge_node.py</code> (FAST-LIO velocity+xy, mode 1), <code>tag_bridge_node.py</code> (ArUco position-only, mode 2).</span></li>
+    </ul>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">swap rule + v4 flags + ArUco chain</span>
+      </div>
+<pre class="cmd"><span class="c"># ── SELFTESTS (offline, no robot/DDS — run before anything live)</span>
+cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
+~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v3.py --selftest   <span class="c"># PASS 6/6</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v4.py --selftest   <span class="c"># PASS 6/6 (incl no-aux==v3)</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python tag_bridge_node.py --selftest          <span class="c"># PASS 4/4</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python lio_bridge_node.py --selftest          <span class="c"># PASS 3/3</span>
+
+<span class="c"># ── THE SWAP RULE: any T4 on this sheet, change ONLY the filename</span>
+<span class="c">#    A1-style (ride-along, scored vs twin truth):</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/<span class="hl">base_estimator_node_v4.py</span> \
+  --no-auto-iface --out-topic rt/sportmodestate_est --compare
+<span class="c">#    A2/B-style (node balances on it): same swap, drop --compare; node keeps</span>
+<span class="c">#    --sportstate_topic rt/sportmodestate_est (twin) or the live topic (robot)</span>
+
+<span class="c"># ── v4 AUX-BUS FLAGS (defaults shown; v4 runs fine with NO bridge at all)</span>
+<span class="c">#   --aux-topic rt/aux_odom    --aux-age-max 0.2   (stale aux ignored → degrades to v3)</span>
+<span class="c">#   --aux-rv 0.05 --aux-chi2 11.34                 (velocity fuse gate, mode-1 sources)</span>
+<span class="c">#   --aux-xy-tau 2.0                               (xy anchor pull; 0 = velocity-only)</span>
+
+<span class="c"># ── ARUCO CHAIN (real robot) — needs: tags mounted per the LOCKED v3 layout,</span>
+<span class="c">#    REAL surveyed centres filled into ~/Desktop/h12/table_tags/table_tag_bundle.yaml</span>
+<span class="c"># T5  head camera (HAMS overlay)</span>
+source ~/Desktop/HAMS/core_ws/install/setup.bash
+ros2 launch cl_realsense h12_rs_cams.launch.py          <span class="c"># then: ros2 topic hz /realsense/head/color/image_raw/compressed ≈30</span>
+
+<span class="c"># T6  tag bridge → rt/aux_odom (mode 2 = position-only; v4 never fuses tag velocity)</span>
+source ~/Desktop/HAMS/core_ws/install/setup.bash
+PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
+python3 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/tag_bridge_node.py \
+  --bundle ~/Desktop/h12/table_tags/table_tag_bundle.yaml \
+  <span class="hl">--cam-pos 0.05 0.0 0.62 --cam-pitch-deg 55</span>   <span class="c"># ★PLACEHOLDERS — verify vs URDF: 1 cm error = 1 cm anchor bias</span>
+<span class="c">#    extrinsic check (once): move the TABLE a measured 10 cm → anchor xy must move 10±1 cm</span>
+
+<span class="c"># T4  v4 alongside (side topic first; watch: aux=ok(used N…), zupt %, upright=Y)</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node_v4.py \
+  --out-topic rt/sportmodestate_est
+
+<span class="c"># ── ARUCO IN SIM (faithful bench): twin on the tagged lean-table scene</span>
+<span class="c">#    CL_Assets branch `lean` → lean/scene_h1_2_lean_table.xml (7 tags render-verified,</span>
+<span class="c">#    surface 0.955, near edge 0.2975) + mujoco_ros_bridge head-cam topics + T6 + T4 as above</span>
+
+<span class="c"># ── LIO bridge (optional, mode 1: velocity + xy from FAST-LIO /Odometry)</span>
+<span class="c">#    start livox driver + FAST_LIO from HAMS first (⚠ MID360_config.json IP vs docs conflict)</span>
+PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
+python3 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/lio_bridge_node.py \
+  <span class="hl">--twist-frame world</span>   <span class="c"># verify: stand still, rotate waist → aux v must stay ~0</span></pre>
+    </div>
+    <ul class="space-y-1.5 text-xs">
+      <li class="flex items-start gap-2 text-emerald-200/90"><span class="pill pill-emer mt-0.5">rule</span><span class="leading-relaxed">bridges are OPTIONAL and crash-safe: dead bridge ⇒ v4 = v3 within 200 ms. One estimator publishes per topic — never two.</span></li>
+      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">scope</span><span class="leading-relaxed">tags/LIO feed the ESTIMATOR only. Brace targets, table position, stage logic stay config/model-driven — the lean pipeline never consumes bridge output.</span></li>
+      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">order</span><span class="leading-relaxed">side topic + --compare first (out-of-loop) → extrinsic check → only then --sportstate_topic rt/sportmodestate_est (in-loop), short fixed-window runs, v1 one command away as rollback.</span></li>
+    </ul>
+  </article>
+
   <!-- ──────────────── A3 CARD ──────────────── -->
   <article id="a3" class="card card-hair p-6 space-y-4 scroll-mt-6">
     <div class="flex flex-wrap items-center gap-3">

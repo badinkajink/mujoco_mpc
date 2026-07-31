@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  LAPTOP CycloneDDS config for talking to the HAMS ROS docker on the robot
+  (which runs rmw_cyclonedds_cpp, ROS_DOMAIN_ID=1, core_ws/cyclonedds.xml).
+  Used by est_bringup.sh via CYCLONEDDS_URI.
+
+  Same two protections as the robot's config:
+    - AllowMulticast=spdp: user data stays UNICAST. The robot's switch floods
+      multicast to every port incl. the locomotion PC, whose DDS chokes on
+      camera streams and stalls rt/lowstate for ~20s (measured 2026-07-10).
+    - 16MB receive buffer for sensor bursts (kernel clamps to
+      net.core.rmem_max; raise it for full effect:
+      sudo sysctl -w net.core.rmem_max=2147483647).
+
+  Plus one laptop-specific necessity: pin the WIRED robot NIC. With wifi up,
+  Cyclone would otherwise prefer the default-route (wifi) interface and never
+  discover the robot. If the USB-ethernet adapter's name changes, update it
+  here (ip -4 addr show | grep 192.168.123).
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+      <Interfaces>
+        <NetworkInterface name="enx00e04c681314" priority="default" multicast="default"/>
+      </Interfaces>
+    </General>
+    <Discovery>
+      <!-- Unicast discovery bootstrap: ping the robot's PCs directly instead
+           of relying on multicast SPDP crossing the robot's switch in both
+           directions (PC2 firmware reached us; PC4's camera node never did).
+           .161 = locomotion PC, .164 = PC4 (cameras / HAMS). -->
+      <Peers>
+        <Peer address="192.168.123.164"/>
+        <Peer address="192.168.123.161"/>
+      </Peers>
+    </Discovery>
+    <Internal>
+      <!-- REQUEST 16MB but never hard-fail: min= is a requirement in Cyclone
+           and aborts node creation when the kernel cap (net.core.rmem_max) is
+           lower -- which it is on a stock laptop. For the full 16MB run:
+           sudo sysctl -w net.core.rmem_max=2147483647 -->
+      <SocketReceiveBufferSize min="default" max="16MB"/>
+    </Internal>
+  </Domain>
+</CycloneDDS>
