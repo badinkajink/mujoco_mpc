@@ -35,3 +35,7 @@ MJDATA.TXT
 MJMODEL.TXT
 # Python
 python/dist/
+# Agent working scratch
+.superpowers/
+docs/plans/
+docs/specs/
