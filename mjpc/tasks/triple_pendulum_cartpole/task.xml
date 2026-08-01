@@ -29,6 +29,13 @@
     3-link system is chaotic and underactuated (nu = 1, nv = 4).
   -->
 
+  <!-- Offscreen framebuffer. The default 640x480 is too small to render a
+       12 m corridor legibly, and benchmark/filmstrip.py renders wide strips of
+       this scene. Affects rendering only, never the simulation. -->
+  <visual>
+    <global offwidth="1920" offheight="1080"/>
+  </visual>
+
   <option timestep="0.005" integrator="implicitfast">
     <flag contact="enable"/>
   </option>
@@ -52,7 +59,15 @@
          The library defaults disagree: SamplingPlanner, CrossEntropy and
          AnnealedSampling default to 10 trajectories but PSO defaults to 20
          particles, so leaving these unset silently hands PSO twice the
-         rollouts of everything it is being compared against. -->
+         rollouts of everything it is being compared against.
+
+         Two budget inequalities survive this and cannot be fixed from here;
+         both are measured in README.md:
+           - AnnealedSampling multiplies its budget by annealing_iterations
+             (default 4), so it runs 40 rollouts per planning iteration.
+           - PSO's exploration noise is the literal 0.1*ctrlrange in
+             InitializeParticles, half what sampling_exploration gives the
+             others. Worth 30 points of success rate on this task. -->
     <numeric name="sampling_trajectories" data="10" />
     <numeric name="pso_num_particles" data="10" />
 
