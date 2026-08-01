@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <string>
 
@@ -30,6 +31,13 @@ std::string TriplePendulumCartpole::XmlPath() const {
 }
 std::string TriplePendulumCartpole::Name() const {
   return "Triple Pendulum Cartpole";
+}
+
+std::string TriplePendulumCartpoleSlalom::XmlPath() const {
+  return GetModelPath("triple_pendulum_cartpole/slalom.xml");
+}
+std::string TriplePendulumCartpoleSlalom::Name() const {
+  return "Triple Pendulum Cartpole Slalom";
 }
 
 void TriplePendulumCartpole::Corridor::Initialize(const mjModel* model) {
@@ -47,15 +55,21 @@ void TriplePendulumCartpole::Corridor::Initialize(const mjModel* model) {
     head_radius[i] = model->geom_size[3 * geom];
   }
 
-  // disk obstacles: cylinders whose axis is along y, so geom_size[0] is the
-  // disk radius in the x-z plane
-  const char* obstacle_names[kNumObstacles] = {"obstacle_upper",
-                                               "obstacle_lower"};
-  for (int i = 0; i < kNumObstacles; i++) {
-    int id = mj_name2id(model, mjOBJ_GEOM, obstacle_names[i]);
-    if (id < 0) mju_error_s("geom '%s' not found", obstacle_names[i]);
-    obstacle_geom_id[i] = id;
-    obstacle_radius[i] = model->geom_size[3 * id];
+  // Disk obstacles: every geom whose name starts with "obstacle". They are
+  // cylinders whose axis is along y, so geom_size[0] is the disk radius in the
+  // x-z plane. Discovering them by name is what lets one corridor and a
+  // three-bottleneck slalom share this code, and it means adding a disk to an
+  // XML is enough to have it avoided and scored.
+  obstacle_geom_id.clear();
+  obstacle_radius.clear();
+  for (int id = 0; id < model->ngeom; id++) {
+    const char* name = mj_id2name(model, mjOBJ_GEOM, id);
+    if (!name || std::strncmp(name, "obstacle", 8) != 0) continue;
+    obstacle_geom_id.push_back(id);
+    obstacle_radius.push_back(model->geom_size[3 * id]);
+  }
+  if (obstacle_geom_id.empty()) {
+    mju_error("no geoms named 'obstacle*' found");
   }
 }
 
@@ -73,7 +87,7 @@ double TriplePendulumCartpole::Corridor::MinClearance(
     const mjData* data) const {
   double smallest = std::numeric_limits<double>::infinity();
   for (int i = 0; i < kNumLinks; i++) {
-    for (int j = 0; j < kNumObstacles; j++) {
+    for (int j = 0; j < NumObstacles(); j++) {
       smallest = std::min(smallest, Clearance(data, i, j));
     }
   }
@@ -129,7 +143,7 @@ void TriplePendulumCartpole::ResidualFn::Residual(const mjModel* model,
   // discontinuity) does not provide.
   double margin = parameters_[1];
   for (int i = 0; i < Corridor::kNumLinks; i++) {
-    for (int j = 0; j < Corridor::kNumObstacles; j++) {
+    for (int j = 0; j < corridor_.NumObstacles(); j++) {
       residual[counter++] =
           std::max(0.0, margin - corridor_.Clearance(data, i, j));
     }

@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
@@ -49,10 +50,17 @@ class TriplePendulumCartpole : public Task {
   // in one place is what makes them agree by construction.
   struct Corridor {
     static constexpr int kNumLinks = 3;
-    static constexpr int kNumObstacles = 2;
 
-    // resolve site and geom ids against the model; errors if any are missing
+    // Resolve site and geom ids against the model; errors if any are missing.
+    //
+    // The obstacles are discovered by name -- every geom called "obstacle*" --
+    // rather than fixed at two. A corridor with several bottlenecks is the
+    // same task with more disks in it, and the residual, the collision metric
+    // and the renderer should all pick them up from the model instead of each
+    // carrying its own idea of how many there are.
     void Initialize(const mjModel* model);
+
+    int NumObstacles() const { return obstacle_geom_id.size(); }
 
     // Signed surface-to-surface clearance of link head `link` from disk
     // `obstacle`, in the x-z plane -- the disks are cylinders extruded along y,
@@ -71,9 +79,9 @@ class TriplePendulumCartpole : public Task {
     // site ids and sphere radii of the three link heads (end of link 1, 2, 3)
     int head_site_id[kNumLinks] = {-1, -1, -1};
     double head_radius[kNumLinks] = {0.0, 0.0, 0.0};
-    // geom ids and radii of the disk obstacles
-    int obstacle_geom_id[kNumObstacles] = {-1, -1};
-    double obstacle_radius[kNumObstacles] = {0.0, 0.0};
+    // geom ids and radii of the disk obstacles, in model order
+    std::vector<int> obstacle_geom_id;
+    std::vector<double> obstacle_radius;
   };
 
   class ResidualFn : public BaseResidualFn {
@@ -82,12 +90,14 @@ class TriplePendulumCartpole : public Task {
         : BaseResidualFn(task) {}
 
     // ------- Residuals for triple pendulum cartpole ------
-    //   Number of residuals: 15
+    //   Number of residuals: 9 + 3 * (number of obstacle geoms)
     //     Residual (0):     cart position error to the goal
     //     Residual (1-3):   per-link deviation from upright, cos(theta_i) - 1
     //     Residual (4-7):   joint velocities
     //     Residual (8):     control
-    //     Residual (9-14):  obstacle avoidance, 3 link heads x 2 obstacles
+    //     Residual (9-):    obstacle avoidance, 3 link heads x each obstacle
+    //   The Avoidance sensor's `dim` in the XML has to match the last block,
+    //   which is what CheckSensorDim verifies.
     // -----------------------------------------------------
     void Residual(const mjModel* model, const mjData* data,
                   double* residual) const override;
@@ -109,6 +119,25 @@ class TriplePendulumCartpole : public Task {
 
  private:
   ResidualFn residual_;
+};
+
+// The same cart and pendulum, threading three bottlenecks instead of one.
+//
+// One corridor asks whether a planner can lay the pendulum out and drive
+// through a gap. Three ask a different question: after the first gap the
+// pendulum is out of the goal configuration and swinging, and the cart is
+// already committed to the next gap. Solving each bottleneck greedily as it
+// arrives is not enough, because the posture that clears one is not the
+// posture the next one needs, and the planning horizon is roughly the time
+// between them. This is where a horizon that only sees the current gap starts
+// to cost success rate -- see --horizon in the benchmark.
+//
+// Everything else is the base task: same physics, same actuator limit, same
+// residual, only more disks and a farther goal.
+class TriplePendulumCartpoleSlalom : public TriplePendulumCartpole {
+ public:
+  std::string Name() const override;
+  std::string XmlPath() const override;
 };
 
 }  // namespace mjpc
