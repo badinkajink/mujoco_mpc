@@ -70,6 +70,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<QuadrupedHill>(),
       std::make_shared<Swimmer>(),
       std::make_shared<TriplePendulumCartpole>(),
+      std::make_shared<TriplePendulumCartpoleSlalom>(),
       std::make_shared<Walker>(),
   };
 }
