@@ -54,15 +54,36 @@ class System:
 
         self.head_site = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, s)
                           for s in ("head1", "head2", "tip")]
+        # Discover obstacles by the "obstacle" name prefix rather than by the
+        # two names task.xml happens to use, so slalom.xml's six disks are
+        # found too. This is the same rule Corridor::Initialize applies in the
+        # MJPC task, so the tree and the residual see the same world.
         self.obstacle_geom = [
-            mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, s)
-            for s in ("obstacle_upper", "obstacle_lower")]
+            g for g in range(m.ngeom)
+            if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or "")
+            .startswith("obstacle")]
         self.obstacle_radius = [m.geom_size[g][0] for g in self.obstacle_geom]
 
-        self.goal_x = 6.0
+        # Goal and avoidance margin come from the model's <custom> numerics,
+        # the same place the MJPC residual reads them, so pointing --xml at a
+        # different world moves the goal with it.
+        self.goal_x = self.numeric("residual_Goal", 6.0)
+        self.clearance_param = self.numeric("residual_Clearance", 0.08)
+
+        # The cart's own joint range is the state-space box to sample over;
+        # hard-coding it would silently truncate a longer corridor.
+        slider = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, "slider")
+        self.cart_range = tuple(m.jnt_range[slider])
         # scratch mjData reused by the hot paths, so the tree loop does not
         # allocate one per steering evaluation
         self._data = mujoco.MjData(m)
+
+    def numeric(self, name, default):
+        """First element of a <custom><numeric>, or `default` if absent."""
+        i = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_NUMERIC, name)
+        if i < 0:
+            return default
+        return float(self.model.numeric_data[self.model.numeric_adr[i]])
 
     def set_state(self, data, x):
         data.qpos[:] = x[:self.nq]
@@ -295,7 +316,8 @@ class AgileRRT:
         if self.rng.random() < self.args.goal_bias:
             return self.x_goal.copy()
         x = np.empty(self.sys.n)
-        x[0] = self.rng.uniform(-0.5, 7.0)              # cart
+        lo, hi = self.sys.cart_range
+        x[0] = self.rng.uniform(lo, hi)                  # cart
         x[1:4] = self.rng.uniform(-np.pi, np.pi, 3)     # link angles
         x[4] = self.rng.uniform(-4.0, 4.0)              # cart velocity
         x[5:8] = self.rng.uniform(-8.0, 8.0, 3)         # link rates
@@ -412,7 +434,7 @@ def replay_and_dump(sys, controls, path):
     W = {name: m.sensor_user[
              mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SENSOR, name)][1]
          for name in ("Cart", "Upright", "Velocity", "Control", "Avoidance")}
-    clearance_param = 0.08
+    clearance_param = sys.clearance_param
 
     rows = []
     for k in range(len(controls) + 1):
