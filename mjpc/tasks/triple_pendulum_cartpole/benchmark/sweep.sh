@@ -27,7 +27,7 @@ VARIANTS=(
   "pso:7:--pso_publish_evaluated=1"
   "pso_stock:7:--pso_publish_evaluated=0"
   "annealed_sampling:8:"
-  "random_shooting:9:"
+  "random_sampling:9:"
 )
 STAGES=(corridor balance combined)
 
