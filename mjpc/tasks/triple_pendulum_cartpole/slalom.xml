@@ -1,0 +1,179 @@
+<mujoco model="Triple Pendulum Cartpole Slalom">
+  <include file="../common.xml"/>
+
+  <!--
+    Triple pendulum on a cart, threading THREE obstacle bottlenecks.
+
+    Same system as task.xml (Caldwell & Correll, ISRR 2015, Section 5) with the
+    same physical parameters, the same single 20 N cart actuator, and the same
+    residual. The only change is the world: three gaps instead of one, and a
+    goal beyond the last of them.
+
+      bottleneck 1   x = 3.0   gap 0.50 m   (disks at z = +/-0.85)
+      bottleneck 2   x = 6.0   gap 0.50 m
+      bottleneck 3   x = 9.0   gap 0.50 m
+      goal           x = 11.0
+
+    Why this shape:
+
+    The first bottleneck is the paper's, unmoved. Everything up to x = 3 is
+    therefore the single-corridor task exactly, so a planner that clears gap 1
+    here at the rate it clears the corridor there has been slowed down by
+    nothing except what comes after it: the comparison isolates the extra
+    bottlenecks instead of confounding them with a different approach run.
+
+    Identical gaps for the same reason. Narrowing the later gaps would make the
+    task harder in a way that has nothing to do with chaining, and the question
+    here is chaining. All three are the paper's 0.5 m.
+
+    Spacing of 3 m is about 0.8-1.0 s of travel at the speeds the cart reaches,
+    which straddles the default 1 s planning horizon. So the horizon barely
+    reaches the next gap while the planner is committing to the posture for
+    this one: and the posture that clears a gap is not one the pendulum stays
+    in, since it is chaotic and already swinging by the time the next gap
+    arrives. Raising agent_horizon (or the benchmark's horizon flag) gives that
+    lookahead back, which is what makes the horizon sweep measure something.
+
+    Every gap stays centred on the rail. Offsetting one vertically would look
+    like more variety but would put a disk surface within a few centimetres of
+    the hinge at z = 0, so the *rod* would have to thread a gap the avoidance
+    residual (which watches the three heads) does not measure: the task would
+    then be scored on something other than what it asks for.
+  -->
+
+  <!-- Offscreen framebuffer. The default 640x480 is too small to render a
+       12 m corridor legibly, and benchmark/filmstrip.py renders wide strips of
+       this scene. Affects rendering only, never the simulation. -->
+  <visual>
+    <global offwidth="1920" offheight="1080"/>
+  </visual>
+
+  <option timestep="0.005" integrator="implicitfast">
+    <flag contact="enable"/>
+  </option>
+
+  <size memory="1M"/>
+
+  <custom>
+    <!-- agent -->
+    <numeric name="agent_planner" data="0" />
+    <numeric name="agent_horizon" data="1.0" />
+    <numeric name="agent_timestep" data="0.005" />
+    <numeric name="agent_policy_width" data="0.0035" />
+
+    <!-- sampling / cross-entropy / pso share these -->
+    <numeric name="sampling_spline_points" data="12" />
+    <numeric name="sampling_exploration" data="0.4" />
+    <numeric name="sampling_representation" data="1" />
+    <numeric name="gradient_spline_points" data="12" />
+
+    <!-- Same rollout budget for every planner; see task.xml. -->
+    <numeric name="sampling_trajectories" data="10" />
+    <numeric name="pso_num_particles" data="10" />
+    <numeric name="pso_publish_evaluated" data="1" />
+
+    <!-- DIAL-MPC annealing. Stated here rather than left to the planner's
+         defaults because beta_action is coupled to agent_horizon: the
+         action-level schedule is exp(-(H-1-h)/(beta*H)) over knot *index*, so
+         it rescales itself to whatever H is, and a longer horizon silently
+         reduces the noise on the knots that actually get executed. Raise it
+         with the horizon; the benchmark's beta_action flag overrides it. -->
+    <numeric name="annealing_iterations" data="4" />
+    <numeric name="annealing_beta_trajectory" data="0.5" />
+    <numeric name="annealing_beta_action" data="0.5" />
+
+    <!-- goal cart position, past the last bottleneck -->
+    <numeric name="residual_Goal" data="11.0 -1.0 13.0" />
+    <!-- clearance (m) added to the obstacle radius before the avoidance cost
+         starts charging. Must stay well under the half-gap (0.25 m) or the
+         hinge is active right across the gap and the cost becomes a wall
+         rather than a barrier around the disks. -->
+    <numeric name="residual_Clearance" data="0.08 0.0 0.2" />
+  </custom>
+
+  <default>
+    <default class="link">
+      <joint type="hinge" axis="0 1 0" limited="false" damping="0.0"/>
+      <geom type="capsule" size="0.012" mass="0" material="self"
+            contype="1" conaffinity="2"/>
+    </default>
+    <default class="head">
+      <geom type="sphere" size="0.028" mass="0.1" material="effector"
+            contype="1" conaffinity="2"/>
+    </default>
+    <default class="obstacle">
+      <geom type="cylinder" size="0.6 0.05" quat="0.7071068 0.7071068 0 0"
+            rgba=".85 .15 .15 1" contype="2" conaffinity="1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light pos="0 -2 4" dir="0 .4 -1" diffuse=".8 .8 .8"/>
+
+    <geom name="rail" type="capsule" fromto="-1.2 0 0  12.2 0 0" size="0.018"
+          material="decoration" contype="0" conaffinity="0"/>
+
+    <site name="start" pos="0 0 0" size="0.04" rgba=".3 .3 .3 .5"/>
+    <site name="goal"  pos="11 0 0" size="0.05" material="target"/>
+
+    <!-- three bottlenecks. Names must start with "obstacle": Corridor::
+         Initialize discovers them by that prefix, and the Avoidance residual
+         dimension below has to match 3 links x 6 disks. -->
+    <geom name="obstacle_1_upper" class="obstacle" pos="3 0  0.85"/>
+    <geom name="obstacle_1_lower" class="obstacle" pos="3 0 -0.85"/>
+    <geom name="obstacle_2_upper" class="obstacle" pos="6 0  0.85"/>
+    <geom name="obstacle_2_lower" class="obstacle" pos="6 0 -0.85"/>
+    <geom name="obstacle_3_upper" class="obstacle" pos="9 0  0.85"/>
+    <geom name="obstacle_3_lower" class="obstacle" pos="9 0 -0.85"/>
+
+    <body name="cart" pos="0 0 0">
+      <joint name="slider" type="slide" axis="1 0 0" range="-1 13" limited="true"
+             damping="0.0"/>
+      <geom name="cart" type="box" size="0.09 0.06 0.045" mass="1.0"
+            material="self" contype="0" conaffinity="0"/>
+
+      <body name="link1" childclass="link">
+        <joint name="hinge1"/>
+        <geom name="rod1" fromto="0 0 0  0 0 0.333333"/>
+        <geom name="head1" class="head" pos="0 0 0.333333"/>
+        <site name="head1" pos="0 0 0.333333" size="0.01" rgba="1 1 1 0"/>
+
+        <body name="link2" pos="0 0 0.333333">
+          <joint name="hinge2"/>
+          <geom name="rod2" fromto="0 0 0  0 0 0.333333"/>
+          <geom name="head2" class="head" pos="0 0 0.333333"/>
+          <site name="head2" pos="0 0 0.333333" size="0.01" rgba="1 1 1 0"/>
+
+          <body name="link3" pos="0 0 0.333333">
+            <joint name="hinge3"/>
+            <geom name="rod3" fromto="0 0 0  0 0 0.333333"/>
+            <geom name="head3" class="head" pos="0 0 0.333333"/>
+            <site name="tip" pos="0 0 0.333333" size="0.02" rgba="1 1 1 0"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="slide" joint="slider" ctrlrange="-20 20" gear="1"/>
+  </actuator>
+
+  <sensor>
+    <!-- cost terms: norm type, weight, weight range..., norm params.
+         Avoidance is 3 link heads x 6 disks = 18. -->
+    <user name="Cart"      dim="1"  user="0 10.0  0.0 100.0"/>
+    <user name="Upright"   dim="3"  user="0 20.0  0.0 100.0"/>
+    <user name="Velocity"  dim="4"  user="0  0.1  0.0  10.0"/>
+    <user name="Control"   dim="1"  user="0  0.01 0.0   1.0"/>
+    <user name="Avoidance" dim="18" user="0 50.0  0.0 500.0"/>
+
+    <framepos name="trace0" objtype="site" objname="tip"/>
+  </sensor>
+
+  <keyframe>
+    <key name="home" qpos="0 0 0 0" qvel="0 0 0 0"/>
+    <key name="hanging" qpos="0 3.14159265 3.14159265 3.14159265"
+         qvel="0 0 0 0"/>
+  </keyframe>
+</mujoco>
