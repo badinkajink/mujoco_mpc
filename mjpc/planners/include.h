@@ -33,7 +33,7 @@ enum PlannerType : int {
   kSampleGradientPlanner,
   kPSOPlanner,
   kAnnealedSamplingPlanner,
-  kRandomShootingPlanner,
+  kRandomSamplingPlanner,
 };
 
 // Planner names, separated by '\n'.

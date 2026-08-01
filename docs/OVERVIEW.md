@@ -309,7 +309,7 @@ algorithm to the source lines and to measured results:
   - MPPI-weighted update instead of best-of-n
   - several refinement stages per control step, noise annealed over stages and
     over the horizon; costs `annealing_iterations` × the rollouts of the others
-- **Random Shooting** — [`RANDOM_SHOOTING.md`](../mjpc/planners/random_shooting/RANDOM_SHOOTING.md)
+- **Random Sampling** — [`RANDOM_SAMPLING.md`](../mjpc/planners/random_sampling/RANDOM_SAMPLING.md)
   - Predictive Sampling with the warm start removed: samples around zero control
   - the experiment control for every planner above
 
@@ -332,4 +332,3 @@ This includes:
 - mocap: `data->mocap`
 - userdata: `data->userdata`
 - time: `data->time`
-

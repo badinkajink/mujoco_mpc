@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MJPC_PLANNERS_RANDOM_SHOOTING_PLANNER_H_
-#define MJPC_PLANNERS_RANDOM_SHOOTING_PLANNER_H_
+#ifndef MJPC_PLANNERS_RANDOM_SAMPLING_PLANNER_H_
+#define MJPC_PLANNERS_RANDOM_SAMPLING_PLANNER_H_
 
 #include "mjpc/planners/sampling/planner.h"
 #include "mjpc/threadpool.h"
 
 namespace mjpc {
 
-// Memoryless random shooting: the control-baseline for every sampling planner
+// Memoryless random sampling: the control-baseline for every sampling planner
 // in this repo.
 //
 // MJPC's SamplingPlanner is Predictive Sampling, not MPPI -- it takes the
@@ -35,10 +35,10 @@ namespace mjpc {
 // each iteration, so every rollout is drawn afresh around zero control. Any
 // planner that fails to beat it is not searching, it is coasting on its own
 // previous answer.
-class RandomShootingPlanner : public SamplingPlanner {
+class RandomSamplingPlanner : public SamplingPlanner {
  public:
-  RandomShootingPlanner() = default;
-  ~RandomShootingPlanner() override = default;
+  RandomSamplingPlanner() = default;
+  ~RandomSamplingPlanner() override = default;
 
   // discard the incumbent, then run one ordinary sampling iteration
   int OptimizePolicyCandidates(int ncandidates, int horizon,
@@ -47,4 +47,4 @@ class RandomShootingPlanner : public SamplingPlanner {
 
 }  // namespace mjpc
 
-#endif  // MJPC_PLANNERS_RANDOM_SHOOTING_PLANNER_H_
+#endif  // MJPC_PLANNERS_RANDOM_SAMPLING_PLANNER_H_

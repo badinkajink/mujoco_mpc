@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mjpc/planners/random_shooting/planner.h"
+#include "mjpc/planners/random_sampling/planner.h"
 
 #include <mutex>
 #include <shared_mutex>
@@ -23,7 +23,7 @@
 
 namespace mjpc {
 
-int RandomShootingPlanner::OptimizePolicyCandidates(int ncandidates,
+int RandomSamplingPlanner::OptimizePolicyCandidates(int ncandidates,
                                                     int horizon,
                                                     ThreadPool& pool) {
   // Drop the incumbent. SamplingPlanner::OptimizePolicyCandidates starts by

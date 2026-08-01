@@ -36,7 +36,7 @@ MPPI update, with one systematic scaling deviation and one budget hazard.**
    planner.** `OptimizePolicy` runs the full sample-rollout-update loop `N` times
    per planning iteration ([planner.cc:187-214](planner.cc#L187-L214)), so with
    the defaults it does 10 × 4 = 40 rollouts where Predictive Sampling, PSO,
-   Cross-Entropy and Random Shooting each do 10. Any comparison that does not
+   Cross-Entropy and Random Sampling each do 10. Any comparison that does not
    account for this is comparing budgets, not algorithms. See
    [Measured behaviour](#measured-behaviour).
 
@@ -196,7 +196,7 @@ comparison of this planner with the others:
 
 | planner | rollouts / planning iteration |
 |---|---|
-| Predictive Sampling, Cross-Entropy, PSO, Random Shooting | 10 |
+| Predictive Sampling, Cross-Entropy, PSO, Random Sampling | 10 |
 | **Annealed Sampling** | **10 × `annealing_iterations` = 40** |
 
 To compare like with like, either set `annealing_iterations=1` (which reduces
@@ -255,7 +255,7 @@ mjpc/tasks/triple_pendulum_cartpole/benchmark/cartpole_costs.sh 10 3
 | **Annealed Sampling** | **0.765** | **0.760** | **0.752** |
 | PSO | 0.828 | 0.779 | 0.833 |
 | Predictive Sampling | 0.901 | 0.956 | 0.947 |
-| Random Shooting | 0.961 | 0.945 | 0.975 |
+| Random Sampling | 0.961 | 0.945 | 0.975 |
 | Cross-Entropy | 8.39 | 11.41 | 15.71 |
 
 Here it wins, and by a margin larger than the run-to-run spread. Read the two
