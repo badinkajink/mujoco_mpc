@@ -296,6 +296,27 @@ This library includes multiple planners that use different techniques to perform
   - requires gradients and Hessians
   - direct representation for controls
 
+Planners added in this fork, each with a teardown that binds the published
+algorithm to the source lines and to measured results:
+
+- **Particle Swarm Optimization** — [`PSO.md`](../mjpc/planners/pso/PSO.md)
+  - all properties of Predictive Sampling
+  - particles carry a velocity and are pulled toward personal and global bests
+  - *currently degenerate: the swarm state is discarded every iteration, so it
+    reduces to Predictive Sampling. See the teardown's verdict.*
+- **Annealed Sampling (DIAL-MPC)** — [`ANNEALED_SAMPLING.md`](../mjpc/planners/annealed_sampling/ANNEALED_SAMPLING.md)
+  - all properties of Predictive Sampling
+  - MPPI-weighted update instead of best-of-n
+  - several refinement stages per control step, noise annealed over stages and
+    over the horizon; costs `annealing_iterations` × the rollouts of the others
+- **Random Shooting** — [`RANDOM_SHOOTING.md`](../mjpc/planners/random_shooting/RANDOM_SHOOTING.md)
+  - Predictive Sampling with the warm start removed: samples around zero control
+  - the experiment control for every planner above
+
+The planner comparison these were built for is the
+[triple pendulum cartpole](../mjpc/tasks/triple_pendulum_cartpole/README.md)
+obstacle corridor.
+
 ## State
 
 Rollouts are performed after setting both the simulation and initialization states.
