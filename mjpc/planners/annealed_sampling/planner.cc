@@ -182,7 +182,12 @@ int AnnealedSamplingPlanner::OptimizePolicyCandidates(int ncandidates,
 void AnnealedSamplingPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
   int N = std::max(num_annealing_iters_, 1);
 
-  auto policy_update_start = std::chrono::steady_clock::now();
+  // Timers are per-part, not cumulative over the whole call. Reported as one
+  // total they would say "the iteration is 100% policy update", which is both
+  // useless in the GUI plot and wrong: nearly all of it is the N x
+  // num_trajectory rollouts below.
+  rollouts_compute_time = 0.0;
+  double update_time = 0.0;
 
   for (int iter = 0; iter < N; iter++) {
     // store annealing state for AddNoiseToPolicy
@@ -196,7 +201,9 @@ void AnnealedSamplingPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
     ResizeMjData(model, pool.NumThreads());
 
     policy.plan.SetInterpolation(interpolation_);
+    auto rollouts_start = std::chrono::steady_clock::now();
     this->Rollouts(num_trajectory, horizon, pool);
+    rollouts_compute_time += GetDuration(rollouts_start);
 
     // sort all trajectories by cost
     trajectory_order.clear();
@@ -210,7 +217,9 @@ void AnnealedSamplingPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
               });
 
     // MPPI-weighted update
+    auto update_start = std::chrono::steady_clock::now();
     MPPIUpdate(num_trajectory);
+    update_time += GetDuration(update_start);
   }
 
   // compute improvement: compare nominal (trajectory[0]) to best
@@ -218,7 +227,7 @@ void AnnealedSamplingPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
   double best_return = trajectory[0].total_return;
   improvement = mju_max(best_return - trajectory[winner].total_return, 0.0);
 
-  policy_update_compute_time = GetDuration(policy_update_start);
+  policy_update_compute_time = update_time;
 }
 
 // MPPI cost-weighted policy update
