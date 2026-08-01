@@ -35,10 +35,17 @@ import mujoco
 from PIL import Image, ImageDraw
 
 
-def default_xml():
+def task_xml(task):
+    """Model file for a dump's `# task=` header.
+
+    The dump names the world it was run in, so a slalom rollout cannot be
+    rendered against the single-corridor task.xml -- which would draw one
+    bottleneck where the run had three and put the goal 5 m short.
+    """
     here = pathlib.Path(__file__).resolve()
     # .../triple_pendulum_cartpole/benchmark/ -> .../triple_pendulum_cartpole/
-    return str(here.parents[1] / "task.xml")
+    root = here.parents[1]
+    return str(root / ("slalom.xml" if task == "slalom" else "task.xml"))
 
 
 def load_dump(path):
@@ -61,7 +68,7 @@ def load_dump(path):
     if not rows:
         sys.exit(f"empty dump: {path}")
     cols = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
-    return cols, meta.get("stage")
+    return cols, meta
 
 
 def pick_frames(d, n, explicit=None):
@@ -168,7 +175,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dump", required=True, help="corridor_benchmark --dump CSV")
-    p.add_argument("--xml", default=default_xml())
+    p.add_argument("--xml", default=None,
+                   help="model to render against. Defaults to the file named "
+                        "by the dump's `# task=` header.")
+    p.add_argument("--task", default=None, choices=["corridor", "slalom"],
+                   help="world the dump came from. Read from the dump's "
+                        "`# task=` header by default; pass this only to "
+                        "override it or for dumps written before the header "
+                        "existed.")
     p.add_argument("--out", default=None, help="filmstrip PNG path")
     p.add_argument("--video", default=None, help="optional MP4 path")
     p.add_argument("--at", default=None,
@@ -200,9 +214,11 @@ def main():
                         "existed.")
     args = p.parse_args()
 
-    d, dump_stage = load_dump(args.dump)
-    stage = args.stage or dump_stage
-    model = mujoco.MjModel.from_xml_path(args.xml)
+    d, meta = load_dump(args.dump)
+    stage = args.stage or meta.get("stage")
+    task = args.task or meta.get("task", "corridor")
+    xml = args.xml or task_xml(task)
+    model = mujoco.MjModel.from_xml_path(xml)
 
     # corridor_benchmark's balance stage moves the disks out of the plane of
     # motion and clears their contact bits. filmstrip.py reloads task.xml from
@@ -210,9 +226,9 @@ def main():
     # that was not in the simulation being replayed. The dumped min_clearance
     # (~1413 m) is the tell.
     if stage == "balance":
-        for name in ("obstacle_upper", "obstacle_lower"):
-            g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
-            if g >= 0:
+        for g in range(model.ngeom):
+            name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, g)
+            if name and name.startswith("obstacle"):
                 model.geom_pos[g] = [1e3, 0.0, 1e3]
                 model.geom_contype[g] = 0
                 model.geom_conaffinity[g] = 0
@@ -227,7 +243,8 @@ def main():
     # ---------- the numbers that pair with the picture ----------
     cosmin = np.minimum.reduce([np.cos(d["th1"]), np.cos(d["th2"]), np.cos(d["th3"])])
     print(f"dump: {args.dump}   {len(d['step'])} steps, "
-          f"{d['time'][-1]:.2f} s simulated   stage: {stage or 'unspecified'}")
+          f"{d['time'][-1]:.2f} s simulated   task: {task}   "
+          f"stage: {stage or 'unspecified'}")
     print(f"  cart:  start {d['cart'][0]:+.3f}  max {d['cart'].max():+.3f}  "
           f"final {d['cart'][-1]:+.3f}")
     print(f"  worst cos(theta) at end: {cosmin[-1]:+.3f}   "
