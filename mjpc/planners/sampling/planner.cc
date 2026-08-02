@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <random>
 #include <shared_mutex>
 
 #include <absl/random/random.h>
@@ -36,6 +38,20 @@ namespace mjpc {
 namespace mju = ::mujoco::util_mjpc;
 using mjpc::spline::SplineInterpolation;
 using mjpc::spline::TimeSpline;
+
+namespace {
+
+// SplitMix64. Turns a counter into a well-distributed 64-bit value; used to
+// derive an independent noise stream per (seed, iteration, candidate) without
+// having to keep one generator object per candidate.
+std::uint64_t SplitMix64(std::uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
+}  // namespace
 
 // initialize data and settings
 void SamplingPlanner::Initialize(mjModel* model, const Task& task) {
@@ -66,6 +82,11 @@ void SamplingPlanner::Initialize(mjModel* model, const Task& task) {
   interpolation_ = GetNumberOrDefault(SplineInterpolation::kCubicSpline, model,
                                       "sampling_representation");
   sliding_plan_ = GetNumberOrDefault(0, model, "sampling_sliding_plan");
+
+  // Seed for the sampling noise; 0 means "draw from entropy", which is the
+  // historical behaviour and the only one appropriate for interactive use.
+  rng_seed_ = static_cast<std::uint64_t>(
+      GetNumberOrDefault(0.0, model, "sampling_seed"));
 
   if (num_trajectory_ > kMaxTrajectory) {
     mju_error_i("Too many trajectories, %d is the maximum allowed.",
@@ -124,6 +145,8 @@ void SamplingPlanner::Reset(int horizon,
 
   // noise
   std::fill(noise.begin(), noise.end(), 0.0);
+  // rewind the noise stream, so a seeded run replays from the top
+  iteration_ = 0;
 
   // trajectory samples
   for (int i = 0; i < kMaxTrajectory; i++) {
@@ -327,8 +350,16 @@ void SamplingPlanner::AddNoiseToPolicy(double start_time, int i) {
   // start timer
   auto noise_start = std::chrono::steady_clock::now();
 
-  // sampling token
-  absl::BitGen gen_;
+  // Sampling token. With a seed set, the stream is a pure function of
+  // (seed, iteration, candidate): candidate i draws the same noise however the
+  // thread pool happens to interleave the candidates, so the whole run replays.
+  // With no seed, fall back to a per-thread entropy-seeded generator -- same
+  // non-reproducibility as before, minus the per-call construction cost.
+  static thread_local std::mt19937_64 entropy_gen(std::random_device{}());
+  std::mt19937_64 gen_(
+      rng_seed_ ? SplitMix64(SplitMix64(rng_seed_ + iteration_) +
+                             static_cast<std::uint64_t>(i))
+                : entropy_gen());
 
   // get standard deviation, fixed or mixture of noise_exploration[0,1]
   double std = noise_exploration[0];
@@ -356,6 +387,11 @@ void SamplingPlanner::Rollouts(int num_trajectory, int horizon,
                                ThreadPool& pool) {
   // reset noise compute time
   noise_compute_time = 0.0;
+
+  // Advance the noise stream. Done here, on the calling thread, before any
+  // candidate is scheduled, so every candidate of this iteration keys off the
+  // same value.
+  iteration_++;
 
   // random search
   int count_before = pool.GetCount();

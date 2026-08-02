@@ -158,6 +158,19 @@ mjpc::spline::SplineInterpolation interpolation_ =
   // If true, use sliding plans (no resampling)
   std::uint8_t sliding_plan_ = false;
 
+  // ----- sampling noise reproducibility ----- //
+  // Seed for the noise stream, from the "sampling_seed" custom numeric. Zero --
+  // the default -- keeps the historical behaviour of drawing from system
+  // entropy, so a run is not reproducible. Any non-zero value makes the noise a
+  // pure function of (seed, iteration, candidate), which is what lets a
+  // benchmark row be re-run and land on the same number.
+  std::uint64_t rng_seed_ = 0;
+
+  // Counts calls to Rollouts. Part of the noise stream key so that candidate i
+  // gets the same noise regardless of the order the thread pool happens to run
+  // the candidates in -- without this the seed alone would not be enough.
+  std::uint64_t iteration_ = 0;
+
   int num_trajectory_;
   mutable std::shared_mutex mtx_;
 };
