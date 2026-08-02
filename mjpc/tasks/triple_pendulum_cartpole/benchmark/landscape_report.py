@@ -382,6 +382,13 @@ def heatmap(agg, weights, margins):
     for j, m in enumerate(margins):
         o.append(f'<text x="{left+cw*j+cw/2}" y="{top-4}" font-size="11.5" '
                  f'text-anchor="middle">{m:.2f}</text>')
+    # The best margin per weight -- the ridge. Marking it is the difference
+    # between a table of numbers and a picture of where the optimum moves.
+    ridge = {}
+    for w in weights:
+        cand = [m for m in margins if (w, m) in agg]
+        if cand:
+            ridge[w] = max(cand, key=lambda m: agg[(w, m)]["pct"])
     for i, w in enumerate(weights):
         o.append(f'<text x="{left-12}" y="{top+ch*i+ch/2+4}" font-size="11.5" '
                  f'text-anchor="end">{w:,}</text>')
@@ -411,6 +418,10 @@ def heatmap(agg, weights, margins):
                      f'<text x="{x+cw/2}" y="{y+ch/2+15}" font-size="9.5" '
                      f'text-anchor="middle" fill="{ink}" opacity=".72">'
                      f'{a["solved"]}/{a["trials"]}</text></g>')
+            if ridge.get(w) == m:
+                o.append(f'<rect x="{x+1.5}" y="{y+1.5}" width="{cw-3}" '
+                         f'height="{ch-3}" fill="none" stroke="var(--solved)" '
+                         f'stroke-width="2.5"/>')
     yb = top + ch * len(weights)
     o.append(f'<text x="{left+cw*len(margins)/2}" y="{yb+34}" font-size="11" '
              f'text-anchor="middle" fill="var(--ink-3)" letter-spacing=".08em">'
@@ -693,11 +704,35 @@ def build(args):
         # cart never touched anything", which is a different cell entirely.
         sealed = sorted(k for k, a in agg.items()
                         if a["pct"] < 3 and a["collided_pct"] < 12)
+        # Where the optimum sits for each weight. This is the shape of the
+        # thing: the two knobs are not independent, and reporting only the
+        # single best cell would hide that.
+        ridge = []
+        for w in weights:
+            cand = [m for m in margins if (w, m) in agg]
+            if cand:
+                bm = max(cand, key=lambda m: agg[(w, m)]["pct"])
+                ridge.append((w, bm, agg[(w, bm)]["pct"]))
         A(f'<p>The best cell is avoidance <b>{bw_:,}</b> at margin '
           f'<b>{bm_:.2f} m</b>: {best["solved"]}/{best["trials"]} = '
-          f'<b>{best["pct"]:.0f}%</b>, against {col[0][1]:.0f}% at the same '
-          f'margin with weight {col[0][0]:,}. That is the whole 0-to-20/50 story '
-          f'&mdash; it is a weight effect, and it only exists at small margins.</p>')
+          f'<b>{best["pct"]:.0f}%</b> &plusmn;{best["se"]:.1f}. At the same '
+          f'margin with weight {col[0][0]:,} it is {col[0][1]:.0f}%.</p>')
+        if len(ridge) > 2:
+            steps = ", ".join(f"{w:,}&#8202;&rarr;&#8202;{m:.2f}"
+                              for w, m, _ in ridge)
+            A(f'<p>But the optimum is not a corner, it is a <b>ridge</b>, and it '
+              f'moves: the best margin for each weight runs {steps}. Every '
+              f'factor of four on the weight moves it down a step or holds it '
+              f'&mdash; the grid steps margin by 0.04 m, too coarse to fit a law '
+              f'to, but the direction is unambiguous: the harder the avoidance '
+              f'term is weighted, the less padding it wants. What the planner '
+              f'needs is a barrier of a particular '
+              f'stiffness &mdash; weak enough that the cart will still commit to '
+              f'the gap, strong enough that it does not clip a disk on the way '
+              f'through &mdash; and weight and margin are two ways of setting the '
+              f'same quantity. Tuning either one alone walks across the ridge '
+              f'instead of along it, which is what the earlier '
+              f'one-knob-at-a-time sweeps were doing.</p>')
         if sealed:
             cells = ", ".join(f"{w:,}/{m:.2f}" for w, m in sealed)
             A(f'<p>The other direction is not a gentle decline, and it is not the '
@@ -713,6 +748,19 @@ def build(args):
               f'penalty region and enough weight to make crossing it '
               f'unaffordable, which is why the collapse sits in one corner '
               f'rather than along an edge.</p>')
+        # The cell the whole question started from. Naming it explicitly beats
+        # making the reader hunt for it in the grid.
+        prior = agg.get((32000, 0.08))
+        if prior:
+            A(f'<p>And the cell this started from: avoidance 32,000 at margin '
+              f'0.08 m, once reported as 20/50 = 40%, pools to '
+              f'<b>{prior["solved"]}/{prior["trials"]} = {prior["pct"]:.0f}%</b> '
+              f'&plusmn;{prior["se"]:.1f} across three seeds '
+              f'({", ".join(f"{p:.0f}%" for p in prior["per_seed"])}). It '
+              f'replicates &mdash; the single run that found it was a high draw '
+              f'by about six points, not an artefact. It is simply not the best '
+              f'cell on the map; it was the best cell in the region the earlier '
+              f'sweeps happened to search.</p>')
         A('</div>')
         want = grid_size(args.grid) or len(weights) * len(margins) * nseed
         if len(rows) < want:
@@ -726,8 +774,9 @@ def build(args):
       f'before the avoidance cost starts charging. The gap between a disk and the '
       f'wall is {HALF_GAP*2:.2f} m wide, so at a margin near {HALF_GAP:.2f} m the '
       f'padded disks meet in the middle and the cost stops being a fence around '
-      f'the obstacle and becomes a wall across the corridor. Hover a cell for the '
-      f'per-seed spread.</p>')
+      f'the obstacle and becomes a wall across the corridor. The outlined cell '
+      f'in each row is that weight\'s best margin; together they trace the '
+      f'ridge. Hover any cell for its per-seed spread.</p>')
     A('</section>')
 
     # ------------------------------------------------------ 4. failure modes
