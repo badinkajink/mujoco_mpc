@@ -210,7 +210,17 @@ ABSL_FLAG(double, init_noise, 0.02,
 ABSL_FLAG(int, seed, 1,
           "Seed for the initial-state perturbation. Trial k of every planner "
           "sees the same start, so planners are compared on identical "
-          "problems. The planners' own sampling is not seeded from here.");
+          "problems. This does not seed the planner's own sampling; see "
+          "--planner_seed.");
+ABSL_FLAG(int, planner_seed, 0,
+          "Seed for the sampling planner's noise. 0 draws from system entropy, "
+          "which means two runs of the same command give different numbers -- "
+          "on the slalom, one configuration measured anywhere from 6/50 to "
+          "16/50 that way. Any non-zero value pins the noise, so a row of a "
+          "results table can be reproduced exactly. Trial k uses "
+          "planner_seed + k, so trials within a run still differ. Currently "
+          "honoured by the sampling planner (--planner=0) and its derivatives; "
+          "the other planners still draw from entropy.");
 ABSL_FLAG(std::string, label, "",
           "Name to report in the RESULT line instead of the planner's. Two "
           "runs of the same planner under different settings are otherwise "
@@ -520,6 +530,7 @@ struct RunConfig {
   bool early_exit = true;
   double init_noise = 0.02;
   int seed = 1;
+  int planner_seed = 0;          // 0: planner noise drawn from entropy
 };
 
 struct RunResult {
@@ -621,6 +632,15 @@ RunResult RunOnce(const RunConfig& cfg, int run_index,
   if (cfg.beta_action > 0) {
     double* b = mjpc::GetCustomNumericData(model, "annealing_beta_action");
     if (b) *b = cfg.beta_action;
+  }
+
+  // Pin the planner's noise so the run is reproducible. Offset by run_index so
+  // trial k still differs from trial k+1 -- otherwise every trial of a run
+  // would draw the identical noise sequence and the repeats would measure only
+  // the initial-state perturbation.
+  if (cfg.planner_seed != 0) {
+    double* s = mjpc::GetCustomNumericData(model, "sampling_seed");
+    if (s) *s = static_cast<double>(cfg.planner_seed + run_index);
   }
 
   // Alter the model for the stage before Agent::Initialize reads it, so the
@@ -912,6 +932,7 @@ int main(int argc, char** argv) {
   cfg.early_exit = absl::GetFlag(FLAGS_early_exit);
   cfg.init_noise = absl::GetFlag(FLAGS_init_noise);
   cfg.seed = absl::GetFlag(FLAGS_seed);
+  cfg.planner_seed = absl::GetFlag(FLAGS_planner_seed);
   const std::string weights_flag = absl::GetFlag(FLAGS_weights);
   if (!weights_flag.empty()) cfg.weights = ParseWeights(weights_flag);
   if (cfg.speed <= 0) {
@@ -954,8 +975,13 @@ int main(int argc, char** argv) {
   if (cfg.exploration >= 0) std::printf("   exploration %g", cfg.exploration);
   if (cfg.spline_points > 0) std::printf("   knots %d", cfg.spline_points);
   if (cfg.clearance >= 0) std::printf("   margin %.2fm", cfg.clearance);
-  std::printf("   init_noise %g (seed %d)%s\n", cfg.init_noise, cfg.seed,
-              cfg.early_exit ? "   early_exit" : "");
+  std::printf("   init_noise %g (seed %d)", cfg.init_noise, cfg.seed);
+  if (cfg.planner_seed != 0) {
+    std::printf("   planner_seed %d", cfg.planner_seed);
+  } else {
+    std::printf("   planner_seed 0 (NOT REPRODUCIBLE)");
+  }
+  std::printf("%s\n", cfg.early_exit ? "   early_exit" : "");
   if (absl::GetFlag(FLAGS_per_run)) {
     std::printf("%-4s %7s %6s %8s %8s %8s %7s %7s %7s  %s\n", "run", "t_solve",
                 "held%", "cart_end", "cos_end", "spd_end", "cont%", "cost",
@@ -1181,7 +1207,12 @@ int main(int argc, char** argv) {
                 cfg.planner_thread_count);
   }
   const std::string label = absl::GetFlag(FLAGS_label);
+  // The RESULT line is what sweep tables are built from, so it carries every
+  // knob needed to re-run the row: without clearance and planner_seed on it,
+  // two rows that differ only in margin, or a row that cannot be reproduced at
+  // all, look identical to whatever parses this.
   std::printf("RESULT planner=%s task=%s stage=%s speed=%g horizon=%g "
+              "clearance=%g seed=%d planner_seed=%d "
               "trials=%d solved=%d solved_pct=%.1f+-%.1f collided=%d "
               "collided_pct=%.1f t_solve_median=%.2f gaps_mean=%.2f "
               "num_gaps=%d wall_total_s=%.1f ms_per_iter=%.3f "
@@ -1191,6 +1222,7 @@ int main(int argc, char** argv) {
                   ? kPlannerLabel[planner]
                   : "xml",
               task_key.c_str(), stage_name.c_str(), cfg.speed, cfg.horizon,
+              cfg.clearance, cfg.seed, cfg.planner_seed,
               repeats, solved, 100.0 * solved / repeats, stderr_pct(solved),
               collided, 100.0 * collided / repeats, median(solve_times),
               static_cast<double>(total_gaps_passed) / repeats, num_gaps,

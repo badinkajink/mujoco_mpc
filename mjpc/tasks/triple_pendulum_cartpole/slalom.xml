@@ -67,6 +67,11 @@
     <numeric name="sampling_representation" data="1" />
     <numeric name="gradient_spline_points" data="12" />
 
+    <!-- Seed for the sampling planner's noise. 0 draws from system entropy, so
+         a run is not reproducible; that is the right default for the GUI and
+         the wrong one for a benchmark, which sets it from planner_seed. -->
+    <numeric name="sampling_seed" data="0" />
+
     <!-- Same rollout budget for every planner; see task.xml. -->
     <numeric name="sampling_trajectories" data="10" />
     <numeric name="pso_num_particles" data="10" />
