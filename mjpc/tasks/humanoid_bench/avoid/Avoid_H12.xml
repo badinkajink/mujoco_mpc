@@ -28,6 +28,12 @@
         <text name="residual_list_Use Cap" data="Off|On"/>
         <numeric name="residual_select_Use ToF" data="0"/>
         <text name="residual_list_Use ToF" data="Off|On"/>
+        <!-- avoid.cc reads BOTH ranges unconditionally (ResidualFn::Residual and
+             ResetLocked) regardless of the Use Cap / Use ToF toggles, so both must be
+             declared here or ParameterIndex aborts the task at load. Values match
+             Avoid_H12_ToF_Cap.xml, the only variant that had them. -->
+        <numeric name="residual_Cap Range" data="0.15 0 5"/>
+        <numeric name="residual_ToF Range" data="4.0 0 10"/>
         <numeric name="residual_select_Logging" data="0"/>
         <text name="residual_list_Logging" data="Off|On"/>
         <numeric name="residual_select_Offline" data="0"/>
