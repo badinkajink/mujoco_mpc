@@ -15,6 +15,7 @@
 # Copy the model files to the binary directory to make them available to the
 # built binary.
 message(STATUS "h12_SOURCE_DIR = ${h12_SOURCE_DIR}")
+message(STATUS "cl_assets_SOURCE_DIR = ${cl_assets_SOURCE_DIR}")
 message(STATUS "CMAKE_CURRENT_BINARY_DIR = ${CMAKE_CURRENT_BINARY_DIR}")
 
 add_custom_target(
@@ -268,12 +269,25 @@ add_custom_target(
         <${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1.xml.patch
 
 #   # Unitree H1-2
+  # Meshes now come from CL_Assets (2026-08-03). Verified byte-identical to
+  # h1_mujoco's unitree_robots/h1_2/meshes, all 90 files -- this move changes nothing
+  # geometric, it just stops the robot's geometry and its limits coming from two repos.
   COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/meshes
+        ${cl_assets_SOURCE_DIR}/meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
-        ${h12_SOURCE_DIR}/unitree_robots/h1_2/h1_2_handless.xml
+        ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
+  # h1_2.xml is the PRISTINE CL_Assets robot, staged as a reference/diff target -- no task
+  # loads it. It declares meshdir="../meshes/h1_2/" (h1_mujoco's said "meshes/"), so give it
+  # that path or the staged copy is unloadable and silently rots. Same symlink idiom as the
+  # lean / upper / stabilize / beginning rules below.
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/meshes/h1_2
   # VENDORED planner base (2026-07-03): h1_2_pos.xml / h1_2_pos_hands.xml /
   # magpie_h12.stl come from humanoid_bench/h1_2_base/ in THIS repo, NOT from the
   # h12 FetchContent checkout. The validated planner base had drifted from the
@@ -285,7 +299,16 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/magpie_h12.stl
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/magpie_h12.stl
-  COMMAND ${CMAKE_COMMAND} -E copy
+  # ...EXCEPT the joint limits, which are IMPORTED LIVE from CL_Assets (2026-08-03).
+  # The vendored base keeps owning actuation (position actuators + kp/kv), back_equipment,
+  # ankle contact params and the excludes; CL_Assets owns kinematics, inertials, joint
+  # range and actuatorfrcrange. Because the numbers are read from the fetched CL tree on
+  # every build there is no second copy to drift, and hence no parity test to maintain.
+  # HARD FAILURE by design: unlike the tolerant magpie patch below, a failed import must
+  # break the build rather than silently ship the retired pre-arm-service limits.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/_gen_h12_base_limits.py
+        ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_handless.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified.xml
   # Magpie model (2026-07-02): COPY the gripperless base as the "magpie" variant FIRST,
@@ -415,7 +438,12 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
   COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
-  COMMAND ${CMAKE_COMMAND} -E copy
+  # Hands variant gets the SAME CL_Assets limit import as the gripperless base -- it is
+  # the same 27 motors plus the Inspire hand joints, and the hand joints are untouched
+  # (the importer only rewrites joints CL_Assets actually names).
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/_gen_h12_base_limits.py
+        ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_handless.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml
   COMMAND ${CMAKE_COMMAND} -E copy

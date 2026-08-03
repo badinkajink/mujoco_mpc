@@ -70,6 +70,17 @@ set(MUJOCO_MPC_DM_CONTROL_GIT_TAG
     CACHE STRING "Git revision for dm_control."
 )
 
+# CL_Assets is the SOURCE OF TRUTH for the H1-2 robot (2026-08-03). It replaces
+# correlllab/h1_mujoco@ef83c84, whose arm joint ranges predate the arm service and
+# disagree with h12_safety_layer/core/joint_limits.py -- elbow was offset ~pi/2 and
+# shoulder_yaw was left/right swapped. CL_Assets' h1_2_handless.xml matches that
+# table exactly on all 27 joints (range AND actuatorfrcrange), and its meshes are
+# byte-identical to h1_mujoco's (90/90), so this swap moves limits only.
+set(MUJOCO_MPC_CL_ASSETS_GIT_TAG
+    be4db826a3f76ce67793088b0d53297f23d3fa4f
+    CACHE STRING "Git revision for CL_Assets (H1-2 robot source of truth)."
+)
+
 findorfetch(
   USE_SYSTEM_PACKAGE
   OFF
@@ -167,6 +178,11 @@ set(BUILD_SHARED_LIBS
 )
 unset(BUILD_SHARED_LIBS_OLD)
 
+# h1_mujoco is RETAINED, but demoted: it no longer supplies the H1-2 robot (see the
+# cl_assets declaration below). It still supplies assets CL_Assets does not carry at all
+# -- inspire/, magpie/ur5_magpie.xml, and unitree_robots/h1_2/{h1_2_torso_skin,h12_tof}.xml
+# -- which back the ur5 / inspire / skin / ToF tasks. Repointing this wholesale would
+# have broken all four, so the two coexist with a clean split of responsibility.
 FetchContent_Declare(
   h12
   GIT_REPOSITORY https://github.com/correlllab/h1_mujoco.git
@@ -175,6 +191,21 @@ FetchContent_Declare(
 FetchContent_GetProperties(h12)
 if(NOT h12_POPULATED)
   FetchContent_Populate(h12)
+endif()
+
+# NOTE on clone size: CL_Assets carries ~59 MB of meshes plus a large isaac_assets/ USD
+# tree, and we consume only mujoco_assets/h1_2_handless.xml + meshes/h1_2. GIT_SHALLOW is
+# NOT set because CMake's shallow path clones with `--branch <GIT_TAG>`, which cannot take
+# a raw commit SHA -- and the pin is worth more than the clone time. If container build
+# time becomes a problem, the fix is a sparse checkout, not un-pinning.
+FetchContent_Declare(
+  cl_assets
+  GIT_REPOSITORY https://github.com/correlllab/CL_Assets.git
+  GIT_TAG ${MUJOCO_MPC_CL_ASSETS_GIT_TAG}
+)
+FetchContent_GetProperties(cl_assets)
+if(NOT cl_assets_POPULATED)
+  FetchContent_Populate(cl_assets)
 endif()
 
 FetchContent_Declare(
