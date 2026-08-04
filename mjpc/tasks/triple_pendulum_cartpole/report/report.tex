@@ -40,39 +40,26 @@ william.xie@colorado.edu}}
 \begin{abstract}
 We measure how far simple sampling-based model-predictive control gets on an
 obstacle-avoidance task with chaotic, underactuated dynamics: a three-link
-pendulum on a cart, one actuator for four degrees of freedom, that must drive
-through gaps narrower than the pendulum is long. Six MJPC planners are compared
-at equal iteration budget on a single bottleneck and on three chained
-bottlenecks, under a collision test that allows no penetration at all. On one
-bottleneck the best planner reaches 76/100; on three, the best reaches 4/100 and
-five of the six never succeed. A memoryless control that discards its incumbent
-each iteration solves none of 300 trials, placing the warm start rather than the
-update rule at the centre of what these planners do. We then sweep the two
-parameters of the avoidance
-cost --- its weight and the clearance margin at which it activates --- over
-$5\times5$ configurations, three seeds each, 50 trials per cell. The two do not
-act independently: the surface is a ridge, and following it raises the same
-planner from 2.7\% to 54\% on the three-bottleneck course. Extending the sweep
-by a further $64\times$ in weight and down to a $0.01$~m margin follows the
-ridge to 65\% (95\% CI 57--72), with the best margin sliding down as the weight
-rises and the gain per factor of four falling below what 150 trials per cell
-can resolve. Widening the search from 10 rollouts per iteration to 40 --- one
-integer in the task file, and the budget annealed sampling already spends ---
-adds a further 20 points to 85\% (79--90), at $2.65\times$ the wall time rather
-than $4\times$ on a 20-core x86 host, because 10 rollouts could not fill the
-thread pool; on a 15-core Apple Silicon host the same change costs $5.1\times$
-and leaves the budget. Eighty adds
-nothing. At that matched budget the plain sampler beats annealed sampling by 22
-points, and annealed sampling on 40 rollouts is indistinguishable from the plain
-sampler on 10, so the annealing schedule converts a fourfold budget into nothing
-measurable. Carrying the plan forward by shifting and extending it instead of
-resampling it is a wash. We report per-iteration cost,
-control effort and cost share for every configuration, and single-thread and
-multi-thread planning throughput on two hosts at both rollout counts. We also report a negative result
-for AgileRRT, the sample-based planner this task was originally built for, and
-for iLQG, whose finite-difference derivatives dominate its cost while its
-linearization is invalidated by contact. All figures in this report were
-produced by seeded runs whose exact command lines are recorded alongside them.
+pendulum on a cart, one actuator for four degrees of freedom, driving through
+gaps narrower than the pendulum is long. Two changes take the three-bottleneck
+success rate from 2.7\% to 85\%, and neither is an optimizer. Sweeping the two
+parameters of the avoidance cost --- its weight and the clearance margin at
+which it activates --- shows them interacting rather than acting independently:
+the surface is a ridge whose best margin falls as the weight rises, and
+following it reaches 65\% where tuning either knob alone crosses it. Raising the
+rollouts per planning iteration from 10 to 40 adds 20 more points, at
+$2.65\times$ the wall time rather than $4\times$, because 10 rollouts could not
+fill the thread pool. Eighty adds nothing. Against this, the choice among six
+MJPC planners at equal iteration budget is worth less than either change, and a
+memoryless control that discards its incumbent each iteration solves 0 of 1800
+trials --- placing the warm start, not the update rule, at the centre of what
+these planners do. Forty rollouts is also the budget annealed sampling has been
+spending all along; measured at parity it loses by 22 points, and annealed
+sampling on 40 rollouts is indistinguishable from predictive sampling on 10. We
+report per-iteration cost, control effort and cost share for every
+configuration, and planning throughput on two hosts at both rollout counts,
+where core heterogeneity reverses the per-core ranking. All figures come from
+seeded runs whose command lines are recorded alongside them.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -95,55 +82,37 @@ obstacle gap half the pendulum's length. Passing the gap requires laying the
 pendulum out near-horizontal, driving through, and recovering --- a maneuver that
 cannot be held open-loop and that a single contact disqualifies.
 
-We report three things.
+The headline is where the leverage turned out to be. At the default objective
+the best of six planners solves 4 of 100; at the end of this report the same
+planner solves 85\%. Neither change that got it there is an optimizer. The
+avoidance cost has two parameters --- a weight and the clearance margin at which
+it activates --- and they are not interchangeable: weight sets what a violation
+costs, margin sets how early the cost arrives. Swept together they describe a
+ridge whose best margin falls as the weight rises, worth 62 points to anyone who
+follows it and nothing to anyone who tunes either knob alone. Widening the
+search from 10 rollouts per planning iteration to 40 is worth 20 more, from one
+integer in the task file. Against those, the spread across six planners is
+smaller than either.
 
-First, a planner comparison at fixed iteration budget on one bottleneck and on
-three, under a zero-tolerance collision test. The ordering is stable across both
-worlds, but the success rates are not: three chained gaps take the best planner
-from 76/100 to 4/100.
-
-Second, a two-parameter sweep of the avoidance cost. The weight and the
-clearance margin are the only knobs in the cost that concern the obstacles, and
-they are not interchangeable: weight sets what a violation costs, margin sets
-how early the cost arrives. Mapped over $5\times5$ values with three seeds per
-cell, the success rate on the three-bottleneck course is not a monotone function
-of either: the surface is a ridge, and the best margin slides down as the weight
-rises. Following it past the first grid reaches 65\%, an order of magnitude above
-the default.
-
-Third, the width of the search itself. Holding the objective at the best ridge
-cell and raising the rollouts per planning iteration from 10 to 40 reaches
-85\%. This is a single integer in the task file rather than an algorithm, it is
-the second largest effect we measured, and it is the same rollout budget that
-annealed sampling has been spending on its annealing schedule throughout.
-Eighty rollouts adds nothing.
-
-Fourth, the cost of running any of this: per-iteration wall time by planner,
-where that time goes, control effort and per-term cost share for the surviving
-configurations, and throughput on an Intel Core Ultra 7 265KF and an Apple M5
-Pro.
-
-We also record two negative results, because both were measured rather than
-assumed: AgileRRT does not fit a receding-horizon budget by three orders of
-magnitude, and iLQG is the weakest planner here for reasons that are structural.
+The rest of the report is what that costs and what it rules out: per-iteration
+wall time by planner, control effort and per-term cost share, throughput on an
+Intel Core Ultra 7 265KF and an Apple M5 Pro at both rollout counts, and two
+negative results measured rather than assumed --- AgileRRT misses a
+receding-horizon budget by three orders of magnitude
+(Appendix~\ref{app:agilerrt}), and iLQG is weakest here for structural reasons
+(Appendix~\ref{app:ilqg}).
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{fig/filmstrip_solved.png}
-\caption{One clean slalom solve, predictive sampling at avoidance weight
-$128{,}000$ and margin $0.04$~m, seed $1000$. The camera tracks the cart, and
-panels are placed at the events that decide the run rather than at uniform
-intervals. Each panel reports the step, simulated time, cart position,
-$\min_i \cos\theta_i$, the minimum head-to-disk clearance $\min_{ij} d_{ij}$ in
-metres, and the applied force. Top row: the start, upright; the swing-down at
-$t = 0.33$~s; the tightest moment of the run at $t = 1.12$~s, $27$~mm of
-clearance inside the first gap; clear of it at $t = 1.20$~s. Bottom row: the
-second and third crossings at $t = 2.14$ and $3.31$~s, both with $27$~cm of
-clearance; the goal reached at $t = 4.82$~s; and the run parked at $t = 12$~s.
-At all three crossings the links are laid out along the rail at hub height,
-which is the posture that fits a $0.5$~m gap --- the cart passes the gap while
-the pendulum is horizontal, and the run is decided by whether the swing phase
-happens to place it there.}
+\caption{One clean slalom solve, predictive sampling at $w_{\text{avoid}} =
+128{,}000$, $\delta = 0.04$~m, seed $1000$. Panels mark the events that decide
+the run --- start, entry and exit of each gap, goal, parked --- not uniform
+intervals; each reports step, time, cart position, $\min_i \cos\theta_i$, the
+minimum head-to-disk clearance in metres, and applied force. The tightest
+moment is $27$~mm inside the first gap at $t = 1.12$~s. At all three crossings
+the links lie along the rail at hub height, the only posture that fits a
+$0.5$~m gap; whether the swing phase places them there is what decides the run.}
 \label{fig:filmstrip}
 \end{figure*}
 
@@ -331,8 +300,8 @@ gives each planner's instantiation.
 
 \begin{table}[t]
 \caption{How each planner instantiates Algorithm~\ref{alg:skeleton}. $\sigma$ is
-the sampling standard deviation in newtons against a $\pm 20$~N actuator.
-Rollouts are per planning iteration.}
+the sampling standard deviation in N against a $\pm 20$~N actuator; rollouts are
+per planning iteration.}
 \label{tab:planners}
 \centering
 \small
@@ -400,7 +369,7 @@ vertex point $x_0$. Steering to a target is a controllability-Gramian problem on
 that linearization, projected back onto the true dynamics. We implemented the
 primitive against MuJoCo and grew trees with it, both to have the paper's own
 method as a baseline and to test whether it could serve as an MJPC planner.
-Section~\ref{sec:agilerrt-results} reports what it does.
+Appendix~\ref{app:agilerrt} reports what it does.
 
 \section{Protocol}
 
@@ -505,49 +474,12 @@ Success rates are insensitive to CPU contention, because the harness counts
 iterations rather than seconds. Timing is not. Per-iteration timings
 (Section~\ref{sec:timing}) were taken with 15 planner threads on an otherwise
 idle 20-core host. The throughput comparison of Section~\ref{sec:machines} was
-taken on an idle Ultra 7 and on an M5 Pro at load average $3.1$--$4.4$; the
-asymmetry is stated where it bears on a conclusion. The
+taken on an idle Ultra 7 and on an M5 Pro at load average $1.7$--$3.1$. The
 sweep of Section~\ref{sec:landscape} ran five concurrent jobs of four planner
 threads each on a 20-core host; its wall times and per-iteration figures are
 contended and are not quoted as speed.
 
 \section{Results}
-
-\subsection{AgileRRT}
-\label{sec:agilerrt-results}
-
-The steering primitive ports cleanly. The tree does not close either task.
-
-On the corridor, a tree of $3000$ vertices grown in $379$~s never reached the
-goal set; its best vertex left the cart at $x = 8.03$~m with $5.60$~m at the end
-of the extracted path, against a goal at $x = 6$ that it therefore overshot
-rather than captured. Of $6008$ attempted extends, $50.1\%$ were rejected by
-collision. On the slalom, $3873$ vertices in $1800$~s moved the cart to a maximum
-of $5.83$~m of the $11$~m required, with $80.5\%$ of $19836$ extends rejected by
-collision.
-
-Where the time goes is the more useful number: $96\%$ of the corridor build and
-$98\%$ of the slalom build went to nearest-neighbour queries, which are $O(N)$
-per extend and therefore $O(N^2)$ over the build. The per-vertex precompute that
-the paper optimizes was $7\%$ and $2\%$ respectively. This also corrects an
-earlier extrapolation of ours: a $1000$-vertex tree was projected at
-$\approx 15$~s by treating nearest-neighbour as a fixed per-iteration cost, and
-$1200$ vertices measure $125$~s.
-
-For the receding-horizon question the conclusion does not depend on the
-constant. MJPC's contract is one \texttt{OptimizePolicy} call per control step,
-with a $5$~ms budget; a tree build is three orders of magnitude over it.
-AgileRRT is usable here as an offline trajectory generator, not as an MPC
-planner, and we do not report it in the planner tables for that reason.
-
-One further observation about the primitive itself. Linearizing about
-$x_{\text{zero}}(t)$ rather than about $x_0$ differs only if $x_{\text{zero}}$
-drifts, and this benchmark starts at the upright equilibrium, which is an
-equilibrium of the zero-control dynamics: measured drift over $1.0$~s is
-$0.000$. At the start state the paper's contribution is exactly a no-op. From
-non-equilibrium vertices it is real, but only at horizons beyond
-$t_h \approx 0.6$~s, where the point linearization saturates the actuator on
-100\% of steering attempts.
 
 \subsection{One bottleneck}
 \label{sec:planners-one}
@@ -556,11 +488,9 @@ Table~\ref{tab:corridor} reports 100 trials per planner on the corridor with the
 objective \eqref{eq:baseline-weights}.
 
 \begin{table}[t]
-\caption{Corridor, one bottleneck. 100 trials, $\pm 1$ s.e. on the clean column.
-``$\leq 20$~mm'' is the laxer criterion this benchmark used originally; grazing
-share is $1 - \text{clean}/\text{lax}$. Random Sampling, below the rule, is the
-memoryless control: 300 seeded trials, no solve under either criterion, so
-grazing share and median solve time are undefined.}
+\caption{Corridor, one bottleneck. 100 trials. ``$\leq 20$~mm'' is the laxer
+criterion originally used here; grazing share is $1 - \text{clean}/\text{lax}$.
+Below the rule is the memoryless control, 300 trials.}
 \label{tab:corridor}
 \centering
 \begin{tabular}{@{}lrrrrr@{}}
@@ -614,9 +544,7 @@ Table~\ref{tab:slalom} is the same protocol on the slalom.
 
 \begin{table}[t]
 \caption{Slalom, three bottlenecks. 100 trials. ``gaps'' is bottlenecks cleared
-before the first contact, out of 3; ``corridor'' repeats the clean column of
-Table~\ref{tab:corridor} for reference. Random Sampling, below the rule, is the
-memoryless control at 300 seeded trials.}
+before first contact, out of 3. Below the rule is the memoryless control.}
 \label{tab:slalom}
 \centering
 \begin{tabular}{@{}lrrrrr@{}}
@@ -720,112 +648,81 @@ also the cell that produced Fig.~\ref{fig:filmstrip}.
 \label{sec:rollouts}
 
 Every result to this point holds the rollout count at the task file's 10. The
-ridge is what the objective can buy; this is what the search width can buy on
-top of it. All rows sit at the best ridge cell
-($w_{\mathrm{avoid}} = 8.19\times10^{6}$, $\delta = 0.01$~m), hold iterations
-per control step at four, and use three planner seeds of 50 trials.
+ridge is what the objective can buy; this is what the width of the search can
+buy on top of it. All rows sit at the best ridge cell
+($w_{\mathrm{avoid}} = 8.19\times10^{6}$, $\delta = 0.01$~m) with four
+iterations per control step, three seeds of 50 trials each. Per-seed counts and
+intervals are in Table~\ref{tab:seeds}.
 
 \input{rollout_table}
 
-Forty rollouts solves $85.3\%$ against $65.3\%$ at ten, $+20.0$ points at
-$p < 0.001$. Eighty adds nothing: $-1.3$ points against forty, $p = 0.75$, with
-the two intervals almost coincident. Twenty is not distinguishable from ten on
-its own ($p = 0.32$), which is what a minimum detectable effect of $14.3$ points
-at this budget (Section~\ref{sec:stats}) predicts for a $5$-point difference ---
-the step is real but this experiment could not have resolved it either way.
+Forty rollouts solves $85.3\%$ against $65.3\%$ at ten: $+20.0$ points,
+$z = 4.02$, $p < 0.001$. Eighty adds nothing ($-1.3$, $p = 0.75$). Twenty is not
+separable from ten on its own ($+5.3$, $p = 0.32$), which is what a minimum
+detectable effect of $14.3$ points (Section~\ref{sec:stats}) implies. This is
+the second largest effect in the paper, behind the objective tuning and ahead of
+the entire spread between planners in Table~\ref{tab:corridor}, and it comes
+from one integer in the task file. What saturates at forty is the rollout count
+at this cell; we did not vary the horizon, the knot count or the objective
+alongside it, so $85\%$ is a ceiling on this axis and not on the task.
 
-Two things make the size of this worth stating plainly. It is the second largest
-effect in the paper, behind only the $2.7\% \rightarrow 65\%$ of the objective
-tuning and ahead of the entire spread between planners in
-Table~\ref{tab:corridor}. And it comes from a single integer in the task file,
-not from an algorithm. The $10$-rollout row also reproduces the corresponding
-landscape cell seed for seed ($32/35/31$), so the binary that added the override
-is neutral.
+Forty rollouts is also not a new quantity here. Annealed sampling draws its
+trajectories once per annealing iteration and runs four, so at ten trajectories
+it has been spending forty rollouts per iteration in every table up to this
+point --- four times what the other samplers spend. The ms/iter column confirms
+the multiplier without reference to the source: annealed sampling at ten
+trajectories and predictive sampling at forty both report $6.12$~ms under the
+same contention, because both run forty rollouts of the same model.
 
-What saturates at forty is the rollout count, and only at this cell. We did not
-test whether the plateau moves with the horizon, the knot count, or the
-objective, so $85\%$ is a ceiling on this axis rather than a ceiling on the
-task.
+At matched budget predictive sampling leads by $22.0$ points ($z = 4.36$,
+$p < 0.001$). Annealed sampling on forty rollouts is instead indistinguishable
+from predictive sampling on ten ($63.3$ against $65.3$, $p = 0.72$): the
+annealing schedule converts a fourfold budget into nothing measurable. Four
+times again does help it --- $160$ rollouts reaches $79.3\%$, $+16.0$ at
+$p = 0.002$ --- but it still does not catch predictive sampling at a quarter of
+that budget ($-6.0$, $p = 0.17$), at $19.1$~ms per iteration against $6.1$.
+Threads cannot recover this: MJPC parallelizes over rollouts within an annealing
+iteration, and the four annealing iterations are sequential by construction,
+each re-centring its noise on the previous one's result.
 
-\subsection{Forty rollouts, spent two ways}
-\label{sec:budget}
-
-Forty rollouts per iteration is not a new quantity in this paper. Annealed
-sampling draws its trajectories once per annealing iteration and runs four of
-them, so at the task file's ten trajectories it has been spending forty rollouts
-per planning iteration throughout --- four times what the other samplers spend,
-in every table up to this point. Table~\ref{tab:budget} lines the two planners
-up by rollouts instead.
-
-\input{budget_table}
-
-The cost column confirms the $4\times$ independently of any reading of the
-source: annealed sampling at ten trajectories and predictive sampling at forty
-report the same $6.12$~ms per iteration under the same contention, because both
-run forty rollouts of the same model.
-
-At a matched forty rollouts, predictive sampling solves $85.3\%$ and annealed
-sampling $63.3\%$: $22.0$ points, $z = 4.36$, $p < 0.001$. Annealed sampling on
-forty rollouts is instead indistinguishable from predictive sampling on ten
-($63.3$ against $65.3$, $p = 0.72$), which is the sharpest way to state the
-result --- the annealing schedule converts a fourfold rollout budget into
-nothing measurable.
-
-Giving it four times again does help it: $160$ rollouts reaches $79.3\%$,
-$+16.0$ points at $p = 0.002$. It still does not catch predictive sampling at a
-quarter of that budget ($-6.0$ points, $p = 0.17$), and it costs $19.1$~ms per
-iteration against $6.1$, roughly four times the control period. There is no
-thread count that fixes this; MJPC parallelizes over rollouts within an
-annealing iteration, and the four annealing iterations are sequential by
-construction, since each re-centres its noise on the previous one's result.
-
-The collision column identifies the failure. At matched budget annealed sampling
-collides on $30.0\%$ of trials against $1.3\%$, and at $160$ rollouts it is still
-at $16.7\%$. It is not running out of samples or of time --- the harness hands
+The collision column locates the failure. At matched budget annealed sampling
+collides on $30.0\%$ of trials against $1.3\%$, and at $160$ rollouts it is
+still at $16.7\%$. It is not short of samples or of time --- the harness hands
 out iterations regardless of cost --- it is committing to trajectories that hit
-disks, and extra samples reduce that only slowly.
+disks. The reduction step is the candidate explanation: predictive sampling
+keeps the single best rollout, annealed sampling keeps an MPPI-weighted average
+over all of them, and around a disk the feasible set is disjoint, so averaging a
+left-passing sample with a right-passing one gives a plan through the middle.
+That would explain both the collision rate and why more samples improve it only
+slowly. The distinguishing experiment --- annealed sampling with the MPPI update
+replaced by an argmax, schedule held fixed --- is untested.
 
-The reduction step is the candidate explanation. Predictive sampling keeps the
-single best rollout; annealed sampling keeps an MPPI-weighted average over all
-of them. Around a disk the feasible set is disjoint --- pass left or pass right
---- and a weighted average of a left sample and a right sample is a plan through
-the middle. That predicts exactly what the column shows: a planner that collides
-much more often than the one it outsamples, and that improves with more samples
-without ever fixing the underlying step, since more samples make the average
-better estimated rather than less averaged. We did not test this directly; the
-distinguishing experiment is annealed sampling with the MPPI update replaced by
-an argmax, holding the annealing schedule fixed.
-
-This revises how Table~\ref{tab:corridor} should be read. Annealed sampling's
-$49/100$ there was not a fair-budget loss but a $4\times$-budget loss, and
-correcting for the budget widens the gap rather than closing it.
+Table~\ref{tab:corridor} should be read accordingly: annealed sampling's
+$49/100$ there was a $4\times$-budget loss, and correcting for the budget widens
+the gap rather than closing it.
 
 \subsection{Carrying the plan forward}
 \label{sec:sliding}
 
 Section~\ref{sec:ridge} establishes that discarding the incumbent costs
-everything. The sliding plan is the other end of the same question: instead of
-resampling the nominal from the previous winner, shift the existing plan forward
-by one control step and extend it. It is a flag in the sampling planner, off by
-default, and it changes what the search is handed each iteration without
-changing the search.
+everything. The sliding plan is the other end of that question: shift the
+existing plan forward by one control step and extend it, rather than resampling
+the nominal from the previous winner. It changes what the search is handed each
+iteration without changing the search, and is off by default.
 
 \input{sliding_table}
 
-Pooled over the three cells it is a wash ($-1.6$ points, $p = 0.63$). The cells
-disagree in a way the pooled number hides: two lean positive without reaching
-significance, and the third loses $16.0$ points at $p = 0.005$. The collision
-column gives the mechanism. Sliding raises the collision rate in all three cells
-($5.3 \rightarrow 14.0$, $4.0 \rightarrow 6.7$, $25.3 \rightarrow 48.0$), and at
-the cell where the baseline was already collision-prone that increase is large
-enough to swamp whatever the carried plan was buying. A shifted plan was optimal
-for the obstacle geometry one step ago; resampling from the winner re-fits it to
-the geometry now. Near a disk, one control step of staleness is expensive.
+Pooled it is a wash ($-1.6$ points, $p = 0.63$), and the cells disagree in a way
+the pooled number hides: two lean positive without reaching significance, the
+third loses $16.0$ points at $p = 0.005$. The collision column gives the
+mechanism --- sliding raises collisions in all three cells
+($5.3 \rightarrow 14.0$, $4.0 \rightarrow 6.7$, $25.3 \rightarrow 48.0$), and
+where the baseline was already collision-prone that increase swamps whatever the
+carried plan was buying. A shifted plan was optimal for the obstacle geometry
+one step ago; resampling from the winner re-fits it to the geometry now. Near a
+disk, one control step of staleness is expensive.
 
-So the warm start matters in the sense of Section~\ref{sec:ridge} --- the
-planner needs \emph{a} plan to start from --- but not in the sense that a more
-faithfully carried plan is a better one. All three off arms reproduce their
-landscape cells seed for seed.
+The incumbent is therefore worth having and not worth preserving exactly.
 
 \subsection{What an iteration costs}
 \label{sec:timing}
@@ -837,8 +734,8 @@ per planner with early exit disabled, 15 planner threads on an idle 20-core
 host.
 
 \begin{table}[t]
-\caption{Per-iteration wall time, corridor. ``contact-free'' is the same
-measurement on the balance stage, with obstacles removed. The budget is $5$~ms.}
+\caption{Per-iteration wall time, corridor, 10 rollouts each.
+``contact-free'' is the same measurement with obstacles removed. Budget $5$~ms.}
 \label{tab:timing}
 \centering
 \begin{tabular}{@{}lrrrrr@{}}
@@ -889,11 +786,9 @@ Section~\ref{sec:landscape} in ascending solve rate, so the table can be read as
 a progression rather than a list of near-misses.
 
 \begin{table}[t]
-\caption{Control character and cost share, means over 8 rollouts per
-configuration. ``sat'' is the percentage of steps at the $20$~N limit; effort is
-$\int u^2 dt$; reversals is sign changes of $u$ per second. Cost shares are of
-the mean total running cost. The lower block is the ridge, with its slalom solve
-rate from Table~\ref{tab:landscape}.}
+\caption{Control character and cost share, means over 8 rollouts. ``sat'' is
+steps at the $20$~N limit; effort is $\int u^2 dt$; rev/s is sign changes of $u$
+per second. Lower block walks the ridge in ascending solve rate.}
 \label{tab:costshare}
 \centering
 \small
@@ -951,253 +846,138 @@ here and does not translate into a better score.
 \subsection{Planning throughput across hosts}
 \label{sec:machines}
 
-Table~\ref{tab:machines} reports one fixed workload --- predictive sampling,
-$1.0$~s horizon, 12 knots, 8000 iterations, early exit disabled --- at two
-rollout counts and several thread counts. The two counts are the ones
-Table~\ref{tab:rollouts} compares, so this section says what the $20$-point
-gain costs.
+Table~\ref{tab:machines} prices the $20$-point gain. One fixed workload ---
+predictive sampling, $1.0$~s horizon, 12 knots, 8000 iterations, early exit
+disabled --- at both rollout counts on two hosts.
 
 \begin{table}[t]
-\caption{Per-iteration wall time in ms by planner thread count, at two rollout
-budgets on two hosts; parenthesised figures are speedup over the same column's
-one-thread row. Ultra 7 idle, M5 Pro at load average $3.1$ and $4.4$. Bold is
-each column's best. Single-thread \texttt{mj\_step} throughput is a property of
-the core and must agree across the two budgets of one host; it does, at $0.48$
-and $0.49$~Msteps/s on the Ultra 7 and $0.66$ and $0.63$ on the M5 Pro.}
+\caption{Per-iteration wall time (ms) by planner thread count; parenthesised
+figures are speedup over the same column's one-thread row. Bold is each
+column's best.}
 \label{tab:machines}
 \centering
 \footnotesize
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lrlrlrlrl@{}}
 \toprule
-& \multicolumn{4}{c}{Intel Core Ultra 7 265KF} &
-  \multicolumn{4}{c}{Apple M5 Pro} \\
+& \multicolumn{4}{c}{Ultra 7 265KF (20 core)} &
+  \multicolumn{4}{c}{M5 Pro (5P + 10E)} \\
 \cmidrule(lr){2-5}\cmidrule(lr){6-9}
-& \multicolumn{2}{c}{10 rollouts} & \multicolumn{2}{c}{40 rollouts}
-& \multicolumn{2}{c}{10 rollouts} & \multicolumn{2}{c}{40 rollouts} \\
+& \multicolumn{2}{c}{10 rl} & \multicolumn{2}{c}{40 rl}
+& \multicolumn{2}{c}{10 rl} & \multicolumn{2}{c}{40 rl} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
 thr. & ms & & ms & & ms & & ms & \\
 \midrule
-1  & 4.162 & & 16.359 & & 3.027 & & 12.673 & \\
-2  & 2.207 & (1.9) &  8.741 & (1.9) & 1.802 & (1.7) &  7.074 & (1.8) \\
-4  & 1.562 & (2.7) &  4.957 & (3.3) & 1.299 & (2.3) &  \textbf{6.138} & (2.1) \\
-8  & 1.319 & (3.2) &  3.399 & (4.8) & 1.264 & (2.4) &  7.257 & (1.7) \\
-12 & \textbf{1.251} & (3.3) & \textbf{3.317} & (4.9) & \textbf{1.213} & (2.5) &  7.130 & (1.8) \\
-16 & 1.395 & (3.0) &  3.400 & (4.8) & 1.271 & (2.4) &  6.595 & (1.9) \\
+1  & 4.162 & & 16.359 & & 3.027 & & 12.795 & \\
+2  & 2.207 & (1.9) &  8.741 & (1.9) & 1.802 & (1.7) &  7.078 & (1.8) \\
+4  & 1.562 & (2.7) &  4.957 & (3.3) & 1.299 & (2.3) &  \textbf{4.452} & (2.9) \\
+8  & 1.319 & (3.2) &  3.399 & (4.8) & 1.264 & (2.4) &  4.988 & (2.6) \\
+12 & \textbf{1.251} & (3.3) & \textbf{3.317} & (4.9) & \textbf{1.213} & (2.5) &  5.620 & (2.3) \\
+16 & 1.395 & (3.0) &  3.400 & (4.8) & 1.271 & (2.4) &  5.913 & (2.2) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Per core the M5 Pro is the faster machine, by $29$--$37\%$ depending on which
-budget the comparison is drawn from ($4.162$ against $3.027$~ms at 10 rollouts,
-$16.359$ against $12.673$ at 40). At 10 rollouts that advantage does not
-survive contact with the thread pool: both hosts flatten at $1.21$--$1.25$~ms,
-within $3\%$ of each other, having converted $3.3\times$ and $2.5\times$ of
-their cores respectively. This is the result the earlier version of this table
-reported, and it is unchanged --- ten rollouts of 201 steps is not enough
-parallel work to distinguish two machines of this class.
+Per core the M5 Pro is $28$--$37\%$ faster. At 10 rollouts that advantage does
+not survive the thread pool: both hosts flatten at $1.21$--$1.25$~ms, within
+$3\%$, having converted $3.3\times$ and $2.5\times$ of their cores. Ten rollouts
+of 201 steps is not enough parallel work to distinguish two machines of this
+class.
 
-At 40 rollouts they separate, and in the direction the single-thread numbers do
-not predict. The Ultra 7 improves, from $3.3\times$ to $4.9\times$: MJPC
-parallelizes over rollouts, so 10 rollouts cannot occupy more than 10 threads
-however many the host has, and 40 gives the pool enough work to be worth
-filling. The M5 Pro moves the other way, from $2.5\times$ to $2.1\times$, and
-its curve stops being a plateau --- 4 threads is its best point, 8 and 12 are
-\emph{worse} than 4, and 16 recovers part of the loss. The Ultra 7 ends
-$46\%$ faster in absolute terms ($3.317$ against $6.138$~ms) on the machine that
-is a third quicker per core.
+At 40 rollouts they separate, and not in the direction per-core speed predicts.
+The Ultra 7 improves to $4.9\times$ --- MJPC parallelizes over rollouts, so 10
+rollouts cannot occupy more than 10 threads however many the host has, and 40
+gives the pool enough work to fill. The M5 Pro peaks at 4 threads and then
+degrades monotonically, ending $34\%$ behind in absolute terms ($4.452$ against
+$3.317$~ms) on the machine that is faster per core.
 
-A plausible mechanism is core heterogeneity. MJPC joins its rollout threads
-every iteration, so an iteration costs what the slowest thread costs, and on a
-performance/efficiency split the threads landing on efficiency cores are
-stragglers. The penalty should scale with rollouts per thread, which is what
-the two budgets show: at 10 rollouts and 8 threads a straggler is one rollout
-behind, at 40 rollouts it is five. We have not confirmed this --- it predicts
-that the best thread count equals the performance-core count, and that pinning
-to those cores removes the inversion, neither of which we tested. The M5 Pro
-rows were also taken at load average $3.1$ and $4.4$ rather than idle, so the
-non-monotonicity in particular should be treated as provisional.
+Core heterogeneity accounts for this. MJPC joins its rollout threads every
+iteration, so an iteration costs what the slowest thread costs, and threads
+landing on efficiency cores are stragglers. The penalty scales with rollouts per
+thread, and the two budgets differ exactly there: at 10 rollouts and 8 threads a
+straggler is one rollout behind and the curve stays flat, at 40 rollouts it is
+five behind and the curve turns over. The prediction is that the best thread
+count is the performance-core count. This host reports 5 performance and 10
+efficiency cores, and 4 threads is the best point we measured --- 5 was not on
+the grid. Pinning to performance cores is the untested half.
 
-The consequence for Table~\ref{tab:rollouts} is that the price of the $20$-point
-gain is host-dependent. On the Ultra 7 the $4\times$ rollout increase costs
-$2.65\times$ wall time rather than $4\times$ ($1.251 \rightarrow 3.317$~ms),
-part of it paid by parallelism that 10 rollouts was leaving on the floor, and
-at $3.32$~ms mean and $3.88$~ms p95 it fits the $5$~ms budget --- on the tail as
-well as the mean, unlike annealed sampling, whose p95 of $5.91$~ms exceeds the
-period (Table~\ref{tab:timing}). That matters because the tail iterations are
-the ones near a gap. On the M5 Pro the same increase costs $5.1\times$
-($1.213 \rightarrow 6.138$~ms) and does not fit the budget at any thread count
-we measured, mean or p95 ($7.39$~ms at its best point). The configuration that
-solves $85\%$ is runnable on one of these two hosts and not the other, which is
-not a distinction either machine's single-thread throughput would have
-predicted.
+The price of the gain is therefore host-dependent. On the Ultra 7 the $4\times$
+rollout increase costs $2.65\times$ wall time rather than $4\times$
+($1.251 \rightarrow 3.317$~ms), part of it paid by parallelism 10 rollouts was
+leaving on the floor, and at $3.32$~ms mean and $3.88$~ms p95 it fits the
+$5$~ms budget on the tail as well as the mean. On the M5 Pro it costs
+$3.7\times$ ($1.213 \rightarrow 4.452$~ms), fits on the mean with $11\%$ to
+spare, and sits on the line at the tail ($5.02$~ms p95). The configuration that
+solves $85\%$ is comfortably runnable on one host and marginal on the other.
 
 For calibration on contention: the same 10-rollout workload on the Ultra 7 at
 load average $9.96$ reports $4.145$~ms single-threaded and $1.182$~ms at 10
-threads, within $0.3\%$ of the quiet measurement. On this host the throughput
-numbers are robust to moderate background load. Success rates never depended on
-it.
+threads, within $0.3\%$ of the quiet measurement. Success rates never depended
+on load at all, since the harness counts iterations rather than seconds.
 
 \section{Discussion}
 
-\subsection{Why iLQG does poorly}
+Three knobs moved this task from $2.7\%$ to $85\%$, and none of them is an
+optimizer. Two numbers in the objective are worth $62$ points, one integer in
+the task file is worth $20$ more, and the choice among six planners is worth
+less than either --- the entire spread in Table~\ref{tab:corridor} is smaller
+than the rollout-count effect alone. The ordering is the finding: what the
+search is handed each iteration dominates how it folds the winner back in.
 
-iLQG is the weakest planner on the corridor other than stock PSO and CEM, and it
-is last on the slalom's partial-credit column at $0.09$ gaps. Three
-contributions, in order of size.
+That ordering is not a preference, it is what happens when the update rule is
+made to compete on equal terms. Cross-Entropy at $2\%$ and stock PSO at $18\%$
+sit far below plain predictive sampling at $76\%$. Annealed sampling had the
+best case of the three, since every table before Section~\ref{sec:rollouts}
+understated its budget rather than overstating it, and correcting for the
+budget moved it further behind, not closer. The sliding plan, which changes what
+the search is handed without changing the search, is a wash. On this task added
+machinery has consistently cost rather than paid.
 
-The linearization is invalidated by exactly the event that matters. iLQG builds
-a first-order model of $f$ around a nominal trajectory. Contact makes $f$
-discontinuous, and the obstacles here are real collision geoms, so the
-derivative that the backward pass uses is a model of a world in which the
-disks do not exist until the nominal trajectory touches one --- at which point the
-finite-difference Jacobian across a contact event is not a useful local model
-either. Sampling planners are indifferent to this: a rollout that hits a disk
-returns a large number, which is all they need.
+Both knobs that did pay are now spent. The last $4\times$ of avoidance weight
+bought $2$ points at $p = 0.72$; the last $2\times$ of rollouts bought $-1.3$ at
+$p = 0.75$. Neither axis has another $15$ points in it, which is the sense in
+which the remaining gap --- about one run in seven --- is not a tuning problem.
 
-The cost structure penalizes it twice. Its derivatives are $45\%$ of a $4.65$~ms
-iteration, so it is $4.5\times$ the cost of predictive sampling for the same
-iteration count; on the tail it exceeds the $5$~ms budget, meaning the harness
-credits it with iterations a real loop would not deliver.
-
-And its failure mode on the slalom is specific: it arrives at the first gap far
-too fast. With the goal at $11$~m, the Cart residual dominates early, and a
-first-order method following that gradient accelerates; a sampler with $8$~N of
-exploration noise stumbles into slower approaches that a descent direction does
-not offer. This is a case where the smoothness assumption is not merely
-unhelpful, it selects the wrong behaviour.
-
-\subsection{Why AgileRRT does not fit}
-
-The negative result in Section~\ref{sec:agilerrt-results} is not about the
-steering primitive, which ports to MuJoCo cleanly and cheaply: \texttt{mjd\_%
-transitionFD} replaces the analytic Jacobians, \texttt{mj\_step} replaces the
-ODE integrator, and MuJoCo's contacts replace the hand-rolled swept
-line-circle tests. It is about the search. A tree build is an offline
-computation of a single open-loop path; MJPC's contract is a bounded computation
-per control step that returns a policy for the current state. Three orders of
-magnitude separate them, and $96\%$ of the tree build is spent in
-nearest-neighbour queries that grow as $O(N^2)$, so the gap widens with tree
-size rather than closing.
-
-There is a real observation underneath the comparison. AgileRRT's extends were
-rejected by collision $50\%$ of the time on the corridor and $80\%$ on the
-slalom. The obstacles are hard for a sampling-based planner in configuration
-space for the same reason they are hard for a sampling-based MPC: the feasible
-set is thin relative to the reachable set, and neither method has a mechanism
-that concentrates samples in it. The MPC's avoidance cost is such a mechanism,
-which is why Section~\ref{sec:landscape} moves the success rate by an order of
-magnitude and no amount of tree growth does.
-
-\subsection{Getting to real-time reliability}
-
-The best measured configuration on the slalom solves $85\%$, at $3.32$~ms per
-iteration against a $5$~ms budget on one of our two hosts and $6.14$~ms on the
-other --- runnable, but not everywhere, and still failing about one run in
-seven; the planners at the default objective solve a few percent. Four
-directions, ordered by how
-much the measurements above support them.
-
-\emph{Tune the cost before the optimizer.} The largest single effect we measured
-is Section~\ref{sec:landscape}'s $2.7\% \rightarrow 65\%$, from changing two
-numbers in the objective. That is a bigger effect than the entire spread between
-planners in Table~\ref{tab:corridor}, and it is the one result here with a
-$p$-value that no correction could touch. It also appears to be nearly spent:
-the last $4\times$ of weight bought $2$ points at $p = 0.72$, so a further
-factor of four is not where the next $35$ points are.
-
-\emph{Shape the residual rather than reweighting it.} The hinge
-\eqref{eq:hinge} is symmetric in the direction of approach --- it charges the same
-for a head moving toward a disk as away from it, and the same for a head near
-the gap centreline as one about to clip an edge. A residual that charges on
-predicted time-to-contact rather than on distance would keep the cost at zero
-for a head leaving the gap, which is what makes the wide-margin configurations
-fail. This is untested.
-
-\emph{Spend the budget where the run is decided.} Fig.~\ref{fig:filmstrip} makes
-the case: the outcome is decided in the roughly $80$~ms around each crossing, and
-the planner spends the same four iterations per control step for the other
-$11.7$~s. Nothing in MJPC's interface prevents a task from reporting a scalar
-urgency and the harness from varying the iteration count with it. At $1.03$~ms
-per iteration and a $20$~ms control period at $s=0.25$, there is roughly
-$4\times$ headroom to redirect.
-
-\emph{Raise the rollout count, not the planner sophistication.} This one we ran,
-and it is the largest remaining effect: $65.3 \rightarrow 85.3\%$ for
-$10 \rightarrow 40$ rollouts (Table~\ref{tab:rollouts}), at
-$2.65\times$ the wall time rather than $4\times$, because 10 rollouts could not
-fill the thread pool in the first place (Table~\ref{tab:machines}). It fits the
-$5$~ms budget at 12 threads with a third of the period spare on the Ultra 7 and
-does not fit it at all on the M5 Pro, so this direction buys reliability at the
-cost of a portability constraint the 10-rollout configuration did not have. It
-is also the
-same $4\times$ that annealed sampling has been spending all along, and
-Table~\ref{tab:budget} shows the two ways of spending it are not close: at
-matched rollouts the plain sampler is $22$ points ahead, and the annealed one
-needs $160$ rollouts and $19$~ms an iteration to get within six points of what
-the plain one does on forty. Eighty rollouts buys predictive sampling nothing
-further, so this axis is now spent as well.
-
-\emph{Carry the plan better.} The memoryless control solves nothing --- $0$ of
-$300$ on the corridor, $0$ of $1800$ across the ridge corner --- against $76\%$
-and $65\%$ for the same sampler with the incumbent kept. Whatever is producing
-these results lives in the warm start, and no experiment here measures it by
-degree: the two planners differ by all of it or none of it. Shrinking the
-incumbent toward zero by a factor $\rho$ before each iteration would interpolate
-between them, and the shape of that curve distinguishes two mechanisms with
-different fixes --- a plan that merely seeds the search, or one that accumulates
-refinement across iterations. What the interpolation would \emph{not} settle is
-whether a more faithfully carried plan is better, because
-Table~\ref{tab:sliding} already answers that: shifting and extending the
-existing plan rather than resampling it is a wash pooled and a $16$-point loss
-where collisions were already common. The incumbent is worth having and is not
-worth preserving exactly.
-
-What we would not pursue is a more elaborate zeroth-order update rule.
-Table~\ref{tab:corridor} is the argument, though not the one we expected to make
-from it: Cross-Entropy at $2\%$ and stock PSO at $18\%$ sit far below plain
-predictive sampling at $76\%$, so on this task added machinery has consistently
-cost rather than paid. Table~\ref{tab:budget} closes the one loophole in that
-argument. Annealed sampling was the elaborate rule with the best case for
-itself, since every previous table understated its budget rather than
-overstating it; measured at matched rollouts it loses by $22$ points, and the
-correction moves it further behind rather than closer. The margin to recover is
-in what the search is handed each iteration, not in how it folds the winner back
-in.
+Two structural facts bound what a fix can look like. The warm start is
+load-bearing to a degree no other result here approaches: the same sampler
+without it solves $0$ of $1800$ (Section~\ref{sec:ridge}), so any redesign that
+weakens the incumbent starts from zero rather than from $85$. And the failure is
+concentrated in time. Fig.~\ref{fig:filmstrip} shows the outcome decided in
+roughly $80$~ms around each crossing while the planner spends the same four
+iterations per control step for the other $11.7$~s; at $1.03$~ms an iteration
+against a $20$~ms control period there is about $4\times$ headroom to redirect,
+and nothing in MJPC's interface prevents a task from reporting an urgency scalar
+that the harness spends against. We did not test this, nor a residual that
+charges on predicted time-to-contact rather than distance, nor annealed sampling
+with its MPPI average replaced by an argmax. Each is a specific experiment
+rather than a direction, and none of them is supported by a measurement here.
 
 \section{Conclusion}
 
-On a chaotic, underactuated obstacle-avoidance task, six sampling and
-first-order MPC planners at equal iteration budget span 2 to 76 solves out of
-100 on a single bottleneck and 0 to 4 out of 100 on three chained bottlenecks.
-The ordering is stable across both. A memoryless control --- the same sampler
-with its incumbent discarded each iteration --- solves none of $300$ trials on
-the single bottleneck and none of $1800$ across the best corner of the parameter
-grid, which puts the warm start, not the update rule, at the centre of what
-these planners do.
-Retuning two parameters of the avoidance cost --- its weight and the clearance
-margin at which it activates --- raises the three-bottleneck rate from $2.7\%$ to
-$65\%$, a larger effect than the entire spread between planners, and the sweeps
-that establish it show the two parameters interacting rather than acting
-independently: the optimum is a ridge whose best margin falls as the weight
-rises, and tuning either knob alone crosses it instead of following it.
-Widening the search from 10 rollouts per iteration to 40 adds a further 20
-points, to $85\%$; $80$ adds nothing. That increase costs $2.65\times$ the wall
-time rather than $4\times$ on a 20-core x86 host, because at 10 rollouts the
-planner could not fill the thread pool, and it still fits the budget there. It
-costs $5.1\times$ on a 15-core Apple Silicon host and does not, which is a
-distinction neither machine's single-core throughput predicts and which only
-appears once the rollout count is large enough to expose how each host
-schedules a parallel join.
-Per-iteration cost is within $3\%$
-across the sampling family and the $5$~ms budget is met on the mean by all six
-planners, so the differences reported here are differences of algorithm and not
-of throughput. The two largest effects we found were an objective parameter and
-a rollout count, and the smallest were the choices of update rule; on this task
-the search was never the bottleneck. It remains unsolved in the sense that
+On a chaotic, underactuated obstacle-avoidance task, retuning two parameters of
+the avoidance cost raises the three-bottleneck success rate from $2.7\%$ to
+$65\%$, and widening the search from 10 rollouts per planning iteration to 40
+raises it to $85\%$. Both are larger than the entire spread across six planners
+at equal iteration budget, which runs 2 to 76 out of 100 on one bottleneck and 0
+to 4 on three. The two cost parameters interact --- the optimum is a ridge whose
+best margin falls as the weight rises --- so tuning either alone crosses it
+rather than following it, which is why the default objective looks like a wall.
+
+Per-iteration cost is within $3\%$ across the sampling family, so these are
+differences of algorithm and not of throughput. Widening the search costs
+$2.65\times$ the wall time rather than $4\times$ on a 20-core x86 host, because
+at 10 rollouts the planner could not fill the thread pool; on a 15-core host
+with 5 performance cores it costs $3.7\times$ and lands on the budget rather
+than inside it, a distinction neither machine's single-core throughput predicts.
+
+The result we did not expect is what carries the planners at all. The same
+sampler with its incumbent discarded each iteration solves $0$ of $1800$. The
+warm start, not the update rule, is the mechanism, and the two elaborations of
+the update rule we tested at matched budget --- annealed sampling and the
+sliding plan --- cost or broke even. The task remains unsolved in the sense that
 matters for deployment: the best configuration still fails about one run in
-seven, and both knobs that produced the gains are now at the point where a
-further factor of four buys nothing measurable.
+seven, and both knobs that produced the gains are at the point where a further
+factor of four buys nothing measurable.
 
 \section*{Reproducing}
 
@@ -1215,6 +995,9 @@ directory and a thread list, and reads the rollout count from \texttt{TRAJ}:
 TRAJ=10 machine\_bench.sh out/m10 1 2 4 8 12 16 \\
 TRAJ=40 machine\_bench.sh out/m40 1 2 4 8 12 16
 \end{quote}
+
+\noindent On a host with heterogeneous cores, add its performance-core count to
+the thread list.
 
 \noindent Everything else is fixed inside the script --- predictive sampling,
 $1.0$~s horizon, 12 knots, \texttt{total\_time=2.0}, 5 repeats,
@@ -1272,6 +1055,70 @@ S.~M. LaValle and J.~J. Kuffner, ``Randomized kinodynamic planning,''
 \end{thebibliography}
 
 \appendices
+
+\section{AgileRRT}
+\label{app:agilerrt}
+
+The steering primitive ports cleanly; the tree does not close either task. On
+the corridor, $3000$ vertices grown in $379$~s never reached the goal set, with
+$50.1\%$ of $6008$ extends rejected by collision. On the slalom, $3873$ vertices
+in $1800$~s moved the cart to $5.83$~m of the $11$~m required, with $80.5\%$ of
+$19836$ extends rejected.
+
+Where the time goes is the useful number: $96\%$ of the corridor build and
+$98\%$ of the slalom build went to nearest-neighbour queries, $O(N)$ per extend
+and so $O(N^2)$ over the build. The per-vertex precompute that
+\cite{caldwell2015} optimizes was $7\%$ and $2\%$. This corrects an earlier
+extrapolation of ours: a $1000$-vertex tree projected at $\approx 15$~s by
+treating nearest-neighbour as a fixed per-iteration cost, and $1200$ vertices
+measure $125$~s.
+
+The conclusion does not depend on the constant. MJPC's contract is one
+\texttt{OptimizePolicy} call per control step within $5$~ms; a tree build is
+three orders of magnitude over it, and the gap widens with tree size rather than
+closing. AgileRRT is usable here as an offline trajectory generator, not as an
+MPC planner, which is why it is absent from the planner tables.
+
+Two observations survive the negative result. Linearizing about
+$x_{\text{zero}}(t)$ rather than $x_0$ differs only if $x_{\text{zero}}$ drifts,
+and this benchmark starts at the upright equilibrium of the zero-control
+dynamics: measured drift over $1.0$~s is $0.000$, so at the start state the
+primitive's contribution is exactly a no-op. And the extend rejection rates say
+the obstacles are hard for a configuration-space sampler for the same reason
+they are hard for sampling MPC --- the feasible set is thin relative to the
+reachable set. The avoidance cost is a mechanism for concentrating samples in
+it; tree growth is not, which is why Section~\ref{sec:landscape} moves the
+success rate by an order of magnitude and more vertices do not.
+
+\section{Why iLQG does poorly}
+\label{app:ilqg}
+
+iLQG is last on the slalom's partial-credit column at $0.09$ gaps. Three
+contributions, in order of size.
+
+The linearization is invalidated by the event that matters. iLQG builds a
+first-order model of $f$ around a nominal trajectory; contact makes $f$
+discontinuous, and the obstacles here are real collision geoms, so the
+derivative the backward pass uses models a world in which the disks do not exist
+until the nominal touches one --- at which point a finite-difference Jacobian
+across a contact event is not a useful local model either. Sampling planners are
+indifferent to this: a rollout that hits a disk returns a large number, which is
+all they need.
+
+The cost structure penalizes it twice. Derivatives are $45\%$ of a $4.65$~ms
+iteration, $4.5\times$ the cost of predictive sampling for the same iteration
+count, and on the tail it exceeds the $5$~ms budget, so the harness credits it
+with iterations a real loop would not deliver.
+
+Its slalom failure is specific: it arrives at the first gap far too fast. With
+the goal at $11$~m the Cart residual dominates early, and a first-order method
+following that gradient accelerates, where a sampler with $8$~N of exploration
+noise stumbles into slower approaches a descent direction does not offer.
+
+\section{Per-seed counts}
+\label{app:seeds}
+
+\input{seed_table}
 
 \section{Lookahead}
 \label{app:horizon}
