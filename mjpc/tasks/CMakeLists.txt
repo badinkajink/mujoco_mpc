@@ -275,6 +275,17 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${cl_assets_SOURCE_DIR}/meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
+  # ...EXCEPT meshes/skin (2026-08-04). The "all 90 files" check above compared the
+  # TOP LEVEL of the two mesh trees and missed the skin/ subdirectory, which CL_Assets
+  # does not carry at all (8 stl: torso, head, both elbows, both shoulder_roll, both
+  # shoulder_yaw). Dropping it broke all three Avoid_H12 variants at load with
+  # "Error opening file .../h1_2/skin/torso_skin.stl" -- latent until the staged tree
+  # was wiped, because copy_directory never removes a file a previous build left behind.
+  # Same split of responsibility as the FetchContent comment in the root CMakeLists:
+  # CL owns the robot, h1_mujoco still owns the sensor skin.
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${h12_SOURCE_DIR}/unitree_robots/h1_2/meshes/skin
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/skin
   COMMAND ${CMAKE_COMMAND} -E copy
         ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_handless.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2.xml
