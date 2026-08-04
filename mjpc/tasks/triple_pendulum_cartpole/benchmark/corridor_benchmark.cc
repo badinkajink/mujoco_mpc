@@ -174,6 +174,23 @@ ABSL_FLAG(int, spline_points, -1,
           "actually gets executed. Hold knot spacing constant by scaling this "
           "with the horizon if the question is 'does lookahead help' rather "
           "than 'does coarser control hurt'.");
+ABSL_FLAG(int, num_trajectory, -1,
+          "Override sampling_trajectories, the number of noisy rollouts the "
+          "sampling family evaluates per planning iteration. Negative keeps "
+          "task.xml's value (10). Iterations per control step are set by "
+          "--speed and are NOT adjusted for this, so raising it raises the "
+          "per-iteration cost proportionally: the arm is 'more rollouts at "
+          "the same number of decisions', not 'more compute per second'. "
+          "Exits with an error if the model has no such numeric, so an arm "
+          "cannot silently run at the default.");
+ABSL_FLAG(int, sliding_plan, -1,
+          "Override sampling_sliding_plan (0/1). Negative keeps task.xml's "
+          "value. Selects which branch of SamplingPlanner::UpdateNominalPolicy "
+          "carries the incumbent between iterations: 0 resamples the plan out "
+          "of candidate_policy[winner] onto a fresh knot grid anchored at the "
+          "current time; 1 keeps policy.plan, discards its expired nodes and "
+          "extends it by duplicating the last one. Exits with an error if the "
+          "model has no such numeric.");
 ABSL_FLAG(double, horizon, -1.0,
           "Override the planner horizon (s). Negative keeps task.xml's "
           "agent_horizon. Longer horizons are what a multi-bottleneck "
@@ -518,6 +535,8 @@ struct RunConfig {
   double horizon = -1.0;         // negative: keep task.xml's agent_horizon
   double exploration = -1.0;     // negative: keep task.xml's value
   int spline_points = -1;        // negative: keep task.xml's value
+  int num_trajectory = -1;       // negative: keep task.xml's value
+  int sliding_plan = -1;         // negative: keep task.xml's value
   double beta_action = -1.0;     // negative: keep the model's value
   double total_time = 20.0;
   double speed = 1.0;
@@ -567,6 +586,12 @@ struct RunResult {
   // which is the whole question that task asks.
   int gaps_passed = 0;
   int num_gaps = 1;
+
+  // The values the planner was actually initialized with, read back off the
+  // model after the overrides were applied. Reported rather than the flags, so
+  // a row cannot claim a setting the model did not carry.
+  int num_trajectory_eff = -1;
+  int sliding_plan_eff = -1;
 
   // ---- timing ----
   // The harness holds planning *iterations* constant across planners, so the
@@ -627,6 +652,31 @@ RunResult RunOnce(const RunConfig& cfg, int run_index,
   if (cfg.spline_points > 0) {
     double* n = mjpc::GetCustomNumericData(model, "sampling_spline_points");
     if (n) *n = static_cast<double>(cfg.spline_points);
+  }
+
+  // Rollouts per planning iteration and which arm of UpdateNominalPolicy runs.
+  // Both hard-fail on a missing numeric rather than falling through to the
+  // planner's default: a sweep arm that quietly ran at the default value is
+  // exactly the failure mode that let the no-op RandomSamplingPlanner survive
+  // a 30-cell grid.
+  if (cfg.num_trajectory > 0) {
+    double* n = mjpc::GetCustomNumericData(model, "sampling_trajectories");
+    if (!n) {
+      std::cerr << "--num_trajectory set but task '" << cfg.task_key
+                << "' has no sampling_trajectories numeric.\n";
+      std::exit(1);
+    }
+    *n = static_cast<double>(cfg.num_trajectory);
+  }
+
+  if (cfg.sliding_plan >= 0) {
+    double* s = mjpc::GetCustomNumericData(model, "sampling_sliding_plan");
+    if (!s) {
+      std::cerr << "--sliding_plan set but task '" << cfg.task_key
+                << "' has no sampling_sliding_plan numeric.\n";
+      std::exit(1);
+    }
+    *s = static_cast<double>(cfg.sliding_plan);
   }
 
   if (cfg.beta_action > 0) {
@@ -704,6 +754,10 @@ RunResult RunOnce(const RunConfig& cfg, int run_index,
   // timestep> is exactly the experiment someone runs here, and a hard-coded
   // 5 ms would keep scoring against a budget the model no longer has.
   r.timestep = model->opt.timestep;
+  r.num_trajectory_eff = static_cast<int>(
+      mjpc::GetNumberOrDefault(10.0, model, "sampling_trajectories"));
+  r.sliding_plan_eff = static_cast<int>(
+      mjpc::GetNumberOrDefault(0.0, model, "sampling_sliding_plan"));
   double total_cost = 0;
   int steps_run = 0;
   // Planning iterations owed to the planner, accumulated at 1/speed per
@@ -919,6 +973,8 @@ int main(int argc, char** argv) {
   cfg.horizon = absl::GetFlag(FLAGS_horizon);
   cfg.exploration = absl::GetFlag(FLAGS_exploration);
   cfg.spline_points = absl::GetFlag(FLAGS_spline_points);
+  cfg.num_trajectory = absl::GetFlag(FLAGS_num_trajectory);
+  cfg.sliding_plan = absl::GetFlag(FLAGS_sliding_plan);
   cfg.beta_action = absl::GetFlag(FLAGS_beta_action);
   cfg.total_time = absl::GetFlag(FLAGS_total_time);
   cfg.speed = absl::GetFlag(FLAGS_speed);
@@ -974,6 +1030,10 @@ int main(int argc, char** argv) {
   if (cfg.horizon > 0) std::printf("   horizon %.2fs", cfg.horizon);
   if (cfg.exploration >= 0) std::printf("   exploration %g", cfg.exploration);
   if (cfg.spline_points > 0) std::printf("   knots %d", cfg.spline_points);
+  if (cfg.num_trajectory > 0) std::printf("   rollouts %d", cfg.num_trajectory);
+  if (cfg.sliding_plan >= 0) {
+    std::printf("   sliding_plan %d", cfg.sliding_plan);
+  }
   if (cfg.clearance >= 0) std::printf("   margin %.2fm", cfg.clearance);
   std::printf("   init_noise %g (seed %d)", cfg.init_noise, cfg.seed);
   if (cfg.planner_seed != 0) {
@@ -1013,6 +1073,7 @@ int main(int argc, char** argv) {
   std::vector<double> iter_ms_p95s, iter_ms_maxes;
   PlannerTimers agg;
   double model_timestep = 0.005;
+  int eff_num_trajectory = -1, eff_sliding_plan = -1;
   for (int k = 0; k < repeats; k++) {
     RunResult r = RunOnce(cfg, k, dump_path_for_run(k));
     // "reached" = the goal state was attained at some point without a
@@ -1029,6 +1090,8 @@ int main(int argc, char** argv) {
     ended_early += r.ended_early;
     total_sim_time += r.sim_time;
     num_gaps = r.num_gaps;
+    eff_num_trajectory = r.num_trajectory_eff;
+    eff_sliding_plan = r.sliding_plan_eff;
     total_plan_iterations += r.plan_iterations;
     total_plan_wall += r.plan_wall;
     model_timestep = r.timestep;
@@ -1213,6 +1276,7 @@ int main(int argc, char** argv) {
   // all, look identical to whatever parses this.
   std::printf("RESULT planner=%s task=%s stage=%s speed=%g horizon=%g "
               "clearance=%g seed=%d planner_seed=%d "
+              "num_trajectory=%d sliding_plan=%d "
               "trials=%d solved=%d solved_pct=%.1f+-%.1f collided=%d "
               "collided_pct=%.1f t_solve_median=%.2f gaps_mean=%.2f "
               "num_gaps=%d wall_total_s=%.1f ms_per_iter=%.3f "
@@ -1223,6 +1287,7 @@ int main(int argc, char** argv) {
                   : "xml",
               task_key.c_str(), stage_name.c_str(), cfg.speed, cfg.horizon,
               cfg.clearance, cfg.seed, cfg.planner_seed,
+              eff_num_trajectory, eff_sliding_plan,
               repeats, solved, 100.0 * solved / repeats, stderr_pct(solved),
               collided, 100.0 * collided / repeats, median(solve_times),
               static_cast<double>(total_gaps_passed) / repeats, num_gaps,

@@ -74,6 +74,16 @@
 
     <!-- Same rollout budget for every planner; see task.xml. -->
     <numeric name="sampling_trajectories" data="10" />
+
+    <!-- Which arm of SamplingPlanner::UpdateNominalPolicy carries the plan
+         between iterations. 0 (the planner's own default) resamples the plan
+         out of candidate_policy[winner] onto a fresh knot grid anchored at the
+         current time; 1 keeps policy.plan, drops expired nodes and extends it
+         by duplicating the last. Declared here, rather than left to the
+         planner default, so the benchmark's sliding_plan flag can address it:
+         GetCustomNumericData only finds numerics the model actually carries,
+         and an override that lands on a missing name is a silent no-op. -->
+    <numeric name="sampling_sliding_plan" data="0" />
     <numeric name="pso_num_particles" data="10" />
     <numeric name="pso_publish_evaluated" data="1" />
 
