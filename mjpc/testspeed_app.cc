@@ -26,6 +26,17 @@ ABSL_FLAG(int, planner_thread, mjpc::NumAvailableHardwareThreads() - 5,
 ABSL_FLAG(int, steps_per_planning_iteration, 4,
           "How many physics steps to take between planning iterations.");
 ABSL_FLAG(double, total_time, 10, "Total time to simulate (seconds).");
+ABSL_FLAG(int, dump_residual, -1,
+          "If >= 0, take this many planning steps from the model's default "
+          "keyframe, print every mjSENS_USER residual scalar as "
+          "idx<TAB>name[off]<TAB>value at %.17g, and exit. 0 dumps at the "
+          "untouched keyframe, before any (stochastic) planning has run, which "
+          "makes the dump a fully deterministic oracle. Negative disables.");
+ABSL_FLAG(double, dump_perturb, 0.0,
+          "With --dump_residual, first kick qpos/qvel off the keyframe by this "
+          "magnitude using a fixed-seed deterministic generator. At the pristine "
+          "keyframe most of the residual is identically zero and a zero term "
+          "cannot disagree, so this is what gives the dump discriminating power.");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -34,10 +45,13 @@ int main(int argc, char** argv) {
   int steps_per_planning_iteration =
       absl::GetFlag(FLAGS_steps_per_planning_iteration);
   double total_time = absl::GetFlag(FLAGS_total_time);
-  double cost =
-      mjpc::SynchronousPlanningCost(task_name, planner_thread_count,
-                                    steps_per_planning_iteration, total_time);
+  int dump_residual_steps = absl::GetFlag(FLAGS_dump_residual);
+  double dump_perturb = absl::GetFlag(FLAGS_dump_perturb);
+  double cost = mjpc::SynchronousPlanningCost(
+      task_name, planner_thread_count, steps_per_planning_iteration, total_time,
+      dump_residual_steps, dump_perturb);
   if (cost < 0) {
     return -1;
   }
+  return 0;
 }

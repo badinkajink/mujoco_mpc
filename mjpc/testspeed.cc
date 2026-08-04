@@ -16,6 +16,8 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -38,12 +40,72 @@ void residual_callback(const mjModel* model, mjData* data, int stage) {
     task->Residual(model, data, data->sensordata);
   }
 }
+
+// Print every mjSENS_USER residual SCALAR of `data->sensordata`, in sensor
+// declaration order, as `idx<TAB>name[off]<TAB>value` at full %.17g precision.
+// `idx` is the scalar's position in the task residual vector (a running counter
+// over user sensors only), `off` its offset inside the owning sensor, so a span
+// that has SHIFTED shows up immediately instead of masquerading as 20 value
+// mismatches. The trailing fflush is not optional: buffered stdout plus a killed
+// process has already produced checks in this project that could not fail.
+void DumpUserResidual(const mjModel* model, const mjData* data,
+                      const std::string& task_name, int steps, double perturb) {
+  int n_user = 0;
+  for (int i = 0; i < model->nsensor; i++) {
+    if (model->sensor_type[i] == mjSENS_USER) n_user += model->sensor_dim[i];
+  }
+  // Leading newline: task loaders print with std::printf and do not always
+  // terminate their last line, which would otherwise glue the marker onto it.
+  // nq/nv are in the header so a comparison across two models can VERIFY that
+  // the perturbation below drew the same numbers into the same slots.
+  std::printf("\nRESIDUAL_DUMP task=%s steps=%d perturb=%.17g nq=%d nv=%d "
+              "nscalar=%d time=%.17g\n",
+              task_name.c_str(), steps, perturb, model->nq, model->nv, n_user,
+              data->time);
+  int idx = 0;
+  for (int i = 0; i < model->nsensor; i++) {
+    if (model->sensor_type[i] != mjSENS_USER) continue;
+    const char* name = mj_id2name(model, mjOBJ_SENSOR, i);
+    int adr = model->sensor_adr[i];
+    for (int off = 0; off < model->sensor_dim[i]; off++) {
+      std::printf("%d\t%s[%d]\t%.17g\n", idx, name ? name : "(unnamed)", off,
+                  data->sensordata[adr + off]);
+      idx++;
+    }
+  }
+  std::printf("RESIDUAL_DUMP_END\n");
+  std::fflush(stdout);
+}
+
+// Deterministically shove the state off the keyframe.
+//
+// At the pristine keyframe most of the residual is identically zero (the pose IS
+// the target and the robot is at rest), so a bit-identical dump there proves very
+// little: a term can only disagree where it is nonzero. This walks a fixed-seed
+// xorshift64* over qpos and qvel so that velocity-, asymmetry- and tilt-driven
+// terms all become nonzero, while staying a pure function of the seed -- run it
+// twice, or on two engines whose nq/nv agree, and you get the same state to the
+// last bit. Quaternions are renormalised after the kick.
+void PerturbState(const mjModel* model, mjData* data, double scale) {
+  uint64_t s = 0x2545F4914F6CDD1DULL;
+  auto next = [&s]() {
+    s ^= s << 13;
+    s ^= s >> 7;
+    s ^= s << 17;
+    // 53-bit mantissa -> [-1, 1)
+    return static_cast<double>(s >> 11) * (1.0 / 4503599627370496.0) - 1.0;
+  };
+  for (int i = 0; i < model->nq; i++) data->qpos[i] += scale * next();
+  for (int i = 0; i < model->nv; i++) data->qvel[i] += scale * next();
+  mj_normalizeQuat(model, data->qpos);
+}
 }  // namespace
 
 // Run synchronous planning, print timing info,return 0 if nothing failed.
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
-                               double total_time) {
+                               double total_time, int dump_residual_steps,
+                               double dump_perturb) {
   std::cout << "Test MJPC Speed: " << task_name << "\n";
   std::cout << " MuJoCo version " << mj_versionString() << "\n";
   if (mjVERSION_HEADER != mj_version()) {
@@ -88,6 +150,33 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
 
   std::cout << " Planning threads:  " << planner_thread_count << "\n";
   ThreadPool pool(planner_thread_count);
+
+  // Residual dump mode -- the deterministic oracle. The residual is a pure
+  // function of (model, data), so with dump_residual_steps == 0 nothing
+  // stochastic has run yet and two engines at the same strategy must agree
+  // bit-for-bit on every surviving span. dump_residual_steps > 0 lets the
+  // sampling planner move the state first, which is only comparable across
+  // engines when they happen to sample the same trajectory prefix.
+  if (dump_residual_steps >= 0) {
+    if (dump_perturb > 0.0) PerturbState(model, data, dump_perturb);
+    for (int i = 0; i < dump_residual_steps; i++) {
+      agent.ActiveTask()->Transition(model, data);
+      agent.state.Set(model, data);
+      agent.ActivePlanner().ActionFromPolicy(
+          data->ctrl, agent.state.state().data(),
+          agent.state.time(), /*use_previous=*/false);
+      mj_step(model, data);
+      if (i % steps_per_planning_iteration == 0) { agent.PlanIteration(&pool); }
+    }
+    // Recompute the sensors at THIS state: mj_step evaluates sensors before it
+    // integrates, so without this the dump would describe the previous state.
+    agent.ActiveTask()->Transition(model, data);
+    mj_forward(model, data);
+    DumpUserResidual(model, data, task_name, dump_residual_steps, dump_perturb);
+    mj_deleteData(data);
+    mjcb_sensor = nullptr;
+    return 0;
+  }
 
   int total_steps = ceil(total_time / model->opt.timestep);
   int current_time = 0;

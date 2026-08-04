@@ -389,89 +389,148 @@ cd ~/Desktop/h12/h1_mujoco
     </ul>
   </article>
 
-  <!-- ──────────────── ESTIMATOR VERSIONS CARD (2026-07-29) ──────────────── -->
+  <!-- ──────────────── ESTIMATOR VERSIONS CARD (2026-07-29, rev 2026-07-31) ──────────────── -->
   <article id="est-versions" class="card card-hair p-6 space-y-4 scroll-mt-6">
     <div class="flex flex-wrap items-center gap-3">
-      <h2 class="display text-xl">E — Estimator versions v1→v4 + ArUco anchor</h2>
+      <h2 class="display text-xl">E — Estimator v1→v4 + aux anchors (LiDAR / AprilTag)</h2>
       <span class="pill pill-sky">DROP-IN</span>
-      <span class="pill pill-amber">v4+tags: 0 real runs</span>
+      <span class="pill pill-emer">v4+lidar &amp; v4+april: LIVE-VALIDATED 07-30</span>
+      <span class="pill pill-amber">v4+both: 0 real runs</span>
     </div>
     <p class="text-sm text-slate-300 leading-relaxed">
       Four generations, <strong>identical wire contract</strong> (rt/lowstate in →
       SportModeState_ out): in ANY recipe on this sheet, swap the T4 filename and nothing
-      else changes. All live in <code>mjpc/deploy/helper_scripts/</code>. Purpose of v4+tags:
-      <strong>estimator only</strong> — when load bearing degrades the planted-foot assumption,
-      the tag bundle is the drift-free anchor. Zero role in the lean pipeline.
+      else changes. All live in <code>mjpc/deploy/helper_scripts/</code>. Purpose of the aux
+      bus: <strong>estimator only</strong> — when load bearing degrades the planted-foot
+      assumption, LiDAR / the tag bundle are the drift-free anchor. Zero role in the lean
+      pipeline. <strong>Since 2026-07-30 you do not hand-start the chain</strong> —
+      <code>est_bringup.sh</code> brings up the estimator plus whatever bridges it needs,
+      health-gating each one.
     </p>
     <ul class="space-y-1.5 text-xs">
       <li class="flex items-start gap-2"><span class="pill pill-sky mt-0.5">v1</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node.py</code> — shipped rw-ekf (default filter). The 112 s real record ran on this. Rollback of last resort. Opt-in: <code>--filter kf12</code>, <code>--zupt</code>.</span></li>
-      <li class="flex items-start gap-2"><span class="pill pill-amber mt-0.5">v2</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v2.py</code> — kf12 research branch. <strong>Refuted twice on the bench</strong>; parked until foot-force hardware. Do not deploy.</span></li>
-      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v3</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v3.py</code> — rw-ekf + waist-fix + upright-gated ZUPT + slip monitor + stale guard. Grid A (90 s stand ×4 paired seeds): <span class="mono">v3 HELD 2/4 vs v1 0/4; both v3 holds v_err peak 0.05</span>. Frozen A/B baseline.</span></li>
-      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v4</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v4.py</code> — <strong>THE node to run</strong>: v3 + aux bus (<code>rt/aux_odom</code>). No bridge running ⇒ byte-identical to v3 (selftest-proven). Bridges: <code>lio_bridge_node.py</code> (FAST-LIO velocity+xy, mode 1), <code>tag_bridge_node.py</code> (ArUco position-only, mode 2).</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-rose mt-0.5">v2</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v2.py</code> — kf12 research branch. <strong>Refuted twice on the bench</strong>; parked until foot-force hardware. Do not deploy.</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v3</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v3.py</code> — rw-ekf + waist-fix + upright-gated ZUPT + slip monitor + stale guard. <strong>Real stand ~198 s unassisted (record, 07-30)</strong>; the end was a crouch-catch, estimator blameless. Frozen A/B baseline.</span></li>
+      <li class="flex items-start gap-2"><span class="pill pill-emer mt-0.5">v4</span><span class="leading-relaxed text-slate-300"><code>base_estimator_node_v4.py</code> — <strong>THE node to run</strong>: v3 + aux bus (<code>rt/aux_odom</code>). No bridge running ⇒ <em>bit-identical</em> to v3 (selftest: 0.0e+00 state diff over 300 ticks). Bridges: <code>lio_bridge_node.py</code> (FAST-LIO velocity+xy, mode 1), <code>tag_bridge_node.py</code> (AprilTag position-only, mode 2).</span></li>
     </ul>
+
     <div class="term">
       <div class="term-bar">
         <span class="term-dot" style="background:#f87171"></span>
         <span class="term-dot" style="background:#fbbf24"></span>
         <span class="term-dot" style="background:#34d399"></span>
-        <span class="lbl ml-2">swap rule + v4 flags + ArUco chain</span>
+        <span class="lbl ml-2">est_bringup.sh — the one command</span>
       </div>
-<pre class="cmd"><span class="c"># ── SELFTESTS (offline, no robot/DDS — run before anything live)</span>
+<pre class="cmd"><span class="c"># ── SELFTESTS (offline, no robot/DDS — run before anything live). All 4 re-verified 2026-07-31.</span>
 cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
 ~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v3.py --selftest   <span class="c"># PASS 6/6</span>
-~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v4.py --selftest   <span class="c"># PASS 6/6 (incl no-aux==v3)</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v4.py --selftest   <span class="c"># PASS 8/8 (incl no-aux==v3, two-tier pull)</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python tag_bridge_node.py --selftest          <span class="c"># PASS 4/4</span>
 ~/Desktop/h12/h1_mujoco/.venv/bin/python lio_bridge_node.py --selftest          <span class="c"># PASS 3/3</span>
 
-<span class="c"># ── THE SWAP RULE: any T4 on this sheet, change ONLY the filename</span>
-<span class="c">#    A1-style (ride-along, scored vs twin truth):</span>
-cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/<span class="hl">base_estimator_node_v4.py</span> \
-  --no-auto-iface --out-topic rt/sportmodestate_est --compare
-<span class="c">#    A2/B-style (node balances on it): same swap, drop --compare; node keeps</span>
-<span class="c">#    --sportstate_topic rt/sportmodestate_est (twin) or the live topic (robot)</span>
+<span class="c"># ── NATIVE BRINGUP (laptop). Estimator runs in the FOREGROUND → Ctrl-C tears the whole set down.</span>
+<span class="c">#    Logs: ~/Desktop/h12/est_bringup_logs/&lt;timestamp&gt;/ . Controller/safety/estop are NOT started here.</span>
+cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
+./est_bringup.sh v1                  <span class="c"># baseline estimator only</span>
+./est_bringup.sh v3                  <span class="c"># v3 only  (frozen A/B baseline)</span>
+./est_bringup.sh v4                  <span class="c"># v4, no bridges  == v3 behaviour</span>
+./est_bringup.sh v4 lidar            <span class="c"># livox driver + FAST-LIO + lio_bridge + v4</span>
+./est_bringup.sh v4 april            <span class="c"># realsense cams + tag_bridge + v4</span>
+./est_bringup.sh v4 lidar april      <span class="c"># everything</span>
+./est_bringup.sh v4 april -- --out-topic rt/sportmodestate_est   <span class="c"># anything after -- goes to the estimator</span>
+
+<span class="c"># ── PRECONDITIONS (all verified present 2026-07-31; check before you drive to the lab)</span>
+<span class="c">#   /home/code                        symlink → ~/Desktop/HAMS   (HAMS overlay was docker-built)</span>
+<span class="c">#                                     sudo ln -s ~/Desktop/HAMS /home/code</span>
+<span class="c">#   ~/Desktop/h12/table_tags/table_tag_bundle.yaml   FILLED (locked v3 symmetric layout)</span>
+<span class="c">#   ~/Desktop/HAMS/core_ws/install/setup.bash        HAMS overlay built</span>
+<span class="c">#   LIDAR = 192.168.123.120 · robot = 192.168.123.161 · cam driver runs on PC4 .164</span>
+<span class="c">#   DDS: cyclonedds + domain 0 + PINNED NIC  (cyclonedds_laptop.xml)</span>
+<span class="c">#   MID360_config_laptop.json is the LAPTOP copy — HAMS files stay untouched</span>
 
 <span class="c"># ── v4 AUX-BUS FLAGS (defaults shown; v4 runs fine with NO bridge at all)</span>
-<span class="c">#   --aux-topic rt/aux_odom    --aux-age-max 0.2   (stale aux ignored → degrades to v3)</span>
-<span class="c">#   --aux-rv 0.05 --aux-chi2 11.34                 (velocity fuse gate, mode-1 sources)</span>
-<span class="c">#   --aux-xy-tau 2.0                               (xy anchor pull; 0 = velocity-only)</span>
+<span class="c">#   --aux-topic rt/aux_odom    --aux-age-max 0.2    stale aux ignored → degrades to v3 in 200 ms</span>
+<span class="c">#   --aux-rv 0.05 --aux-chi2 11.34                  velocity fuse gate (mode-1 sources)</span>
+<span class="c">#   --aux-gate planted                              defer the pull while the feet carry load</span>
+<span class="c">#   --aux-xy-tau 2.0   --aux-xy-tau-soft 30.0       TWO-TIER pull: fast when unloaded,</span>
+<span class="c">#                                                   slow (tau-soft) while slipping/loaded</span>
+</pre>
+    </div>
 
-<span class="c"># ── ARUCO CHAIN (real robot) — needs: tags mounted per the LOCKED v3 layout,</span>
-<span class="c">#    REAL surveyed centres filled into ~/Desktop/h12/table_tags/table_tag_bundle.yaml</span>
-<span class="c"># T5  head camera (HAMS overlay)</span>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">real-robot capture protocol — run in THIS order, every arm</span>
+      </div>
+<pre class="cmd"><span class="c"># 1. POWER CYCLE, then set ankle zeros.  Zeros SLIP without a power cycle.</span>
+<span class="c"># 2. IMU zero check — a baked imu_pitch offset injects ~1.6 deg/month of lean.</span>
+<span class="c">#    Zeroing it is what produced the 112.2 s record.</span>
+~/Desktop/h12/h1_mujoco/.venv/bin/python .../imu_zero_check.py
+
+<span class="c"># 3. Controller via the LAUNCH FILE — never `ros2 run`.</span>
+<span class="c">#    ★ `ros2 run` skips mjpc_real.yaml and ZEROES the IMU calibration.</span>
+
+<span class="c"># 4. ONE estimator at a time — they all publish rt/sportmodestate.</span>
+./est_bringup.sh <span class="hl">v3</span>                    <span class="c"># swap the arm here, nothing else changes</span>
+
+<span class="c"># 5. Recorder alongside, same DDS domain (passive, never publishes).</span>
+cd ~/Desktop/h12 &amp;&amp; ~/Desktop/h12/h1_mujoco/.venv/bin/python dds_tools/dds_live_recorder.py \
+  --out ~/Desktop/h12/logs/est_real/<span class="hl">v3_run00</span>.npz
+<span class="c">#    captures rt/lowstate (q/dq/tau, IMU quat+gyro+accel) + rt/lowcmd (full PD command)</span>
+<span class="c">#            + rt/sportmodestate (the estimator's base pose) → joint_forensics.py reads it</span>
+
+<span class="c"># 6. HANDS OFF.  Every previous leaning v4 run was hand-assisted — that is what</span>
+<span class="c">#    contaminated the trim verdicts.  A steadied run is not a datapoint.</span>
+<span class="c"># 7. FIXED WINDOW, identical for every arm (suggest 120 s cap).</span>
+<span class="c">#    A window that runs "until it falls" gives survivors longer windows and</span>
+<span class="c">#    FABRICATES separation (slope ~1/sqrt(T)).  Fixed window or no comparison.</span>
+<span class="c"># 8. Strategy 6 (stand) for estimator characterisation — the only strategy that</span>
+<span class="c">#    reliably holds on real, and it exercises base velocity + height directly.</span>
+</pre>
+    </div>
+
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot" style="background:#f87171"></span>
+        <span class="term-dot" style="background:#fbbf24"></span>
+        <span class="term-dot" style="background:#34d399"></span>
+        <span class="lbl ml-2">manual chain (fallback only — est_bringup.sh supersedes this)</span>
+      </div>
+<pre class="cmd"><span class="c"># T5  head cameras (HAMS overlay)</span>
 source ~/Desktop/HAMS/core_ws/install/setup.bash
-ros2 launch cl_realsense h12_rs_cams.launch.py          <span class="c"># then: ros2 topic hz /realsense/head/color/image_raw/compressed ≈30</span>
+ros2 launch cl_realsense h12_rs_cams.launch.py    <span class="c"># ros2 topic hz /realsense/head/color/image_raw/compressed ≈30</span>
 
 <span class="c"># T6  tag bridge → rt/aux_odom (mode 2 = position-only; v4 never fuses tag velocity)</span>
-source ~/Desktop/HAMS/core_ws/install/setup.bash
+<span class="c">#     ★ extrinsic defaults are now URDF-DERIVED (h1_2_handless_ros.urdf camera_joint) —</span>
+<span class="c">#       no longer placeholders. Override only if the URDF changes:</span>
+<span class="c">#       --cam-pos 0.11109 0.0175 0.68789   --cam-pitch-deg 50.760</span>
 PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
-python3 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/tag_bridge_node.py \
-  --bundle ~/Desktop/h12/table_tags/table_tag_bundle.yaml \
-  <span class="hl">--cam-pos 0.05 0.0 0.62 --cam-pitch-deg 55</span>   <span class="c"># ★PLACEHOLDERS — verify vs URDF: 1 cm error = 1 cm anchor bias</span>
-<span class="c">#    extrinsic check (once): move the TABLE a measured 10 cm → anchor xy must move 10±1 cm</span>
+python3 tag_bridge_node.py --bundle ~/Desktop/h12/table_tags/table_tag_bundle.yaml
+<span class="c">#     residual risk: the D435i COLOR sensor sits a few mm off the camera body origin.</span>
+<span class="c">#     FIELD CHECK still applies: move the TABLE a measured 10 cm → anchor xy moves 10±1 cm.</span>
+<span class="c">#     ★ tags were mounted 90 deg off convention — TagCore now AUTO-LOCKS corner_rot.</span>
 
-<span class="c"># T4  v4 alongside (side topic first; watch: aux=ok(used N…), zupt %, upright=Y)</span>
+<span class="c"># T7  LIO bridge (mode 1: velocity + xy from FAST-LIO /Odometry)</span>
+PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
+python3 lio_bridge_node.py --twist-frame world
+<span class="c">#     verify: stand still, rotate the waist → aux v must stay ~0</span>
+
+<span class="c"># T4  estimator alongside (side topic first; watch: aux=ok(used N…), zupt %, upright=Y)</span>
 cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node_v4.py \
-  --out-topic rt/sportmodestate_est
-
-<span class="c"># ── ARUCO IN SIM (faithful bench): twin on the tagged lean-table scene</span>
-<span class="c">#    CL_Assets branch `lean` → lean/scene_h1_2_lean_table.xml (7 tags render-verified,</span>
-<span class="c">#    surface 0.955, near edge 0.2975) + mujoco_ros_bridge head-cam topics + T6 + T4 as above</span>
-
-<span class="c"># ── LIO bridge (optional, mode 1: velocity + xy from FAST-LIO /Odometry)</span>
-<span class="c">#    start livox driver + FAST_LIO from HAMS first (⚠ MID360_config.json IP vs docs conflict)</span>
-PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
-python3 ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/lio_bridge_node.py \
-  <span class="hl">--twist-frame world</span>   <span class="c"># verify: stand still, rotate waist → aux v must stay ~0</span></pre>
+.venv/bin/python .../base_estimator_node_v4.py --out-topic rt/sportmodestate_est</pre>
     </div>
+
     <ul class="space-y-1.5 text-xs">
+      <li class="flex items-start gap-2 text-rose-200/90"><span class="pill pill-rose mt-0.5">★ truth</span><span class="leading-relaxed"><strong>There is no external ground truth on the robot.</strong> Error metrics are only honest where a sensor is left UNUSED as the reference: <span class="mono">v1</span> and <span class="mono">v3</span> → lidar or tags; <span class="mono">v4+lidar</span> → tags; <span class="mono">v4+april</span> → lidar. <strong><span class="mono">v4+both</span> has NO independent reference</strong> — for that arm report survival time, drift rate and self-consistency only, never position error.</span></li>
+      <li class="flex items-start gap-2 text-rose-200/90"><span class="pill pill-rose mt-0.5">★ sim≠real</span><span class="leading-relaxed">In <code>estimator_ab.py</code> the aux feed is <strong>synthesised from ground truth</strong> (truth sampled, delayed, noised). That validates the FUSION MATH given a well-behaved sensor — it is <em>not</em> sensor validation: no bias, no dropout, no tag misdetection, no LIO relocalisation jump. Do not present sim v4+aux numbers as evidence the sensors work.</span></li>
       <li class="flex items-start gap-2 text-emerald-200/90"><span class="pill pill-emer mt-0.5">rule</span><span class="leading-relaxed">bridges are OPTIONAL and crash-safe: dead bridge ⇒ v4 = v3 within 200 ms. One estimator publishes per topic — never two.</span></li>
       <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">scope</span><span class="leading-relaxed">tags/LIO feed the ESTIMATOR only. Brace targets, table position, stage logic stay config/model-driven — the lean pipeline never consumes bridge output.</span></li>
-      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">order</span><span class="leading-relaxed">side topic + --compare first (out-of-loop) → extrinsic check → only then --sportstate_topic rt/sportmodestate_est (in-loop), short fixed-window runs, v1 one command away as rollback.</span></li>
+      <li class="flex items-start gap-2 text-amber-200/90"><span class="pill pill-amber mt-0.5">order</span><span class="leading-relaxed">side topic + <code>--compare</code> first (out-of-loop) → extrinsic field check → only then <code>--sportstate_topic rt/sportmodestate_est</code> (in-loop), short fixed-window runs, v1 one command away as rollback.</span></li>
+      <li class="flex items-start gap-2 text-slate-300"><span class="pill pill-slate mt-0.5">A/B tools</span><span class="leading-relaxed">live in <code>~/.claude/skills/mjpc-fk-analyze/scripts/</code>, NOT the repo: <code>estimator_ab.py</code>, <code>est_grid.sh</code>, <code>est_brace_ab.sh</code>, <code>est_ab_margin.py</code>. ⚠ <code>est_grid.sh</code> is the <strong>SIM</strong> grid (it drives agent_server, strategy 6, fixed window) — it is not the real-robot recorder. ⚠ the <code>dds_tools/</code> copies of the estimators are STALE; <code>helper_scripts/</code> is truth.</span></li>
     </ul>
   </article>
-
   <!-- ──────────────── A3 CARD ──────────────── -->
   <article id="a3" class="card card-hair p-6 space-y-4 scroll-mt-6">
     <div class="flex flex-wrap items-center gap-3">

@@ -726,7 +726,7 @@
              auto-cycle with a stand lead-in; jab_extend gets a dedicated
              right-hand forward reach reward so the punch fully extends).
              Slider max raised 5 → 19 so these are reachable. -->
-        <numeric name="residual_Strategy" data="5 0 35" />
+        <numeric name="residual_Strategy" data="6 0 35" />
         <!-- Manual phase scrubber. -1 = auto-advance through keyframes
              (default behaviour, runs the whole loaded pipeline). 0..6 =
              hold at that keyframe index regardless of progress; auto-
@@ -940,16 +940,20 @@
              Tune the trot-walk strength via the trot_angmom_w numeric, NOT this weight. -->
         <user name="Angular Momentum" dim="3" user="0 1.0 0.0 100.0"/>
         <user name="Lateral Center" dim="1" user="0 0.0 0.0 100.0"/>
-        <!-- Gait / Step Place: strategy-20 "stumble" stepping. Default weight 0
-             (inert for strategies 0-19, exactly like Symmetry/Angular Momentum/
-             Lateral Center above); enabled per-phase by h12_simple_stumble.json
-             and computed only when the keyframe name starts with "stumble"
-             (lean.cc name-gate). Gait(2)=swing-foot height per foot; Step
-             Place(4)=swing-foot xy capture-point/Raibert target (L xy, R xy).
-             These MUST stay the LAST two <user> sensors (residual append order). -->
-        <user name="Gait" dim="2" user="0 0.0 0.0 100.0"/>
-        <user name="Step Place" dim="4" user="0 0.0 0.0 100.0"/>
-        <user name="Foot Slip" dim="2" user="0 0.0 0.0 100.0"/>
+        <!-- Brace Wrist Cock (dim 1, 2026-07-29). Holds the BRACING arm's wrist_yaw at
+             `brace_wrist_cock_deg` during the `forearm_brace_lean` phase ONLY, so the
+             hand/gripper stay lifted and the FOREARM is the lowest part of the arm.
+             Default weight 0 AND default numeric 0 => residual identically 0.
+             ⚠ MUST STAY THE LAST <user> SENSOR -- Grasp_H12_Magpie has no .cc of its
+             own; `Grasp_H12_Magpie` subclasses `Lean_H12_Magpie` and inherits lean.cc's
+             residual writer, which appends this residual immediately after
+             `Lateral Center` (the sensor directly above). The Gait(2) / Step Place(4) /
+             Foot Slip(2) stepping terms that used to sit here were removed 2026-07-30
+             together with their writer branches; this slot replaces them so grasp
+             declares 174 = exactly what lean.cc emits. Removing this sensor without
+             removing the writer would make the writer run one slot PAST the end of the
+             residual buffer, which is sized from user_sensor_dim. -->
+        <user name="Brace Wrist Cock" dim="1" user="0 0.0 0.0 200.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>
