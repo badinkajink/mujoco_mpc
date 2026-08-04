@@ -46,14 +46,7 @@ def _blocks(m, d, subset):
 def modulation_band(m, d, subset, idx):
     """LP max/min of the normal force at contact `idx` over the feasible set."""
     A, g, nc = _blocks(m, d, subset)
-    tau_max = m.actuator_forcerange[:, 1].copy()
-    if cs.CL_TORQUE_LIMITS:
-        import mujoco
-        for i in range(m.nu):
-            n = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or ""
-            for k, v in cs._CL_TAU.items():
-                if k in n:
-                    tau_max[i] = v; break
+    tau_max = cs.torque_limits(m)                 # TAU_BASIS, see contact_select
     nv = 3 * nc
     Aeq, beq = A[:6], g[:6]                       # base equilibrium, hard
     Aj, gj = A[6:], g[6:]

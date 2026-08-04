@@ -55,20 +55,42 @@ _VARIANTS = {
     "sphere":   "Lean_H12_Magpie_sphere.xml",# single r=32mm sphere per gripper
     "mesh":     "Lean_H12_Magpie_mesh.xml",  # visual mount mesh IS the collision mesh
 }
-MODEL = _LEAN_DIR + _VARIANTS.get(os.environ.get("LEAN_MODEL", "handless"),
-                                  "Lean_H12.xml")
+# Default moved handless -> magpie (2026-08-04): the real machine wears the
+# grippers, and only the Magpie model carries the brace keyframes the IK now
+# seeds from (see SEED_KEY).  LEAN_MODEL=handless reproduces the S1-S10 runs.
+MODEL = _LEAN_DIR + _VARIANTS.get(os.environ.get("LEAN_MODEL", "magpie"),
+                                  "Lean_H12_Magpie.xml")
 
-# Right arm is the bracing arm (reach_hand=2 -> left reaches).  Points are in
-# body frame; see the geom dump in the plan file for provenance.
+# WHICH ARM BRACES.  The study started with the right arm bracing and the left
+# reaching, matching the old model's reach_hand=2.  Allen's 2026-07-31 setup is
+# the OTHER handedness -- reach_target y = -0.2348 puts the object on the robot's
+# right, so the RIGHT hand reaches and the LEFT arm braces -- and his
+# forearm_brace_lean keyframe (now the IK seed) is posed that way.
+#
+# Getting this backwards is not a cosmetic mismatch: seeding from his pose while
+# bracing the right arm asks the solver to lift the already-braced left arm off
+# the table and put the right one down across the body. Under that crossed
+# configuration NO elbow/forearm set placed at ANY target on the 0.80-1.40 sweep,
+# which reads exactly like "the forearm brace is geometrically impossible on the
+# new table" and is not.  BRACE_ARM=right restores the original convention.
+BRACE_ARM = os.environ.get("BRACE_ARM", "left")
+_OTHER = "right" if BRACE_ARM == "left" else "left"
+# The H1-2 arms are mirror-symmetric, so the right-arm offsets below carry over
+# by negating y.  Sign lives here rather than in two hand-written tables.
+_MY = 1.0 if BRACE_ARM == "right" else -1.0
+
 SITES = {
     # NOTE: body-frame z of the elbow JOINT on the upper-arm link is -0.182.
     # The first version of this used -0.250, taken from the collision geom's
     # `geom_size`, which for a MESH is the BOUNDING-BOX half-extent, not the
     # shape -- so the point floated ~68 mm past the joint in empty space and the
     # site was placeable only 1/12.  At the joint it places 12/12.
-    "elbow":   ("right_shoulder_yaw_link", np.array([0.002,  0.007, -0.182])),
-    "forearm": ("right_elbow_link",        np.array([0.050,  0.021, -0.007])),
-    "palm":    ("right_wrist_yaw_link",    np.array([0.130,  0.000,  0.000])),
+    "elbow":   ("%s_shoulder_yaw_link" % BRACE_ARM,
+                np.array([0.002,  _MY * 0.007, -0.182])),
+    "forearm": ("%s_elbow_link" % BRACE_ARM,
+                np.array([0.050,  _MY * 0.021, -0.007])),
+    "palm":    ("%s_wrist_yaw_link" % BRACE_ARM,
+                np.array([0.130,  0.000,  0.000])),
     # Trunk sites (added S10).  The pose audit found the hips touching the table
     # edge in ~80% of solved poses and the torso in ~60%, all unmodelled -- so
     # they are promoted to first-class candidates.  Both anchors are taken from
@@ -81,17 +103,104 @@ SITES = {
 }
 ARM_SITES = ("elbow", "forearm", "palm")
 TRUNK_SITES = ("hip", "torso")
-REACH_BODY = "left_wrist_yaw_link"
+REACH_BODY = "%s_wrist_yaw_link" % _OTHER
 REACH_OFF = np.array([0.13, 0.0, 0.0])
 FEET = ["left_ankle_roll_link", "right_ankle_roll_link"]
 
 IK_MARGIN = 0.025   # collision look-ahead for the IK [m]
-# CL_ARM_TORQUE=1 overrides the lean model's stale arm actuatorfrcrange with the
-# CL_Assets / h12_safety_layer values (S10.2).
-CL_TORQUE_LIMITS = os.environ.get("CL_ARM_TORQUE") == "1"
-_CL_TAU = {"shoulder_pitch": 40.0, "shoulder_roll": 40.0, "shoulder_yaw": 18.0,
-           "elbow": 18.0, "wrist_roll": 19.0, "wrist_pitch": 19.0,
-           "wrist_yaw": 19.0}
+
+# SEED POSE.  solve_ik pins the feet AT THE SEED and pulls the nullspace back
+# toward it, so the seed is not a warm start -- it selects which basin is being
+# searched, and on the 2026-07-31 table it decides whether a brace is findable
+# at all.  That table sits 12 cm higher and its near edge 20 cm further out than
+# the slab the study started on, and from `stand_up` the IK simply cannot get an
+# elbow or a forearm down onto it: sites land 40-55 mm short at every target
+# tried, so the QP scores contacts that are not there.
+#
+# Allen's brace poses are retuned for exactly this table (pelvis dropped to 0.884,
+# torso pitched ~32 deg, hips -1.14, knees +1.10) and exist ONLY in
+# Lean_H12_Magpie.xml -- which is also the deploy path, so the model default moves
+# with the seed.  LEAN_MODEL=handless SEED_KEY=stand_up recovers the S1-S10 runs.
+#
+# Of his three, `forearm_brace_reach` is the one to seed from, and the difference
+# is not subtle.  All three have the brace down (elbow/forearm 16-29 mm above the
+# table), but in `..._lean` and `..._release` the REACHING hand hangs 23-27 cm
+# BELOW the table surface and behind its near edge.  From there the straight-line
+# path to a target on the tabletop runs through the slab, and a local Gauss-Newton
+# IK with hard non-penetration cannot route around it -- it has to move AWAY from
+# the target (up, over the edge) before it can move toward it.  Measured: 250
+# iterations, zero QP fallbacks, reach residual pinned at its seed value of 0.52 m.
+# That looks exactly like "the target is unreachable" and is not.
+# `..._reach` starts the hand 15 cm ABOVE the table with the brace already
+# established, i.e. the phase this study is actually about.
+SEED_KEY = os.environ.get("SEED_KEY", "forearm_brace_reach")
+
+# --------------------------------------------------------------------------- #
+# TORQUE BASIS -- which limit the QP is allowed to spend.  Three real, different
+# authorities, so this has to be a named choice rather than "whatever the model
+# carries".  Set with TAU_BASIS=model|urdf|clamp (default clamp).
+#
+#   model  min(<position forcerange>, jnt_actfrcrange) as built.  MuJoCo enforces
+#          this, and for the arms the forcerange (32/14.4/9.5, an MJPC default
+#          class) binds BELOW the imported CL actuatorfrcrange (40/18/19).
+#          NOTE this corrects S10.2/S10.3 of the plan file, which read the low
+#          numbers as the CL import having failed to propagate actuatorfrcrange.
+#          It propagates correctly -- verified generated == CL on all 27 joints,
+#          including the right_shoulder_yaw mirror.  The forcerange is the binder.
+#   urdf   URDF/CL_Assets actuatorfrcrange == h12_safety_layer URDF_TORQUE_LIMITS
+#          == what the full-body deploy node patches the ARMS to (FRC_LIMIT).
+#   clamp  0.9 x TAU_ESTOP, the torque-budget clamp h12_control_node actually
+#          enforces on every commanded joint (deploy_common.h kClampRatio).
+#
+# `clamp` is the default because it is the only one the robot cannot exceed: the
+# node refuses anything above it, so a plan that needs more is not executable.
+# Allen applied exactly this to the ankle (48.6 = 0.9 x 54).  The torso is the
+# joint where the three disagree most -- 200 Nm in the model, 36 under the clamp
+# -- and it is the joint that carries a lean, so the basis is not a detail here.
+_LEG = ["hip_yaw", "hip_pitch", "hip_roll", "knee", "ankle_pitch", "ankle_roll"]
+_ARM = ["shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow",
+        "wrist_roll", "wrist_pitch", "wrist_yaw"]
+TAU_ESTOP = dict(zip(_LEG, [60., 130., 200., 300., 54., 36.]))
+TAU_ESTOP["torso"] = 40.
+TAU_ESTOP.update(dict(zip(_ARM, [32., 32., 14.4, 14.4, 9.5, 9.5, 9.5])))
+TAU_URDF = dict(zip(_LEG, [200., 200., 200., 300., 60., 40.]))
+TAU_URDF["torso"] = 200.
+TAU_URDF.update(dict(zip(_ARM, [40., 40., 18., 18., 19., 19., 19.])))
+CLAMP_RATIO = 0.9
+TAU_BASIS = os.environ.get("TAU_BASIS", "clamp")
+
+
+def _base_joint(name):
+    """'right_wrist_pitch_joint' -> 'wrist_pitch'."""
+    n = name.replace("_joint", "")
+    for side in ("left_", "right_"):
+        if n.startswith(side):
+            n = n[len(side):]
+    return n
+
+
+def torque_limits(m, basis=None):
+    """Per-actuator torque ceiling under the selected basis.  Always min'd with
+    what the model can physically emit, so a basis can only ever TIGHTEN."""
+    basis = basis or TAU_BASIS
+    model = np.array([
+        min(m.actuator_forcerange[i, 1] if m.actuator_forcelimited[i] else np.inf,
+            m.jnt_actfrcrange[m.actuator_trnid[i, 0], 1]
+            if m.jnt_actfrclimited[m.actuator_trnid[i, 0]] else np.inf)
+        for i in range(m.nu)])
+    if basis == "model":
+        return model
+    table = TAU_URDF if basis == "urdf" else TAU_ESTOP
+    scale = 1.0 if basis == "urdf" else CLAMP_RATIO
+    out = model.copy()
+    for i in range(m.nu):
+        jn = _base_joint(mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or "")
+        if jn in table:
+            out[i] = min(model[i], scale * table[jn]) if basis != "urdf" \
+                     else scale * table[jn]
+    return out
+
+
 MU = 0.6            # friction coefficient (table & floor)
 N_ROBOT_DOF = 33    # 6 floating base + 27 joints; DOFs 33+ are the object anchor
 N_ACT = 27
@@ -111,7 +220,9 @@ def load(ik_margin=IK_MARGIN):
     if ik_margin:
         m.geom_margin[:] = np.maximum(m.geom_margin, ik_margin)
     d = mujoco.MjData(m)
-    key = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "stand_up")
+    key = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, SEED_KEY)
+    if key < 0:
+        key = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "stand_up")
     if key >= 0:
         mujoco.mj_resetDataKeyframe(m, d, key)
     mujoco.mj_forward(m, d)
@@ -148,6 +259,65 @@ def foot_corners(m, d, foot):
     return out
 
 
+def resolved_contacts(m, d, subset):
+    """The contacts the QP should actually be solving for.
+
+    Until 2026-08-04 the QP placed a point force at the nominal SITE, e.g. the
+    elbow joint's position on the upper-arm link.  That is not where the contact
+    is: the site sits on the link AXIS and the link touches the table on its
+    collision capsule's SURFACE.  Measured offsets between the site and MuJoCo's
+    own contact point at solved brace poses: elbow 47 mm, forearm 41-56 mm,
+    palm 32 mm, hip 104-129 mm.  Every force, torque, slip margin and support
+    region computed at the site therefore carried a moment-arm error of that size,
+    worst exactly on the trunk contacts the trunk-vs-arm argument turns on.
+
+    It also assumed every normal is world-vertical.  On the 2026-07-31 table the
+    brace lands on the near EDGE (contacts cluster at x = 0.50, the near edge, and
+    y = 0.297, the side edge), where the normal is not vertical at all -- so the
+    friction cone was being built around the wrong axis on the very contacts whose
+    slip margin is in question.
+
+    So: take the point AND the frame from MuJoCo's narrowphase where a contact
+    exists, and fall back to the site with a vertical normal where it does not
+    (which is what the feet always use -- flat floor, and the corner model is a
+    deliberate 4-point approximation of a sole, not a narrowphase result).
+
+    Returns a list of (body_id, world_point, R) where R's ROWS are (n, t1, t2)
+    and n points into the robot, so lam_n >= 0 is "push, do not pull".
+    """
+    tbl = bid(m, "table")
+    found = {}
+    for c in range(d.ncon):
+        con = d.contact[c]
+        b1, b2 = m.geom_bodyid[con.geom[0]], m.geom_bodyid[con.geom[1]]
+        if b1 == tbl:
+            robot_b, sign = b2, +1.0     # frame normal points geom1 -> geom2
+        elif b2 == tbl:
+            robot_b, sign = b1, -1.0
+        else:
+            continue
+        prev = found.get(robot_b)
+        if prev is None or con.dist < prev[0]:
+            R = con.frame.reshape(3, 3).copy()
+            R[0] *= sign                 # normal into the robot
+            found[robot_b] = (con.dist, con.pos.copy(), R)
+
+    VERT = np.array([[0., 0., 1.], [1., 0., 0.], [0., 1., 0.]])
+    out = []
+    for f in FEET:
+        for body, off in foot_corners(m, d, f):
+            out.append((bid(m, body), point_world(m, d, body, off), VERT.copy()))
+    for s in subset:
+        body, off = SITES[s]
+        b = bid(m, body)
+        if b in found:
+            _, p, R = found[b]
+            out.append((b, p, R))
+        else:
+            out.append((b, point_world(m, d, body, off), VERT.copy()))
+    return out
+
+
 def table_top_z(m, d):
     g = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table_top_collision")
     return d.geom_xpos[g][2] + m.geom_size[g][2]
@@ -157,6 +327,21 @@ def table_x_range(m, d):
     g = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table_top_collision")
     cx = d.geom_xpos[g][0]
     return cx - m.geom_size[g][0], cx + m.geom_size[g][0]
+
+
+def table_y_range(m, d):
+    """Lateral extent of the table top.
+
+    This was not constrained until 2026-08-04 and did not need to be: the old
+    slab was 2.12 m wide, so a bracing site was inside it in y no matter what.
+    Allen's real adjustable table is 0.595 m wide -- the SHORT side faces the
+    robot -- and the IK promptly started parking sites at exactly the right
+    height just off the side of it. They then read as "placed" on the z residual
+    (1.4 mm!) while MuJoCo's narrowphase correctly reported no contact at all,
+    which is what the sites_placed / site-residual disagreement was."""
+    g = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table_top_collision")
+    cy = d.geom_xpos[g][1]
+    return cy - m.geom_size[g][1], cy + m.geom_size[g][1]
 
 
 # --------------------------------------------------------------------------- #
@@ -246,6 +431,7 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
         foot_targets.append((d.xpos[b].copy(), d.xquat[b].copy()))
     z_tab = table_top_z(m, d)
     x_lo, x_hi = table_x_range(m, d)
+    y_lo, y_hi = table_y_range(m, d)
     jnt_dofs = np.arange(6, N_ROBOT_DOF)
     n = N_ROBOT_DOF
 
@@ -288,10 +474,15 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
             Js = point_jac(m, d, body, off)[:, :n]
             parts["site"][st] = float(abs(z_tab - ps[2]))
             rows_s = [Js[2:3]]; errs_s = [np.array([z_tab - ps[2]])]
-            if ps[0] > x_hi:
-                rows_s.append(Js[0:1]); errs_s.append(np.array([x_hi - ps[0]]))
-            elif ps[0] < x_lo:
-                rows_s.append(Js[0:1]); errs_s.append(np.array([x_lo - ps[0]]))
+            # keep the site ON the slab, not merely at its height: pull x and y
+            # back inside the footprint whenever they leave it (see table_y_range)
+            for ax, (lo_a, hi_a) in ((0, (x_lo, x_hi)), (1, (y_lo, y_hi))):
+                if ps[ax] > hi_a:
+                    rows_s.append(Js[ax:ax + 1])
+                    errs_s.append(np.array([hi_a - ps[ax]]))
+                elif ps[ax] < lo_a:
+                    rows_s.append(Js[ax:ax + 1])
+                    errs_s.append(np.array([lo_a - ps[ax]]))
             Js2 = np.vstack(rows_s); es2 = np.clip(np.concatenate(errs_s), -TRUST, TRUST)
             G += (W_SITE ** 2) * Js2.T @ Js2;  a += (W_SITE ** 2) * Js2.T @ es2
 
@@ -393,6 +584,11 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
             touching.add(b1)
     parts["sites_placed"] = {st: (bid(m, SITES[st][0]) in touching) for st in subset}
     parts["all_placed"] = all(parts["sites_placed"].values())
+    # The step QP has a two-stage fallback (drop the collision rows, then give up
+    # and take dq=0).  It used to be counted and thrown away, so a run where EVERY
+    # iteration failed was indistinguishable from one that converged badly -- the
+    # residual just sat at its seed value, which reads as "unreachable".
+    parts["qp_fallback"] = stats["qp_fallback"]
     parts["ok"] = (parts["reach"] < 0.03 and parts["foot"] < 0.02
                    and parts["penetration"] < 0.01 and parts["all_placed"])
     return parts
@@ -414,29 +610,20 @@ def equilibrium_qp(m, d, subset, w_tau=1.0, w_lam=1e-4):
     mujoco.mj_forward(m, d)
     g = d.qfrc_bias[:N_ROBOT_DOF].copy()
 
-    contacts = []
-    for f in FEET:
-        contacts += foot_corners(m, d, f)
-    for s in subset:
-        contacts.append(SITES[s])
-
-    J = [point_jac(m, d, b, o)[:, :N_ROBOT_DOF] for b, o in contacts]
+    # Contacts come from MuJoCo's narrowphase where one exists, so the force is
+    # applied where the contact IS and its cone is built around the REAL normal
+    # (see resolved_contacts).  Force variables are in the contact frame:
+    # lam = (lam_n, lam_t1, lam_t2), world force = R' lam.
+    contacts = resolved_contacts(m, d, subset)
     nc = len(contacts)
+    J = []
+    for b, p, R in contacts:
+        jacp = np.zeros((3, m.nv))
+        mujoco.mj_jac(m, d, jacp, None, p, b)
+        J.append(R @ jacp[:, :N_ROBOT_DOF])    # rows: n, t1, t2
     A = np.hstack([Ji.T for Ji in J])          # (33, 3*nc)
 
-    tau_max = m.actuator_forcerange[:, 1].copy()
-    if CL_TORQUE_LIMITS:
-        # The lean model's actuatorfrcrange is STALE: shoulder 32 vs the real 40,
-        # shoulder_yaw/elbow 14.4 vs 18, wrist 9.5 vs 19 (2x).  CL_Assets is the
-        # source of truth (see _gen_h12_base_limits.py, which cross-checks against
-        # h12_safety_layer/core/joint_limits.py).  The limit import propagated
-        # `range` but not `actuatorfrcrange`, so override here.
-        for i in range(m.nu):
-            n = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or ""
-            for key, val in _CL_TAU.items():
-                if key in n:
-                    tau_max[i] = val
-                    break
+    tau_max = torque_limits(m)          # see the TORQUE BASIS block above
 
     # ---- variables: lambda (3*nc) ------------------------------------------
     # base rows are a hard equality; joint rows define tau.
@@ -457,8 +644,9 @@ def equilibrium_qp(m, d, subset, w_tau=1.0, w_lam=1e-4):
     # nominal normal load, then re-clamped against the solution below.
     lo = np.full(3 * nc, -np.inf)
     hi = np.full(3 * nc, np.inf)
+    # component 0 of each triple is the NORMAL now (contact frame), not world z
     for i in range(nc):
-        lo[3 * i + 2] = 0.0                     # unilateral: push only
+        lo[3 * i] = 0.0                         # unilateral: push only
 
     sol = lsq_linear(M, b, bounds=(lo, hi), max_iter=200)
     lam = sol.x
@@ -467,13 +655,13 @@ def equilibrium_qp(m, d, subset, w_tau=1.0, w_lam=1e-4):
     for _ in range(6):
         viol = False
         for i in range(nc):
-            n = lam[3 * i + 2]
-            t = lam[3 * i:3 * i + 2]
+            n = lam[3 * i]
+            t = lam[3 * i + 1:3 * i + 3]
             lim = MU * max(n, 0.0) / np.sqrt(2)
             if np.abs(t).max() > lim + 1e-9:
                 viol = True
-                hi[3 * i:3 * i + 2] = lim
-                lo[3 * i:3 * i + 2] = -lim
+                hi[3 * i + 1:3 * i + 3] = lim
+                lo[3 * i + 1:3 * i + 3] = -lim
         if not viol:
             break
         sol = lsq_linear(M, b, bounds=(lo, hi), max_iter=200)
