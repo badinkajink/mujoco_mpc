@@ -26,11 +26,22 @@ namespace mjpc {
 int RandomSamplingPlanner::OptimizePolicyCandidates(int ncandidates,
                                                     int horizon,
                                                     ThreadPool& pool) {
-  // Drop the incumbent. SamplingPlanner::OptimizePolicyCandidates starts by
-  // calling ResamplePolicy, which reads `policy` into parameters_scratch, and
-  // AddNoiseToPolicy then perturbs around that. Clearing the plan first makes
-  // the spline evaluate to zero everywhere, so this iteration's samples are
-  // drawn around zero control instead of around the previous winner.
+  // Drop the incumbent, so this iteration's samples are drawn around zero
+  // control instead of around the previous winner.
+  //
+  // Both policies below have to be cleared, and clearing only `policy` is a
+  // silent no-op. SamplingPlanner::OptimizePolicyCandidates opens with
+  // UpdateNominalPolicy, and with the default sliding_plan_ = false that
+  // function rebuilds policy.plan node by node out of
+  // candidate_policy[winner].Action(...) -- the previous iteration's winner --
+  // discarding whatever `policy` held on entry. Zeroing candidate_policy[winner]
+  // is what actually makes the resampled nominal zero; zeroing `policy` is what
+  // covers the sliding_plan_ = true branch, which keeps policy.plan and only
+  // trims and extends it.
+  //
+  // Reset() clears the plan but leaves num_spline_points alone, which
+  // UpdateNominalPolicy reads to size the resampled plan, so the knot count is
+  // unchanged and only the values go to zero.
   //
   // Candidate 0 is left un-noised by the base class, so zero control is always
   // in the sample set and the planner cannot do worse than doing nothing.
@@ -38,6 +49,7 @@ int RandomSamplingPlanner::OptimizePolicyCandidates(int ncandidates,
     const std::unique_lock<std::shared_mutex> lock(mtx_);
     std::vector<double> zero(model->nu, 0.0);
     policy.Reset(horizon, zero.data());
+    candidate_policy[winner].Reset(horizon, zero.data());
   }
 
   return SamplingPlanner::OptimizePolicyCandidates(ncandidates, horizon, pool);
