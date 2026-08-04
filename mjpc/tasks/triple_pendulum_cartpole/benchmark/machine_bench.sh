@@ -70,6 +70,7 @@ for t in "${THREADS[@]}"; do
        --weights=1,0,0.1,0.01,500 --speed=0.25 --total_time="$TOTAL_TIME" \
        --repeats="$REPEATS" --seed=1 --per_run=false --early_exit=false \
        --planner_thread="$t" --horizon="$HORIZON" --spline_points="$KNOTS" \
+       --num_trajectory="$TRAJ" \
        --label="threads_$t" 2>&1 | grep -E "^timing:|^RESULT" >> "$LOG"
 done
 
@@ -78,14 +79,18 @@ done
   echo
   printf "%8s %12s %10s %10s %16s %10s\n" \
          "threads" "ms/iter" "p95" "iters" "Msteps/s" "speedup"
-  awk -v traj="$TRAJ" -v hor="$HORIZON" '
+  awk -v hor="$HORIZON" '
     /^--- threads=/ { split($0, a, "="); sub(/ ---/, "", a[2]); t = a[2] }
-    /^timing:/ { ms = $2; p95 = $6; sub(/,/, "", p95) }
+    /^timing:/ { ms = $2; p95 = $8; sub(/,/, "", p95) }
     /^RESULT/ {
       delete f; for (i = 2; i <= NF; i++) { split($i, kv, "="); f[kv[1]] = kv[2] }
       steps = hor / 0.005 + 1
-      # mj_step calls per planning iteration = rollouts x horizon steps
-      thr = traj * steps / (ms / 1000.0) / 1e6
+      # Rollout count comes off the RESULT line, which the binary reads back
+      # from the model after the override was applied -- not from $TRAJ. Those
+      # disagreed until 2026-08-03: $TRAJ fed this arithmetic and the header
+      # but was never passed to the binary, so TRAJ=40 reported 4x the true
+      # throughput for a run that had used 10 rollouts.
+      thr = f["num_trajectory"] * steps / (ms / 1000.0) / 1e6
       if (base == 0) base = thr
       printf "%8s %12.3f %10.3f %10s %16.2f %9.2fx\n",
              t, ms, p95, f["plan_iters"], thr, thr / base

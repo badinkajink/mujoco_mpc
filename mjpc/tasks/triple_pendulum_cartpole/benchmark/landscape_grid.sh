@@ -34,7 +34,15 @@ SEEDS=${SEEDS:-"1000 2000 3000"}
 TOTAL_TIME=${TOTAL_TIME:-12}
 SPEED=${SPEED:-0.25}
 SEED=${SEED:-1}          # initial-state perturbation; same starts everywhere
-PLANNER=${PLANNER:-0}    # predictive sampling
+PLANNER=${PLANNER:-0}    # see PLANNER_NAMES below; 0 is predictive sampling
+
+# Index -> name, mirroring corridor_benchmark.cc's kPlannerLabel. The manifest
+# used to print "predictive sampling" unconditionally, which meant a sweep run
+# with PLANNER=9 documented itself as a sweep of a planner it never ran. Read
+# the name from the index instead.
+PLANNER_NAMES=(PredictiveSampling Gradient iLQG iLQS RobustSampling \
+               CrossEntropy SampleGradient PSO AnnealedSampling RandomSampling)
+PLANNER_NAME=${PLANNER_NAMES[$PLANNER]:-unknown}
 
 # Concurrency. Outcomes do not depend on it -- the planner gets a fixed number
 # of iterations per control step, not a wall-clock budget -- but ms/iter does,
@@ -62,7 +70,7 @@ CMDS="$OUT/commands.txt"
   echo "binary md5  : $(md5sum "$BIN" | cut -d' ' -f1)"
   echo "binary mtime: $(date -Is -r "$BIN")"
   echo
-  echo "task        : slalom, stage=corridor, planner=$PLANNER (predictive sampling)"
+  echo "task        : slalom, stage=corridor, planner=$PLANNER ($PLANNER_NAME)"
   echo "fixed       : total_time=${TOTAL_TIME}s speed=$SPEED repeats=$REPEATS seed=$SEED"
   echo "              early_exit=true (verdict is monotone, so it costs no information)"
   echo "varied      : weights = $WEIGHTS"
