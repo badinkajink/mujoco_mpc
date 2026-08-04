@@ -59,7 +59,9 @@ rises and the gain per factor of four falling below what 150 trials per cell
 can resolve. Widening the search from 10 rollouts per iteration to 40 --- one
 integer in the task file, and the budget annealed sampling already spends ---
 adds a further 20 points to 85\% (79--90), at $2.65\times$ the wall time rather
-than $4\times$, because 10 rollouts could not fill the thread pool. Eighty adds
+than $4\times$ on a 20-core x86 host, because 10 rollouts could not fill the
+thread pool; on a 15-core Apple Silicon host the same change costs $5.1\times$
+and leaves the budget. Eighty adds
 nothing. At that matched budget the plain sampler beats annealed sampling by 22
 points, and annealed sampling on 40 rollouts is indistinguishable from the plain
 sampler on 10, so the annealing schedule converts a fourfold budget into nothing
@@ -503,7 +505,8 @@ Success rates are insensitive to CPU contention, because the harness counts
 iterations rather than seconds. Timing is not. Per-iteration timings
 (Section~\ref{sec:timing}) were taken with 15 planner threads on an otherwise
 idle 20-core host. The throughput comparison of Section~\ref{sec:machines} was
-taken at load average $2.3$--$3.0$ on both hosts, with the load stated. The
+taken on an idle Ultra 7 and on an M5 Pro at load average $3.1$--$4.4$; the
+asymmetry is stated where it bears on a conclusion. The
 sweep of Section~\ref{sec:landscape} ran five concurrent jobs of four planner
 threads each on a 20-core host; its wall times and per-iteration figures are
 contended and are not quoted as speed.
@@ -955,66 +958,79 @@ Table~\ref{tab:rollouts} compares, so this section says what the $20$-point
 gain costs.
 
 \begin{table}[t]
-\caption{Per-iteration wall time by planner thread count, on an idle host.
-Msteps/s is \texttt{mj\_step} calls per second across all planner threads
-(rollouts $\times\,201$ per iteration); dividing it by the one-thread value of
-the same column gives the parallel speedup. Single-thread Msteps/s is a
-property of the core alone and should agree across rollout counts, which is
-the arithmetic check on the table.}
+\caption{Per-iteration wall time in ms by planner thread count, at two rollout
+budgets on two hosts; parenthesised figures are speedup over the same column's
+one-thread row. Ultra 7 idle, M5 Pro at load average $3.1$ and $4.4$. Bold is
+each column's best. Single-thread \texttt{mj\_step} throughput is a property of
+the core and must agree across the two budgets of one host; it does, at $0.48$
+and $0.49$~Msteps/s on the Ultra 7 and $0.66$ and $0.63$ on the M5 Pro.}
 \label{tab:machines}
 \centering
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrrrr@{}}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrlrlrlrl@{}}
 \toprule
 & \multicolumn{4}{c}{Intel Core Ultra 7 265KF} &
-  \multicolumn{2}{c}{Apple M5 Pro} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-7}
+  \multicolumn{4}{c}{Apple M5 Pro} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
 & \multicolumn{2}{c}{10 rollouts} & \multicolumn{2}{c}{40 rollouts}
-& 10 rl & 40 rl \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-6}\cmidrule(lr){7-7}
-threads & ms/iter & Ms/s & ms/iter & Ms/s & ms/iter & ms/iter \\
+& \multicolumn{2}{c}{10 rollouts} & \multicolumn{2}{c}{40 rollouts} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+thr. & ms & & ms & & ms & & ms & \\
 \midrule
-1  & 4.162 & 0.48 & 16.359 & 0.49 & 3.215 & --- \\
-2  & 2.207 & 0.91 &  8.741 & 0.92 & 1.700 & --- \\
-4  & 1.562 & 1.29 &  4.957 & 1.62 & \textbf{1.169} & --- \\
-8  & 1.319 & 1.52 &  3.399 & 2.37 & 1.189 & --- \\
-12 & \textbf{1.251} & 1.61 & \textbf{3.317} & 2.42 & --- & --- \\
-16 & 1.395 & 1.44 &  3.400 & 2.36 & --- & --- \\
+1  & 4.162 & & 16.359 & & 3.027 & & 12.673 & \\
+2  & 2.207 & (1.9) &  8.741 & (1.9) & 1.802 & (1.7) &  7.074 & (1.8) \\
+4  & 1.562 & (2.7) &  4.957 & (3.3) & 1.299 & (2.3) &  \textbf{6.138} & (2.1) \\
+8  & 1.319 & (3.2) &  3.399 & (4.8) & 1.264 & (2.4) &  7.257 & (1.7) \\
+12 & \textbf{1.251} & (3.3) & \textbf{3.317} & (4.9) & \textbf{1.213} & (2.5) &  7.130 & (1.8) \\
+16 & 1.395 & (3.0) &  3.400 & (4.8) & 1.271 & (2.4) &  6.595 & (1.9) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Single-thread Msteps/s comes out at $0.48$ and $0.49$ across the two rollout
-counts, as it must: quadrupling the rollouts quadruples the wall time
-($4.162 \rightarrow 16.359$~ms) and leaves per-core throughput alone.
+Per core the M5 Pro is the faster machine, by $29$--$37\%$ depending on which
+budget the comparison is drawn from ($4.162$ against $3.027$~ms at 10 rollouts,
+$16.359$ against $12.673$ at 40). At 10 rollouts that advantage does not
+survive contact with the thread pool: both hosts flatten at $1.21$--$1.25$~ms,
+within $3\%$ of each other, having converted $3.3\times$ and $2.5\times$ of
+their cores respectively. This is the result the earlier version of this table
+reported, and it is unchanged --- ten rollouts of 201 steps is not enough
+parallel work to distinguish two machines of this class.
 
-At 10 rollouts the Ultra 7 converts $3.3\times$ of its 20 cores and flattens by
-8 threads. At 40 it reaches $4.9\times$ and flattens at the same place in thread
-count but at a much higher absolute rate --- $2.42$ against $1.61$~Msteps/s.
-MJPC parallelizes over rollouts, so 10 rollouts cannot occupy more than 10
-threads however many the host has; 40 gives the pool enough work to be worth
-filling. The practical consequence for Table~\ref{tab:rollouts} is that the
-$4\times$ rollout increase costs $2.65\times$ wall time on this host, not
-$4\times$ ($1.251 \rightarrow 3.317$~ms at 12 threads). Some of the price is
-paid by parallelism that 10 rollouts was leaving on the floor.
+At 40 rollouts they separate, and in the direction the single-thread numbers do
+not predict. The Ultra 7 improves, from $3.3\times$ to $4.9\times$: MJPC
+parallelizes over rollouts, so 10 rollouts cannot occupy more than 10 threads
+however many the host has, and 40 gives the pool enough work to be worth
+filling. The M5 Pro moves the other way, from $2.5\times$ to $2.1\times$, and
+its curve stops being a plateau --- 4 threads is its best point, 8 and 12 are
+\emph{worse} than 4, and 16 recovers part of the loss. The Ultra 7 ends
+$46\%$ faster in absolute terms ($3.317$ against $6.138$~ms) on the machine that
+is a third quicker per core.
 
-At $3.32$~ms mean and $3.88$~ms p95 it still fits the $5$~ms budget, so the
-configuration in Table~\ref{tab:rollouts} that solves $85\%$ is one this host
-could actually run --- and unlike annealed sampling, whose p95 of $5.91$~ms
-exceeds the period (Table~\ref{tab:timing}), it fits on the tail as well as on
-the mean. That matters because the tail iterations are the ones near a gap. The
-margin is nonetheless far thinner than the $1.03$~ms of
-Table~\ref{tab:timing}, and it assumes 12 threads belong to the planner alone.
+A plausible mechanism is core heterogeneity. MJPC joins its rollout threads
+every iteration, so an iteration costs what the slowest thread costs, and on a
+performance/efficiency split the threads landing on efficiency cores are
+stragglers. The penalty should scale with rollouts per thread, which is what
+the two budgets show: at 10 rollouts and 8 threads a straggler is one rollout
+behind, at 40 rollouts it is five. We have not confirmed this --- it predicts
+that the best thread count equals the performance-core count, and that pinning
+to those cores removes the inversion, neither of which we tested. The M5 Pro
+rows were also taken at load average $3.1$ and $4.4$ rather than idle, so the
+non-monotonicity in particular should be treated as provisional.
 
-The M5 Pro column is from an earlier run at load average $3.0$ on a $1$--$10$
-thread grid, which is why it stops at 8 here; its 10-thread point was
-$1.175$~ms. Single-thread it is $23\%$ faster than the Ultra 7 ($3.215$ against
-$4.162$~ms), and at 10 rollouts the two hosts converge to within $1\%$ at their
-respective plateaus, so the single-thread advantage is not recoverable at that
-budget. Whether it is recoverable at 40 rollouts --- where there is enough
-parallel work to matter, and where the Ultra 7 gains $1.5\times$ --- is the open
-cell in the table, and is what the $40$-rollout column is left for.
+The consequence for Table~\ref{tab:rollouts} is that the price of the $20$-point
+gain is host-dependent. On the Ultra 7 the $4\times$ rollout increase costs
+$2.65\times$ wall time rather than $4\times$ ($1.251 \rightarrow 3.317$~ms),
+part of it paid by parallelism that 10 rollouts was leaving on the floor, and
+at $3.32$~ms mean and $3.88$~ms p95 it fits the $5$~ms budget --- on the tail as
+well as the mean, unlike annealed sampling, whose p95 of $5.91$~ms exceeds the
+period (Table~\ref{tab:timing}). That matters because the tail iterations are
+the ones near a gap. On the M5 Pro the same increase costs $5.1\times$
+($1.213 \rightarrow 6.138$~ms) and does not fit the budget at any thread count
+we measured, mean or p95 ($7.39$~ms at its best point). The configuration that
+solves $85\%$ is runnable on one of these two hosts and not the other, which is
+not a distinction either machine's single-thread throughput would have
+predicted.
 
 For calibration on contention: the same 10-rollout workload on the Ultra 7 at
 load average $9.96$ reports $4.145$~ms single-threaded and $1.182$~ms at 10
@@ -1076,8 +1092,9 @@ magnitude and no amount of tree growth does.
 \subsection{Getting to real-time reliability}
 
 The best measured configuration on the slalom solves $85\%$, at $3.32$~ms per
-iteration against a $5$~ms budget --- runnable, but failing about one run in
-seven, and the planners at the default objective solve a few percent. Four
+iteration against a $5$~ms budget on one of our two hosts and $6.14$~ms on the
+other --- runnable, but not everywhere, and still failing about one run in
+seven; the planners at the default objective solve a few percent. Four
 directions, ordered by how
 much the measurements above support them.
 
@@ -1110,7 +1127,10 @@ and it is the largest remaining effect: $65.3 \rightarrow 85.3\%$ for
 $10 \rightarrow 40$ rollouts (Table~\ref{tab:rollouts}), at
 $2.65\times$ the wall time rather than $4\times$, because 10 rollouts could not
 fill the thread pool in the first place (Table~\ref{tab:machines}). It fits the
-$5$~ms budget at 12 threads with a third of the period spare. It is also the
+$5$~ms budget at 12 threads with a third of the period spare on the Ultra 7 and
+does not fit it at all on the M5 Pro, so this direction buys reliability at the
+cost of a portability constraint the 10-rollout configuration did not have. It
+is also the
 same $4\times$ that annealed sampling has been spending all along, and
 Table~\ref{tab:budget} shows the two ways of spending it are not close: at
 matched rollouts the plain sampler is $22$ points ahead, and the annealed one
@@ -1163,8 +1183,12 @@ independently: the optimum is a ridge whose best margin falls as the weight
 rises, and tuning either knob alone crosses it instead of following it.
 Widening the search from 10 rollouts per iteration to 40 adds a further 20
 points, to $85\%$; $80$ adds nothing. That increase costs $2.65\times$ the wall
-time rather than $4\times$, because at 10 rollouts the planner could not fill
-the thread pool, and it still fits the budget.
+time rather than $4\times$ on a 20-core x86 host, because at 10 rollouts the
+planner could not fill the thread pool, and it still fits the budget there. It
+costs $5.1\times$ on a 15-core Apple Silicon host and does not, which is a
+distinction neither machine's single-core throughput predicts and which only
+appears once the rollout count is large enough to expose how each host
+schedules a parallel join.
 Per-iteration cost is within $3\%$
 across the sampling family and the $5$~ms budget is met on the mean by all six
 planners, so the differences reported here are differences of algorithm and not
