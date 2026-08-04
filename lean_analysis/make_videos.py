@@ -31,7 +31,7 @@ def make_renderer(m):
     return mujoco.Renderer(m, H, W, max_geom=m.ngeom + 64)
 
 
-def cam(azim, elev=-14, dist=2.7, lookat=(0.72, 0.0, 0.95)):
+def cam(azim, elev=-14, dist=2.9, lookat=(0.85, 0.0, 0.95)):
     c = mujoco.MjvCamera()
     c.type = mujoco.mjtCamera.mjCAMERA_FREE
     c.lookat[:] = lookat
@@ -61,10 +61,18 @@ def draw(renderer, m, d, camera, subset, target=None, label=""):
                             np.eye(3).flatten(),
                             np.array([1.0, 1.0, 1.0, 0.9], dtype=np.float32))
         scn.ngeom += 1
+    # Markers sit at the contact MuJoCo actually reports, not at the nominal site.
+    # The two differ by 3-13 cm (the site is on the link axis, the contact is on
+    # the capsule surface), and drawing the site made the clip look like the arm
+    # was hovering above the table when it was resting on it.
+    resolved = {}
+    for b, p, _ in cs.resolved_contacts(m, d, tuple(subset))[8:]:
+        resolved.setdefault(b, p)
     for s in subset:
         body, off = cs.SITES[s]
-        p = cs.point_world(m, d, body, off)
-        live = cs.bid(m, body) in touching
+        b = cs.bid(m, body)
+        live = b in touching
+        p = resolved.get(b, cs.point_world(m, d, body, off))
         if scn.ngeom >= scn.maxgeom:
             break
         g = scn.geoms[scn.ngeom]
@@ -73,7 +81,7 @@ def draw(renderer, m, d, camera, subset, target=None, label=""):
             rgba[3] = 0.30                      # ghosted until contact is made
         mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_SPHERE,
                             np.array([0.035 if live else 0.025] * 3),
-                            p.astype(np.float64), np.eye(3).flatten(), rgba)
+                            np.asarray(p, dtype=np.float64), np.eye(3).flatten(), rgba)
         scn.ngeom += 1
     return renderer.render()
 
@@ -106,10 +114,14 @@ def orbit(m, d, subset, tag, target=None):
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
-    jobs = [([1.00, 0.15, 0.95], ("elbow", "forearm", "hip"), "EFH"),
-            ([1.00, 0.15, 0.95], ("elbow", "forearm"),        "EF"),
-            ([0.52, 0.15, 0.95], ("palm",),                   "P"),
-            ([1.24, 0.15, 1.09], ("elbow", "forearm", "palm"),"EFP")]
+    # Allen's real reach target (lean.xml numeric reach_target) plus a far target
+    # past the legs-only envelope. LEFT arm braces, RIGHT hand reaches.
+    TGT = [0.9047, -0.2348, 1.0982]
+    FAR = [1.25, -0.2348, 1.0982]
+    jobs = [(TGT, (),                          "legs"),
+            (TGT, ("elbow", "forearm"),        "EF"),
+            (TGT, ("elbow", "forearm", "hip"), "EFH"),
+            (FAR, ("elbow", "forearm"),        "EF_far")]
     only = sys.argv[1] if len(sys.argv) > 1 else None
     for tgt, sub, tag in jobs:
         if only and only != tag:

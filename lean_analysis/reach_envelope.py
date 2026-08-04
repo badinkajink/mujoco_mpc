@@ -39,7 +39,7 @@ def main():
     print("y=%.4f z=%.4f  basis=%s  model=%s"
           % (y, z, cs.TAU_BASIS, os.path.basename(cs.MODEL)))
     print("%-6s %-26s %5s %5s %7s %6s %8s %6s" %
-          ("x", "set", "slvd", "feas", "site_mm", "peak", "margin", "push"))
+          ("x", "set", "slvd", "feas", "drift", "peak", "margin", "push"))
     for x in xs:
         for s in SETS:
             r = cmpr.one([float(x), y, z], s)
@@ -48,7 +48,7 @@ def main():
             print("%-6.2f %-26s %5s %5s %7.1f %6.3f %8.4f %6.0f"
                   % (x, "+".join(s) or "legs-only",
                      "y" if r["solved"] else "NO", "y" if r["feasible"] else "n",
-                     1000 * r["site_err"], r["peak"], r["margin"], r["push_min"]),
+                     1000 * r["drift"], r["peak"], r["margin"], r["push_min"]),
                   flush=True)
 
     print("\n== reach envelope: furthest x that is BOTH solved and feasible ==")
