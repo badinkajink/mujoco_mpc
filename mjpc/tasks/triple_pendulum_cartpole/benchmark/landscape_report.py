@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Build the slalom landscape report: one self-contained HTML page.
+"""Build the triple-pendulum-cartpole avoidance report: one self-contained page.
 
-Answers, in order, the three things the scattered sweep tables could not:
+The whole arc, in the order it was measured:
+  - the task, and the RRT the task was published with,
+  - seven planners at equal budget on one bottleneck and on three,
   - which planner and which settings produced each historical row,
   - how much of the spread between those rows was the planner and how much was
     an unseeded random number generator,
   - what the success rate actually looks like over (avoidance weight x
-    clearance margin), measured with seeds and repeats.
+    clearance margin), measured with seeds and repeats, and what is past the
+    ridge that map found,
+  - what an iteration costs, on which machine.
 
 Everything is read from the logs and CSVs the benchmark scripts write, so the
 page cannot drift from them: re-run the sweeps, re-run this, the numbers move
@@ -22,6 +26,7 @@ import base64
 import csv
 import glob
 import html
+import itertools
 import os
 import pathlib
 import re
@@ -511,6 +516,167 @@ def outcome_bars(agg, weights, margins):
     return "".join(o)
 
 
+# -------------------------------------------------- the seven-planner sweeps
+
+# Display names, and the order the tables are read in (best corridor first).
+PLANNER_NAMES = {
+    "random_shooting": "Random Sampling",
+    "random_sampling": "Random Sampling",
+    "predictive_sampling": "Predictive Sampling",
+    "pso": "PSO (fixed)",
+    "annealed_sampling": "Annealed Sampling",
+    "ilqg": "iLQG",
+    "pso_stock": "PSO (stock)",
+    "cross_entropy": "Cross-Entropy",
+}
+
+
+def result_lines(path):
+    """Every RESULT line in `path`, as a dict, keyed by planner label.
+
+    Deliberately not parse_runs(): the lax-tolerance sweeps predate the timing
+    block, so their RESULT lines carry no ms_per_iter and parse_runs would
+    raise on them. Here every field is optional.
+    """
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for line in open(path, errors="replace"):
+        if not line.startswith("RESULT "):
+            continue
+        f = dict(kv.split("=", 1) for kv in line.split()[1:])
+        out[f["planner"]] = f
+    return out
+
+
+def load_planner_sweeps():
+    """The 100-trial, seven-planner comparisons, clean and lax, on both worlds.
+
+    Returns rows ordered by corridor clean score, each carrying both collision
+    criteria so the gap between them stays visible -- that gap is the finding,
+    not a footnote to it.
+    """
+    src = {
+        "corridor": result_lines(os.path.join(ROOT, "renders/avoid100_s025/sweep.log")),
+        "corridor_lax": result_lines(
+            os.path.join(ROOT, "renders/avoid100_s025_laxtol/sweep.log")),
+        "slalom": result_lines(os.path.join(ROOT, "renders/slalom100_s025/sweep.log")),
+        "slalom_lax": result_lines(
+            os.path.join(ROOT, "renders/slalom100_s025_laxtol/sweep.log")),
+    }
+    rows = []
+    for key, name in PLANNER_NAMES.items():
+        c = src["corridor"].get(key)
+        if not c:
+            continue
+        s = src["slalom"].get(key, {})
+        row = {
+            "key": key, "name": name,
+            "trials": int(c["trials"]),
+            "c_clean": int(c["solved"]),
+            "c_lax": int(src["corridor_lax"].get(key, {}).get("solved", -1)),
+            "c_se": float(c["solved_pct"].split("+-")[1]),
+            "c_tsolve": float(c["t_solve_median"]),
+            "c_ms": float(c.get("ms_per_iter", 0)),
+            "s_clean": int(s.get("solved", -1)),
+            "s_lax": int(src["slalom_lax"].get(key, {}).get("solved", -1)),
+            "s_gaps": float(s.get("gaps_mean", 0)),
+        }
+        # Grazing share: the fraction of the lax score that does not survive the
+        # zero-tolerance test. Undefined when the lax score is zero.
+        for w in ("c", "s"):
+            lax, clean = row[f"{w}_lax"], row[f"{w}_clean"]
+            row[f"{w}_graze"] = (1 - clean / lax) if lax > 0 else None
+        rows.append(row)
+    rows.sort(key=lambda r: -r["c_clean"])
+    return rows
+
+
+def planner_bars(rows, world):
+    """Paired bars: clean score inside the lax score, one row per planner.
+
+    Drawing the clean bar inside the lax one rather than beside it makes the
+    grazing share the visible quantity -- it is the part of the bar that is not
+    filled.
+    """
+    W, rowh, left, right = 760, 26, 168, 58
+    H = 30 + rowh * len(rows) + 12
+    span = W - left - right
+    o = [f'<svg viewBox="0 0 {W} {H}" width="{W}" role="img" '
+         f'aria-label="{world} success by planner, both collision criteria">']
+    for pct in (0, 25, 50, 75, 100):
+        x = left + span * pct / 100
+        o.append(f'<line x1="{x:.1f}" y1="26" x2="{x:.1f}" y2="{H-12}" '
+                 f'stroke="var(--rule-2)"/>')
+        o.append(f'<text x="{x:.1f}" y="20" font-size="10" text-anchor="middle" '
+                 f'fill="var(--ink-3)">{pct}%</text>')
+    for i, r in enumerate(rows):
+        y = 30 + i * rowh
+        clean, lax, n = r[f"{world[0]}_clean"], r[f"{world[0]}_lax"], r["trials"]
+        o.append(f'<text x="{left-10}" y="{y+13}" font-size="11.5" '
+                 f'text-anchor="end">{html.escape(r["name"])}</text>')
+        tip = (f'{r["name"]}\\nclean {clean}/{n}\\n'
+               f'<=20 mm {lax}/{n}' if lax >= 0 else f'{r["name"]}\\nclean {clean}/{n}')
+        o.append(f'<g data-tip="{tip}">')
+        if lax >= 0:
+            o.append(f'<rect x="{left}" y="{y+4}" width="{span*lax/n:.1f}" '
+                     f'height="15" fill="var(--collided)" opacity=".22" rx="1.5"/>')
+        o.append(f'<rect x="{left}" y="{y+4}" width="{span*clean/n:.1f}" '
+                 f'height="15" fill="var(--solved)" rx="1.5"/>')
+        o.append(f'<rect x="{left}" y="{y+4}" width="{span:.0f}" height="15" '
+                 f'fill="transparent"/></g>')
+        o.append(f'<text x="{W-right+8}" y="{y+15}" font-size="10.5" '
+                 f'fill="var(--ink-3)">{clean}/{n}</text>')
+    o.append('</svg>')
+    return "".join(o)
+
+
+def load_timing(path):
+    """The per-iteration cost table, from timing_bench.sh's log."""
+    out = {}
+    if not os.path.exists(path):
+        return out
+    cur = None
+    for line in open(path, errors="replace"):
+        m = re.match(r"^=== (\S+) ===", line)
+        if m:
+            cur = m.group(1)
+            continue
+        m = re.match(r"^timing: ([\d.]+) ms/iteration over (\d+) iterations "
+                     r"\(p95 ([\d.]+), worst ([\d.]+)\)", line)
+        if m and cur:
+            out[cur] = {"ms": float(m.group(1)), "iters": int(m.group(2)),
+                        "p95": float(m.group(3)), "worst": float(m.group(4))}
+        m = re.match(r"\s+where an iteration goes:\s+(.*)$", line)
+        if m and cur and cur in out:
+            out[cur]["where"] = m.group(1).strip()
+    return out
+
+
+def load_machine(path):
+    """The threads/ms-per-iteration table from machine_bench.sh's log."""
+    rows, host = [], {}
+    if not os.path.exists(path):
+        return host, rows
+    in_results = False
+    for line in open(path, errors="replace"):
+        m = re.match(r"^(date|uname|cpu|cores|mem|load)\s*:\s*(.+)$", line.strip())
+        if m:
+            host.setdefault(m.group(1), m.group(2).strip())
+        if line.strip().startswith("threads"):
+            in_results = True
+            continue
+        if in_results:
+            p = line.split()
+            if len(p) == 6 and p[0].isdigit():
+                rows.append({"threads": int(p[0]), "ms": float(p[1]),
+                             "iters": int(p[3]), "msteps": float(p[4]),
+                             "speedup": p[5]})
+            elif rows and not line.strip():
+                in_results = False
+    return host, rows
+
+
 # ------------------------------------------------------------------ page build
 
 def build(args):
@@ -576,19 +742,30 @@ def build(args):
 
     o = []
     A = o.append
-    A(f"<title>Slalom: where the success rate actually comes from</title>")
+
+    # Sections are numbered as they are emitted, not by hand: several of them
+    # are conditional on their inputs existing, and a hand-written number turns
+    # a missing sweep into a gap in the sequence.
+    counter = itertools.count(1)
+
+    def sec(title):
+        return (f'<section><p class="snum">{next(counter):02d}</p>'
+                f'<h2>{title}</h2>')
+    A(f"<title>Threading three gaps with a chaotic pendulum</title>")
     A(f"<style>{CSS}</style>")
     A('<div class="wrap">')
 
     # ---------------------------------------------------------------- masthead
     A('<header class="mast">')
-    A('<p class="eyebrow">triple pendulum cartpole &middot; slalom &middot; predictive sampling</p>')
-    A("<h1>Where the slalom success<br>rate actually comes from</h1>")
-    A(f'<p class="lede">{len(hist)} rows across five sweeps reported success rates '
-      f'from 0/50 to 20/50, and nothing in them said which differences were the '
-      f'planner. Three of the rows are one configuration under three names. All '
-      f'of them ran with an unseeded random number generator. Here is the '
-      f'reconciliation, the fix, and the map.</p>')
+    A('<p class="eyebrow">triple pendulum cartpole &middot; mujoco mpc &middot; '
+      'obstacle avoidance</p>')
+    A("<h1>Threading three gaps<br>with a chaotic pendulum</h1>")
+    A('<p class="lede">A three-link pendulum on a cart, one actuator for four '
+      'degrees of freedom, driving through gaps half its own length. Seven '
+      'planners at equal budget, a collision test that allows no penetration, '
+      'and the two cost parameters that turned out to matter more than any of '
+      'them. Everything below was measured; the numbers that were wrong are '
+      'kept and marked.</p>')
     A('<div class="meta">')
     for k in ("date", "commit short", "binary md5", "cpu"):
         if man.get(k):
@@ -597,7 +774,188 @@ def build(args):
     A('</div></header>')
 
     # ------------------------------------------------------- 1. what was run
-    A('<section><p class="snum">01</p><h2>Every row was predictive sampling</h2>')
+    # ------------------------------------------------------------- 1. the task
+    psweeps = load_planner_sweeps()
+
+    A(sec('The gap is narrower than the pendulum'))
+    A('<div class="prose">')
+    A('<p>A 1.0 kg cart on a rail carries a three-link pendulum: three massless '
+      'rods of 1/3 m, each with a 0.1 kg head on the end. One motor pushes the '
+      'cart, &plusmn;20 N. That is one actuator for four degrees of freedom, and '
+      'the passive dynamics are chaotic.</p>')
+    A('<p>The obstacles are pairs of disks of radius 0.6 m centred at '
+      '<code>z = &plusmn;0.85</code>, leaving a gap of 0.5 m. The pendulum is '
+      '1.0 m long, so it cannot pass upright. It has to be swung down, laid out '
+      'or folded, driven through, and recovered &mdash; and the disks are real '
+      'collision geoms, so one touch disqualifies the run.</p>')
+    A('<p><b>Corridor</b> is the task as published (Caldwell &amp; Correll, ISRR '
+      '2015 &sect;5): one gap at <code>x = 3</code>, goal at <code>x = 6</code>. '
+      '<b>Slalom</b> keeps that gap exactly and adds two more at <code>x = 6</code> '
+      'and <code>x = 9</code>, goal at <code>x = 11</code>. Because the first '
+      'bottleneck is unchanged, the difference between the two is attributable to '
+      'what comes after it.</p>')
+    A('</div>')
+    strip = str(HERE.parent / "report" / "fig" / "filmstrip_solved.png")
+    if os.path.exists(strip):
+        cache = os.path.join(args.grid, ".web")
+        os.makedirs(cache, exist_ok=True)
+        A('<figure class="card"><img class="strip" src="'
+          + b64(shrink_png(strip, cache), "image/png") + '" alt="filmstrip of a '
+          'clean slalom run"><p class="cap">One clean run through all three gaps. '
+          'Panels are framed at the crossings, not at uniform intervals. The '
+          'posture that survives three gaps is the folded one, not the flat '
+          'lay-out that clears a single corridor &mdash; laying the links '
+          'horizontal sweeps a 1 m arc, which survives one crossing and rarely '
+          'two. Clearances at the three crossings here are +27, +154 and +727 '
+          'mm.</p></figure>')
+    A('<div class="prose">')
+    A('<p>What counts as solved: the cart ends within 0.30 m of the goal and no '
+      'head ever overlapped a disk. The pendulum\'s final posture is not scored, '
+      'because every objective here sets the upright weight to zero &mdash; '
+      'requiring an upright finish would score a run against a term it was never '
+      'given.</p>')
+    A('</div>')
+    A('</section>')
+
+    # -------------------------------------------------------- 2. the RRT baseline
+    A(sec('The planner this task came with'))
+    A('<div class="prose">')
+    A('<p>The task is from a paper about a kinodynamic RRT whose steering '
+      'primitive linearizes about the zero-control trajectory from a vertex '
+      'rather than about the vertex itself. We ported the primitive to MuJoCo and '
+      'grew trees with it, both as a baseline and to test whether it could serve '
+      'as an MJPC planner. It cannot, and the reason is not the primitive.</p>')
+    A('</div>')
+    A('<div class="tiles">')
+    for n, k, s in [
+        ("3000", "corridor vertices", "grown in 379 s. Closest approach to the "
+         "goal: 2.117. Not solved."),
+        ("3873", "slalom vertices", "grown in 1800 s. Best path moved the cart "
+         "5.83 m of the 11 m required. Not solved."),
+        ("96%", "of build in nearest-nbr", "O(N) per extend, so O(N&sup2;) over "
+         "the build. The per-vertex precompute the paper optimizes is 2&ndash;7%."),
+        ("10&sup3;&times;", "over an MPC step", "MJPC's contract is one "
+         "OptimizePolicy call per control step, ~5 ms. A tree build is three "
+         "orders of magnitude past it."),
+    ]:
+        A(f'<div class="tile"><p class="n">{n}</p><p class="k">{k}</p>'
+          f'<p class="s">{s}</p></div>')
+    A('</div>')
+    A('<div class="prose">')
+    A('<p>Two further observations, because both were measured rather than '
+      'assumed. Extends were rejected by collision 50% of the time on the '
+      'corridor and 80% on the slalom: the feasible set is thin relative to the '
+      'reachable set, which is the same reason the samplers below struggle. And '
+      'the paper\'s headline contribution is a no-op at its own benchmark\'s start '
+      'state &mdash; the upright equilibrium <em>is</em> an equilibrium of the '
+      'zero-control dynamics, so measured drift over 1.0 s is 0.000 and the two '
+      'linearizations are identical there. From non-equilibrium vertices it is '
+      'real, but only past a horizon of about 0.6 s.</p>')
+    A('<p>AgileRRT is usable here as an offline trajectory generator. It is not a '
+      'receding-horizon planner, so it does not appear in the tables below.</p>')
+    A('</div>')
+    A('</section>')
+
+    # ------------------------------------------------- 3. one gap, all planners
+    if psweeps:
+        A(sec('One gap, seven planners'))
+        A('<div class="prose">')
+        A('<p>100 trials each, objective '
+          '<code>(cart, upright, velocity, control, avoidance) = '
+          '(1, 0, 0.1, 0.01, 500)</code>, margin 0.08 m, four planner iterations '
+          'per control step. Every planner gets the same iteration count, so this '
+          'compares algorithms rather than throughput; what an iteration costs '
+          'each of them is further down.</p>')
+        A('<p>Both collision criteria are shown. The filled bar is the constraint '
+          'as stated &mdash; never overlap a disk. The pale bar behind it is the '
+          '&le;20 mm penetration tolerance this benchmark used originally. The '
+          'unfilled difference is <b>grazing</b>: the part of a planner\'s '
+          'apparent competence that was contact it was not charged for.</p>')
+        A('</div>')
+        A('<div class="legend">'
+          '<span class="key"><span class="sw" style="background:var(--solved)">'
+          '</span>clean &mdash; no overlap at any step</span>'
+          '<span class="key"><span class="sw" style="background:var(--collided);'
+          'opacity:.22"></span>&le;20 mm penetration allowed</span></div>')
+        A('<div class="card scroll">' + planner_bars(psweeps, "corridor") + '</div>')
+        A('<div class="card scroll"><table><thead><tr><th>planner</th>'
+          '<th>clean</th><th>1 s.e.</th><th>&le;20 mm</th><th>grazing</th>'
+          '<th>median t_solve</th><th>ms/iter</th></tr></thead><tbody>')
+        for r in psweeps:
+            gz = "&mdash;" if r["c_graze"] is None else f'{100*r["c_graze"]:.0f}%'
+            A(f'<tr><td class="lbl">{html.escape(r["name"])}</td>'
+              f'<td>{r["c_clean"]}/{r["trials"]}</td><td>{r["c_se"]:.1f}</td>'
+              f'<td>{r["c_lax"]}/{r["trials"]}</td><td>{gz}</td>'
+              f'<td>{r["c_tsolve"]:.2f} s</td><td>{r["c_ms"]:.3f}</td></tr>')
+        A('</tbody></table></div>')
+        A('<div class="prose">')
+        A('<p><b>The memoryless control is not beaten.</b> Random Sampling throws '
+          'away the incumbent every iteration and draws candidates around zero '
+          'control. It is nominally ahead of Predictive Sampling &mdash; by 7 '
+          'points against a combined standard error of about 6, so treat them as '
+          'indistinguishable rather than ranked. Either way: at four iterations '
+          'per decision this task is solved by re-deciding from scratch, not by '
+          'refining a plan. Any claim that some planner\'s optimizer is what '
+          'closes the corridor has to get past this row first.</p>')
+        A('<p><b>Cross-Entropy fails here rather than underperforming.</b> 2/100 '
+          'with 98% collisions, against 76/100 for the same sampling machinery '
+          'under a different update rule. CEM refits a Gaussian to the elite set '
+          'and samples from it; on a chaotic system the elite set at one '
+          'iteration does not predict the next, so the covariance concentrates on '
+          'a region the dynamics have already left. In a rollout the signature is '
+          'a smooth, committed, wrong trajectory rather than a flailing one.</p>')
+        A('<p><b>The collision criterion moves the ranking.</b> Annealed Sampling '
+          'scores 81 at 20 mm and 49 clean &mdash; a 32-point drop, the largest '
+          'here, and enough to take it from second place to fourth.</p>')
+        A('</div>')
+        A('</section>')
+
+        # --------------------------------------------- 4. three gaps, all planners
+        A(sec('Three gaps: the wall'))
+        A('<div class="prose">')
+        A('<p>Same objective, same protocol, three bottlenecks instead of one.</p>')
+        A('</div>')
+        srows = sorted(psweeps, key=lambda r: -r["s_clean"])
+        A('<div class="card scroll">' + planner_bars(srows, "slalom") + '</div>')
+        A('<div class="card scroll"><table><thead><tr><th>planner</th>'
+          '<th>clean</th><th>&le;20 mm</th><th>grazing</th>'
+          '<th>gaps before first contact</th><th>corridor (clean)</th>'
+          '</tr></thead><tbody>')
+        for r in srows:
+            gz = "&mdash;" if r["s_graze"] is None else f'{100*r["s_graze"]:.0f}%'
+            A(f'<tr><td class="lbl">{html.escape(r["name"])}</td>'
+              f'<td>{r["s_clean"]}/{r["trials"]}</td>'
+              f'<td>{r["s_lax"]}/{r["trials"]}</td><td>{gz}</td>'
+              f'<td>{r["s_gaps"]:.2f} of 3</td>'
+              f'<td style="color:var(--ink-3)">{r["c_clean"]}/{r["trials"]}</td>'
+              f'</tr>')
+        A('</tbody></table></div>')
+        A('<div class="prose">')
+        A('<p><b>At this objective, nothing solves it.</b> The best planner clears '
+          'three gaps cleanly in 4 runs out of 100 and five of the seven never '
+          'manage it at all. Differences among the top rows are one to two '
+          'standard errors: this table reports a wall, not a ranking.</p>')
+        A('<p><b>Read the partial-credit column instead.</b> Gaps cleared before '
+          'the first contact does separate the planners, 0.94 down to 0.05 &mdash; '
+          'and that ordering is essentially the corridor ordering. No planner '
+          'handles chaining better than its single-gap performance predicts.</p>')
+        A('<p>Nothing about the first gap changed. What changed is the goal, from '
+          '6 m to 11 m, so the cart residual is roughly 3&times; larger at the '
+          'start and the planner commits to more speed on approach. iLQG is the '
+          'extreme case &mdash; 35/100 on the corridor, 0.09 gaps here &mdash; '
+          'arriving at a gap it can otherwise clear with far too much velocity to '
+          'lay the pendulum out.</p>')
+        A('</div>')
+        A('<div class="warn"><p><b>Retracted.</b> An earlier version of this work '
+          'read the &le;20 mm column as the result and reported the slalom as a '
+          'ranking <em>inversion</em>, with Annealed Sampling first at 34/100 and '
+          'an argument about chaining rewarding different behaviour. The grazing '
+          'shares here are 82&ndash;100%: on the slalom the lax test was measuring '
+          'almost nothing but contact. Both columns are kept because the gap '
+          'between them is the finding.</p></div>')
+        A('</section>')
+
+    A(sec('Every row was predictive sampling'))
     A('<div class="prose">')
     A('<p>The short answer to the naming question: <code>w32000_m008</code> and '
       '<code>w8000_m008</code> are the built-in sampling planner &mdash; '
@@ -637,8 +995,7 @@ def build(args):
     A('</section>')
 
     # ------------------------------------------------- 2. the RNG
-    A('<section><p class="snum">02</p>'
-      '<h2>The spread was the instrument</h2>')
+    A(sec('The spread was the instrument'))
     A('<div class="prose">')
     A(f'<p>Those {len(pts)} runs are one configuration measured '
       f'{len(pts)} times. Nothing about the planner changed between them.</p></div>')
@@ -678,7 +1035,7 @@ def build(args):
     A('</section>')
 
     # ------------------------------------------------------- 3. the landscape
-    A('<section><p class="snum">03</p><h2>The map</h2>')
+    A(sec('The map'))
     A('<div class="prose">')
     nseed = len({r["seed"] for r in rows}) or 1
     ntr = rows[0]["trials"] if rows else 50
@@ -779,9 +1136,81 @@ def build(args):
       f'ridge. Hover any cell for its per-seed spread.</p>')
     A('</section>')
 
+    # ------------------------------------------------------- 8. past the ridge
+    if args.ext and os.path.exists(os.path.join(args.ext, "results.csv")):
+        erows, eagg = load_grid(args.ext)
+        ew = sorted({r["weight"] for r in erows})
+        em = sorted({r["margin"] for r in erows})
+        A(sec('Past the ridge'))
+        A('<div class="prose">')
+        A('<p>The map above ends at its own best corner, which leaves the obvious '
+          'question open: is that cell a peak, or the near edge of a plateau that '
+          'keeps going? This grid continues past it &mdash; higher avoidance '
+          'weights, smaller clearance margins, same three seeds and 50 trials per '
+          'cell.</p>')
+        if eagg:
+            (bw, bm), best = max(eagg.items(), key=lambda kv: kv[1]["pct"])
+            A(f'<p>The best cell of the extension is avoidance '
+              f'<b>{bw:,.0f}</b> at margin <b>{bm:g} m</b>, at '
+              f'<b>{best["pct"]:.0f}%</b> &plusmn;{best["se"]:.1f} over '
+              f'{best["trials"]} trials.</p>')
+        A('</div>')
+        A('<div class="card">' + heatmap(eagg, ew, em) + '</div>')
+        A('<p class="cap">Same scale and same scoring as the map above. The '
+          'lowest-weight, largest-margin cell here repeats the best cell of the '
+          'first grid, under a later binary, as a check that the two can be read '
+          'together.</p>')
+        want_e = grid_size(args.ext) or len(ew) * len(em) * 3
+        if len(erows) < want_e:
+            A(f'<div class="warn"><p><b>Grid still filling:</b> {len(erows)} of '
+              f'{want_e} runs have landed.</p></div>')
+        A('</section>')
+
+    # --------------------------------------- 3b. the control that was not one
+    if args.rs and os.path.exists(os.path.join(args.rs, "results.csv")):
+        rsrows, rsagg = load_grid(args.rs)
+        rw = sorted({r["weight"] for r in rsrows})
+        rm = sorted({r["margin"] for r in rsrows})
+        soln = sum(r["solved"] for r in rsrows)
+        trin = sum(r["trials"] for r in rsrows)
+        A(sec('The control that was not a control'))
+        A('<div class="prose">')
+        A('<p>Every sweep above is predictive sampling, which leaves open whether '
+          'the ridge is a property of the cost function or of that one planner. '
+          'The obvious check is the memoryless control: the same sampler with its '
+          'incumbent thrown away before each iteration, so no plan survives from '
+          'one iteration to the next. Run it on the same corner and see whether '
+          'the tuning still helps.</p>')
+        A('<p>The first attempt returned the grid it was being compared against. '
+          'All 30 finished cells matched predictive sampling exactly &mdash; not '
+          'closely, but to the trial &mdash; which is not something two distinct '
+          'planners do. The control was a no-op: it cleared the plan, and the '
+          'base planner&rsquo;s first act each iteration is to rebuild that plan '
+          'from the previous winner, which threw the clearing away. It had been '
+          'the planner it was a control for the whole time. The sweep script '
+          'compounded it by printing <em>predictive sampling</em> into the '
+          'manifest of every sweep regardless of which planner index it was '
+          'given.</p>')
+        A(f'<p>Corrected, and re-run on the same {len(rsagg)} cells with the same '
+          f'seeds, it solves <b>{soln} of {trin}</b> trials &mdash; zero, '
+          'everywhere, at every weight and margin in the corner where predictive '
+          'sampling reaches 65%. It does not reach the first gap.</p>')
+        A('<p>That reverses what this benchmark had been saying. The memoryless '
+          'control was previously the top row of the one-gap table, which made '
+          'the warm start look like decoration. It is the opposite: the warm '
+          'start is the mechanism, and the cost tuning that carries predictive '
+          'sampling from 2.7% to 65% does nothing at all for a planner that '
+          'discards its plan. The objective is not solving this task &mdash; it '
+          'is making an already-working search better.</p>')
+        A('</div>')
+        A('<div class="card">' + heatmap(rsagg, rw, rm) + '</div>')
+        A('<p class="cap">The corrected memoryless control on the same corner as '
+          'the grid above, same colour scale. Every cell is zero.</p>')
+        A('</section>')
+
     # ------------------------------------------------------ 4. failure modes
     if agg:
-        A('<section><p class="snum">04</p><h2>Two different ways to score zero</h2>')
+        A(sec('Two different ways to score zero'))
         A('<div class="prose"><p>A cell at 0% can mean the cart charged the gap and '
           'clipped a disk, or that it never went near the gap at all. Those want '
           'opposite fixes, and the success column cannot tell them apart.</p></div>')
@@ -798,7 +1227,7 @@ def build(args):
 
     # ------------------------------------------------------------- 5. footage
     if vids:
-        A('<section><p class="snum">05</p><h2>What each outcome looks like</h2>')
+        A(sec('What each outcome looks like'))
         A('<div class="prose"><p>One rollout per outcome per configuration, rendered '
           'from runs that went to the end rather than stopping at first contact. '
           'The earlier gallery picked one rollout per configuration by distance '
@@ -845,7 +1274,7 @@ def build(args):
 
     # ----------------------------------------------------- 6. control character
     if cc:
-        A('<section><p class="snum">06</p><h2>What the controller does with the authority</h2>')
+        A(sec('What the controller does with the authority'))
         A('<div class="prose"><p>Measured on the dumped rollouts of the earlier '
           'gallery. These are the numbers that survived the audit unchanged: they '
           'describe control character within a run, not success rates across runs, '
@@ -862,7 +1291,100 @@ def build(args):
         A('</tbody></table></div></section>')
 
     # ------------------------------------------------------------ 7. reproduce
-    A('<section><p class="snum">07</p><h2>Reproducing any cell</h2>')
+    # ----------------------------------------------- 12. cost of an iteration
+    tim = load_timing(os.path.join(ROOT, "renders/timing/timing.log"))
+    # renders/machine/machine.log is the later re-run at low load; machine_quiet
+    # is the earlier one. They agree to within 2%, and this is the current one.
+    mach_i = load_machine(os.path.join(ROOT, "renders/machine/machine.log"))
+    if tim or mach_i[1]:
+        A(sec('What an iteration costs, and on what'))
+        A('<div class="prose">')
+        A('<p>Every table above holds planning <em>iterations</em> constant, '
+          'which is what makes them comparisons of algorithms rather than of '
+          'throughput. This is the other half: what an iteration costs, and '
+          'therefore whether a planner could deliver those iterations outside '
+          'the harness.</p>')
+        A('<p>The budget is one timestep, <b>5 ms</b>, at any '
+          '<code>--speed</code>. That is worth stating precisely, because it is '
+          'easy to confuse with the control period: at <code>--speed=0.25</code> '
+          'control runs at 50 Hz in wall time, so the control period is 20 ms and '
+          'the planner fits four iterations inside it. Slowing down buys '
+          'iterations per decision and pays for them in control rate; the '
+          'per-iteration budget does not move.</p>')
+        A('</div>')
+    if tim:
+        A('<div class="card scroll"><table><thead><tr><th>planner</th>'
+          '<th>ms/iter</th><th>p95</th><th>worst</th><th>% of 5 ms</th>'
+          '<th>where it goes</th></tr></thead><tbody>')
+        for k, v in sorted(tim.items(), key=lambda kv: kv[1]["ms"]):
+            over = ' style="color:var(--collided)"' if v["p95"] > 5.0 else ""
+            A(f'<tr><td class="lbl">{html.escape(PLANNER_NAMES.get(k, k))}</td>'
+              f'<td>{v["ms"]:.3f}</td><td{over}>{v["p95"]:.2f}</td>'
+              f'<td>{v["worst"]:.1f}</td><td>{100*v["ms"]/5.0:.0f}%</td>'
+              f'<td style="color:var(--ink-3);white-space:normal">'
+              f'{html.escape(v.get("where",""))}</td></tr>')
+        A('</tbody></table></div>')
+        A('<p class="cap">6000 iterations each, early exit off so every planner '
+          'runs the same iterations from the same starts, 15 planner threads on '
+          'an idle 20-core host. p95 in orange exceeds the budget: a real loop '
+          'would drop iterations for those two precisely when the state is '
+          'hardest, so their success rates above are optimistic in a way the '
+          '1 ms planners\' are not.</p>')
+        A('<div class="prose">')
+        A('<p>The four 10-rollout samplers are within 3% of each other, and almost '
+          'all of that is contact &mdash; with the obstacles removed they converge '
+          'to 0.92&ndash;0.99 ms. Cross-Entropy\'s apparent 30% overhead is not '
+          'the algorithm but its 79% collision rate: MuJoCo charges more for '
+          'contact-rich rollouts, so a planner that drives into disks pays twice, '
+          'once in the score and once on the clock.</p>')
+        A('<p>The two exceptions are structural. Annealed Sampling\'s 4&times; is '
+          'its annealing multiplier &mdash; 99.9% of its iteration is rollouts, so '
+          'there is no overhead to trim; the cost <em>is</em> the extra samples. '
+          'iLQG spends only a quarter of its iteration on rollouts: 45% goes to '
+          'finite-difference derivatives and 27% to the nominal rollout, while the '
+          'Riccati backward pass, the part usually expected to dominate, is 2.7%. '
+          'On a 4-DOF system the derivatives are already the bill.</p>')
+        A('</div>')
+    if mach_i[1]:
+        host_i, rows_i = mach_i
+        # The macOS run is a pasted log rather than a generated one, so its
+        # table is transcribed here with the load it was taken at.
+        mac = [(1, 3.215), (2, 1.700), (4, 1.169), (8, 1.189), (10, 1.175)]
+        A('<h3 style="margin-top:34px">Two hosts, same workload</h3>')
+        A('<div class="card scroll"><table><thead><tr><th>threads</th>'
+          '<th>Ultra 7 265KF ms/iter</th><th>Msteps/s</th><th>speedup</th>'
+          '<th>M5 Pro ms/iter</th></tr></thead><tbody>')
+        macd = dict(mac)
+        for r in rows_i:
+            m = macd.get(r["threads"])
+            mcell = (f'<td>{m:.3f}</td>' if m
+                     else '<td style="color:var(--ink-3)">&mdash;</td>')
+            A(f'<tr><td class="lbl">{r["threads"]}</td><td>{r["ms"]:.3f}</td>'
+              f'<td>{r["msteps"]:.2f}</td><td>{r["speedup"]}</td>{mcell}</tr>')
+        A('</tbody></table></div>')
+        A(f'<p class="cap">Predictive sampling, 1.0 s horizon, 12 knots, 10 '
+          f'trajectories, 8000 iterations. Ultra 7: 20 logical cores, '
+          f'{html.escape(host_i.get("load","?"))}. M5 Pro: 15 logical cores, '
+          f'load averages 2.97 4.53 4.77. Msteps/s is mj_step calls per second '
+          f'across all planner threads.</p>')
+        A('<div class="prose">')
+        A('<p>Single-thread the M5 Pro is 28% faster. Neither host converts more '
+          'than about 3.5&times; of its cores, and both plateau at the same place '
+          'in absolute terms &mdash; 1.17 against 1.18 ms &mdash; so at the budget '
+          'this task uses the two machines are equivalent and the single-thread '
+          'difference is not recoverable. Ten rollouts of 201 steps is simply not '
+          'enough parallel work to fill either one.</p>')
+        A('<p>That headroom is the most concrete thing this page has to say about '
+          'getting the success rate up. Both machines sustain roughly 1.7 '
+          'Msteps/s and the task asks for 0.49. Raising the rollout count is a '
+          '4&times; that fits the budget on both hosts &mdash; the same 4&times; '
+          'annealed sampling spends on its annealing schedule for no measured '
+          'gain.</p>')
+        A('</div>')
+    if tim or mach_i[1]:
+        A('</section>')
+
+    A(sec('Reproducing any cell'))
     A('<div class="prose"><p>Every cell of the map came from one command. To '
       're-run one, take its weight, margin and seed off the hover tooltip:</p></div>')
     A('<div class="cmd">./build/bin/corridor_benchmark --task=slalom --planner=0 '
@@ -903,6 +1425,13 @@ def build(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", default="")
+    ap.add_argument("--ext", default="",
+                    help="ridge-extension grid dir (higher weights, smaller "
+                         "margins) -- continues --grid past its best corner")
+    ap.add_argument("--rs", default="",
+                    help="the same corner as --ext under the memoryless "
+                         "control (random sampling), for the section on what "
+                         "the warm start is worth")
     ap.add_argument("--renders", default="")
     ap.add_argument("--repro", default="")
     ap.add_argument("--out", default="renders/landscape_report.html")

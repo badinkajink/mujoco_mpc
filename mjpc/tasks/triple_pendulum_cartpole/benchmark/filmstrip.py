@@ -32,7 +32,7 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import numpy as np
 import mujoco
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 def task_xml(task):
@@ -149,25 +149,96 @@ def make_camera(model, distance, azimuth, elevation, lookat):
     return cam
 
 
-def annotate(frame, lines):
+def gap_frames(d, gaps, radius):
+    """Frames that show the run as a sequence of obstacle crossings.
+
+    Each obstacle is a disc of the given radius standing in the xz plane, so it
+    occupies x in [g - radius, g + radius]. The panel worth showing on the way
+    in is the first frame at the near edge, and on the way out the first frame
+    past the far edge; those two bracket the posture the cart had to hold to get
+    through. The first and last frame of the run bookend them.
+
+    Returns (indices, labels). An obstacle the cart never reaches contributes no
+    panel, so a run that failed early yields a correspondingly shorter strip.
+    """
+    cart = d["cart"]
+
+    def first_at(x):
+        hit = np.flatnonzero(cart >= x)
+        return int(hit[0]) if hit.size else None
+
+    idx, labels = [0], ["start"]
+    for k, g in enumerate(sorted(gaps), start=1):
+        for tag, x in (("entering", g - radius), ("leaving", g + radius)):
+            i = first_at(x)
+            if i is not None and i not in idx:
+                idx.append(i)
+                labels.append(f"gap {k}, {tag}")
+    last = len(cart) - 1
+    if last not in idx:
+        idx.append(last)
+        labels.append("goal")
+    order = sorted(range(len(idx)), key=lambda k: idx[k])
+    return [idx[k] for k in order], [labels[k] for k in order]
+
+
+def _title_font(size):
+    """A scalable face for the stage caption, or None to fall back.
+
+    PIL's built-in bitmap font is fixed at ~11 px, which is unreadable once a
+    1920 px sheet is scaled into a two-column figure. Any of these DejaVu paths
+    is enough; if none is present the caller draws with the default font and
+    the caption is merely small, not missing.
+    """
+    for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                 "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"):
+        if pathlib.Path(path).exists():
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                pass
+    return None
+
+
+def annotate(frame, lines, title=None):
+    """Draw the telemetry plate, and optionally a stage caption above it.
+
+    The caption names what the panel is showing ("gap 2, entering"); the plate
+    below carries the numbers that back it up. Keeping them separate lets the
+    figure be read at a glance and still be checked against the dump.
+    """
     img = Image.fromarray(frame)
     draw = ImageDraw.Draw(img)
-    # dark plate behind the text so it stays readable over the sky gradient
     pad, lh = 4, 12
-    box_h = lh * len(lines) + 2 * pad
+    title_h = 0
+    font = _title_font(22) if title else None
+    if title:
+        title_h = (font.size + 10) if font else 20
+    # dark plate behind the text so it stays readable over the sky gradient
+    box_h = lh * len(lines) + 2 * pad + title_h
     draw.rectangle([0, 0, img.width, box_h], fill=(0, 0, 0))
+    if title:
+        draw.text((pad, pad), title, fill=(255, 214, 102), font=font)
     for k, line in enumerate(lines):
-        draw.text((pad, pad + k * lh), line, fill=(255, 255, 255))
+        draw.text((pad, pad + title_h + k * lh), line, fill=(255, 255, 255))
     return np.asarray(img)
 
 
-def tile(frames, cols):
+def tile(frames, cols, gap=6):
+    """Lay the panels out on a grid, with a hairline gutter between them.
+
+    Without the gutter, adjacent panels share the same pale background and read
+    as one continuous image; the gutter is what makes the panel count obvious.
+    """
     rows = (len(frames) + cols - 1) // cols
     h, w, _ = frames[0].shape
-    sheet = np.full((rows * h, cols * w, 3), 24, dtype=np.uint8)
+    sheet = np.full((rows * h + (rows - 1) * gap,
+                     cols * w + (cols - 1) * gap, 3), 24, dtype=np.uint8)
     for k, f in enumerate(frames):
         r, c = divmod(k, cols)
-        sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = f
+        y, x = r * (h + gap), c * (w + gap)
+        sheet[y:y + h, x:x + w] = f
     return sheet
 
 
@@ -188,6 +259,18 @@ def main():
     p.add_argument("--at", default=None,
                    help="comma-separated step indices; default is event-aligned")
     p.add_argument("--frames", type=int, default=8, help="tiles in the filmstrip")
+    p.add_argument("--labels", default=None,
+                   help="'|'-separated stage captions, one per frame, drawn "
+                        "above the telemetry plate. Fewer labels than frames "
+                        "leaves the remaining panels uncaptioned.")
+    p.add_argument("--gaps", default=None,
+                   help="comma-separated obstacle x positions. With --at unset, "
+                        "picks the frame entering and the frame leaving each "
+                        "obstacle's x-extent, plus the first and last frame, "
+                        "and captions them.")
+    p.add_argument("--gap-radius", type=float, default=0.6,
+                   help="half-extent in x of an obstacle disc, used by --gaps "
+                        "to decide where entering and leaving begin.")
     p.add_argument("--cols", type=int, default=4)
     p.add_argument("--width", type=int, default=480)
     p.add_argument("--height", type=int, default=360)
@@ -238,6 +321,10 @@ def main():
     cam = make_camera(model, args.distance, args.azimuth, args.elevation, lookat)
 
     explicit = [int(v) for v in args.at.split(",")] if args.at else None
+    labels = args.labels.split("|") if args.labels else None
+    if args.gaps and explicit is None:
+        explicit, labels = gap_frames(
+            d, [float(v) for v in args.gaps.split(",")], args.gap_radius)
     indices = pick_frames(d, args.frames, explicit)
 
     # ---------- the numbers that pair with the picture ----------
@@ -275,7 +362,7 @@ def main():
             f"step {int(d['step'][i])}  t={d['time'][i]:.2f}s",
             f"cart {d['cart'][i]:+.2f}  cos_min {cosmin[i]:+.2f}",
             f"clear {d['min_clearance'][i]:+.3f}  u {d['ctrl'][i]:+.1f}",
-        ]))
+        ], title=labels[k] if labels and k < len(labels) else None))
     Image.fromarray(tile(labelled, args.cols)).save(out)
     print(f"\nwrote filmstrip: {out}")
 
