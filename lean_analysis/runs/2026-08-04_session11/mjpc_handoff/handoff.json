@@ -1,0 +1,141 @@
+{
+ "task": "Lean H12 Magpie",
+ "strategy": 22,
+ "start_key": "stand",
+ "seconds": 12.0,
+ "threads": 15,
+ "target": [
+  0.9047,
+  -0.2348,
+  1.0982
+ ],
+ "basis": "clamp",
+ "site_set": "v2",
+ "mu": 0.6,
+ "qp_reference": {
+  "elbow+forearm": {
+   "reach": 0.0062366359865699056,
+   "placed": true,
+   "peak": 0.4658282048683085,
+   "margin": 0.09043693542480469,
+   "feasible": true,
+   "subset": [
+    "elbow",
+    "forearm"
+   ]
+  },
+  "elbow+forearm+palm": {
+   "reach": 0.004075518841144771,
+   "placed": true,
+   "peak": 0.4549430291055728,
+   "margin": 0.08717536925919855,
+   "feasible": true,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  }
+ },
+ "runs": [
+  {
+   "seed": 0,
+   "failed": false,
+   "wall": "Total wall time (1500 planning steps): 23.4843 s (0.510981x realtime)",
+   "avg": "Average cost per step (lower is better): 6.55041",
+   "final": {
+    "reach": 0.316745006000066,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.3873130999665479,
+    "margin": 0.06282806276499739,
+    "pelvis_z": 0.9956417413020537,
+    "tilt_deg": 1.383749266175124,
+    "subset": [
+     "palm"
+    ]
+   },
+   "best": {
+    "reach": 0.3152722403011816,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.32986378737767696,
+    "margin": 0.06435011060595942,
+    "pelvis_z": 0.9961988195682978,
+    "tilt_deg": 1.371389775440651,
+    "subset": [
+     "palm"
+    ]
+   },
+   "n_frames": 6000
+  },
+  {
+   "seed": 1,
+   "failed": false,
+   "wall": "Total wall time (1500 planning steps): 25.0696 s (0.478667x realtime)",
+   "avg": "Average cost per step (lower is better): 7.49429",
+   "final": {
+    "reach": 0.3565440526141139,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.6701017763898584,
+    "margin": 0.03959637585525392,
+    "pelvis_z": 0.9932301971863702,
+    "tilt_deg": 0.4323731177558302,
+    "subset": [
+     "palm"
+    ]
+   },
+   "best": {
+    "reach": 0.33820820696925785,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.4160204889518375,
+    "margin": 0.051561345501459944,
+    "pelvis_z": 0.9960411572241238,
+    "tilt_deg": 0.529420013539704,
+    "subset": [
+     "palm"
+    ]
+   },
+   "n_frames": 6000
+  },
+  {
+   "seed": 2,
+   "failed": false,
+   "wall": "Total wall time (1500 planning steps): 24.4188 s (0.491424x realtime)",
+   "avg": "Average cost per step (lower is better): 10.1054",
+   "final": {
+    "reach": 0.3898865051266605,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.9955808840644221,
+    "margin": 0.03692990845850389,
+    "pelvis_z": 0.9966436774594477,
+    "tilt_deg": 0.5394869710099899,
+    "subset": [
+     "palm"
+    ]
+   },
+   "best": {
+    "reach": 0.38906134065888937,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 1.0617457969895925,
+    "margin": 0.03606598458761142,
+    "pelvis_z": 0.9947113206359095,
+    "tilt_deg": 0.17423883671185805,
+    "subset": [
+     "palm"
+    ]
+   },
+   "n_frames": 6000
+  }
+ ]
+}

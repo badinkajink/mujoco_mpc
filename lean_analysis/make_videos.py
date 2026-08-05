@@ -113,18 +113,28 @@ def orbit(m, d, subset, tag, target=None):
 
 
 if __name__ == "__main__":
+    OUT = os.environ.get("MEDIA_OUT", OUT)
     os.makedirs(OUT, exist_ok=True)
-    # Allen's real reach target (lean.xml numeric reach_target) plus a far target
-    # past the legs-only envelope. LEFT arm braces, RIGHT hand reaches.
-    TGT = [0.9047, -0.2348, 1.0982]
-    FAR = [1.25, -0.2348, 1.0982]
-    jobs = [(TGT, (),                          "legs"),
-            (TGT, ("elbow", "forearm"),        "EF"),
-            (TGT, ("elbow", "forearm", "hip"), "EFH"),
-            (FAR, ("elbow", "forearm"),        "EF_far")]
+    # S11 roster. Each job carries its OWN stance offset, because the point of
+    # three of these clips is what the stance does: the centred-stance clip is
+    # there to show the bracing arm hanging off the table's side edge, which is
+    # the thing the decentred stance fixes. Targets are each set's own
+    # strength-limited envelope from reach_headtohead.py, so every clip shows the
+    # pose at the limit rather than at a comfortable interior point.
+    Y, Z = -0.2348, 1.0982
+    jobs = [
+        # (target x, subset, tag, stance dy)
+        (1.10, (),                                  "s11_legs",        -0.25),
+        (1.35, ("elbow", "forearm"),                "s11_EF",          -0.25),
+        (1.40, ("elbow", "forearm", "palm"),        "s11_EFP",         -0.25),
+        (1.30, ("elbow", "forearm", "palm"),        "s11_EFP_centred",  0.00),
+    ]
     only = sys.argv[1] if len(sys.argv) > 1 else None
-    for tgt, sub, tag in jobs:
+    for x, sub, tag, dy in jobs:
         if only and only != tag:
             continue
+        cs.STANCE_DY = dy
+        tgt = [x, Y, Z]
+        print("== %s  target %s  stance dy %.2f" % (tag, tgt, dy), flush=True)
         m, d = approach(tgt, sub, tag)
         orbit(m, d, sub, tag, tgt)

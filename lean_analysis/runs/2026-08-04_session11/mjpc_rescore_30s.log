@@ -1,0 +1,26 @@
+target [ 0.9047 -0.2348  1.0982]   basis=clamp   scoring EVERY frame, stride 20
+QP reference:
+   elbow+forearm          reach 0.0062 peak 0.466 margin 0.0904
+   elbow+forearm+palm     reach 0.0041 peak 0.455 margin 0.0872
+
+== traj_seed0.csv  (750 frames scored, 30.0 s)
+   ever braced (elbow or forearm): NO
+   contact timeline: palm 0.4-30.0 s
+   best braced frame  t=  8.5 s reach 0.3143 contacts palm                   peak 0.439 margin +0.0634
+   closest-reach frame t=  8.5 s reach 0.3143 contacts palm                   peak 0.439
+   final frame         t= 30.0 s reach 0.3556 pelvis_z 0.994 tilt 0 deg
+
+== traj_seed1.csv  (750 frames scored, 30.0 s)
+   ever braced (elbow or forearm): NO
+   contact timeline: palm 0.6-30.0 s
+   best braced frame  t=  0.8 s reach 0.3399 contacts palm                   peak 0.420 margin +0.0412
+   closest-reach frame t=  0.8 s reach 0.3399 contacts palm                   peak 0.420
+   final frame         t= 30.0 s reach 0.3662 pelvis_z 0.995 tilt 0 deg
+
+== QP vs MJPC, best braced frame per seed ==
+                     reach     peak    margin  contacts
+   QP solve         0.0041    0.455    0.0872  elbow+forearm+palm
+   seed0            0.3143    0.439    0.0634  palm
+   seed1            0.3399    0.420    0.0412  palm
+
+wrote runs/2026-08-04_session11/mjpc_handoff_30s/rescore.json

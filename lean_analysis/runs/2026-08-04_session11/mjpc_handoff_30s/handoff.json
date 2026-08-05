@@ -1,0 +1,108 @@
+{
+ "task": "Lean H12 Magpie",
+ "strategy": 22,
+ "start_key": "stand",
+ "seconds": 30.0,
+ "threads": 15,
+ "target": [
+  0.9047,
+  -0.2348,
+  1.0982
+ ],
+ "basis": "clamp",
+ "site_set": "v2",
+ "mu": 0.6,
+ "qp_reference": {
+  "elbow+forearm": {
+   "reach": 0.0062366359865699056,
+   "placed": true,
+   "peak": 0.4658282048683085,
+   "margin": 0.09043693542480469,
+   "feasible": true,
+   "subset": [
+    "elbow",
+    "forearm"
+   ]
+  },
+  "elbow+forearm+palm": {
+   "reach": 0.004075518841144771,
+   "placed": true,
+   "peak": 0.4549430291055728,
+   "margin": 0.08717536925919855,
+   "feasible": true,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  }
+ },
+ "runs": [
+  {
+   "seed": 0,
+   "failed": false,
+   "wall": "Total wall time (3750 planning steps): 64.651 s (0.46403x realtime)",
+   "avg": "Average cost per step (lower is better): 7.22383",
+   "final": {
+    "reach": 0.35546820729557255,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.524214668614581,
+    "margin": 0.02945708928172825,
+    "pelvis_z": 0.9939102332773093,
+    "tilt_deg": 0.42485736387944795,
+    "subset": [
+     "palm"
+    ]
+   },
+   "best": {
+    "reach": 0.35546820729557255,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 0.524214668614581,
+    "margin": 0.02945708928172825,
+    "pelvis_z": 0.9939102332773093,
+    "tilt_deg": 0.42485736387944795,
+    "subset": [
+     "palm"
+    ]
+   },
+   "n_frames": 15000
+  },
+  {
+   "seed": 1,
+   "failed": false,
+   "wall": "Total wall time (3750 planning steps): 60.3245 s (0.49731x realtime)",
+   "avg": "Average cost per step (lower is better): 10.0777",
+   "final": {
+    "reach": 0.36521030535949645,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 1.111111111111111,
+    "margin": 0.032054589425528156,
+    "pelvis_z": 0.9946334401326652,
+    "tilt_deg": 0.15396255561867173,
+    "subset": [
+     "palm"
+    ]
+   },
+   "best": {
+    "reach": 0.36521030535949645,
+    "contacts": [
+     "palm"
+    ],
+    "peak_logged": 1.111111111111111,
+    "margin": 0.032054589425528156,
+    "pelvis_z": 0.9946334401326652,
+    "tilt_deg": 0.15396255561867173,
+    "subset": [
+     "palm"
+    ]
+   },
+   "n_frames": 15000
+  }
+ ]
+}

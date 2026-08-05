@@ -1,0 +1,12 @@
+== s11_legs  target [1.1, -0.2348, 1.0982]  stance dy -0.25
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/approach_s11_legs.mp4 85 frames
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/orbit_s11_legs.mp4
+== s11_EF  target [1.35, -0.2348, 1.0982]  stance dy -0.25
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/approach_s11_EF.mp4 85 frames
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/orbit_s11_EF.mp4
+== s11_EFP  target [1.4, -0.2348, 1.0982]  stance dy -0.25
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/approach_s11_EFP.mp4 85 frames
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/orbit_s11_EFP.mp4
+== s11_EFP_centred  target [1.3, -0.2348, 1.0982]  stance dy 0.00
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/approach_s11_EFP_centred.mp4 85 frames
+wrote /home/humanoid/Programs/mjpc_icra2026/docs/lean/media/orbit_s11_EFP_centred.mp4

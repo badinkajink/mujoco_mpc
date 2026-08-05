@@ -1,0 +1,260 @@
+{
+ "subset": [
+  "elbow",
+  "forearm",
+  "palm"
+ ],
+ "y": -0.2348,
+ "z": 1.0982,
+ "basis": "clamp",
+ "site_set": "v2",
+ "rows": [
+  {
+   "dx": 0.0,
+   "dy": 0.0,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.5555555555555556,
+   "y_clear": -0.004831500599630334,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.0,
+   "dy": -0.05,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.6666666666666666,
+   "y_clear": -0.0028587483297280447,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.0,
+   "dy": -0.1,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.001304069370493599,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.0,
+   "dy": -0.15,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0012413458664452537,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.0,
+   "dy": -0.2,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0012838003108746054,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.0,
+   "dy": -0.25,
+   "wall": 1.6,
+   "strength": 1.4,
+   "on_table": 1.0,
+   "y_clear": 0.14304771802476812,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": 0.0,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.6666666666666666,
+   "y_clear": -0.004205313072899952,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": -0.05,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.6666666666666666,
+   "y_clear": -0.0016280405561202027,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": -0.1,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0012170244311509038,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": -0.15,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0012506683625848614,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": -0.2,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0011932842798310084,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": -0.05,
+   "dy": -0.25,
+   "wall": 1.6,
+   "strength": 1.35,
+   "on_table": 1.0,
+   "y_clear": 0.15142968501733198,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": 0.0,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.5555555555555556,
+   "y_clear": -0.004844470108243626,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": -0.05,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.6666666666666666,
+   "y_clear": -0.002503516176523779,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": -0.1,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0005375668604965522,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": -0.15,
+   "wall": 1.3,
+   "strength": 1.3,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0006283184924494867,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": -0.2,
+   "wall": 1.35,
+   "strength": 1.35,
+   "on_table": 0.7777777777777778,
+   "y_clear": -0.0012456627787310048,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  },
+  {
+   "dx": 0.05,
+   "dy": -0.25,
+   "wall": 1.6,
+   "strength": 1.35,
+   "on_table": 1.0,
+   "y_clear": 0.13755627130991988,
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ]
+  }
+ ],
+ "best": {
+  "dx": 0.0,
+  "dy": -0.25,
+  "wall": 1.6,
+  "strength": 1.4,
+  "on_table": 1.0,
+  "y_clear": 0.14304771802476812,
+  "subset": [
+   "elbow",
+   "forearm",
+   "palm"
+  ]
+ }
+}

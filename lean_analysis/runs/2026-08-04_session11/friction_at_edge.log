@@ -1,0 +1,43 @@
+target [1.35, -0.2348, 1.0982]  basis=clamp  site_set=v2  stance dy=-0.250
+
+== elbow+forearm   (mu -> inf: peak 0.764, margin 0.3448 m, push 353 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  0.653   0.876   0.1123   0.0537      63   0.2910  mixed
+    0.30  0.652   0.868   0.1045   0.0579      75   0.2869  mixed
+    0.40  0.769   0.793   0.0292   0.0625      85   0.2823  mixed
+    0.50  0.760   0.834   0.0709   0.0733      94   0.2714  mixed
+    0.60  0.434   0.844   0.0800   0.0912     101   0.2536  mixed
+    0.70  0.750   0.782   0.0182   0.1060     108   0.2388  mixed
+    0.80  0.740   0.774   0.0100   0.1171     115   0.2277  torque
+    0.90  0.723   0.764   0.0000   0.1260     121   0.2187  torque
+    1.00  0.650   0.764   0.0000   0.1336     126   0.2111  torque
+    1.20  0.542   0.764   0.0000   0.1469     136   0.1978  torque
+    1.50  0.434   0.764   0.0000   0.1589     143   0.1859  torque
+    2.00  0.325   0.764   0.0000   0.1721     154   0.1727  torque
+    3.00  0.217   0.764   0.0000   0.1990     176   0.1457  torque
+    5.00  0.130   0.764   0.0000   0.2095     184   0.1353  torque
+   mu*_tau    = 0.8    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.2    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+== elbow+forearm+palm   (mu -> inf: peak 0.743, margin 0.3468 m, push 356 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  0.987   0.962   0.2193   0.0613      64   0.2855  mixed
+    0.30  0.898   0.854   0.1111   0.0692      77   0.2775  mixed
+    0.40  0.821   0.819   0.0764   0.0764      86   0.2704  mixed
+    0.50  0.355   0.890   0.1470   0.0869      95   0.2599  mixed
+    0.60  0.998   0.844   0.1014   0.0969     102   0.2499  friction
+    0.70  0.544   0.930   0.1869   0.1075     110   0.2392  mixed
+    0.80  0.737   0.760   0.0176   0.1176     116   0.2292  mixed
+    0.90  0.715   0.758   0.0154   0.1263     122   0.2205  mixed
+    1.00  0.707   0.757   0.0144   0.1344     127   0.2124  mixed
+    1.20  0.715   0.756   0.0129   0.1508     137   0.1959  mixed
+    1.50  0.739   0.751   0.0081   0.1712     154   0.1756  torque
+    2.00  0.791   0.744   0.0014   0.1954     175   0.1513  torque
+    3.00  0.548   0.743   0.0000   0.2111     187   0.1357  torque
+    5.00  0.329   0.743   0.0000   0.2159     192   0.1309  torque
+   mu*_tau    = 1.5    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.2    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+wrote runs/2026-08-04_session11/friction_at_edge.json

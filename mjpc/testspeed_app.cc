@@ -37,6 +37,23 @@ ABSL_FLAG(double, dump_perturb, 0.0,
           "magnitude using a fixed-seed deterministic generator. At the pristine "
           "keyframe most of the residual is identically zero and a zero term "
           "cannot disagree, so this is what gives the dump discriminating power.");
+ABSL_FLAG(std::string, dump_traj, "",
+          "If non-empty, write the rollout to this path as CSV: one row per "
+          "physics step with time, cost, qpos, qvel, ctrl and actuator_force. "
+          "Lets a run be scored with the same static analysis as an offline "
+          "solve instead of only by its average cost.");
+ABSL_FLAG(int, strategy, -1,
+          "Task strategy parameter (parameter index 1 -- the GUI's Strategy "
+          "slider). -1 leaves the model's own default. For the lean task: 6 = "
+          "stand, 21 = reach, 22 = forearm brace, 34 = the 4-phase mission.");
+ABSL_FLAG(std::string, start_qpos, "",
+          "Path to a file of nq numbers used as the starting configuration, "
+          "applied after --start_key. Lets a run begin at a pose computed "
+          "outside the model (e.g. the offline QP solution).");
+ABSL_FLAG(std::string, start_key, "",
+          "Keyframe to start from. Empty = the model's 'home' key (the existing "
+          "behaviour). A named key that does not exist is an error, not a "
+          "silent fallback.");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -47,9 +64,12 @@ int main(int argc, char** argv) {
   double total_time = absl::GetFlag(FLAGS_total_time);
   int dump_residual_steps = absl::GetFlag(FLAGS_dump_residual);
   double dump_perturb = absl::GetFlag(FLAGS_dump_perturb);
+  std::string dump_traj = absl::GetFlag(FLAGS_dump_traj);
+  std::string start_key = absl::GetFlag(FLAGS_start_key);
   double cost = mjpc::SynchronousPlanningCost(
       task_name, planner_thread_count, steps_per_planning_iteration, total_time,
-      dump_residual_steps, dump_perturb);
+      dump_residual_steps, dump_perturb, dump_traj, start_key,
+      absl::GetFlag(FLAGS_strategy), absl::GetFlag(FLAGS_start_qpos));
   if (cost < 0) {
     return -1;
   }

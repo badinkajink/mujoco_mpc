@@ -105,7 +105,9 @@ void PerturbState(const mjModel* model, mjData* data, double scale) {
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
                                double total_time, int dump_residual_steps,
-                               double dump_perturb) {
+                               double dump_perturb, std::string dump_traj,
+                               std::string start_key, int strategy,
+                               std::string start_qpos) {
   std::cout << "Test MJPC Speed: " << task_name << "\n";
   std::cout << " MuJoCo version " << mj_versionString() << "\n";
   if (mjVERSION_HEADER != mj_version()) {
@@ -130,10 +132,45 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
   }
   mjData* data = mj_makeData(model);
 
-  int home_id = mj_name2id(model, mjOBJ_KEY, "home");
-  if (home_id >= 0) {
-    std::cout << "home_id: " << home_id << "\n";
-    mj_resetDataKeyframe(model, data, home_id);
+  // --start_key names the keyframe to start from; "home" stays the default so
+  // every existing invocation is byte-identical. A named key that does not
+  // exist is an error rather than a silent fallback to home: quietly starting
+  // somewhere else would make the run look like a result about the planner.
+  const char* key_name = start_key.empty() ? "home" : start_key.c_str();
+  int start_id = mj_name2id(model, mjOBJ_KEY, key_name);
+  if (start_id < 0 && !start_key.empty()) {
+    std::cerr << "Invalid --start_key '" << start_key << "': no such keyframe\n";
+    mj_deleteData(data);
+    return -1;
+  }
+  if (start_id >= 0) {
+    std::cout << "start keyframe: " << key_name << " (id " << start_id << ")\n";
+    mj_resetDataKeyframe(model, data, start_id);
+  }
+  // --start_qpos overrides the keyframe with an externally computed pose. Read
+  // strictly: a short or long file is an error, because silently zero-padding a
+  // configuration would start the robot somewhere nobody chose.
+  if (!start_qpos.empty()) {
+    std::FILE* f = std::fopen(start_qpos.c_str(), "r");
+    if (!f) {
+      std::cerr << "cannot open --start_qpos '" << start_qpos << "'\n";
+      mj_deleteData(data);
+      return -1;
+    }
+    std::vector<double> q;
+    double v;
+    while (std::fscanf(f, " %lf%*[ ,\t\n]", &v) == 1) q.push_back(v);
+    std::fclose(f);
+    if ((int)q.size() != model->nq) {
+      std::cerr << "--start_qpos has " << q.size() << " values, model nq is "
+                << model->nq << "\n";
+      mj_deleteData(data);
+      return -1;
+    }
+    for (int i = 0; i < model->nq; i++) data->qpos[i] = q[i];
+    mju_zero(data->qvel, model->nv);
+    std::cout << "start qpos from " << start_qpos << " (" << q.size()
+              << " values)\n";
   }
   mj_forward(model, data);
 
@@ -147,6 +184,23 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
   // make task available for global callback:
   task = agent.ActiveTask();
   mjcb_sensor = &residual_callback;
+
+  // --strategy selects the task's strategy parameter (the GUI slider) so a
+  // headless run can be pointed at something other than the model default.
+  // Index 1 is kLeanStrategyParameterIndex; tasks that do not use parameter 1
+  // as a strategy selector should not be passed this flag. -1 = leave the XML
+  // default alone, which is what every existing invocation does.
+  if (strategy >= 0) {
+    if (task->parameters.size() > 1) {
+      task->parameters[1] = strategy;
+      std::cout << " strategy parameter: " << strategy << "\n";
+    } else {
+      std::cerr << "--strategy given but task has no parameter 1\n";
+      mj_deleteData(data);
+      mjcb_sensor = nullptr;
+      return -1;
+    }
+  }
 
   std::cout << " Planning threads:  " << planner_thread_count << "\n";
   ThreadPool pool(planner_thread_count);
@@ -178,6 +232,28 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     return 0;
   }
 
+  // Trajectory dump. Written incrementally and flushed per row so a run that is
+  // killed (or topples and is aborted) still leaves everything up to that point
+  // on disk -- a truncated rollout is evidence, an empty file is not.
+  std::FILE* traj = nullptr;
+  if (!dump_traj.empty()) {
+    traj = std::fopen(dump_traj.c_str(), "w");
+    if (!traj) {
+      std::cerr << "cannot open --dump_traj '" << dump_traj << "'\n";
+      mj_deleteData(data);
+      return -1;
+    }
+    std::fprintf(traj, "# task=%s nq=%d nv=%d nu=%d start_key=%s dt=%.17g\n",
+                 task_name.c_str(), model->nq, model->nv, model->nu,
+                 key_name, model->opt.timestep);
+    std::fprintf(traj, "time,cost");
+    for (int j = 0; j < model->nq; j++) std::fprintf(traj, ",qpos%d", j);
+    for (int j = 0; j < model->nv; j++) std::fprintf(traj, ",qvel%d", j);
+    for (int j = 0; j < model->nu; j++) std::fprintf(traj, ",ctrl%d", j);
+    for (int j = 0; j < model->nu; j++) std::fprintf(traj, ",afrc%d", j);
+    std::fprintf(traj, "\n");
+  }
+
   int total_steps = ceil(total_time / model->opt.timestep);
   int current_time = 0;
   double total_cost = 0;
@@ -195,10 +271,28 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
 
     if (i % steps_per_planning_iteration == 0) { agent.PlanIteration(&pool); }
 
+    if (traj) {
+      std::fprintf(traj, "%.17g,%.17g", data->time, cost);
+      for (int j = 0; j < model->nq; j++)
+        std::fprintf(traj, ",%.17g", data->qpos[j]);
+      for (int j = 0; j < model->nv; j++)
+        std::fprintf(traj, ",%.17g", data->qvel[j]);
+      for (int j = 0; j < model->nu; j++)
+        std::fprintf(traj, ",%.17g", data->ctrl[j]);
+      for (int j = 0; j < model->nu; j++)
+        std::fprintf(traj, ",%.17g", data->actuator_force[j]);
+      std::fprintf(traj, "\n");
+      std::fflush(traj);
+    }
+
     if (floor(data->time) > current_time) {
       current_time++;
       std::cout << "sim time: " << current_time << ", cost: " << cost << "\n";
     }
+  }
+  if (traj) {
+    std::fclose(traj);
+    std::cout << "wrote trajectory: " << dump_traj << "\n";
   }
   auto wall_run_time = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now() - loop_start)

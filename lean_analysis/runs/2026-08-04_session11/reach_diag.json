@@ -1,0 +1,3176 @@
+{
+ "y": -0.2348,
+ "z": 1.0982,
+ "basis": "clamp",
+ "model": "Lean_H12_Magpie.xml",
+ "rows": [
+  {
+   "subset": [],
+   "x": 1.0,
+   "reach": 0.0036506442011411924,
+   "foot": 6.745138012736476e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.46782276556477426,
+   "margin": 0.07529640197753906,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.05,
+   "reach": 0.0035846687151913073,
+   "foot": 5.534587703147872e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6251108297708298,
+   "margin": 0.04401969909667969,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.1,
+   "reach": 0.003523718637058591,
+   "foot": 4.4604357355116135e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.8441832370133748,
+   "margin": 0.01288604736328125,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.15,
+   "reach": 0.0019998273145174178,
+   "foot": 3.404026445826886e-07,
+   "pen": 0.002000000000978587,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9542865285551548,
+   "margin": -0.013348712256948876,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.2,
+   "reach": 0.0019954075395697936,
+   "foot": 6.656256704889086e-07,
+   "pen": 0.001999931906018028,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9818217854062254,
+   "margin": -0.03984691934609879,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.25,
+   "reach": 0.008381781869914605,
+   "foot": 1.0788120494119961e-06,
+   "pen": 0.0020000000000000365,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9882035762687021,
+   "margin": -0.06197605084316604,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.3,
+   "reach": 0.02256874954064112,
+   "foot": 1.762866989921947e-06,
+   "pen": 0.001999999999999999,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9378326239466268,
+   "margin": -0.046277915112107604,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.35,
+   "reach": 0.025242244519605727,
+   "foot": 1.933548950773377e-06,
+   "pen": 0.0019999999999999996,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9863019381593603,
+   "margin": -0.022260441707985655,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.4,
+   "reach": 0.02929644770356638,
+   "foot": 2.4069447781806647e-06,
+   "pen": 0.0019999999999998747,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0884510584831713,
+   "margin": -0.01930670265396315,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.45,
+   "reach": 0.03771538851320126,
+   "foot": 3.1236285494012723e-06,
+   "pen": 0.0020000000000000204,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.2984639856490852,
+   "margin": -0.03812790563533109,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.5,
+   "reach": 0.07404062289539391,
+   "foot": 3.9623219216647e-06,
+   "pen": 0.002000000000000054,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.3414470066862,
+   "margin": -0.04598922040558403,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.0,
+   "reach": 0.003625875918900011,
+   "foot": 1.0335453342746653e-06,
+   "pen": 0.002000000003368859,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4728190926989816,
+   "margin": 0.14363479593981116,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.05,
+   "reach": 0.0034412301761014234,
+   "foot": 9.750273155822666e-07,
+   "pen": 0.0020197295893579353,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.47555562359285664,
+   "margin": 0.12549608465059178,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.1,
+   "reach": 0.003959907413752454,
+   "foot": 6.189469294151259e-07,
+   "pen": 0.0020000000000000295,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7775146390473581,
+   "margin": 0.06883913656898613,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.15,
+   "reach": 0.001999728974536169,
+   "foot": 1.2046934512724646e-06,
+   "pen": 0.0020529426016089062,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7558532323329085,
+   "margin": 0.09930684548727109,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.2,
+   "reach": 0.002211345476002517,
+   "foot": 2.402072958305858e-07,
+   "pen": 0.002000000000000288,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.2364069997497509,
+   "margin": 0.023405223880054723,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.25,
+   "reach": 0.006013057992048747,
+   "foot": 1.359693005252714e-06,
+   "pen": 0.0020000034733214586,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0810724024124132,
+   "margin": 0.03362303710773228,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.3,
+   "reach": 0.012731922267659842,
+   "foot": 1.6819910256519713e-06,
+   "pen": 0.0020000000000001197,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.8453599918648564,
+   "margin": 0.06250041449959172,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.35,
+   "reach": 0.028623138123348765,
+   "foot": 1.9470616768741328e-06,
+   "pen": 0.0020000000000003626,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.083681985262572,
+   "margin": 0.055511621237871005,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.4,
+   "reach": 0.04028289174491455,
+   "foot": 3.1992536196563485e-06,
+   "pen": 0.0020000000000002724,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9618905040316852,
+   "margin": 0.056021214770040746,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.45,
+   "reach": 0.07216980318480323,
+   "foot": 4.135875767601918e-06,
+   "pen": 0.0020000000000003,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0040565925830554,
+   "margin": 0.055455875640287755,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.5,
+   "reach": 0.12204655311768615,
+   "foot": 4.135875767601918e-06,
+   "pen": 0.0020000000000003,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0040565925830554,
+   "margin": 0.055455875640287755,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.0,
+   "reach": 0.004116304392713719,
+   "foot": 7.947084790562696e-07,
+   "pen": 0.0030869400614355162,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4731773185385418,
+   "margin": 0.1293182373046875,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.05,
+   "reach": 0.004366092216059732,
+   "foot": 7.895572366926119e-07,
+   "pen": 0.0032354858231954976,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4752555976808692,
+   "margin": 0.1541748046875,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.1,
+   "reach": 0.004545697787644051,
+   "foot": 8.087182522588421e-07,
+   "pen": 0.0033421079491942098,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4784495765129576,
+   "margin": 0.18623542783426564,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.15,
+   "reach": 0.0029226098873182072,
+   "foot": 7.854042407081322e-07,
+   "pen": 0.0032736446859683715,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.48434007797932793,
+   "margin": 0.18442514548946667,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.2,
+   "reach": 0.0016913053853271666,
+   "foot": 1.2005025047883225e-06,
+   "pen": 0.003244435147383016,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5623576208769072,
+   "margin": 0.15148947630533974,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.25,
+   "reach": 0.006003285239582974,
+   "foot": 1.6029472268021298e-06,
+   "pen": 0.003238716354680985,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6761877859680863,
+   "margin": 0.1284779292709126,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.3,
+   "reach": 0.019528340129745417,
+   "foot": 1.6819009026518423e-06,
+   "pen": 0.0034660056170675337,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.652911603819697,
+   "margin": 0.14122601285650804,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.35,
+   "reach": 0.03012103439328141,
+   "foot": 1.6544497247975344e-06,
+   "pen": 0.0020000000000004806,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6988810868509397,
+   "margin": 0.12772538761731692,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.4,
+   "reach": 0.041772855925029946,
+   "foot": 3.1135702147607185e-06,
+   "pen": 0.0019999999999998964,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7363932018129101,
+   "margin": 0.13252547240715268,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.45,
+   "reach": 0.07709317677870965,
+   "foot": 3.87032404688371e-06,
+   "pen": 0.0020000000000002585,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7405349769030923,
+   "margin": 0.13400561497812355,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.5,
+   "reach": 0.12699840515285307,
+   "foot": 3.87032404688371e-06,
+   "pen": 0.0020000000000002585,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7405349769030923,
+   "margin": 0.13400561497812355,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.0,
+   "reach": 0.0037305730153087513,
+   "foot": 4.2734994267115716e-05,
+   "pen": 0.0030801264624467153,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.47479756835298836,
+   "margin": 0.16877746581866365,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.05,
+   "reach": 0.0044721603513314095,
+   "foot": 8.124124378281709e-07,
+   "pen": 0.002155474875782677,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4749026212461347,
+   "margin": 0.1548671713452513,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.1,
+   "reach": 0.004513573515789517,
+   "foot": 8.013985412513034e-07,
+   "pen": 0.002155810293801116,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4785822693441636,
+   "margin": 0.18634986877441406,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.15,
+   "reach": 0.0029136703349916704,
+   "foot": 7.395848254042793e-07,
+   "pen": 0.002146058152669254,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4842161421977958,
+   "margin": 0.21474266052246094,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.2,
+   "reach": 0.0016965679140889223,
+   "foot": 1.2267551794155512e-06,
+   "pen": 0.0021557072858392565,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5128967651087962,
+   "margin": 0.1841424709775538,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.25,
+   "reach": 0.005648673438169782,
+   "foot": 6.482927668420151e-05,
+   "pen": 0.002545513464149163,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7490173276504022,
+   "margin": 0.11748767909376075,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.3,
+   "reach": 0.019202675972289238,
+   "foot": 8.766169118713247e-05,
+   "pen": 0.002057186849387235,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6788242871204877,
+   "margin": 0.13337826262824357,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.35,
+   "reach": 0.0300098085449283,
+   "foot": 1.8916365025216506e-06,
+   "pen": 0.0020000000022704634,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7163225251977658,
+   "margin": 0.13498229221077068,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.4,
+   "reach": 0.04122907902246335,
+   "foot": 2.983442097392084e-06,
+   "pen": 0.001999999933744234,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7241342751997515,
+   "margin": 0.13790026715726872,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.45,
+   "reach": 0.07648524811062996,
+   "foot": 3.8367935194140654e-06,
+   "pen": 0.00200000000000008,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7229621161199824,
+   "margin": 0.13783262832557933,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.5,
+   "reach": 0.12632957620310473,
+   "foot": 3.8367935194140654e-06,
+   "pen": 0.00200000000000008,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7229621161199824,
+   "margin": 0.13783262832557933,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.0,
+   "reach": 0.008522799575832374,
+   "foot": 7.391610145041661e-06,
+   "pen": 0.002000000000000484,
+   "placed": false,
+   "per_site": {
+    "hip": false
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5750932187888722,
+   "margin": 0.18552589407876766,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": false,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.05,
+   "reach": 0.008099662873820404,
+   "foot": 7.519258188330625e-06,
+   "pen": 0.002000000000000085,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4708226456297123,
+   "margin": 0.2634106433751632,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.1,
+   "reach": 0.007713994931583416,
+   "foot": 7.904751683697856e-06,
+   "pen": 0.002000000000000071,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4657031992311414,
+   "margin": 0.2581044731972361,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.15,
+   "reach": 0.007942761971994275,
+   "foot": 8.723051975886202e-06,
+   "pen": 0.0020000000000000503,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4572508193503139,
+   "margin": 0.2533751197510606,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.2,
+   "reach": 0.01106910796332305,
+   "foot": 9.6866888653876e-06,
+   "pen": 0.0020000000000003765,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.44947380874531256,
+   "margin": 0.24969780910491002,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.25,
+   "reach": 0.015710428330940572,
+   "foot": 1.1030730053095796e-05,
+   "pen": 0.00200000000000021,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4609348823301547,
+   "margin": 0.24698105441793952,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.3,
+   "reach": 0.019711575470866338,
+   "foot": 1.2190749191995629e-05,
+   "pen": 0.002000000000000085,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4735959746294808,
+   "margin": 0.24360770514307586,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.35,
+   "reach": 0.025091505431108527,
+   "foot": 1.3052833686053907e-05,
+   "pen": 0.002000000000000498,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6078613500424845,
+   "margin": 0.14944900139034922,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.4,
+   "reach": 0.059180692340906366,
+   "foot": 1.8803792104576903e-05,
+   "pen": 0.002000000000000113,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.520285653189465,
+   "margin": 0.14884946938644736,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.45,
+   "reach": 0.10751629605684397,
+   "foot": 1.8803792104576903e-05,
+   "pen": 0.002000000000000113,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.520285653189465,
+   "margin": 0.14884946938644736,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.5,
+   "reach": 0.1568985452119198,
+   "foot": 1.8803792104576903e-05,
+   "pen": 0.002000000000000113,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.520285653189465,
+   "margin": 0.14884946938644736,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.0,
+   "reach": 0.004575087169886225,
+   "foot": 1.0847165706022849e-05,
+   "pen": 0.002000000000000182,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.35197280811312154,
+   "margin": 0.2954444705459401,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.05,
+   "reach": 0.004645505297661424,
+   "foot": 1.1308447098781308e-05,
+   "pen": 0.0020000000000000955,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.3510602377568484,
+   "margin": 0.334078183403634,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.1,
+   "reach": 0.006692544210277574,
+   "foot": 1.2114017953246713e-05,
+   "pen": 0.002034927029599492,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.36886791203392394,
+   "margin": 0.33531533701416516,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.15,
+   "reach": 0.007602832801392733,
+   "foot": 1.2666817548630869e-05,
+   "pen": 0.002198895199464975,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5406656703746413,
+   "margin": 0.2924204965732448,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.2,
+   "reach": 0.009945713105622074,
+   "foot": 1.2843108563816916e-05,
+   "pen": 0.002000000000000328,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9640934940247532,
+   "margin": 0.11705235728374332,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.25,
+   "reach": 0.01133831810573464,
+   "foot": 1.4423059319165618e-05,
+   "pen": 0.0020000000000019377,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.44182824647854135,
+   "margin": 0.3053395552586893,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.3,
+   "reach": 0.019785023744944865,
+   "foot": 1.6627767822173882e-05,
+   "pen": 0.0020000000000008084,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9443909447853025,
+   "margin": 0.12119358984161803,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.35,
+   "reach": 0.04566780436083821,
+   "foot": 1.7708043544434e-05,
+   "pen": 0.009176993174725277,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9230983436922373,
+   "margin": 0.1117493267988884,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.4,
+   "reach": 0.08783104489790997,
+   "foot": 1.830018684634934e-05,
+   "pen": 0.009224084270402465,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4971498886541551,
+   "margin": 0.2987709045410156,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.45,
+   "reach": 0.13719018416008957,
+   "foot": 1.830018684634934e-05,
+   "pen": 0.009224084270402465,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4971498886541551,
+   "margin": 0.2987709045410156,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.5,
+   "reach": 0.18689034435170782,
+   "foot": 1.830018684634934e-05,
+   "pen": 0.009224084270402465,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4971498886541551,
+   "margin": 0.2987709045410156,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "cold"
+  },
+  {
+   "subset": [],
+   "x": 1.0,
+   "reach": 0.0036506442011411924,
+   "foot": 6.745138012736476e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.46782276556477426,
+   "margin": 0.07529640197753906,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.05,
+   "reach": 0.001998994809561568,
+   "foot": 2.1535459052308743e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5924009485138655,
+   "margin": 0.048786163330078125,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.1,
+   "reach": 0.002390695437301506,
+   "foot": 2.692846497331185e-07,
+   "pen": -0.0,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7962262179453273,
+   "margin": 0.0193004607849112,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.15,
+   "reach": 0.0027496052188565067,
+   "foot": 3.4407762802114196e-07,
+   "pen": 0.0020000000000002585,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9246719973559483,
+   "margin": -0.010160154033648013,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.2,
+   "reach": 0.0035433352177687964,
+   "foot": 6.530796843439344e-07,
+   "pen": 0.0020000000000000365,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9344554832829343,
+   "margin": -0.03910232768892726,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.25,
+   "reach": 0.008798952401427236,
+   "foot": 8.613685983960891e-07,
+   "pen": 0.002000000000000051,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9714193261737721,
+   "margin": -0.061002075736816305,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.3,
+   "reach": 0.023322024250109187,
+   "foot": 1.5216690901670367e-06,
+   "pen": 0.002000000000000133,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9790681308539755,
+   "margin": -0.058092025237723235,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.35,
+   "reach": 0.03208618059840244,
+   "foot": 2.326543820844948e-06,
+   "pen": 0.0020000000000004806,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9384843838494561,
+   "margin": -0.05470854137920655,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.4,
+   "reach": 0.02864298204229136,
+   "foot": 2.818959138080911e-06,
+   "pen": 0.0019999999999997533,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0037424414559735,
+   "margin": -0.026240177659330413,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.45,
+   "reach": 0.039551112884321386,
+   "foot": 4.0168648424787225e-06,
+   "pen": 0.0020000000000000868,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.1195948995676699,
+   "margin": -0.029416607788834905,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [],
+   "x": 1.5,
+   "reach": 0.06919085349754628,
+   "foot": 5.471582340079265e-06,
+   "pen": 0.002000000000000062,
+   "placed": true,
+   "per_site": {},
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.2232128053885993,
+   "margin": -0.03592194236883121,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.0,
+   "reach": 0.003625875918900011,
+   "foot": 1.0335453342746653e-06,
+   "pen": 0.002000000003368859,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4728190926989816,
+   "margin": 0.14363479593981116,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.05,
+   "reach": 0.002283211298940027,
+   "foot": 4.954421708780293e-07,
+   "pen": 0.001999999999999884,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4737158937642987,
+   "margin": 0.11470266221430982,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.1,
+   "reach": 0.0028176762067321586,
+   "foot": 5.502477651745329e-07,
+   "pen": 0.002000000000000182,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6518437949985234,
+   "margin": 0.08756066896282289,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.15,
+   "reach": 0.003038014748126373,
+   "foot": 6.090526055125186e-07,
+   "pen": 0.002000000000000033,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.8433719481390654,
+   "margin": 0.06193629439500188,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.2,
+   "reach": 0.003254696991892763,
+   "foot": 6.863055753668923e-07,
+   "pen": 0.002000000000000106,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.1563090187585605,
+   "margin": 0.0358604098073683,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.25,
+   "reach": 0.0067091320133338605,
+   "foot": 8.201308460163142e-07,
+   "pen": 0.0020000000000000647,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0244011760318013,
+   "margin": 0.013632160455853642,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.3,
+   "reach": 0.022986523518002264,
+   "foot": 1.4416521047803386e-06,
+   "pen": 0.0020000000000000816,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.0197834366593266,
+   "margin": 0.014224990368649448,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.35,
+   "reach": 0.03330153448143096,
+   "foot": 2.4627142294655242e-06,
+   "pen": 0.001999999999999766,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.053318732723404,
+   "margin": 0.01415377484528623,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.4,
+   "reach": 0.046476643023836355,
+   "foot": 4.100825569508043e-06,
+   "pen": 0.0020000000000000326,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 1.2630339589378572,
+   "margin": 0.011820723452939602,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.45,
+   "reach": 0.08188508602118091,
+   "foot": 4.440074501783484e-06,
+   "pen": 0.0020000000000000256,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.966358512293701,
+   "margin": 0.012440923281414445,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "x": 1.5,
+   "reach": 0.12234020054463113,
+   "foot": 4.468020273912435e-06,
+   "pen": 0.002000000000000069,
+   "placed": true,
+   "per_site": {
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": false,
+   "peak": 0.9857478043786697,
+   "margin": 0.014716525463154167,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": false,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.0,
+   "reach": 0.004116304392713719,
+   "foot": 7.947084790562696e-07,
+   "pen": 0.0030869400614355162,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4731773185385418,
+   "margin": 0.1293182373046875,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.05,
+   "reach": 0.0023910048575461066,
+   "foot": 4.594233197094256e-07,
+   "pen": 0.006433882020428515,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.47360983582329097,
+   "margin": 0.14854431074826102,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.1,
+   "reach": 0.0035687156556447916,
+   "foot": 1.0102810586637616e-05,
+   "pen": 0.0065557833432874,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4683871671498531,
+   "margin": 0.17513238179618515,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.15,
+   "reach": 0.0024686598764615004,
+   "foot": 0.00037641824475607066,
+   "pen": 0.0064314999292600025,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5331127884057469,
+   "margin": 0.15314625875657836,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.2,
+   "reach": 0.0026859124592331506,
+   "foot": 0.00051504305398857,
+   "pen": 0.006746193885524766,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6403333338729136,
+   "margin": 0.1327641868104124,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.25,
+   "reach": 0.0052974245297314195,
+   "foot": 0.00047192653143514834,
+   "pen": 0.007142463099354835,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7726967251520891,
+   "margin": 0.11462191758588172,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.3,
+   "reach": 0.02316452571054272,
+   "foot": 9.946461864674464e-06,
+   "pen": 0.004060404848715688,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7351815259730988,
+   "margin": 0.11747508133654497,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.35,
+   "reach": 0.03299673251188195,
+   "foot": 2.2071537243612245e-06,
+   "pen": 0.0020000000000005742,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7653053981537218,
+   "margin": 0.1186518766346688,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.4,
+   "reach": 0.045495921777967144,
+   "foot": 3.826920312278763e-06,
+   "pen": 0.0020048393457840416,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7723335739234369,
+   "margin": 0.12248551302037189,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.45,
+   "reach": 0.0809827725528169,
+   "foot": 4.077488383391649e-06,
+   "pen": 0.0020000000000009984,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7703359807173641,
+   "margin": 0.1254134395946479,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "x": 1.5,
+   "reach": 0.12230399022309808,
+   "foot": 4.077139419307506e-06,
+   "pen": 0.0020000000000002446,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7428990872481301,
+   "margin": 0.12738805818085183,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.0,
+   "reach": 0.0037305730153087513,
+   "foot": 4.2734994267115716e-05,
+   "pen": 0.0030801264624467153,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.47479756835298836,
+   "margin": 0.16877746581866365,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.05,
+   "reach": 0.0028497547322133203,
+   "foot": 8.405589727984139e-07,
+   "pen": 0.0020030991072709607,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4729989192950002,
+   "margin": 0.19929885839809205,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.1,
+   "reach": 0.0033072201910914066,
+   "foot": 4.6983768915787165e-06,
+   "pen": 0.002042656314614661,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4716502527421286,
+   "margin": 0.17419162229239676,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.15,
+   "reach": 0.0035594616070907118,
+   "foot": 6.956489159102439e-06,
+   "pen": 0.003575940348464323,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.550030697124599,
+   "margin": 0.15384804195025503,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.2,
+   "reach": 0.00401310359197001,
+   "foot": 5.936151613733564e-07,
+   "pen": 0.0020000000000004008,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6493288959879885,
+   "margin": 0.13529426262543295,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.25,
+   "reach": 0.007670768797755483,
+   "foot": 8.001246576055775e-07,
+   "pen": 0.0020000000000004806,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7399651028125906,
+   "margin": 0.12153556123141891,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.3,
+   "reach": 0.023811555850805983,
+   "foot": 0.00014755455300110537,
+   "pen": 0.002310706359531952,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7684330547253775,
+   "margin": 0.11591116542749236,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.35,
+   "reach": 0.03355733077202286,
+   "foot": 0.00016033349979447496,
+   "pen": 0.0023479094739654073,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.8034979061784678,
+   "margin": 0.11810492047168782,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.4,
+   "reach": 0.04559699043458089,
+   "foot": 0.00022195518025763835,
+   "pen": 0.0023366677609279046,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7832127100525434,
+   "margin": 0.12910124670327294,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.45,
+   "reach": 0.0819304394418109,
+   "foot": 0.00023685622150987045,
+   "pen": 0.0033180227632666655,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.829944582870207,
+   "margin": 0.1246859226343651,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "x": 1.5,
+   "reach": 0.12335162614200419,
+   "foot": 4.7496860123828116e-06,
+   "pen": 0.002000000000000477,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "palm": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.7494679578781063,
+   "margin": 0.12900633819589716,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.0,
+   "reach": 0.008522799575832374,
+   "foot": 7.391610145041661e-06,
+   "pen": 0.002000000000000484,
+   "placed": false,
+   "per_site": {
+    "hip": false
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5750932187888722,
+   "margin": 0.18552589407876766,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": false,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.05,
+   "reach": 0.012317411209258097,
+   "foot": 7.187129210325941e-06,
+   "pen": 0.002000000000000158,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.47167306654056596,
+   "margin": 0.2654159011724123,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.1,
+   "reach": 0.017353469347520037,
+   "foot": 7.3926421703606595e-06,
+   "pen": 0.002000000000000092,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.46810152315598935,
+   "margin": 0.2629792625588866,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.15,
+   "reach": 0.019046196306755702,
+   "foot": 8.013917864868427e-06,
+   "pen": 0.00199999999999996,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.46150172070302925,
+   "margin": 0.25876000856257153,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.2,
+   "reach": 0.021097621476713988,
+   "foot": 8.86751314545005e-06,
+   "pen": 0.0020000000000004944,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.45225610721528936,
+   "margin": 0.2541899245206244,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.25,
+   "reach": 0.023682705284469557,
+   "foot": 9.926927490021306e-06,
+   "pen": 0.002000000000000071,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4428823669864593,
+   "margin": 0.24947988635866847,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.3,
+   "reach": 0.02802729868129853,
+   "foot": 1.1419175778874531e-05,
+   "pen": 0.0020000000000001926,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.45411965110780933,
+   "margin": 0.24575424997062945,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.35,
+   "reach": 0.032291561232945604,
+   "foot": 1.2400946731792152e-05,
+   "pen": 0.0019999999999999324,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.4615080065284808,
+   "margin": 0.23446015310863985,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.4,
+   "reach": 0.0601034464217193,
+   "foot": 0.0005997213158133645,
+   "pen": 0.0020097582489518317,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.6044152695759497,
+   "margin": 0.15037354353041418,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.45,
+   "reach": 0.10425361790390045,
+   "foot": 0.0006311529571838443,
+   "pen": 0.002009182580232749,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5941252213092075,
+   "margin": 0.1496452538268231,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "x": 1.5,
+   "reach": 0.15055537097316316,
+   "foot": 0.0006366398417431404,
+   "pen": 0.0020083444824332275,
+   "placed": true,
+   "per_site": {
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.521558750459453,
+   "margin": 0.149060270491721,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.0,
+   "reach": 0.004575087169886225,
+   "foot": 1.0847165706022849e-05,
+   "pen": 0.002000000000000182,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.35197280811312154,
+   "margin": 0.2954444705459401,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.05,
+   "reach": 0.013737461002181555,
+   "foot": 1.2037470462520266e-05,
+   "pen": 0.0020000000000000503,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.35435660033012156,
+   "margin": 0.2915794140476047,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.1,
+   "reach": 0.019774929574012244,
+   "foot": 1.4203117263624283e-05,
+   "pen": 0.002491416680297693,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.3665636186668148,
+   "margin": 0.3262072661417722,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.15,
+   "reach": 0.025661689127641978,
+   "foot": 1.6476856995726096e-05,
+   "pen": 0.0020011498760651343,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.38880124352453116,
+   "margin": 0.3049431473566821,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.2,
+   "reach": 0.033761194754982106,
+   "foot": 2.152188044293401e-05,
+   "pen": 0.002393498695510324,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.40069099326347773,
+   "margin": 0.29023375118511274,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.25,
+   "reach": 0.03658277856365355,
+   "foot": 2.340161339377378e-05,
+   "pen": 0.002000458672449502,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.5000205626365,
+   "margin": 0.2509864604721308,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.3,
+   "reach": 0.022482412106522912,
+   "foot": 5.586528464286549e-05,
+   "pen": 0.001999787607991181,
+   "placed": false,
+   "per_site": {
+    "elbow": false,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.87487860580538,
+   "margin": 0.16401340916034934,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": false,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.35,
+   "reach": 0.022806219798435595,
+   "foot": 2.600502243859942e-05,
+   "pen": 0.002000000000000241,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.46793717250628425,
+   "margin": 0.20769378069741767,
+   "g_reach": true,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.4,
+   "reach": 0.06143320854454021,
+   "foot": 0.0007504555129420377,
+   "pen": 0.0020222585103974178,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.8678209206006291,
+   "margin": 0.1551114476067757,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.45,
+   "reach": 0.10337330872888506,
+   "foot": 0.0008209171115594819,
+   "pen": 0.0020300543661512516,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9210816338147316,
+   "margin": 0.1546767424981384,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "x": 1.5,
+   "reach": 0.1471813070972382,
+   "foot": 0.0008194682289783926,
+   "pen": 0.002200871979857001,
+   "placed": true,
+   "per_site": {
+    "elbow": true,
+    "forearm": true,
+    "hip": true
+   },
+   "qp_fallback": 0,
+   "feasible": true,
+   "peak": 0.9740452416446915,
+   "margin": 0.15420007276531966,
+   "g_reach": false,
+   "g_foot": true,
+   "g_pen": true,
+   "g_placed": true,
+   "g_feas": true,
+   "mode": "warm"
+  }
+ ]
+}

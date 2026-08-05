@@ -79,6 +79,35 @@ _OTHER = "right" if BRACE_ARM == "left" else "left"
 # by negating y.  Sign lives here rather than in two hand-written tables.
 _MY = 1.0 if BRACE_ARM == "right" else -1.0
 
+# SITE GEOMETRY REVISION (2026-08-04, S11).  v1 is the S1-S10 geometry; v2 is
+# the user's rework.  SITE_SET=v1 reproduces every earlier run.
+#
+# Two complaints, both correct, both about the same thing -- the three arm sites
+# were not three DISTINGUISHABLE places on the arm:
+#
+#  (1) forearm sat 50 mm along the forearm link, i.e. ~57 mm from the elbow site
+#      at the seed pose.  Geometrically valid (a rigid link laid on a table does
+#      touch at both) but it does not read as a separate contact, and the two
+#      share almost the same moment arm, so the QP has nothing to choose between.
+#      v2 moves it to 110 mm -- the DISTAL END of `left_forearm_pad`, the capsule
+#      that is the forearm's actual brace surface (fromto 0.02 -> 0.11).  That is
+#      as far distal as the modelled pad goes; past it is the wrist roll joint at
+#      0.121.  Separation at the seed: 57 mm -> 115 mm.
+#
+#  (2) palm was a point on the wrist_yaw_link AXIS, 130 mm out -- which is the
+#      wrist housing, not the hand, and it is driven down by wrist PITCH.  The
+#      real machine is meant to brace on the SIDE OF THE GRIPPER.  v2 puts the
+#      site on the `*_magpie_gripper` body at the centre of the flat side face
+#      of `*_gripper_collision` (box half-extents .0425/.0315/.0667 at x=.0965;
+#      local +-y IS the flat side, the thin 63 mm axis; local +-z is the jaw
+#      separation axis).  Getting that face onto the table needs the wrist ROLLED
+#      ~90 deg, which is what PALM_ALIGN in solve_ik does -- and once rolled, the
+#      joint that drives the face into the table is wrist YAW, not wrist pitch.
+#      Measured (wrist_probe.py): yaw travel 146 deg vs pitch 53 deg for the same
+#      19 Nm limit, and rolling takes the yaw axis from |axis.y| = 0.29 (yaw
+#      swings the hand sideways) to 0.73-0.88 (yaw pitches it into the table).
+SITE_SET = os.environ.get("SITE_SET", "v2")
+
 SITES = {
     # NOTE: body-frame z of the elbow JOINT on the upper-arm link is -0.182.
     # The first version of this used -0.250, taken from the collision geom's
@@ -88,9 +117,12 @@ SITES = {
     "elbow":   ("%s_shoulder_yaw_link" % BRACE_ARM,
                 np.array([0.002,  _MY * 0.007, -0.182])),
     "forearm": ("%s_elbow_link" % BRACE_ARM,
-                np.array([0.050,  _MY * 0.021, -0.007])),
-    "palm":    ("%s_wrist_yaw_link" % BRACE_ARM,
-                np.array([0.130,  0.000,  0.000])),
+                np.array([0.110,  _MY * 0.030, -0.015]) if SITE_SET == "v2"
+                else np.array([0.050,  _MY * 0.021, -0.007])),
+    "palm":    (("%s_magpie_gripper" % BRACE_ARM,
+                 np.array([0.0965, _MY * 0.0315, 0.000])) if SITE_SET == "v2"
+                else ("%s_wrist_yaw_link" % BRACE_ARM,
+                      np.array([0.130,  0.000,  0.000]))),
     # Trunk sites (added S10).  The pose audit found the hips touching the table
     # edge in ~80% of solved poses and the torso in ~60%, all unmodelled -- so
     # they are promoted to first-class candidates.  Both anchors are taken from
@@ -134,6 +166,23 @@ IK_MARGIN = 0.025   # collision look-ahead for the IK [m]
 # `..._reach` starts the hand 15 cm ABOVE the table with the brace already
 # established, i.e. the phase this study is actually about.
 SEED_KEY = os.environ.get("SEED_KEY", "forearm_brace_reach")
+
+# STANCE OFFSET (2026-08-04, S11).  A rigid translation of the WHOLE robot in the
+# table frame, applied to the free joint after the seed keyframe is loaded.  The
+# feet ride along with it and solve_ik reads its pinned foot targets from the
+# shifted pose, so this is exactly "stand somewhere else", not "move the feet".
+#
+# Why it is a knob at all: the study's stance is square-on and centred on the
+# table's centreline (feet y = +-0.2346, table y = +-0.2975), so the LEFT bracing
+# arm comes in across the table's near corner and its distal half runs out of
+# table sideways before it runs out of table forwards -- the table is 0.595 m wide
+# and 1.18 m deep, and the arm is using the narrow axis.  Shifting the robot in -y
+# swings the bracing shoulder toward the table centreline and lets the arm lie
+# along the DEEP axis, which is what "decenter the stance for whole-table contact"
+# buys.  It also moves the kinematic reach wall, which is the thing that actually
+# caps the braced reach envelope (see reach_diag.py).
+STANCE_DX = float(os.environ.get("STANCE_DX", "0.0"))
+STANCE_DY = float(os.environ.get("STANCE_DY", "0.0"))
 
 # --------------------------------------------------------------------------- #
 # TORQUE BASIS -- which limit the QP is allowed to spend.  Three real, different
@@ -201,7 +250,13 @@ def torque_limits(m, basis=None):
     return out
 
 
-MU = 0.6            # friction coefficient (table & floor)
+# Friction coefficient at the table and the floor.  0.6 was a placeholder nobody
+# measured, and every slip number in S1-S10 rests on it.  It is now settable so
+# mu can be SOLVED for rather than assumed: friction_sweep.py finds mu*, the
+# smallest coefficient at which friction stops being the binding constraint and
+# the joint-torque envelope takes over.  Above mu* the results characterise the
+# actuators; below it they characterise the tape on the table.
+MU = float(os.environ.get("MU", "0.6"))
 N_ROBOT_DOF = 33    # 6 floating base + 27 joints; DOFs 33+ are the object anchor
 N_ACT = 27
 
@@ -225,6 +280,9 @@ def load(ik_margin=IK_MARGIN):
         key = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "stand_up")
     if key >= 0:
         mujoco.mj_resetDataKeyframe(m, d, key)
+    if STANCE_DX or STANCE_DY:
+        d.qpos[0] += STANCE_DX      # free-joint translation == move the whole
+        d.qpos[1] += STANCE_DY      # robot, feet included (see STANCE_DX above)
     mujoco.mj_forward(m, d)
     return m, d
 
@@ -351,6 +409,21 @@ TORSO_DOF = 18          # dofadr of torso_joint
 W_FOOT, W_REACH, W_SITE = 300.0, 4.0, 6.0   # feet are pinned: they must not slide
 W_COLL = 40.0           # collision rows dominate: non-penetration is not optional
 W_POST = 0.6            # nullspace pull back toward the seed pose
+# Palm-face alignment.  Same order as W_SITE: getting the face flat matters as
+# much as getting it to the right height, because a face that is 30 deg off is
+# an edge contact, and an edge contact is a different (and worse) contact.
+W_PALM_ALIGN = 6.0
+PALM_ALIGN = os.environ.get("PALM_ALIGN", "1") == "1"
+# Forearm heading (see forearm_heading_rows).  Weight is deliberately BELOW
+# W_SITE: getting the brace onto the table still outranks pointing it prettily,
+# so on targets where the two conflict the contact wins and the heading degrades
+# gracefully instead of the pose failing to place.
+W_FOREARM = 3.0
+FOREARM_ALIGN = os.environ.get("FOREARM_ALIGN", "1") == "1"
+# Desired forearm compass heading [deg] in the table plane. 0 = along the table's
+# LONG axis (world +x).  Negative skews the forearm inward, toward the table's
+# far side, which is the "or even skewed in" case.
+FOREARM_HEADING = float(os.environ.get("FOREARM_HEADING", "0.0"))
 PEN_TOL = 0.002         # allowed contact depth before a collision row fires
 TRUST = 0.05            # per-step trust region [rad/m], enforced INSIDE the QP
 LEVENBERG = 1e-6        # keeps the QP Hessian positive definite
@@ -388,6 +461,83 @@ def collision_rows(m, d, allow_bodies):
     return rows, errs
 
 
+def forearm_heading_rows(m, d, n_dof, heading_deg):
+    """One Gauss-Newton row that aims the bracing forearm along a chosen compass
+    heading in the table plane.
+
+    Why this exists (user, 2026-08-04): the decentred stance bought whole-table
+    access by translating the robot, and translation is a blunt instrument -- it
+    swung the body 7.4 deg of roll onto the right leg, which then carried 81 % of
+    body weight with its ankle pitch at 0.49 of the clamped limit.  The thing
+    that actually needed fixing was the forearm's DIRECTION: the table is 0.595 m
+    wide and 1.18 m deep, so a forearm lying along +x fits and a forearm at 25 deg
+    runs off the side.  Aiming the forearm directly is the targeted version of the
+    same fix, and it should let the stance come back toward centre.
+
+    HEADING ONLY, deliberately.  Constraining the forearm's full 3-D direction
+    would also pin its pitch, which is the freedom the brace needs to get down
+    onto the table at different reach distances.  So the task is on the
+    projection: with v the forearm axis in world and theta = atan2(v_y, v_x),
+
+        r = wrap(heading - theta)
+        dtheta/domega = [ -v_x v_z,  -v_y v_z,  v_x^2 + v_y^2 ] / (v_x^2 + v_y^2)
+
+    from  vdot = omega x v.  One row, one scalar residual: this REPLACES the
+    stance offset rather than adding to the objective stack.
+    """
+    a = point_world(m, d, "%s_elbow_link" % BRACE_ARM, np.zeros(3))
+    b = point_world(m, d, "%s_wrist_roll_link" % BRACE_ARM, np.zeros(3))
+    v = b - a
+    nv2 = v[0] ** 2 + v[1] ** 2
+    if nv2 < 1e-9:                       # forearm is vertical: heading undefined
+        return np.zeros((1, n_dof)), np.zeros(1)
+    theta = np.arctan2(v[1], v[0])
+    err = np.arctan2(np.sin(np.radians(heading_deg) - theta),
+                     np.cos(np.radians(heading_deg) - theta))
+    dtheta = np.array([-v[0] * v[2], -v[1] * v[2], nv2]) / nv2
+    jacr = np.zeros((3, m.nv))
+    mujoco.mj_jac(m, d, None, jacr, b, bid(m, "%s_wrist_roll_link" % BRACE_ARM))
+    return (dtheta @ jacr[:, :n_dof]).reshape(1, -1), np.array([err])
+
+
+def palm_align_rows(m, d, n_dof):
+    """Gauss-Newton rows that roll the wrist until the gripper's flat SIDE face
+    lies against the table.
+
+    The face's outward normal is the gripper body's local +-y (see SITES).  It
+    must end up pointing at the table, i.e. along world -z.  Writing a for that
+    body-fixed axis in world and t = (0,0,-1), the residual is
+
+        r = a x t        ( |r| = sin(angle), r = 0 exactly when a || t )
+
+    and, since a body-fixed axis obeys  da/dt = w x a  for the body's angular
+    velocity w,
+
+        dr/dt = (w x a) x t = a (t.w) - w (t.a) = [ a t' - (a.t) I ] w
+
+    so the row block is  M @ Jr  with  M = a t' - (a.t) I  and Jr the body's
+    ROTATIONAL Jacobian.  (Using 1 - a.t as a scalar cost instead has zero
+    gradient at BOTH the aligned and the anti-aligned pose, so the solver can
+    park the face pointing at the ceiling; the cross-product residual does not
+    have that stationary point on the wrong side.)
+
+    Which of the two faces is asked to go down is decided ONCE per call by
+    whichever is already nearer -- the wrist has 344 deg of roll travel, so both
+    are reachable and picking the near one just avoids a needless half-turn.
+    """
+    body, _ = SITES["palm"]
+    b = bid(m, body)
+    R = d.xmat[b].reshape(3, 3)
+    t = np.array([0.0, 0.0, -1.0])
+    a = R @ np.array([0.0, 1.0, 0.0])
+    if a @ t < 0:
+        a = -a                       # the other face is the near one
+    M = np.outer(a, t) - (a @ t) * np.eye(3)
+    jacr = np.zeros((3, m.nv))
+    mujoco.mj_jac(m, d, None, jacr, d.xpos[b], b)
+    return M @ jacr[:, :n_dof], -np.cross(a, t)
+
+
 _ENV_CACHE = {}
 
 
@@ -401,7 +551,8 @@ def _is_env(m, b):
     return v
 
 
-def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
+def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False,
+             lock_joints=None, soft_joints=None):
     """Gauss-Newton IK over the 33 robot DOFs, one QP per step.
 
     Each step solves, for the joint-velocity-like step dq:
@@ -419,6 +570,22 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
     `lock_torso=True` freezes torso_joint at its seed value -- the "assume we do
     not use the torso" case.  The shipped model does NOT lock it (only penalized,
     weight 30), so False is the faithful default.
+
+    `soft_joints` is {joint_name: value_rad}, driven by a heavily weighted posture
+    term instead of clamped.  Prefer it to `lock_joints` for the LEG chain: the
+    feet are held by hip pitch + knee + ankle pitch together, so hard-clamping
+    hip pitch removes a DOF the pinned-foot task needs and the feet drift ~40 mm
+    (measured) -- which silently turns a reach result into a foot-sliding result.
+    A strong soft target answers the same physical question without over-
+    constraining the stance; the ACHIEVED angle is returned so the commanded and
+    realised values can be compared rather than assumed equal.
+
+    `lock_joints` is {joint_name: value_rad}, hard-clamped after every integration
+    step.  It exists so HIP PITCH can be treated as the independent variable it
+    physically is: the user's model of this task is that contacts do not lengthen
+    the arm, they raise the stability ceiling, which permits more hip flexion,
+    which is what actually carries the hand forward.  Testing that needs hip pitch
+    COMMANDED and reach MEASURED, which is the opposite of the target-grid sweep.
 
     Returns dict of per-task residuals: reach, foot, site_max, penetration, ok.
     """
@@ -486,6 +653,22 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
             Js2 = np.vstack(rows_s); es2 = np.clip(np.concatenate(errs_s), -TRUST, TRUST)
             G += (W_SITE ** 2) * Js2.T @ Js2;  a += (W_SITE ** 2) * Js2.T @ es2
 
+        # aim the forearm along the table's long axis (heading only)
+        if FOREARM_ALIGN and ("forearm" in subset or "elbow" in subset):
+            Jf, ef = forearm_heading_rows(m, d, n, FOREARM_HEADING)
+            parts["forearm_heading_err"] = float(abs(ef[0]))
+            ef = np.clip(ef, -TRUST, TRUST)
+            G += (W_FOREARM ** 2) * Jf.T @ Jf
+            a += (W_FOREARM ** 2) * Jf.T @ ef
+
+        # roll the wrist so the gripper's flat side, not its edge, meets the wood
+        if PALM_ALIGN and SITE_SET == "v2" and "palm" in subset:
+            Ja, ea = palm_align_rows(m, d, n)
+            parts["palm_align"] = float(np.linalg.norm(ea))
+            ea = np.clip(ea, -TRUST, TRUST)
+            G += (W_PALM_ALIGN ** 2) * Ja.T @ Ja
+            a += (W_PALM_ALIGN ** 2) * Ja.T @ ea
+
         # posture pull toward the seed, on joint DOFs only
         dq_post = np.zeros(n)
         wp = np.zeros(n)
@@ -496,6 +679,13 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
             wp[dof] = W_POST
         if lock_torso:
             wp[TORSO_DOF] *= 100.0
+        for jn, val in (soft_joints or {}).items():
+            jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+            if jid < 0:
+                continue
+            dof = m.jnt_dofadr[jid]
+            dq_post[dof] = np.clip(val - d.qpos[m.jnt_qposadr[jid]], -TRUST, TRUST)
+            wp[dof] = 60.0
         G += np.diag(wp ** 2);  a += (wp ** 2) * dq_post
 
         G += LEVENBERG * np.eye(n)          # keeps G positive definite
@@ -552,6 +742,10 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
                                         m.jnt_range[j][0], m.jnt_range[j][1])
         if lock_torso:
             d.qpos[m.jnt_qposadr[13]] = q_seed[m.jnt_qposadr[13]]
+        for jn, val in (lock_joints or {}).items():
+            jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+            if jid >= 0:
+                d.qpos[m.jnt_qposadr[jid]] = val
 
     mujoco.mj_forward(m, d)
     pen = 0.0
@@ -582,6 +776,11 @@ def solve_ik(m, d, target, subset, iters=250, tol=2e-3, lock_torso=False):
             touching.add(b2)
         elif b2 == tbl:
             touching.add(b1)
+    parts["achieved"] = {}
+    for jn in list((soft_joints or {}).keys()) + list((lock_joints or {}).keys()):
+        jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+        if jid >= 0:
+            parts["achieved"][jn] = float(d.qpos[m.jnt_qposadr[jid]])
     parts["sites_placed"] = {st: (bid(m, SITES[st][0]) in touching) for st in subset}
     parts["all_placed"] = all(parts["sites_placed"].values())
     # The step QP has a two-stage fallback (drop the collision rows, then give up

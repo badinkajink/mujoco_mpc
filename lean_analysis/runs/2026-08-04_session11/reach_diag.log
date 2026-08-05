@@ -1,0 +1,153 @@
+y=-0.2348 z=1.0982 basis=clamp model=Lean_H12_Magpie.xml   COLD start (as reach_envelope.py)
+set                          x   reach   foot    pen placed   peak  feas  drop-out
+legs-only                 1.00  0.0037 0.0000 -0.0000      y  0.468     y  ok
+legs-only                 1.05  0.0036 0.0000 -0.0000      y  0.625     y  ok
+legs-only                 1.10  0.0035 0.0000 -0.0000      y  0.844     y  ok
+legs-only                 1.15  0.0020 0.0000 0.0020      y  0.954     n  STRENGTH
+legs-only                 1.20  0.0020 0.0000 0.0020      y  0.982     n  STRENGTH
+legs-only                 1.25  0.0084 0.0000 0.0020      y  0.988     n  STRENGTH
+legs-only                 1.30  0.0226 0.0000 0.0020      y  0.938     n  STRENGTH
+legs-only                 1.35  0.0252 0.0000 0.0020      y  0.986     n  STRENGTH
+legs-only                 1.40  0.0293 0.0000 0.0020      y  1.088     n  STRENGTH
+legs-only                 1.45  0.0377 0.0000 0.0020      y  1.298     n  reach
+legs-only                 1.50  0.0740 0.0000 0.0020      y  1.341     n  reach
+palm                      1.00  0.0036 0.0000 0.0020      y  0.473     y  ok
+palm                      1.05  0.0034 0.0000 0.0020      y  0.476     y  ok
+palm                      1.10  0.0040 0.0000 0.0020      y  0.778     y  ok
+palm                      1.15  0.0020 0.0000 0.0021      y  0.756     y  ok
+palm                      1.20  0.0022 0.0000 0.0020      y  1.236     n  STRENGTH
+palm                      1.25  0.0060 0.0000 0.0020      y  1.081     n  STRENGTH
+palm                      1.30  0.0127 0.0000 0.0020      y  0.845     y  ok
+palm                      1.35  0.0286 0.0000 0.0020      y  1.084     n  STRENGTH
+palm                      1.40  0.0403 0.0000 0.0020      y  0.962     y  reach
+palm                      1.45  0.0722 0.0000 0.0020      y  1.004     n  reach
+palm                      1.50  0.1220 0.0000 0.0020      y  1.004     n  reach
+elbow+forearm             1.00  0.0041 0.0000 0.0031      y  0.473     y  ok
+elbow+forearm             1.05  0.0044 0.0000 0.0032      y  0.475     y  ok
+elbow+forearm             1.10  0.0045 0.0000 0.0033      y  0.478     y  ok
+elbow+forearm             1.15  0.0029 0.0000 0.0033      y  0.484     y  ok
+elbow+forearm             1.20  0.0017 0.0000 0.0032      y  0.562     y  ok
+elbow+forearm             1.25  0.0060 0.0000 0.0032      y  0.676     y  ok
+elbow+forearm             1.30  0.0195 0.0000 0.0035      y  0.653     y  ok
+elbow+forearm             1.35  0.0301 0.0000 0.0020      y  0.699     y  reach
+elbow+forearm             1.40  0.0418 0.0000 0.0020      y  0.736     y  reach
+elbow+forearm             1.45  0.0771 0.0000 0.0020      y  0.741     y  reach
+elbow+forearm             1.50  0.1270 0.0000 0.0020      y  0.741     y  reach
+elbow+forearm+palm        1.00  0.0037 0.0000 0.0031      y  0.475     y  ok
+elbow+forearm+palm        1.05  0.0045 0.0000 0.0022      y  0.475     y  ok
+elbow+forearm+palm        1.10  0.0045 0.0000 0.0022      y  0.479     y  ok
+elbow+forearm+palm        1.15  0.0029 0.0000 0.0021      y  0.484     y  ok
+elbow+forearm+palm        1.20  0.0017 0.0000 0.0022      y  0.513     y  ok
+elbow+forearm+palm        1.25  0.0056 0.0001 0.0025      y  0.749     y  ok
+elbow+forearm+palm        1.30  0.0192 0.0001 0.0021      y  0.679     y  ok
+elbow+forearm+palm        1.35  0.0300 0.0000 0.0020      y  0.716     y  reach
+elbow+forearm+palm        1.40  0.0412 0.0000 0.0020      y  0.724     y  reach
+elbow+forearm+palm        1.45  0.0765 0.0000 0.0020      y  0.723     y  reach
+elbow+forearm+palm        1.50  0.1263 0.0000 0.0020      y  0.723     y  reach
+hip                       1.00  0.0085 0.0000 0.0020     NO  0.575     y  placed
+hip                       1.05  0.0081 0.0000 0.0020      y  0.471     y  ok
+hip                       1.10  0.0077 0.0000 0.0020      y  0.466     y  ok
+hip                       1.15  0.0079 0.0000 0.0020      y  0.457     y  ok
+hip                       1.20  0.0111 0.0000 0.0020      y  0.449     y  ok
+hip                       1.25  0.0157 0.0000 0.0020      y  0.461     y  ok
+hip                       1.30  0.0197 0.0000 0.0020      y  0.474     y  ok
+hip                       1.35  0.0251 0.0000 0.0020      y  0.608     y  ok
+hip                       1.40  0.0592 0.0000 0.0020      y  0.520     y  reach
+hip                       1.45  0.1075 0.0000 0.0020      y  0.520     y  reach
+hip                       1.50  0.1569 0.0000 0.0020      y  0.520     y  reach
+elbow+forearm+hip         1.00  0.0046 0.0000 0.0020      y  0.352     y  ok
+elbow+forearm+hip         1.05  0.0046 0.0000 0.0020      y  0.351     y  ok
+elbow+forearm+hip         1.10  0.0067 0.0000 0.0020      y  0.369     y  ok
+elbow+forearm+hip         1.15  0.0076 0.0000 0.0022      y  0.541     y  ok
+elbow+forearm+hip         1.20  0.0099 0.0000 0.0020      y  0.964     y  ok
+elbow+forearm+hip         1.25  0.0113 0.0000 0.0020      y  0.442     y  ok
+elbow+forearm+hip         1.30  0.0198 0.0000 0.0020      y  0.944     y  ok
+elbow+forearm+hip         1.35  0.0457 0.0000 0.0092      y  0.923     y  reach
+elbow+forearm+hip         1.40  0.0878 0.0000 0.0092      y  0.497     y  reach
+elbow+forearm+hip         1.45  0.1372 0.0000 0.0092      y  0.497     y  reach
+elbow+forearm+hip         1.50  0.1869 0.0000 0.0092      y  0.497     y  reach
+
+== WARM start: each target continues from the previous solution ==
+legs-only                 1.00  0.0037 0.0000 -0.0000      y  0.468     y  ok
+legs-only                 1.05  0.0020 0.0000 -0.0000      y  0.592     y  ok
+legs-only                 1.10  0.0024 0.0000 -0.0000      y  0.796     y  ok
+legs-only                 1.15  0.0027 0.0000 0.0020      y  0.925     n  STRENGTH
+legs-only                 1.20  0.0035 0.0000 0.0020      y  0.934     n  STRENGTH
+legs-only                 1.25  0.0088 0.0000 0.0020      y  0.971     n  STRENGTH
+legs-only                 1.30  0.0233 0.0000 0.0020      y  0.979     n  STRENGTH
+legs-only                 1.35  0.0321 0.0000 0.0020      y  0.938     n  reach
+legs-only                 1.40  0.0286 0.0000 0.0020      y  1.004     n  STRENGTH
+legs-only                 1.45  0.0396 0.0000 0.0020      y  1.120     n  reach
+legs-only                 1.50  0.0692 0.0000 0.0020      y  1.223     n  reach
+palm                      1.00  0.0036 0.0000 0.0020      y  0.473     y  ok
+palm                      1.05  0.0023 0.0000 0.0020      y  0.474     y  ok
+palm                      1.10  0.0028 0.0000 0.0020      y  0.652     y  ok
+palm                      1.15  0.0030 0.0000 0.0020      y  0.843     y  ok
+palm                      1.20  0.0033 0.0000 0.0020      y  1.156     n  STRENGTH
+palm                      1.25  0.0067 0.0000 0.0020      y  1.024     n  STRENGTH
+palm                      1.30  0.0230 0.0000 0.0020      y  1.020     n  STRENGTH
+palm                      1.35  0.0333 0.0000 0.0020      y  1.053     n  reach
+palm                      1.40  0.0465 0.0000 0.0020      y  1.263     n  reach
+palm                      1.45  0.0819 0.0000 0.0020      y  0.966     n  reach
+palm                      1.50  0.1223 0.0000 0.0020      y  0.986     n  reach
+elbow+forearm             1.00  0.0041 0.0000 0.0031      y  0.473     y  ok
+elbow+forearm             1.05  0.0024 0.0000 0.0064      y  0.474     y  ok
+elbow+forearm             1.10  0.0036 0.0000 0.0066      y  0.468     y  ok
+elbow+forearm             1.15  0.0025 0.0004 0.0064      y  0.533     y  ok
+elbow+forearm             1.20  0.0027 0.0005 0.0067      y  0.640     y  ok
+elbow+forearm             1.25  0.0053 0.0005 0.0071      y  0.773     y  ok
+elbow+forearm             1.30  0.0232 0.0000 0.0041      y  0.735     y  ok
+elbow+forearm             1.35  0.0330 0.0000 0.0020      y  0.765     y  reach
+elbow+forearm             1.40  0.0455 0.0000 0.0020      y  0.772     y  reach
+elbow+forearm             1.45  0.0810 0.0000 0.0020      y  0.770     y  reach
+elbow+forearm             1.50  0.1223 0.0000 0.0020      y  0.743     y  reach
+elbow+forearm+palm        1.00  0.0037 0.0000 0.0031      y  0.475     y  ok
+elbow+forearm+palm        1.05  0.0028 0.0000 0.0020      y  0.473     y  ok
+elbow+forearm+palm        1.10  0.0033 0.0000 0.0020      y  0.472     y  ok
+elbow+forearm+palm        1.15  0.0036 0.0000 0.0036      y  0.550     y  ok
+elbow+forearm+palm        1.20  0.0040 0.0000 0.0020      y  0.649     y  ok
+elbow+forearm+palm        1.25  0.0077 0.0000 0.0020      y  0.740     y  ok
+elbow+forearm+palm        1.30  0.0238 0.0001 0.0023      y  0.768     y  ok
+elbow+forearm+palm        1.35  0.0336 0.0002 0.0023      y  0.803     y  reach
+elbow+forearm+palm        1.40  0.0456 0.0002 0.0023      y  0.783     y  reach
+elbow+forearm+palm        1.45  0.0819 0.0002 0.0033      y  0.830     y  reach
+elbow+forearm+palm        1.50  0.1234 0.0000 0.0020      y  0.749     y  reach
+hip                       1.00  0.0085 0.0000 0.0020     NO  0.575     y  placed
+hip                       1.05  0.0123 0.0000 0.0020      y  0.472     y  ok
+hip                       1.10  0.0174 0.0000 0.0020      y  0.468     y  ok
+hip                       1.15  0.0190 0.0000 0.0020      y  0.462     y  ok
+hip                       1.20  0.0211 0.0000 0.0020      y  0.452     y  ok
+hip                       1.25  0.0237 0.0000 0.0020      y  0.443     y  ok
+hip                       1.30  0.0280 0.0000 0.0020      y  0.454     y  ok
+hip                       1.35  0.0323 0.0000 0.0020      y  0.462     y  reach
+hip                       1.40  0.0601 0.0006 0.0020      y  0.604     y  reach
+hip                       1.45  0.1043 0.0006 0.0020      y  0.594     y  reach
+hip                       1.50  0.1506 0.0006 0.0020      y  0.522     y  reach
+elbow+forearm+hip         1.00  0.0046 0.0000 0.0020      y  0.352     y  ok
+elbow+forearm+hip         1.05  0.0137 0.0000 0.0020      y  0.354     y  ok
+elbow+forearm+hip         1.10  0.0198 0.0000 0.0025      y  0.367     y  ok
+elbow+forearm+hip         1.15  0.0257 0.0000 0.0020      y  0.389     y  ok
+elbow+forearm+hip         1.20  0.0338 0.0000 0.0024      y  0.401     y  reach
+elbow+forearm+hip         1.25  0.0366 0.0000 0.0020      y  0.500     y  reach
+elbow+forearm+hip         1.30  0.0225 0.0001 0.0020     NO  0.875     y  placed
+elbow+forearm+hip         1.35  0.0228 0.0000 0.0020      y  0.468     y  ok
+elbow+forearm+hip         1.40  0.0614 0.0008 0.0020      y  0.868     y  reach
+elbow+forearm+hip         1.45  0.1034 0.0008 0.0020      y  0.921     y  reach
+elbow+forearm+hip         1.50  0.1472 0.0008 0.0022      y  0.974     y  reach
+
+== envelope by mode, and the reason it ends ==
+ cold:
+   legs-only                1.10 m   ends on: STRENGTH
+   palm                     1.30 m   ends on: STRENGTH
+   elbow+forearm            1.30 m   ends on: reach
+   elbow+forearm+palm       1.30 m   ends on: reach
+   hip                      1.35 m   ends on: reach
+   elbow+forearm+hip        1.30 m   ends on: reach
+ warm:
+   legs-only                1.10 m   ends on: STRENGTH
+   palm                     1.15 m   ends on: STRENGTH
+   elbow+forearm            1.30 m   ends on: reach
+   elbow+forearm+palm       1.30 m   ends on: reach
+   hip                      1.30 m   ends on: reach
+   elbow+forearm+hip        1.35 m   ends on: reach
+wrote runs/2026-08-04_session11/reach_diag.json 132 evaluations

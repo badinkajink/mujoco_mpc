@@ -35,11 +35,32 @@ namespace mjpc {
 // disagree, so the unperturbed dump has little discriminating power; the kick
 // lights up the velocity-, asymmetry- and tilt-driven terms while keeping the
 // state an exact function of the seed.
+// `dump_traj`, if non-empty, writes the whole rollout to that path as CSV:
+// one row per physics step with time, qpos, qvel, ctrl and actuator_force. That
+// is everything needed to score MJPC's own result with the SAME static-analysis
+// machinery the offline QP study uses (contact set, torque ratios, equilibrium
+// margin), instead of comparing an average cost against a pose.
+//
+// `start_qpos`, if non-empty, is a path to a whitespace/comma separated list of
+// nq values used as the starting configuration, applied AFTER start_key. It
+// exists to start a run at a pose produced OUTSIDE the model -- e.g. the offline
+// QP's braced solution -- which separates "the planner cannot find this pose"
+// from "this pose does not survive contact dynamics". Those are different
+// problems with different fixes and the same symptom.
+//
+// `start_key`, if non-empty, selects the starting keyframe by name instead of
+// "home". The handoff question is whether sampling can FIND a braced pose, so
+// where it starts from is the experiment, not a detail: starting on top of the
+// answer measures nothing.
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
                                double total_time,
                                int dump_residual_steps = -1,
-                               double dump_perturb = 0.0);
+                               double dump_perturb = 0.0,
+                               std::string dump_traj = "",
+                               std::string start_key = "",
+                               int strategy = -1,
+                               std::string start_qpos = "");
 }  // namespace mjpc
 
 #endif  // MJPC_MJPC_TESTSPEED_H_

@@ -1,0 +1,15 @@
+target [ 0.9047 -0.2348  1.0982]   task=Lean H12 Magpie strategy=22 start=stand  30 s x 2 seeds
+  QP  elbow+forearm          reach 0.0062 placed=True peak 0.466 margin 0.0904
+  QP  elbow+forearm+palm     reach 0.0041 placed=True peak 0.455 margin 0.0872
+
+-- seed 0 --
+   Total wall time (3750 planning steps): 64.651 s (0.46403x realtime) | Average cost per step (lower is better): 7.22383
+   final : reach 0.3555  contacts palm                         peak 0.524 margin 0.0295 pelvis_z 0.994 tilt 0 deg
+   best  : reach 0.3555  contacts palm                         peak 0.524 margin 0.0295
+
+-- seed 1 --
+   Total wall time (3750 planning steps): 60.3245 s (0.49731x realtime) | Average cost per step (lower is better): 10.0777
+   final : reach 0.3652  contacts palm                         peak 1.111 margin 0.0321 pelvis_z 0.995 tilt 0 deg
+   best  : reach 0.3652  contacts palm                         peak 1.111 margin 0.0321
+
+wrote runs/2026-08-04_session11/mjpc_handoff_30s/handoff.json

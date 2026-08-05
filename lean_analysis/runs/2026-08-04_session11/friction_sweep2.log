@@ -1,0 +1,83 @@
+target [1.1, -0.2348, 1.0982]  basis=clamp  site_set=v2  stance dy=-0.250
+
+== palm   (mu -> inf: peak 0.504, margin 0.3123 m, push 333 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  0.799   0.504   0.0000   0.0938      75   0.2185  torque
+    0.30  0.763   0.504   0.0000   0.1006      81   0.2118  torque
+    0.40  0.752   0.504   0.0000   0.1076      87   0.2047  torque
+    0.50  0.749   0.504   0.0000   0.1146      92   0.1977  torque
+    0.60  0.751   0.504   0.0000   0.1212      98   0.1911  torque
+    0.70  0.755   0.504   0.0000   0.1279     103   0.1844  torque
+    0.80  0.761   0.504   0.0000   0.1347     108   0.1776  torque
+    0.90  0.768   0.504   0.0000   0.1416     114   0.1707  torque
+    1.00  0.776   0.504   0.0000   0.1489     120   0.1635  torque
+    1.20  0.794   0.504   0.0000   0.1637     132   0.1486  torque
+    1.50  0.651   0.504   0.0000   0.1860     150   0.1263  torque
+    2.00  0.488   0.504   0.0000   0.2031     165   0.1092  torque
+    3.00  0.325   0.504   0.0000   0.2268     184   0.0855  torque
+    5.00  0.195   0.504   0.0000   0.2355     200   0.0768  torque
+   mu*_tau    = 0.2    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.2    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+== elbow+forearm   (mu -> inf: peak 0.491, margin 0.4266 m, push 438 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  0.801   0.491   0.0000   0.1464      95   0.2801  torque
+    0.30  0.775   0.491   0.0000   0.1630     143   0.2635  torque
+    0.40  0.711   0.491   0.0000   0.1745     164   0.2521  torque
+    0.50  0.568   0.491   0.0000   0.1830     164   0.2436  torque
+    0.60  0.474   0.491   0.0000   0.1956     164   0.2310  torque
+    0.70  0.406   0.491   0.0000   0.2012     164   0.2254  torque
+    0.80  0.355   0.491   0.0000   0.2080     169   0.2186  torque
+    0.90  0.316   0.491   0.0000   0.2196     179   0.2070  torque
+    1.00  0.284   0.491   0.0000   0.2303     187   0.1962  torque
+    1.20  0.237   0.491   0.0000   0.2491     203   0.1774  torque
+    1.50  0.189   0.491   0.0000   0.2720     221   0.1545  torque
+    2.00  0.142   0.491   0.0000   0.3007     244   0.1259  torque
+    3.00  0.095   0.491   0.0000   0.3323     274   0.0943  torque
+    5.00  0.057   0.491   0.0000   0.3548     303   0.0718  torque
+   mu*_tau    = 0.2    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.2    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+== elbow+forearm+palm   (mu -> inf: peak 0.503, margin 0.4108 m, push 417 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  1.000   0.503   0.0000   0.1309      95   0.2799  friction
+    0.30  0.692   0.503   0.0000   0.1474     131   0.2634  torque
+    0.40  0.707   0.503   0.0000   0.1605     146   0.2504  torque
+    0.50  0.708   0.503   0.0000   0.1727     146   0.2382  torque
+    0.60  0.746   0.503   0.0000   0.1829     149   0.2279  torque
+    0.70  0.775   0.503   0.0000   0.1918     159   0.2190  torque
+    0.80  0.800   0.503   0.0000   0.2006     167   0.2102  torque
+    0.90  0.872   0.503   0.0000   0.2092     175   0.2017  torque
+    1.00  0.871   0.503   0.0000   0.2174     182   0.1934  torque
+    1.20  0.762   0.503   0.0000   0.2320     193   0.1788  torque
+    1.50  0.610   0.503   0.0000   0.2498     207   0.1610  torque
+    2.00  0.457   0.503   0.0000   0.2718     225   0.1390  torque
+    3.00  0.305   0.503   0.0000   0.2947     246   0.1161  torque
+    5.00  0.183   0.503   0.0000   0.3023     257   0.1085  torque
+   mu*_tau    = 0.2    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.3    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+== elbow+forearm+hip   (mu -> inf: peak 0.406, margin 0.4919 m, push 600 N)
+      mu  u_max    peak  d(peak)   margin    push  d(marg)  binding
+    0.20  0.718   0.496   0.0907   0.0498      95   0.4421  mixed
+    0.30  0.739   0.406   0.0000   0.1041     143   0.3878  torque
+    0.40  0.694   0.406   0.0000   0.1553     191   0.3366  torque
+    0.50  0.556   0.406   0.0000   0.2045     213   0.2874  torque
+    0.60  0.463   0.406   0.0000   0.2639     226   0.2280  torque
+    0.70  0.397   0.406   0.0000   0.3136     236   0.1783  torque
+    0.80  0.347   0.406   0.0000   0.3245     244   0.1674  torque
+    0.90  0.309   0.406   0.0000   0.3333     251   0.1586  torque
+    1.00  0.278   0.406   0.0000   0.3405     256   0.1514  torque
+    1.20  0.231   0.406   0.0000   0.3522     265   0.1397  torque
+    1.50  0.185   0.406   0.0000   0.3647     274   0.1273  torque
+    2.00  0.139   0.406   0.0000   0.3780     283   0.1139  torque
+    3.00  0.093   0.406   0.0000   0.3928     294   0.0991  torque
+    5.00  0.056   0.406   0.0000   0.4292     332   0.0628  torque
+   mu*_tau    = 0.3    <-- above this the TORQUE ENVELOPE is what the pose's cost measures
+   mu*_slip   = 0.2    no contact on its cone
+   mu*_region = None   region within 5 mm of its mu->inf limit
+
+wrote runs/2026-08-04_session11/friction_sweep2.json
