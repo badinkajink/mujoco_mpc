@@ -203,14 +203,36 @@ STANCE_DY = float(os.environ.get("STANCE_DY", "0.0"))
 #
 # `clamp` is the default because it is the only one the robot cannot exceed: the
 # node refuses anything above it, so a plan that needs more is not executable.
-# Allen applied exactly this to the ankle (48.6 = 0.9 x 54).  The torso is the
-# joint where the three disagree most -- 200 Nm in the model, 36 under the clamp
-# -- and it is the joint that carries a lean, so the basis is not a detail here.
+# Allen applied exactly this to the ankle (48.6 = 0.9 x 54).
+#
+# TORSO, resolved 2026-08-05 (user decision).  The node's TAU_ESTOP table carries
+# 40 Nm for the torso and that number matches NO safety-layer config: the header
+# calls the table "estop torque_ratio x URDF from default_safety_full.yaml", but
+# that config's estop torque_ratio is 1.0 and joint_limits.py's URDF torque limit
+# for torso_joint is 200, so the traceable value is 200.  (Its clip ratio 0.25
+# gives 50, tight_safety_full gives its own, and none of them give 40.)  Untraced
+# numbers do not get to bound a result, so the torso entry is now the
+# default_safety_full ESTOP -- 200 Nm, i.e. 180 under the 0.9 clamp.
+#
+# It changes nothing, and that is the useful part.  torso_basis.py re-solves the
+# braced pose under both ceilings: the torso carries 1.0-1.9 Nm, ~1% of even the
+# OLD 36 Nm clamp, and peak ratio / region margin agree to four decimals across
+# the two bases.  The lean is carried by the reaching arm's shoulder_pitch
+# (0.46-0.47, the binding joint at every subset tested) and the hips (0.29-0.32),
+# not by the torso.  So the S11 flag that a tight-config deployment would e-stop
+# the torso at 56% of budget was aimed at a joint that is nearly idle; the joint
+# that actually binds is right_shoulder_pitch, at a 29 Nm clamp.
+#
+# The 50 Nm clip is a real but DIFFERENT constraint: it clips `motor_cmd.tau`,
+# the feedforward channel only.  h12_control_node commands position + kp/kd, and
+# the PD term is formed on the motor driver downstream of the safety layer, so
+# the joint can make 180 Nm without ever putting 180 in the clipped field.  What
+# would actually stop it is the estop watching measured tau_est at 200.
 _LEG = ["hip_yaw", "hip_pitch", "hip_roll", "knee", "ankle_pitch", "ankle_roll"]
 _ARM = ["shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow",
         "wrist_roll", "wrist_pitch", "wrist_yaw"]
 TAU_ESTOP = dict(zip(_LEG, [60., 130., 200., 300., 54., 36.]))
-TAU_ESTOP["torso"] = 40.
+TAU_ESTOP["torso"] = 200.
 TAU_ESTOP.update(dict(zip(_ARM, [32., 32., 14.4, 14.4, 9.5, 9.5, 9.5])))
 TAU_URDF = dict(zip(_LEG, [200., 200., 200., 300., 60., 40.]))
 TAU_URDF["torso"] = 200.

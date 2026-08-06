@@ -52,6 +52,14 @@ namespace mjpc {
 // "home". The handoff question is whether sampling can FIND a braced pose, so
 // where it starts from is the experiment, not a detail: starting on top of the
 // answer measures nothing.
+//
+// `phase_schedule`, if non-empty, drives the task's PHASE parameter (index 2)
+// over sim time as "t0:p0,t1:p1,...". A multi-phase strategy whose keyframes all
+// carry success_sustain_time 9999 can never auto-advance, so a headless run sits
+// in keyframe 0 for its whole duration and reports that phase's cost as if it
+// were the strategy's. Scheduling the phase externally is what makes the
+// stand -> brace -> hold -> return sequence testable without a GUI, and it keeps
+// the sequencing policy in the experiment harness rather than in the task.
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
                                double total_time,
@@ -60,7 +68,8 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                std::string dump_traj = "",
                                std::string start_key = "",
                                int strategy = -1,
-                               std::string start_qpos = "");
+                               std::string start_qpos = "",
+                               std::string phase_schedule = "");
 }  // namespace mjpc
 
 #endif  // MJPC_MJPC_TESTSPEED_H_

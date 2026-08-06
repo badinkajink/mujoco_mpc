@@ -54,6 +54,13 @@ ABSL_FLAG(std::string, start_key, "",
           "Keyframe to start from. Empty = the model's 'home' key (the existing "
           "behaviour). A named key that does not exist is an error, not a "
           "silent fallback.");
+ABSL_FLAG(std::string, phase_schedule, "",
+          "Drive the task's Phase parameter (index 2) over sim time as "
+          "\"t0:p0,t1:p1,...\", ascending. Every lean strategy keyframe carries "
+          "success_sustain_time 9999, so a headless run NEVER auto-advances and "
+          "sits in phase 0 for its whole duration; this is how a multi-phase "
+          "sequence (e.g. stand -> brace -> hold -> return) gets tested without "
+          "the GUI slider.");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -69,7 +76,8 @@ int main(int argc, char** argv) {
   double cost = mjpc::SynchronousPlanningCost(
       task_name, planner_thread_count, steps_per_planning_iteration, total_time,
       dump_residual_steps, dump_perturb, dump_traj, start_key,
-      absl::GetFlag(FLAGS_strategy), absl::GetFlag(FLAGS_start_qpos));
+      absl::GetFlag(FLAGS_strategy), absl::GetFlag(FLAGS_start_qpos),
+      absl::GetFlag(FLAGS_phase_schedule));
   if (cost < 0) {
     return -1;
   }

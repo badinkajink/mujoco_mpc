@@ -19,7 +19,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <mujoco/mujoco.h>
@@ -39,6 +41,32 @@ void residual_callback(const mjModel* model, mjData* data, int stage) {
   if (stage == mjSTAGE_ACC) {
     task->Residual(model, data, data->sensordata);
   }
+}
+
+// Parse "t0:p0,t1:p1,..." into ascending (sim time, phase index) pairs. Returns
+// false on any malformed or out-of-order entry: a schedule the harness silently
+// reinterpreted would make a transition experiment describe a sequence nobody
+// asked for.
+bool ParsePhaseSchedule(const std::string& spec,
+                        std::vector<std::pair<double, int>>* out) {
+  size_t i = 0;
+  while (i < spec.size()) {
+    size_t comma = spec.find(',', i);
+    if (comma == std::string::npos) comma = spec.size();
+    const std::string item = spec.substr(i, comma - i);
+    size_t colon = item.find(':');
+    if (colon == std::string::npos) return false;
+    try {
+      const double t = std::stod(item.substr(0, colon));
+      const int p = std::stoi(item.substr(colon + 1));
+      if (!out->empty() && t < out->back().first) return false;
+      out->push_back({t, p});
+    } catch (const std::exception&) {
+      return false;
+    }
+    i = comma + 1;
+  }
+  return !out->empty();
 }
 
 // Print every mjSENS_USER residual SCALAR of `data->sensordata`, in sensor
@@ -107,7 +135,8 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                double total_time, int dump_residual_steps,
                                double dump_perturb, std::string dump_traj,
                                std::string start_key, int strategy,
-                               std::string start_qpos) {
+                               std::string start_qpos,
+                               std::string phase_schedule) {
   std::cout << "Test MJPC Speed: " << task_name << "\n";
   std::cout << " MuJoCo version " << mj_versionString() << "\n";
   if (mjVERSION_HEADER != mj_version()) {
@@ -202,6 +231,33 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     }
   }
 
+  // --phase_schedule drives parameter index 2 (the lean task's Phase slider) as
+  // a function of sim time. Parameter 2 is the MANUAL phase scrubber: any value
+  // >= 0 pins the keyframe and disables auto-advance, so the schedule is the
+  // only thing sequencing the strategy. Left empty, the parameter keeps its XML
+  // default and nothing here runs.
+  std::vector<std::pair<double, int>> phases;
+  size_t next_phase = 0;
+  if (!phase_schedule.empty()) {
+    if (task->parameters.size() <= 2) {
+      std::cerr << "--phase_schedule given but task has no parameter 2\n";
+      mj_deleteData(data);
+      mjcb_sensor = nullptr;
+      return -1;
+    }
+    if (!ParsePhaseSchedule(phase_schedule, &phases)) {
+      std::cerr << "malformed --phase_schedule '" << phase_schedule
+                << "': expected ascending \"t0:p0,t1:p1,...\"\n";
+      mj_deleteData(data);
+      mjcb_sensor = nullptr;
+      return -1;
+    }
+    std::cout << " phase schedule:   ";
+    for (const auto& tp : phases)
+      std::cout << tp.first << "s->p" << tp.second << " ";
+    std::cout << "\n";
+  }
+
   std::cout << " Planning threads:  " << planner_thread_count << "\n";
   ThreadPool pool(planner_thread_count);
 
@@ -251,7 +307,10 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     for (int j = 0; j < model->nv; j++) std::fprintf(traj, ",qvel%d", j);
     for (int j = 0; j < model->nu; j++) std::fprintf(traj, ",ctrl%d", j);
     for (int j = 0; j < model->nu; j++) std::fprintf(traj, ",afrc%d", j);
-    std::fprintf(traj, "\n");
+    // `phase` is the commanded phase parameter, not an observation of it. Under
+    // --phase_schedule they are the same thing (manual mode pins the keyframe);
+    // without it the column reads the XML default and says nothing.
+    std::fprintf(traj, ",phase\n");
   }
 
   int total_steps = ceil(total_time / model->opt.timestep);
@@ -259,6 +318,16 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
   double total_cost = 0;
   auto loop_start = std::chrono::steady_clock::now();
   for (int i = 0; i < total_steps; i++) {
+    // Advance the phase BEFORE Transition: Transition is what reads parameter 2
+    // and swaps the keyframe, so setting it afterwards would apply one step late
+    // and, at t == 0, leave the first Transition running the XML default.
+    while (next_phase < phases.size() &&
+           phases[next_phase].first <= data->time) {
+      task->parameters[2] = phases[next_phase].second;
+      std::cout << "phase -> " << phases[next_phase].second << " at t "
+                << data->time << "\n";
+      next_phase++;
+    }
     agent.ActiveTask()->Transition(model, data);
     agent.state.Set(model, data);
 
@@ -281,7 +350,8 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
         std::fprintf(traj, ",%.17g", data->ctrl[j]);
       for (int j = 0; j < model->nu; j++)
         std::fprintf(traj, ",%.17g", data->actuator_force[j]);
-      std::fprintf(traj, "\n");
+      std::fprintf(traj, ",%.17g\n",
+                   task->parameters.size() > 2 ? task->parameters[2] : -1.0);
       std::fflush(traj);
     }
 
