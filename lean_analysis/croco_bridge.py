@@ -80,8 +80,14 @@ def import_crocoddyl():
     """
     return _crocoddyl
 
-URDF = ("/home/humanoid/Programs/mjpc_icra2026/build/_deps/cl_assets-src/"
-        "ros_assets/h1_2_magpie.urdf")
+# The URDF crocoddyl plans on.  Same provenance rule as contact_select._LEAN_DIR:
+# default to the CL_Assets checkout under this repo's build tree (the pinned SHA
+# the MJCF is staged from, so the two models are the same robot by construction),
+# overridable with H12_URDF.
+URDF = os.environ.get(
+    "H12_URDF",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "build/_deps/cl_assets-src/ros_assets/h1_2_magpie.urdf"))
 URDF_DIR = os.path.dirname(URDF)
 
 # The 27 actuated joints, in MJCF order.  Pinocchio is asked to match this order
@@ -149,7 +155,45 @@ def mj_model():
     return _MJ_CACHE
 
 
-def build_pin(reconcile_inertia=True):
+def mj_joint_passive(m=None):
+    """(damping, armature, frictionloss) over the 27 actuated joints, from the MJCF.
+
+    THE SECOND HALF OF THE BRIDGE, and it was missing until 2026-08-06.  The
+    inertia reconciliation below made the two models agree about MASS; they still
+    disagreed about everything the MJCF puts on a joint that a URDF has no place
+    for.  This model carries, on every actuated joint:
+
+        damping       10 N m s/rad
+        armature      0.1 kg m^2
+        frictionloss  0.2 N m
+
+    The damping is the one that matters and it is not a small correction: at the
+    2.6 rad/s the plan reaches it is 26 N m of joint torque that crocoddyl does
+    not know exists -- more than the entire clamp budget of a wrist and 54% of an
+    ankle's.  A plan solved without it is solved for a different robot, and the
+    replay symptom is exactly what was measured: a standing tracking error that
+    grows fastest at the joints moving fastest, a base that pitches, and a fall
+    at ~1.4 s that reads like "open loop cannot work" rather than like a missing
+    term.  The armature is 0.1 against arm-link inertias of order 0.01-0.05, so
+    it is not a rounding correction to the mass matrix either.
+
+    Returned per ACTUATED joint in ACTUATED order, and asserted uniform per joint
+    (one dof each) rather than assumed.
+    """
+    m = m or mj_model()[0]
+    b, a, f = [], [], []
+    for name in ACTUATED:
+        j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, name)
+        if m.jnt_type[j] != mujoco.mjtJoint.mjJNT_HINGE:
+            raise RuntimeError(f"{name} is not a hinge; passive map needs one dof")
+        dof = m.jnt_dofadr[j]
+        b.append(float(m.dof_damping[dof]))
+        a.append(float(m.dof_armature[dof]))
+        f.append(float(m.dof_frictionloss[dof]))
+    return np.array(b), np.array(a), np.array(f)
+
+
+def build_pin(reconcile_inertia=True, reconcile_passive=True):
     """Reduced Pinocchio model: free-flyer + the same 27 joints as the MJCF.
 
     With `reconcile_inertia` (the default) every link inertia is REPLACED by the
@@ -181,6 +225,17 @@ def build_pin(reconcile_inertia=True):
                            f"  pin: {order}\n  mjc: {ACTUATED}")
     if reconcile_inertia:
         _apply_mj_inertia(model)
+    if reconcile_passive:
+        # ARMATURE goes into the model, where pinocchio's crba/aba add it to the
+        # mass-matrix diagonal, so crocoddyl's contact dynamics pick it up with no
+        # further plumbing.  DAMPING and FRICTIONLOSS cannot: pinocchio stores
+        # model.damping/model.friction but no forward-dynamics algorithm applies
+        # them, so they are carried by croco_plan.ActuationModelJointPassive
+        # instead -- see there.
+        b, a, f = mj_joint_passive()
+        model.armature[6:] = a
+        model.damping[6:] = b
+        model.friction[6:] = f
     return model
 
 
@@ -243,6 +298,24 @@ def mj_to_pin(qpos):
     out[3:7] = q[[4, 5, 6, 3]]               # w,x,y,z -> x,y,z,w
     out[7:] = q[7:NQ_ROBOT]
     return out
+
+
+def mj_to_pin_v(qvel, R_base):
+    """MuJoCo qvel (39,) or (33,) -> Pinocchio v (33,).  Rotates the base linear.
+
+    Same convention trap as the gravity rows in `parity`, and it bites harder
+    here because this one feeds a FEEDBACK law.  A MuJoCo free joint reports its
+    linear velocity in WORLD and its angular velocity in the BODY frame;
+    Pinocchio's free-flyer reports both in the body frame.  So only the linear
+    half is rotated, with R_base = d.xmat[1] (world <- pelvis).
+
+    Getting it wrong does not look like an error: it looks like a controller that
+    is stable while the base is level and drifts as the robot pitches, which is
+    exactly the regime this maneuver lives in (torso ~32 deg).
+    """
+    v = np.asarray(qvel, dtype=float)[:NV_ROBOT].copy()
+    v[0:3] = np.asarray(R_base, float).T @ v[0:3]
+    return v
 
 
 def pin_to_mj(q, qpos_full=None):
@@ -357,7 +430,23 @@ def parity(qpos=None, verbose=True):
     g_err_joint = float(np.max(np.abs(g_pin_world[6:] - g_mj[6:])))
     g_err_base = float(np.max(np.abs(g_pin_world[:6] - g_mj[:6])))
 
-    res = dict(mass_mj=robot_mass, mass_pin=float(pin_mass),
+    # --- mass matrix.  The inertia reconciliation above is about MASS; this is
+    #     the row that catches ARMATURE, which is 0.1 kg m^2 on every actuated
+    #     joint and shows up nowhere else.  Compared over the 27 actuated rows
+    #     only: the 6 base rows are in different frames (see the gravity note).
+    mujoco.mj_forward(m, d)
+    M_mj = np.zeros((m.nv, m.nv))
+    mujoco.mj_fullM(m, M_mj, d.qM)
+    M_pin = pin.crba(model, data, q)
+    M_pin = np.triu(M_pin) + np.triu(M_pin, 1).T
+    m_err = float(np.max(np.abs(M_pin[6:, 6:] - M_mj[6:NV_ROBOT, 6:NV_ROBOT])))
+    b_mj, a_mj, f_mj = mj_joint_passive(m)
+    passive_err = float(max(np.max(np.abs(model.armature[6:] - a_mj)),
+                            np.max(np.abs(model.damping[6:] - b_mj)),
+                            np.max(np.abs(model.friction[6:] - f_mj))))
+
+    res = dict(mass_matrix_err=m_err, passive_err=passive_err,
+               mass_mj=robot_mass, mass_pin=float(pin_mass),
                mass_err=float(abs(robot_mass - pin_mass)),
                body_pos_err_max=max(pos_err.values()) if pos_err else 0.0,
                body_pos_err_argmax=max(pos_err, key=pos_err.get) if pos_err else "",
@@ -375,6 +464,8 @@ def parity(qpos=None, verbose=True):
             print(f"  site {k:8s} |d| = {v:.3e} m")
         print(f"gravity   joints max|d| = {g_err_joint:.3e} Nm"
               f"   base max|d| = {g_err_base:.3e}")
+        print(f"mass mat  27x27 actuated block max|d| = {m_err:.3e} kg m^2")
+        print(f"passive   damping/armature/friction max|d| = {passive_err:.3e}")
     return res
 
 

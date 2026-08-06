@@ -44,8 +44,15 @@ import mujoco
 from scipy.optimize import lsq_linear
 
 import os
-_LEAN_DIR = ("/home/humanoid/Programs/mjpc_icra2026/build/mjpc/tasks/"
-             "humanoid_bench/lean/")
+# Where the STAGED lean task lives.  Defaults to this checkout's own build tree
+# (../build/... relative to this file) so the study runs on any machine that has
+# run `lean_analysis/stage_assets.sh` or a real MJPC build; LEAN_TASK_DIR
+# overrides it.  Was hardcoded to one developer's absolute path, which is why
+# nothing in here ran anywhere else.
+_LEAN_DIR = os.environ.get(
+    "LEAN_TASK_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "build/mjpc/tasks/humanoid_bench/lean")) + "/"
 # LEAN_MODEL=magpie selects the variant that carries the real magpie grippers
 # (0.506 kg each, with box collision proxies + jaws).  The base model is the
 # handless robot: its "palm" is a wrist capsule + sphere, NOT a gripper.

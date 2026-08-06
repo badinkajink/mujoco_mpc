@@ -11,15 +11,50 @@ enumeration's (q*, contact schedule) and ask a DDP to produce the trajectory
 that gets there, with the contact schedule PRESCRIBED -- which is the input
 crocoddyl wants and the thing the enumeration already produces.
 
-STRUCTURE.  Three phases over a prescribed schedule:
+STRUCTURE.  Phases over a prescribed schedule:
 
     A  approach   feet only.        Lower the CoM and swing the bracing arm out
-                                    over the table, sites kept ABOVE the table
-                                    plane by a barrier.
+                                    over the table, everything kept OUT of the
+                                    table box, CoM kept over the feet.
     I  impact     impulse at the    Zero-velocity touchdown of the bracing sites.
-       brace sites
+       brace sites                  (off by default -- see `build`)
     B  braced     feet + brace.     Settle onto q*, reach the target, come to
-                                    rest inside the friction cones.
+                                    rest inside the friction cones, with the
+                                    brace sites HELD on their landing spots.
+    R  return     feet only.        Optional: lift the brace off the table and
+                                    come back to the start pose, CoM over feet
+                                    again.  `n_return > 0`.
+
+WHAT S12 GOT WRONG, AND WHAT CHANGED (2026-08-06).  The S12 plan solved and did
+not survive MuJoCo.  A node-by-node geometry readout (`croco_diag.py`) says why,
+and it is not what the S12 write-up guessed:
+
+  1. THE BRACED PHASE WAS LEANING ON THIN AIR.  Over all 41 braced nodes the
+     elbow site sat 52.6 mm above the tabletop and the forearm site 19.0 mm above
+     it, against 42.9 / 33.6 mm at the certified pose -- so the elbow was ~10 mm
+     too high and the forearm ~15 mm too low, i.e. one link hovering and the
+     other buried.  The contact models were happily supplying force at both.
+     Nothing in the OCP made the landing accurate: the `land_` cost ramped to a
+     weight of 50 against a reach cost of 100 and a terminal state cost, and
+     ContactModel3D with Baumgarte Kp = 0 constrains velocity, not position, so
+     once the phase starts the site stays wherever it arrived.  FIX: the landing
+     cost is z-weighted and much heavier, and the braced phase carries an
+     explicit `hold_` cost at the landing spot.
+  2. THE HALF-SPACE BARRIER COULD NOT EXPRESS THE TABLE.  See croco_geom: the
+     tabletop is a box, the certified pose hangs geometry over its edge, and
+     `z >= table_z` cannot say "below the top but outside the footprint".
+     FIX: a box-SDF keep-out, thresholded so the certified pose is feasible.
+  3. THE GRIPPER WAS NOT A CONTACT BUT WAS TOUCHING.  At q*, MuJoCo's narrowphase
+     reports the bracing gripper on the table (3 contacts, 0.9-3.7 mm deep)
+     alongside the elbow and forearm links.  Planning `elbow+forearm` therefore
+     left a body that is IN CONTACT in the certified pose completely
+     unconstrained, which is how it ended up 68 mm through the slab.  FIX: run
+     the mode that matches what the pose actually does -- `elbow+forearm+palm`.
+  4. NOTHING KEPT THE CoM OVER THE FEET.  The approach leans out over the table
+     on feet-only support for over a second, and rigid prescribed contacts let
+     the optimiser borrow support it does not have yet.  FIX: a quadratic barrier
+     holding the CoM inside the foot polygon (shrunk by a margin) whenever the
+     brace is not down.
 
 WHAT IS AND IS NOT MODELLED.  Honest list, because these are the costs that decide
 whether the result transfers:
@@ -27,10 +62,10 @@ whether the result transfers:
   * Contacts are RIGID and prescribed.  This is not MuJoCo's soft contact model,
     so predicted forces will not match MuJoCo's exactly -- `croco_replay.py`
     measures the difference rather than assuming it away.
-  * The table is a contact reference and a half-space barrier on the brace sites
-    and reaching hand.  It is NOT a collision body: nothing stops an ELBOW from
-    clipping the table edge on the way in.  The barrier covers the sites we care
-    about, which is less than full collision avoidance.
+  * The table is a contact reference and a keep-out box built from
+    `table_top_collision`.  Its LEGS are not modelled; nothing in this maneuver
+    goes near them (verified: min clearance over the plan is reported by
+    croco_diag).
   * The feet are 6D-pinned at their placement in the START pose, not at q*'s.
     The study's IK pinned feet at the brace SEED keyframe, whose stance is 19 mm
     narrower than `stand`; a rigid contact cannot be in two places, so the start
@@ -39,6 +74,9 @@ whether the result transfers:
     assumed -- see the report at the end of a run.
   * Torque limits are the study's `clamp` basis, enforced as hard box bounds by
     SolverBoxFDDP.
+
+`legacy=True` restores the S12 formulation exactly (half-space barrier, no hold,
+no CoM barrier, no return phase) and reproduces its numbers to 7 figures.
 """
 
 import argparse
@@ -53,6 +91,7 @@ import mujoco
 
 import contact_select as cs
 import croco_bridge as cb
+import croco_geom as cg
 
 # NOT `import crocoddyl` -- see croco_bridge.import_crocoddyl for why a plain
 # import segfaults inside ShootingProblem.
@@ -80,6 +119,69 @@ CONTACT_GAINS = np.array([0.0, 50.0])
 INV_DAMPING = 1e-4
 
 
+# Smoothing width for Coulomb friction [rad/s].  MuJoCo's frictionloss is a hard
+# 0.2 N.m constraint; a DDP needs a differentiable stand-in, and tanh(v/eps) with
+# eps = 0.05 is within 1% of the constraint above 0.15 rad/s while staying
+# Lipschitz through zero.  It is 0.2 N.m -- the reason it is here at all is that
+# leaving it out means the plan's torques are systematically low on every joint
+# that is moving, and the systematic part is what the servo has to make up.
+FRICTION_EPS = 0.05
+
+
+class ActuationModelJointPassive:
+    """Placeholder; the real class is built in `_make_actuation` (needs crocoddyl)."""
+
+
+def _make_actuation(state, damping, friction, eps=FRICTION_EPS):
+    """Floating-base actuation that also carries the plant's PASSIVE joint torques.
+
+    crocoddyl's stock ActuationModelFloatingBase maps u straight onto the
+    actuated rows: tau = [0; u].  That is the right model for a robot whose
+    joints are frictionless and undamped, and this one is not -- the MJCF puts
+    10 N m s/rad of damping and 0.2 N m of friction loss on all 27 joints, which
+    at the plan's velocities is up to 26 N m per joint that MuJoCo subtracts and
+    crocoddyl never budgeted for (see croco_bridge.mj_joint_passive).
+
+    So the actuation becomes
+
+        tau = [0; u - b v_j - f tanh(v_j / eps)]
+
+    which is exactly what the plant does, and the plan's torques become the
+    torques the actuator has to produce rather than the net joint torques.  The
+    armature is handled the other way, inside the pinocchio model, because
+    pinocchio's mass matrix already knows how to carry it.
+    """
+    class _Passive(crocoddyl.ActuationModelAbstract):
+        def __init__(self):
+            crocoddyl.ActuationModelAbstract.__init__(self, state, state.nv - 6)
+            self.b = np.asarray(damping, float)
+            self.f = np.asarray(friction, float)
+            self.eps = float(eps)
+            nv, nu = state.nv, state.nv - 6
+            self._S = np.zeros((nv, nu))
+            self._S[6:, :] = np.eye(nu)
+
+        def calc(self, data, x, u):
+            vj = x[state.nq + 6:]
+            tau = np.zeros(state.nv)
+            tau[6:] = u - self.b * vj - self.f * np.tanh(vj / self.eps)
+            data.tau = tau
+
+        def calcDiff(self, data, x, u):
+            vj = x[state.nq + 6:]
+            nv = state.nv
+            dtau_dx = np.zeros((nv, 2 * nv))
+            sech2 = 1.0 - np.tanh(vj / self.eps) ** 2
+            dtau_dx[6:, nv + 6:] = -np.diag(self.b + self.f * sech2 / self.eps)
+            data.dtau_dx = dtau_dx
+            data.dtau_du = self._S
+
+        def commands(self, data, x, tau):
+            data.u = tau[6:]
+
+    return _Passive()
+
+
 # --------------------------------------------------------------------------- #
 def _joint_bounds(model_mj):
     """Joint position bounds (27 actuated joints) straight from the MJCF."""
@@ -97,14 +199,42 @@ def _joint_bounds(model_mj):
 
 class LeanOCP:
     def __init__(self, subset, q_star_mj, q0_mj, mu=0.6, table_z=None,
-                 reach_target=None, clearance=0.02, cones=True):
-        self.rmodel = cb.build_pin()
+                 reach_target=None, clearance=0.02, cones=True, legacy=False,
+                 keepout=True, com_margin=0.03, w_land=5e3, w_hold=1e3,
+                 w_com=1e3, land_z_weight=3.0):
+        self.rmodel = cb.build_pin(reconcile_passive=not legacy)
         self.sites = cb.mj_site_frames(self.rmodel)
-        self.rdata = self.rmodel.createData()
         self.subset = list(subset)
+        self.legacy = legacy
+        m_mj, d_mj = cb.mj_model()
 
+        # Keep-out points get their Pinocchio frames HERE, before StateMultibody
+        # is constructed: crocoddyl takes the model by reference but every
+        # pinocchio Data downstream is sized from it, and adding frames after the
+        # state exists is the kind of thing that works until it silently does not.
+        self.keepout, self.table_c, self.table_half = [], None, None
+        if keepout and not legacy:
+            self.keepout, self.table_c, self.table_half = cg.keepout_spec(
+                m_mj, d_mj, q_star_mj, self.subset)
+            seen = {}
+            for p in self.keepout:
+                key = (p["body"], tuple(np.round(p["offset"], 9)))
+                if key not in seen:
+                    fid = self.rmodel.getFrameId(
+                        cb.BODY_ALIAS.get(p["body"], p["body"]))
+                    pl = self.rmodel.frames[fid].placement * pin.SE3(
+                        np.eye(3), p["offset"])
+                    seen[key] = self.rmodel.addFrame(pin.Frame(
+                        f"ko_{len(seen)}", self.rmodel.frames[fid].parentJoint,
+                        fid, pl, pin.FrameType.OP_FRAME))
+                p["fid"] = seen[key]
+
+        self.rdata = self.rmodel.createData()
         self.state = crocoddyl.StateMultibody(self.rmodel)
-        self.actuation = crocoddyl.ActuationModelFloatingBase(self.state)
+        b, _, f = cb.mj_joint_passive(m_mj)
+        self.damping, self.friction = b, f
+        self.actuation = (crocoddyl.ActuationModelFloatingBase(self.state)
+                          if legacy else _make_actuation(self.state, b, f))
         self.nu = self.actuation.nu
 
         self.q0 = cb.mj_to_pin(q0_mj)
@@ -129,9 +259,28 @@ class LeanOCP:
                          for s in self.subset}
         self.reach_ref = self.rdata.oMf[self.sites["reach"]].translation.copy()
 
-        m_mj, _ = cb.mj_model()
         self.tau_lim = cs.torque_limits(m_mj)
         self.jlb, self.jub = _joint_bounds(m_mj)
+        # S12 used w_land = 5e1 with an unweighted 3-D landing residual; `legacy`
+        # restores exactly that so the old numbers are reproducible from this file.
+        self.w_land = 5e1 if legacy else w_land
+        self.w_hold, self.w_com = w_hold, w_com
+        self.land_w = np.ones(3) if legacy else \
+            np.array([1.0, 1.0, land_z_weight]) ** 2
+
+        # SUPPORT POLYGON for the CoM barrier, as the axis-aligned box spanned by
+        # the eight sole corners at the START pose.  Axis-aligned and shrunk by
+        # `com_margin` on purpose: this is a barrier meant to keep the optimiser
+        # from borrowing support it does not have during the feet-only phases,
+        # not a tight stability certificate -- stability.equilibrium_region is
+        # the certificate, and it is measured afterwards on what came out.
+        d_mj.qpos[:len(q0_mj)] = q0_mj
+        mujoco.mj_forward(m_mj, d_mj)
+        corners = np.array([cs.point_world(m_mj, d_mj, b, o)
+                            for f in cs.FEET
+                            for b, o in cs.foot_corners(m_mj, d_mj, f)])
+        self.support_lo = corners[:, :2].min(axis=0) + com_margin
+        self.support_hi = corners[:, :2].max(axis=0) - com_margin
 
         # State-regularisation weights.  The floating base is NOT regularised to
         # q* (the base pose is an outcome of the lean, not a target); joints are,
@@ -162,12 +311,14 @@ class LeanOCP:
                     pin.LOCAL_WORLD_ALIGNED, self.nu, CONTACT_GAINS))
         return contacts
 
-    def _base_costs(self, braced, w_state=1e-1, w_ctrl=1e-3, cones=None):
+    def _base_costs(self, braced, w_state=1e-1, w_ctrl=1e-3, cones=None,
+                    x_ref=None):
         costs = crocoddyl.CostModelSum(self.state, self.nu)
         costs.addCost("stateReg", crocoddyl.CostModelResidual(
             self.state,
             crocoddyl.ActivationModelWeightedQuad(self.w_state),
-            crocoddyl.ResidualModelState(self.state, self.x_star, self.nu)),
+            crocoddyl.ResidualModelState(
+                self.state, self.x_star if x_ref is None else x_ref, self.nu)),
             w_state)
         costs.addCost("ctrlReg", crocoddyl.CostModelResidual(
             self.state, crocoddyl.ResidualModelControl(self.state, self.nu)),
@@ -220,6 +371,47 @@ class LeanOCP:
                         self.state, self.sites[s], cone, self.nu)), 1e1)
         return costs
 
+    def _keep_out(self, costs, nu, weight=1e3):
+        """Keep every non-contact geom out of the TABLE BOX (croco_geom).
+
+        One `ResidualModelFrameTranslation` per sampled point, referenced to the
+        box centre, under the box keep-out activation.  The activation is exactly
+        zero outside the inflated box, which is what lets the certified pose
+        (gripper hanging over the near edge, 7 mm below the top plane) cost
+        nothing while a body actually inside the slab is pushed out.  This is the
+        term the S12 half-space could not be.
+
+        `cg.activation` returns the C++ implementation when croco_ext is built
+        and the identical Python one otherwise (cg.IMPL says which).
+        """
+        if not self.keepout:
+            return
+        for p in self.keepout:
+            act = cg.activation(self.table_half, p["thresh"])
+            costs.addCost(
+                f"ko_{p['geom']}_{p['fid']}",
+                crocoddyl.CostModelResidual(
+                    self.state, act, crocoddyl.ResidualModelFrameTranslation(
+                        self.state, p["fid"], self.table_c, nu)), weight)
+
+    def _com_over_feet(self, costs, nu):
+        """Barrier keeping the horizontal CoM inside the (shrunk) foot polygon.
+
+        Only used on the FEET-ONLY phases.  Without it the approach is free to
+        lean the CoM out over the table before there is anything under it, which
+        is admissible to a prescribed-contact DDP (the feet are rigid pins that
+        can pull) and is a topple in MuJoCo.  The braced phase deliberately does
+        NOT carry it: extending the support region forward is the entire point of
+        bracing, and the brace contacts are in the problem by then.
+        """
+        lo = np.array([self.support_lo[0], self.support_lo[1], -np.inf])
+        hi = np.array([self.support_hi[0], self.support_hi[1], np.inf])
+        act = crocoddyl.ActivationModelQuadraticBarrier(
+            crocoddyl.ActivationBounds(lo, hi))
+        costs.addCost("comSupport", crocoddyl.CostModelResidual(
+            self.state, act, crocoddyl.ResidualModelCoMPosition(
+                self.state, np.zeros(3), nu)), self.w_com)
+
     def _table_barrier(self, costs, nu, weight=5e2):
         """Keep the whole bracing arm and the reaching hand ABOVE the table plane.
 
@@ -250,23 +442,50 @@ class LeanOCP:
                 self.state, act, crocoddyl.ResidualModelFrameTranslation(
                     self.state, fid, np.zeros(3), nu)), weight)
 
+    def _geometry(self, costs, nu, feet_only):
+        """The table and support-polygon terms for one node."""
+        if self.legacy:
+            self._table_barrier(costs, nu)
+            return
+        self._keep_out(costs, nu)
+        # `not self.subset` is the legs-only mode, which the (mode x target)
+        # sweep uses as its no-brace baseline.  There the "braced" phase has no
+        # brace in it, so dropping the CoM barrier -- correct when a brace is
+        # about to extend the support region -- would let the optimiser lean the
+        # CoM out over nothing for the whole trajectory and call it a plan.
+        if feet_only or not self.subset:
+            self._com_over_feet(costs, nu)
+
     # --------------------------------------------------------------- phases --
     def build(self, dt=0.01, n_approach=120, n_braced=80, impulse=False,
-              cones=None, w_terminal=1e0):
+              cones=None, w_terminal=1e0, n_return=0, dwell=0):
         approach = []
         for k in range(n_approach):
             costs = self._base_costs(braced=False, cones=cones)
-            self._table_barrier(costs, self.nu)
+            self._geometry(costs, self.nu, feet_only=True)
             # Guide each bracing site toward its certified landing spot, ramped in
             # over the phase so the pull is weak while the robot is still upright
             # and strong just before touchdown.
-            w = 5e1 * (k / max(n_approach - 1, 1)) ** 2
+            #
+            # S12 ramped this to a weight of 50 and left the reference at the full
+            # 3-D landing point.  Measured outcome: the sites arrived 35 mm away
+            # and, more damagingly, at the WRONG HEIGHT -- elbow 10 mm high,
+            # forearm 15 mm low -- so the braced phase that follows was leaning on
+            # a contact that in MuJoCo does not exist.  Two changes: the weight is
+            # `w_land` (5e3 by default, i.e. above the reach cost rather than
+            # below it) and the residual is z-weighted, because a lateral miss of
+            # 20 mm still lands on a 0.6 x 1.2 m table while a vertical miss of
+            # 20 mm is the difference between a contact and thin air.
+            frac = k / max(n_approach - 1, 1)
+            w = self.w_land * frac ** 2
             if w > 0:
                 for s in self.subset:
                     tgt = self.site_ref[s] + np.array(
-                        [0, 0, self.clearance * (1 - k / max(n_approach - 1, 1))])
+                        [0, 0, self.clearance * (1 - frac)])
                     costs.addCost(f"land_{s}", crocoddyl.CostModelResidual(
-                        self.state, crocoddyl.ResidualModelFrameTranslation(
+                        self.state,
+                        crocoddyl.ActivationModelWeightedQuad(self.land_w),
+                        crocoddyl.ResidualModelFrameTranslation(
                             self.state, self.sites[s], tgt, self.nu)), w)
             dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
                 self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, True)
@@ -300,47 +519,98 @@ class LeanOCP:
         braced = []
         for k in range(n_braced):
             costs = self._base_costs(braced=True, w_state=1e0, cones=cones)
-            self._table_barrier(costs, self.nu)
+            self._geometry(costs, self.nu, feet_only=False)
+            # DWELL.  Without a return phase the terminal node holds the hand on
+            # the target and that is enough.  With one, the DDP smooths across the
+            # phase boundary and starts leaving before it has arrived -- measured
+            # 81 mm of reach error at the end of the braced phase against 1.7 mm
+            # for the same plan without a return, and |v| = 1.5 where it should be
+            # at rest.  So the last `dwell` braced nodes get the terminal reach
+            # weight and a velocity regulariser: arrive, stop, hold, then leave.
+            in_dwell = dwell and k >= n_braced - dwell
             if self.reach_target is not None:
                 costs.addCost("reach", crocoddyl.CostModelResidual(
                     self.state, crocoddyl.ResidualModelFrameTranslation(
                         self.state, self.sites["reach"], self.reach_target,
-                        self.nu)), 1e2)
+                        self.nu)), 1e3 if in_dwell else 1e2)
+            if in_dwell:
+                nv = self.rmodel.nv
+                w_rest = np.concatenate([np.zeros(nv), np.ones(nv)])
+                costs.addCost("restReg", crocoddyl.CostModelResidual(
+                    self.state, crocoddyl.ActivationModelWeightedQuad(w_rest),
+                    crocoddyl.ResidualModelState(self.state, self.x_star,
+                                                 self.nu)), 1e2)
+            # HOLD the brace where it landed.  ContactModel3D is written with
+            # Baumgarte Kp = 0, so it constrains the site's VELOCITY and not its
+            # position: once the braced phase starts, whatever height the site
+            # arrived at is the height it keeps, and the S12 plan spent all 41
+            # braced nodes with the elbow 10 mm above the table and the forearm
+            # 15 mm inside it.  This is the position half the contact does not do.
+            if not self.legacy:
+                for s in self.subset:
+                    costs.addCost(f"hold_{s}", crocoddyl.CostModelResidual(
+                        self.state,
+                        crocoddyl.ActivationModelWeightedQuad(self.land_w),
+                        crocoddyl.ResidualModelFrameTranslation(
+                            self.state, self.sites[s], self.site_ref[s],
+                            self.nu)), self.w_hold)
             dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
                 self.state, self.actuation, self._contacts(True), costs, INV_DAMPING, True)
             braced.append(crocoddyl.IntegratedActionModelEuler(dmodel, dt))
 
-        # terminal: at q*, at rest, hand on target
-        tcosts = self._base_costs(braced=True, w_state=w_terminal, w_ctrl=0.0,
-                                  cones=cones)
+        # RETURN: brace released, feet only again, back to the start pose.  The
+        # brace contacts simply leave the problem -- a release is a contact
+        # REMOVAL, which needs no impulse and no complementarity, and is the one
+        # mode transition a prescribed-schedule DDP handles for free.  The state
+        # regulariser flips from q* to the start pose and the CoM barrier comes
+        # back, since the robot is on its feet alone again.
+        ret = []
+        for k in range(n_return):
+            costs = self._base_costs(braced=False, w_state=1e0, cones=cones,
+                                     x_ref=self.x0)
+            self._geometry(costs, self.nu, feet_only=True)
+            dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
+                self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, True)
+            ret.append(crocoddyl.IntegratedActionModelEuler(dmodel, dt))
+
+        # Terminal.  Without a return phase this is the braced pose: at q*, at
+        # rest, hand on target.  WITH one it is the start pose, on the feet, brace
+        # released -- so the terminal contact set has to follow the last running
+        # phase or the problem ends with a contact the node before it does not have.
+        terminal_braced = n_return == 0
+        tcosts = self._base_costs(braced=terminal_braced, w_state=w_terminal,
+                                  w_ctrl=0.0, cones=cones,
+                                  x_ref=None if terminal_braced else self.x0)
         tcosts.removeCost("ctrlReg")
-        self._table_barrier(tcosts, self.nu)
-        if self.reach_target is not None:
+        self._geometry(tcosts, self.nu, feet_only=not terminal_braced)
+        if self.reach_target is not None and terminal_braced:
             tcosts.addCost("reach", crocoddyl.CostModelResidual(
                 self.state, crocoddyl.ResidualModelFrameTranslation(
                     self.state, self.sites["reach"], self.reach_target, self.nu)),
                 1e3)
         tdmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
-            self.state, self.actuation, self._contacts(True), tcosts, INV_DAMPING, True)
+            self.state, self.actuation, self._contacts(terminal_braced), tcosts,
+            INV_DAMPING, True)
         terminal = crocoddyl.IntegratedActionModelEuler(tdmodel, 0.0)
 
         # Hand the torque limits to the solver as BOX BOUNDS.  SolverBoxFDDP only
         # enforces limits that the action models actually carry; without this it
         # silently degrades to plain FDDP and the `clamp` basis is documented but
         # not applied.
-        for mdl in approach + braced:
+        for mdl in approach + braced + ret:
             mdl.u_lb = -self.tau_lim
             mdl.u_ub = self.tau_lim
 
         self.dt = dt
-        self.n_approach, self.n_braced = n_approach, n_braced
+        self.n_approach, self.n_braced, self.n_return = \
+            n_approach, n_braced, n_return
         return crocoddyl.ShootingProblem(
-            self.x0, approach + impact + braced, terminal)
+            self.x0, approach + impact + braced + ret, terminal)
 
 
 # --------------------------------------------------------------------------- #
 def solve_staged(ocp, dt, n_approach, n_braced, iters=200, impulse=False,
-                 w_terminal=1e0, verbose=True):
+                 w_terminal=1e0, verbose=True, n_return=0, dwell=0):
     """Two-stage continuation: solve without cones, then re-solve with them.
 
     Handing the cone costs an infeasible warm start does not work.  The
@@ -360,13 +630,16 @@ def solve_staged(ocp, dt, n_approach, n_braced, iters=200, impulse=False,
     stage 2 well-posed.
     """
     stage1 = ocp.build(dt=dt, n_approach=n_approach, n_braced=n_braced,
-                       impulse=impulse, cones=False, w_terminal=w_terminal)
-    s1, ok1, t1 = solve(stage1, ocp, iters=iters, verbose=verbose)
+                       impulse=impulse, cones=False, w_terminal=w_terminal,
+                       n_return=n_return, dwell=dwell)
+    s1, ok1, t1 = solve(stage1, ocp, iters=iters, verbose=verbose,
+                        n_approach=n_approach, n_return=n_return)
     if not ocp.cones:
         return s1, ok1, t1, None
 
     stage2 = ocp.build(dt=dt, n_approach=n_approach, n_braced=n_braced,
-                       impulse=impulse, cones=True, w_terminal=w_terminal)
+                       impulse=impulse, cones=True, w_terminal=w_terminal,
+                       n_return=n_return, dwell=dwell)
     s2 = crocoddyl.SolverBoxFDDP(stage2)
     if verbose:
         s2.setCallbacks([crocoddyl.CallbackVerbose()])
@@ -375,8 +648,8 @@ def solve_staged(ocp, dt, n_approach, n_braced, iters=200, impulse=False,
     return s2, ok2, t1 + (time.time() - t0), (ok1, float(s1.cost))
 
 
-def solve(problem, ocp, iters=200, verbose=True):
-    """FDDP with a warm start that interpolates stand -> q*.
+def solve(problem, ocp, iters=200, verbose=True, n_approach=None, n_return=0):
+    """FDDP with a warm start that interpolates stand -> q* (-> stand).
 
     Warm-starting every node at x0 (the usual crocoddyl boilerplate) is a bad
     initial guess here: the whole point of the problem is a large, slow
@@ -396,26 +669,52 @@ def solve(problem, ocp, iters=200, verbose=True):
     if verbose:
         solver.setCallbacks([crocoddyl.CallbackVerbose()])
 
+    # With a return phase the guess has to come BACK: interpolating monotonically
+    # to q* over a problem that ends at the start pose gives every return node a
+    # guess at the far end of the maneuver, which is the same bad-guess failure
+    # the constant warm start had, just at the other end of the trajectory.
+    T = problem.T
+    turn = (T - n_return) if n_return else T
     xs = []
-    for k in range(problem.T + 1):
-        q = pin.interpolate(ocp.rmodel, ocp.q0, ocp.q_star, k / problem.T)
+    for k in range(T + 1):
+        s = k / turn if k <= turn else 1.0 - (k - turn) / max(T - turn, 1)
+        q = pin.interpolate(ocp.rmodel, ocp.q0, ocp.q_star, min(max(s, 0.0), 1.0))
         xs.append(np.concatenate([q, np.zeros(ocp.rmodel.nv)]))
-    us = problem.quasiStatic(xs[:-1])
+    # CLAMP the warm-start controls into the torque box.  quasiStatic() answers
+    # "what torque holds this configuration", and on the interpolated guess -- a
+    # deep lean with the brace not yet down -- that answer is 2.2x the clamp basis
+    # for elbow+forearm and 2.9x for elbow+forearm+palm.  SolverBoxFDDP projects
+    # the control onto its box before it uses it, so those out-of-box entries
+    # become a rollout the guess was never evaluated at: cost 4686 against 132 for
+    # the guess itself, no trial step ever accepted, and the run ends after 17
+    # iterations with an UNINITIALISED `stop` (9e-310).  That signature has been
+    # blamed on the cones, on the impulse node and on the terminal weight in this
+    # study; here it is simply an initial control outside the bounds the solver
+    # enforces, and clamping it is what lets the three-contact mode solve at all.
+    us = [np.clip(u, -ocp.tau_lim, ocp.tau_lim) for u in problem.quasiStatic(xs[:-1])]
     t0 = time.time()
     ok = solver.solve(xs, us, iters, False, 1e-9)
     return solver, ok, time.time() - t0
 
 
 def report(solver, ocp):
-    """Measure the plan against the things it was supposed to achieve."""
+    """Measure the plan against the things it was supposed to achieve.
+
+    Scored at the END OF THE BRACED PHASE, not at the terminal node: with a
+    return phase the terminal node is back at the start pose, where "how far is
+    the hand from the target" is not a question about the plan's quality.
+    """
     xs = np.array(solver.xs)
-    q_end = xs[-1][:ocp.rmodel.nq]
-    v_end = xs[-1][ocp.rmodel.nq:]
+    n_ret = getattr(ocp, "n_return", 0)
+    k_score = len(xs) - 1 - n_ret
+    q_end = xs[k_score][:ocp.rmodel.nq]
+    v_end = xs[k_score][ocp.rmodel.nq:]
     pin.forwardKinematics(ocp.rmodel, ocp.rdata, q_end)
     pin.updateFramePlacements(ocp.rmodel, ocp.rdata)
 
     out = {"cost": float(solver.cost), "iters": int(solver.iter),
-           "stop": float(solver.stop), "is_feasible": bool(solver.isFeasible)}
+           "stop": float(solver.stop), "is_feasible": bool(solver.isFeasible),
+           "score_node": int(k_score)}
     out["site_err"] = {s: float(np.linalg.norm(
         ocp.rdata.oMf[ocp.sites[s]].translation - ocp.site_ref[s]))
         for s in ocp.subset}
@@ -437,4 +736,25 @@ def report(solver, ocp):
     out["max_torque_ratio"] = float(np.max(np.abs(us) / ocp.tau_lim))
     out["torque_ratio_argmax_joint"] = cb.ACTUATED[
         int(np.argmax(np.max(np.abs(us) / ocp.tau_lim, axis=0)))]
+
+    # BRACE HEIGHT over the braced phase.  The single number the S12 plan needed
+    # and did not have: a brace contact that the OCP is drawing force from while
+    # the site hovers above the table is a contact that does not exist in MuJoCo.
+    # Reported as an offset from the CERTIFIED site height, so 0 means "as far
+    # into the table as the pose the static QP signed off".
+    if getattr(ocp, "n_approach", None) is not None and ocp.subset:
+        b0, b1 = ocp.n_approach, len(xs) - n_ret
+        dz = {s: [] for s in ocp.subset}
+        for k in range(b0, b1):
+            pin.forwardKinematics(ocp.rmodel, ocp.rdata, xs[k][:ocp.rmodel.nq])
+            pin.updateFramePlacements(ocp.rmodel, ocp.rdata)
+            for s in ocp.subset:
+                dz[s].append(float(
+                    ocp.rdata.oMf[ocp.sites[s]].translation[2]
+                    - ocp.site_ref[s][2]))
+        out["brace_dz_vs_qstar"] = {
+            s: {"min": min(v), "max": max(v), "mean": float(np.mean(v))}
+            for s, v in dz.items()}
+        out["brace_dz_worst_mm"] = 1000.0 * max(
+            max(abs(min(v)), abs(max(v))) for v in dz.values())
     return out
