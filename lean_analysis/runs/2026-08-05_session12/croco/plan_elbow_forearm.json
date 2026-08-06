@@ -1,0 +1,46 @@
+{
+ "cost": 22.942924339096916,
+ "iters": 58,
+ "stop": 1.3933886998199115e-05,
+ "is_feasible": true,
+ "site_err": {
+  "elbow": 0.035288893187753675,
+  "forearm": 0.034869669448773004
+ },
+ "reach_err": 0.0011360416222995417,
+ "foot_err": {
+  "sole_left": 0.002649993565193374,
+  "sole_right": 0.002782857122202311
+ },
+ "terminal_vel_norm": 0.05188228244907585,
+ "q_err_vs_qstar_rad": 0.6920228636874781,
+ "q_err_max_joint_rad": 0.42534705219138014,
+ "max_torque_ratio": 0.9941214120071495,
+ "torque_ratio_argmax_joint": "left_shoulder_roll_joint",
+ "mode": "elbow+forearm",
+ "subset": [
+  "elbow",
+  "forearm"
+ ],
+ "start": "stand",
+ "dt": 0.02,
+ "impulse": false,
+ "cones": true,
+ "n_approach": 60,
+ "n_braced": 40,
+ "mu": 0.6,
+ "converged": true,
+ "solve_seconds": 2.4493672847747803,
+ "commit": "1af270f3a48a842b441f9ec00fce4977d40b37d5",
+ "stage1": {
+  "converged": true,
+  "cost": 2.827885419325417
+ },
+ "target": [
+  0.9047,
+  -0.2348,
+  1.0982
+ ],
+ "model": "Lean_H12_Magpie.xml",
+ "tau_basis": "clamp"
+}

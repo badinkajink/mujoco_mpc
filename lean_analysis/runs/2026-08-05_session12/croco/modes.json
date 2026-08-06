@@ -1,0 +1,615 @@
+{
+ "target": [
+  0.9047,
+  -0.2348,
+  1.0982
+ ],
+ "sites": [
+  "elbow",
+  "forearm",
+  "palm",
+  "hip",
+  "torso"
+ ],
+ "model": "Lean_H12_Magpie.xml",
+ "brace_arm": "left",
+ "site_set": "v2",
+ "seed_key": "forearm_brace_reach",
+ "tau_basis": "clamp",
+ "commit": "1af270f3a48a842b441f9ec00fce4977d40b37d5",
+ "modes": [
+  {
+   "subset": [],
+   "admissible": true,
+   "reach": 0.0037884455365711413,
+   "penetration": -0.0,
+   "placed": true,
+   "base_res": 1.0381976824819892e-12,
+   "max_ratio": 0.464573693913022,
+   "effort": 0.8979270432197554,
+   "brace_force": 0.0,
+   "n_arm": 0,
+   "name": "legs_only",
+   "qpos_file": "q_legs_only.txt"
+  },
+  {
+   "subset": [
+    "elbow"
+   ],
+   "admissible": true,
+   "reach": 0.005442483449322051,
+   "penetration": 0.0020000000000000295,
+   "placed": true,
+   "base_res": 1.1656733763433592e-13,
+   "max_ratio": 0.46473392431333255,
+   "effort": 0.6610954957056827,
+   "brace_force": 44.84101668482461,
+   "n_arm": 1,
+   "name": "elbow",
+   "qpos_file": "q_elbow.txt"
+  },
+  {
+   "subset": [
+    "forearm"
+   ],
+   "admissible": true,
+   "reach": 0.0027242063154045634,
+   "penetration": 0.003906895420574329,
+   "placed": true,
+   "base_res": 6.195552438332375e-14,
+   "max_ratio": 0.4729347881040332,
+   "effort": 0.8290141717405427,
+   "brace_force": 4.078625023888649,
+   "n_arm": 1,
+   "name": "forearm",
+   "qpos_file": "q_forearm.txt"
+  },
+  {
+   "subset": [
+    "palm"
+   ],
+   "admissible": true,
+   "reach": 0.0037929100690610134,
+   "penetration": 0.001999999999999929,
+   "placed": true,
+   "base_res": 4.4665647123807063e-14,
+   "max_ratio": 0.45791438385558436,
+   "effort": 0.6850254886902419,
+   "brace_force": 7.372651860236544,
+   "n_arm": 1,
+   "name": "palm",
+   "qpos_file": "q_palm.txt"
+  },
+  {
+   "subset": [
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.009357130356075525,
+   "penetration": 0.00200000000000055,
+   "placed": true,
+   "base_res": 1.7976015918471952e-14,
+   "max_ratio": 0.46819539273128097,
+   "effort": 0.8264186382226862,
+   "brace_force": 101.06380689216545,
+   "n_arm": 0,
+   "name": "hip",
+   "qpos_file": "q_hip.txt"
+  },
+  {
+   "subset": [
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.012482207740637756,
+   "penetration": 0.0019999944242891487,
+   "placed": true,
+   "base_res": 3.670679189729074e-14,
+   "max_ratio": 0.48736965939933513,
+   "effort": 0.9136821634861478,
+   "brace_force": 112.8958794561704,
+   "n_arm": 0,
+   "name": "torso",
+   "qpos_file": "q_torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm"
+   ],
+   "admissible": true,
+   "reach": 0.006965135256605231,
+   "penetration": 0.007372139308963854,
+   "placed": true,
+   "base_res": 1.1386104395985667e-13,
+   "max_ratio": 0.4699923934068152,
+   "effort": 0.7675532340547192,
+   "brace_force": 52.250080303285095,
+   "n_arm": 2,
+   "name": "elbow+forearm",
+   "qpos_file": "q_elbow+forearm.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "palm"
+   ],
+   "admissible": true,
+   "reach": 0.007822062185990174,
+   "penetration": 0.0019693237494440158,
+   "placed": true,
+   "base_res": 3.3621432142708876e-14,
+   "max_ratio": 0.46072460812414257,
+   "effort": 0.6222950302579013,
+   "brace_force": 44.33205457674257,
+   "n_arm": 2,
+   "name": "elbow+palm",
+   "qpos_file": "q_elbow+palm.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.005757510248354436,
+   "penetration": 0.00468433718889695,
+   "placed": true,
+   "base_res": 1.9225780553793397e-14,
+   "max_ratio": 0.36558234922358684,
+   "effort": 0.6442634847643008,
+   "brace_force": 113.24861507484515,
+   "n_arm": 1,
+   "name": "elbow+hip",
+   "qpos_file": "q_elbow+hip.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.011975150085399558,
+   "penetration": 0.004654073030547042,
+   "placed": true,
+   "base_res": 2.3997259443764378e-14,
+   "max_ratio": 0.3544386908008623,
+   "effort": 0.7195091989827195,
+   "brace_force": 104.10854686802907,
+   "n_arm": 1,
+   "name": "elbow+torso",
+   "qpos_file": "q_elbow+torso.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "palm"
+   ],
+   "admissible": true,
+   "reach": 0.0019697802530763927,
+   "penetration": 0.002015017206997354,
+   "placed": true,
+   "base_res": 1.440350929706373e-10,
+   "max_ratio": 0.47470735234529526,
+   "effort": 0.812458438652261,
+   "brace_force": 3.7796159860532255,
+   "n_arm": 2,
+   "name": "forearm+palm",
+   "qpos_file": "q_forearm+palm.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.006770821338621289,
+   "penetration": 0.004891305070044426,
+   "placed": true,
+   "base_res": 1.6101296249988666e-14,
+   "max_ratio": 0.40099810372494915,
+   "effort": 0.5541572849643993,
+   "brace_force": 102.76506206843366,
+   "n_arm": 1,
+   "name": "forearm+hip",
+   "qpos_file": "q_forearm+hip.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.008388132664081631,
+   "penetration": 0.0032031274025141818,
+   "placed": true,
+   "base_res": 1.3233560403725999e-14,
+   "max_ratio": 0.2984354584505656,
+   "effort": 0.4756069486486003,
+   "brace_force": 98.01788632206109,
+   "n_arm": 1,
+   "name": "forearm+torso",
+   "qpos_file": "q_forearm+torso.txt"
+  },
+  {
+   "subset": [
+    "palm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.009610978909814868,
+   "penetration": 0.0020000000000001752,
+   "placed": true,
+   "base_res": 2.158977489381165e-14,
+   "max_ratio": 0.4055660680419421,
+   "effort": 0.699107478552054,
+   "brace_force": 88.85828797897858,
+   "n_arm": 1,
+   "name": "palm+hip",
+   "qpos_file": "q_palm+hip.txt"
+  },
+  {
+   "subset": [
+    "palm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007433933261555307,
+   "penetration": 0.0019999999999998777,
+   "placed": true,
+   "base_res": 1.1815715124012485e-13,
+   "max_ratio": 0.31676091182503846,
+   "effort": 0.5683506065549964,
+   "brace_force": 107.19281000766053,
+   "n_arm": 1,
+   "name": "palm+torso",
+   "qpos_file": "q_palm+torso.txt"
+  },
+  {
+   "subset": [
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007563683934443214,
+   "penetration": 0.00199999999999996,
+   "placed": true,
+   "base_res": 1.3191766966246607e-13,
+   "max_ratio": 0.5973701061963452,
+   "effort": 1.2097891192359411,
+   "brace_force": 79.51007061976277,
+   "n_arm": 0,
+   "name": "hip+torso",
+   "qpos_file": "q_hip+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm"
+   ],
+   "admissible": true,
+   "reach": 0.00697131046375531,
+   "penetration": 0.0020000000000004806,
+   "placed": true,
+   "base_res": 1.1779696495494193e-13,
+   "max_ratio": 0.46969766225031484,
+   "effort": 0.7501830487528298,
+   "brace_force": 49.03419515572379,
+   "n_arm": 3,
+   "name": "elbow+forearm+palm",
+   "qpos_file": "q_elbow+forearm+palm.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.008981728695724727,
+   "penetration": 0.0035911433174889776,
+   "placed": true,
+   "base_res": 2.768799177360277e-14,
+   "max_ratio": 0.37575873209630467,
+   "effort": 0.5563420127202805,
+   "brace_force": 121.58807556646765,
+   "n_arm": 2,
+   "name": "elbow+forearm+hip",
+   "qpos_file": "q_elbow+forearm+hip.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007352354036249571,
+   "penetration": 0.004813458461782227,
+   "placed": true,
+   "base_res": 9.497599466142805e-15,
+   "max_ratio": 0.31672182290176465,
+   "effort": 0.44117378303242466,
+   "brace_force": 107.32250230945634,
+   "n_arm": 2,
+   "name": "elbow+forearm+torso",
+   "qpos_file": "q_elbow+forearm+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "palm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.00792272089327276,
+   "penetration": 0.002000000000000328,
+   "placed": true,
+   "base_res": 1.182311940247426e-13,
+   "max_ratio": 0.3701692468091585,
+   "effort": 0.5949685275757962,
+   "brace_force": 99.584785612052,
+   "n_arm": 2,
+   "name": "elbow+palm+hip",
+   "qpos_file": "q_elbow+palm+hip.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "palm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007081350827724213,
+   "penetration": 0.0024431981777121095,
+   "placed": true,
+   "base_res": 1.062354401007905e-14,
+   "max_ratio": 0.3157867228113731,
+   "effort": 0.43207402339408635,
+   "brace_force": 99.59861600296708,
+   "n_arm": 2,
+   "name": "elbow+palm+torso",
+   "qpos_file": "q_elbow+palm+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.006292632585142102,
+   "penetration": 0.004858967881318,
+   "placed": true,
+   "base_res": 1.2689611194920002e-14,
+   "max_ratio": 0.35525474996564393,
+   "effort": 0.6347430666159257,
+   "brace_force": 103.37508069759917,
+   "n_arm": 1,
+   "name": "elbow+hip+torso",
+   "qpos_file": "q_elbow+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "palm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.007376857148561624,
+   "penetration": 0.0020000000000000642,
+   "placed": true,
+   "base_res": 2.2760297700003776e-13,
+   "max_ratio": 0.4050290850275563,
+   "effort": 0.666669245521232,
+   "brace_force": 80.57954494214795,
+   "n_arm": 2,
+   "name": "forearm+palm+hip",
+   "qpos_file": "q_forearm+palm+hip.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "palm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007411785938053729,
+   "penetration": 0.002000000000000066,
+   "placed": true,
+   "base_res": 1.158621854797585e-13,
+   "max_ratio": 0.31535505448222984,
+   "effort": 0.43535278986070314,
+   "brace_force": 98.05524753228534,
+   "n_arm": 2,
+   "name": "forearm+palm+torso",
+   "qpos_file": "q_forearm+palm+torso.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007228279965667285,
+   "penetration": 0.0032924732021393623,
+   "placed": true,
+   "base_res": 1.1459394861318627e-13,
+   "max_ratio": 0.3560872001568551,
+   "effort": 0.5716619388067147,
+   "brace_force": 90.10151835769217,
+   "n_arm": 1,
+   "name": "forearm+hip+torso",
+   "qpos_file": "q_forearm+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "palm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007404417315978016,
+   "penetration": 0.00199999999999996,
+   "placed": true,
+   "base_res": 2.1815811808895668e-14,
+   "max_ratio": 0.3177287693027422,
+   "effort": 0.45890071724105264,
+   "brace_force": 123.420074502324,
+   "n_arm": 1,
+   "name": "palm+hip+torso",
+   "qpos_file": "q_palm+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm",
+    "hip"
+   ],
+   "admissible": true,
+   "reach": 0.008345203580150985,
+   "penetration": 0.0020000000000002585,
+   "placed": true,
+   "base_res": 1.145758767760874e-13,
+   "max_ratio": 0.3703371510298719,
+   "effort": 0.5807439939183248,
+   "brace_force": 97.16660943022148,
+   "n_arm": 3,
+   "name": "elbow+forearm+palm+hip",
+   "qpos_file": "q_elbow+forearm+palm+hip.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.007229427713626911,
+   "penetration": 0.0020000000000002585,
+   "placed": true,
+   "base_res": 1.1541996516587286e-13,
+   "max_ratio": 0.3179176452407644,
+   "effort": 0.4094931796634463,
+   "brace_force": 94.85380684944198,
+   "n_arm": 3,
+   "name": "elbow+forearm+palm+torso",
+   "qpos_file": "q_elbow+forearm+palm+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.009257254865444636,
+   "penetration": 0.003513188837669684,
+   "placed": true,
+   "base_res": 1.1434262335842665e-13,
+   "max_ratio": 0.3827045387279162,
+   "effort": 0.5536959260969215,
+   "brace_force": 108.71118240008376,
+   "n_arm": 2,
+   "name": "elbow+forearm+hip+torso",
+   "qpos_file": "q_elbow+forearm+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "palm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.00994414251074282,
+   "penetration": 0.0020000000000002516,
+   "placed": true,
+   "base_res": 2.637755330588742e-14,
+   "max_ratio": 0.3788913152120845,
+   "effort": 0.5994097737799216,
+   "brace_force": 91.6490599813434,
+   "n_arm": 2,
+   "name": "elbow+palm+hip+torso",
+   "qpos_file": "q_elbow+palm+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "forearm",
+    "palm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.0073175151734914505,
+   "penetration": 0.0020000000000001683,
+   "placed": true,
+   "base_res": 1.789388850580617e-14,
+   "max_ratio": 0.39891177485544405,
+   "effort": 0.6131676387033721,
+   "brace_force": 89.67212829494429,
+   "n_arm": 2,
+   "name": "forearm+palm+hip+torso",
+   "qpos_file": "q_forearm+palm+hip+torso.txt"
+  },
+  {
+   "subset": [
+    "elbow",
+    "forearm",
+    "palm",
+    "hip",
+    "torso"
+   ],
+   "admissible": true,
+   "reach": 0.010599758118540688,
+   "penetration": 0.00200000000000021,
+   "placed": true,
+   "base_res": 1.1693721454835207e-13,
+   "max_ratio": 0.3797333949861107,
+   "effort": 0.5878638891548759,
+   "brace_force": 92.54259513770059,
+   "n_arm": 3,
+   "name": "elbow+forearm+palm+hip+torso",
+   "qpos_file": "q_elbow+forearm+palm+hip+torso.txt"
+  }
+ ],
+ "ranked": [
+  "elbow+forearm+palm+torso",
+  "elbow+palm+torso",
+  "forearm+palm+torso",
+  "elbow+forearm+torso",
+  "palm+hip+torso",
+  "forearm+torso",
+  "elbow+forearm+hip+torso",
+  "forearm+hip",
+  "elbow+forearm+hip",
+  "palm+torso",
+  "forearm+hip+torso",
+  "elbow+forearm+palm+hip",
+  "elbow+forearm+palm+hip+torso",
+  "elbow+palm+hip",
+  "elbow+palm+hip+torso",
+  "forearm+palm+hip+torso",
+  "elbow+palm",
+  "elbow+hip+torso",
+  "elbow+hip",
+  "elbow",
+  "forearm+palm+hip",
+  "palm",
+  "palm+hip",
+  "elbow+torso",
+  "elbow+forearm+palm",
+  "elbow+forearm",
+  "forearm+palm",
+  "hip",
+  "forearm",
+  "legs_only",
+  "torso",
+  "hip+torso"
+ ]
+}
