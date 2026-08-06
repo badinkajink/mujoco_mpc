@@ -101,6 +101,11 @@ add_library(
   tasks/humanoid_bench/push/push.h
   tasks/humanoid_bench/lean/lean.cc
   tasks/humanoid_bench/lean/lean.h
+  # Lean SIMPLE: independent 11-term rewrite of the braced lean (2026-08-06).
+  # Own class, own XML, same directory so it inherits lean/'s mesh symlink
+  # rules in tasks/CMakeLists.txt.
+  tasks/humanoid_bench/lean/lean_simple.cc
+  tasks/humanoid_bench/lean/lean_simple.h
   # Frozen pre-refurbish snapshot of the Lean task, registered as its own
   # "Beginning H12*" tasks so the compacted lean/ can be A/B'd against it in
   # one binary. Self-contained: reads beginning/strategies/, loads

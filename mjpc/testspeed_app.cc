@@ -61,6 +61,21 @@ ABSL_FLAG(std::string, phase_schedule, "",
           "sits in phase 0 for its whole duration; this is how a multi-phase "
           "sequence (e.g. stand -> brace -> hold -> return) gets tested without "
           "the GUI slider.");
+ABSL_FLAG(std::string, weights, "",
+          "Override cost weights by name: \"Name=value,Name=value,...\" (the "
+          "GUI slider path). For Lean Simple the contact mode IS three of these "
+          "weights, e.g. --weights \"Brace Elbow=0,Brace Palm=300\". An unknown "
+          "name aborts the run rather than silently using the defaults.");
+ABSL_FLAG(std::string, numeric, "",
+          "Override model custom numerics before the agent initialises: "
+          "\"name=value,...\". This is the only way to sweep the PLANNER budget "
+          "(sampling_trajectories, agent_horizon, sampling_spline_points, "
+          "n_elite) from the command line -- the planners read them once, in "
+          "Initialize().");
+ABSL_FLAG(int, dump_stride, 1,
+          "With --dump_traj, write every Nth physics step. The default 1 is "
+          "28 MB per 20 s rollout; 5 (100 Hz) resolves contact make/break just "
+          "as well and every consumer subsamples anyway.");
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
@@ -77,7 +92,8 @@ int main(int argc, char** argv) {
       task_name, planner_thread_count, steps_per_planning_iteration, total_time,
       dump_residual_steps, dump_perturb, dump_traj, start_key,
       absl::GetFlag(FLAGS_strategy), absl::GetFlag(FLAGS_start_qpos),
-      absl::GetFlag(FLAGS_phase_schedule));
+      absl::GetFlag(FLAGS_phase_schedule), absl::GetFlag(FLAGS_weights),
+      absl::GetFlag(FLAGS_numeric), absl::GetFlag(FLAGS_dump_stride));
   if (cost < 0) {
     return -1;
   }

@@ -47,6 +47,7 @@
 #include "mjpc/tasks/humanoid_bench/stand/stand.h"
 #include "mjpc/tasks/humanoid_bench/walk/walk.h"
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
+#include "mjpc/tasks/humanoid_bench/lean/lean_simple.h"
 #include "mjpc/tasks/humanoid_bench/beginning/beginning.h"
 #include "mjpc/tasks/humanoid_bench/stabilize/stabilize.h"
 #include "mjpc/tasks/humanoid_bench/upper/upper.h"
@@ -72,6 +73,12 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       // H1_2 Lean Task
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Magpie>(),
+
+      // H1_2 Lean SIMPLE: the same robot/table/target with an 11-term static
+      // cost and the contact mode as an input. Independent of lean.cc -- it
+      // shares only the model. Kept next to Lean so both are reachable in the
+      // non-scrolling GUI combobox.
+      std::make_shared<LeanSimple_H12_Magpie>(),
 
       // H1_2 Beginning Task: the frozen pre-refurbish snapshot of Lean above
       // (identical costs/strategies/models, own strategies/ + XMLs). Kept

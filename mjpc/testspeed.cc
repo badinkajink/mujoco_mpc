@@ -69,6 +69,50 @@ bool ParsePhaseSchedule(const std::string& spec,
   return !out->empty();
 }
 
+// Parse "a=1.5,b=2|3|4" into (name, values) pairs. Names may contain spaces
+// (cost term names do: "Brace Elbow"); values are '|'-separated so a vector
+// numeric such as `reach_target` can be set without stealing the ',' separator,
+// and each must parse completely -- a trailing typo silently becoming a
+// different number is how a sweep ends up describing a run nobody made.
+bool ParseAssignments(const std::string& spec,
+                      std::vector<std::pair<std::string,
+                                            std::vector<double>>>* out) {
+  size_t i = 0;
+  while (i < spec.size()) {
+    size_t comma = spec.find(',', i);
+    if (comma == std::string::npos) comma = spec.size();
+    const std::string item = spec.substr(i, comma - i);
+    size_t eq = item.find('=');
+    if (eq == std::string::npos) return false;
+    std::string name = item.substr(0, eq);
+    while (!name.empty() && name.front() == ' ') name.erase(name.begin());
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (name.empty()) return false;
+    std::vector<double> vals;
+    const std::string rhs = item.substr(eq + 1);
+    size_t j = 0;
+    while (j <= rhs.size()) {
+      size_t bar = rhs.find('|', j);
+      if (bar == std::string::npos) bar = rhs.size();
+      const std::string tok = rhs.substr(j, bar - j);
+      try {
+        size_t used = 0;
+        const double v = std::stod(tok, &used);
+        if (used != tok.size()) return false;
+        vals.push_back(v);
+      } catch (const std::exception&) {
+        return false;
+      }
+      if (bar == rhs.size()) break;
+      j = bar + 1;
+    }
+    if (vals.empty()) return false;
+    out->push_back({name, vals});
+    i = comma + 1;
+  }
+  return !out->empty();
+}
+
 // Print every mjSENS_USER residual SCALAR of `data->sensordata`, in sensor
 // declaration order, as `idx<TAB>name[off]<TAB>value` at full %.17g precision.
 // `idx` is the scalar's position in the task residual vector (a running counter
@@ -136,7 +180,10 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                double dump_perturb, std::string dump_traj,
                                std::string start_key, int strategy,
                                std::string start_qpos,
-                               std::string phase_schedule) {
+                               std::string phase_schedule,
+                               std::string weights,
+                               std::string numerics,
+                               int dump_stride) {
   std::cout << "Test MJPC Speed: " << task_name << "\n";
   std::cout << " MuJoCo version " << mj_versionString() << "\n";
   if (mjVERSION_HEADER != mj_version()) {
@@ -159,6 +206,38 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     std::cerr << load_model.error << "\n";
     return -1;
   }
+  // --numeric overrides model custom numerics BEFORE agent.Initialize(), which
+  // is where every planner reads its budget (sampling_trajectories, horizon,
+  // spline points, n_elite). After Initialize the numeric is dead weight, so
+  // this has to happen here, ahead of mj_makeData.
+  if (!numerics.empty()) {
+    std::vector<std::pair<std::string, std::vector<double>>> kv;
+    if (!ParseAssignments(numerics, &kv)) {
+      std::cerr << "malformed --numeric '" << numerics
+                << "': expected \"name=value[|value...],...\"\n";
+      return -1;
+    }
+    for (const auto& [name, values] : kv) {
+      int id = mj_name2id(model, mjOBJ_NUMERIC, name.c_str());
+      if (id < 0) {
+        std::cerr << "--numeric: no custom numeric named '" << name << "'\n";
+        return -1;
+      }
+      if ((int)values.size() > model->numeric_size[id]) {
+        std::cerr << "--numeric: '" << name << "' holds "
+                  << model->numeric_size[id] << " value(s), got "
+                  << values.size() << "\n";
+        return -1;
+      }
+      std::cout << " numeric " << name << " =";
+      for (size_t k = 0; k < values.size(); k++) {
+        model->numeric_data[model->numeric_adr[id] + k] = values[k];
+        std::cout << " " << values[k];
+      }
+      std::cout << "\n";
+    }
+  }
+
   mjData* data = mj_makeData(model);
 
   // --start_key names the keyframe to start from; "home" stays the default so
@@ -213,6 +292,29 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
   // make task available for global callback:
   task = agent.ActiveTask();
   mjcb_sensor = &residual_callback;
+
+  // --weights overrides cost weights by name, the same path the GUI sliders
+  // take. For Lean Simple the first three weights ARE the contact mode.
+  if (!weights.empty()) {
+    std::vector<std::pair<std::string, std::vector<double>>> kv;
+    if (!ParseAssignments(weights, &kv)) {
+      std::cerr << "malformed --weights '" << weights
+                << "': expected \"Name=value,...\"\n";
+      mj_deleteData(data);
+      mjcb_sensor = nullptr;
+      return -1;
+    }
+    for (const auto& [name, values] : kv) {
+      if (agent.SetWeightByName(name, values[0]) < 0) {
+        std::cerr << "--weights: task '" << task_name
+                  << "' has no cost term named '" << name << "'\n";
+        mj_deleteData(data);
+        mjcb_sensor = nullptr;
+        return -1;
+      }
+      std::cout << " weight " << name << " = " << values[0] << "\n";
+    }
+  }
 
   // --strategy selects the task's strategy parameter (the GUI slider) so a
   // headless run can be pointed at something other than the model default.
@@ -302,6 +404,13 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     std::fprintf(traj, "# task=%s nq=%d nv=%d nu=%d start_key=%s dt=%.17g\n",
                  task_name.c_str(), model->nq, model->nv, model->nu,
                  key_name, model->opt.timestep);
+    // Provenance. Without these the CSV cannot be scored correctly: a scorer
+    // that reads the reach target from the XML while the run moved it with
+    // --numeric measures the distance to a target nobody used. (Measured: it
+    // reported +0.068 m of reach gain for a rollout whose hand finished 4 mm
+    // from its actual target.)
+    std::fprintf(traj, "# weights=%s\n", weights.c_str());
+    std::fprintf(traj, "# numerics=%s\n", numerics.c_str());
     std::fprintf(traj, "time,cost");
     for (int j = 0; j < model->nq; j++) std::fprintf(traj, ",qpos%d", j);
     for (int j = 0; j < model->nv; j++) std::fprintf(traj, ",qvel%d", j);
@@ -340,7 +449,12 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
 
     if (i % steps_per_planning_iteration == 0) { agent.PlanIteration(&pool); }
 
-    if (traj) {
+    // `dump_stride` writes every Nth physics step. At the model's 2 ms step a
+    // 20 s rollout is 10 000 rows x 130 columns = 28 MB of CSV per run, which is
+    // 840 MB for a 30-run matrix and dominates both the disk and the scoring
+    // time -- for a signal whose fastest feature (contact make/break) is
+    // resolved fine at 100 Hz. Every consumer already subsamples.
+    if (traj && (i % dump_stride) == 0) {
       std::fprintf(traj, "%.17g,%.17g", data->time, cost);
       for (int j = 0; j < model->nq; j++)
         std::fprintf(traj, ",%.17g", data->qpos[j]);

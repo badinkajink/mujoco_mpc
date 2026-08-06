@@ -60,6 +60,22 @@ namespace mjpc {
 // were the strategy's. Scheduling the phase externally is what makes the
 // stand -> brace -> hold -> return sequence testable without a GUI, and it keeps
 // the sequencing policy in the experiment harness rather than in the task.
+//
+// `weights`, if non-empty, is "Name=value,Name=value,..." applied to the task's
+// cost weights by NAME after the task loads (Agent::SetWeightByName, the same
+// path the GUI sliders use). This is what makes a weight sweep a harness
+// argument instead of N copies of the XML: for Lean Simple the CONTACT MODE is
+// three of those weights, so `--weights "Brace Palm=300,Brace Elbow=0"` asks for
+// a different contact mode without touching a file. An unknown name is an
+// error, not a silent no-op -- a sweep that quietly ran the default weights is
+// exactly the kind of result that gets published and then retracted.
+//
+// `numerics`, if non-empty, is "name=value,..." applied to the model's custom
+// numerics BEFORE the agent initialises, which is the only window in which the
+// planner's own budget (sampling_trajectories, agent_horizon,
+// sampling_spline_points, n_elite) can still be changed -- the planners read
+// them in Initialize(). S12 §9 warned that sweeping the costs without sweeping
+// the search attributes the result to the wrong knob; this is the other knob.
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
                                double total_time,
@@ -69,7 +85,10 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                std::string start_key = "",
                                int strategy = -1,
                                std::string start_qpos = "",
-                               std::string phase_schedule = "");
+                               std::string phase_schedule = "",
+                               std::string weights = "",
+                               std::string numerics = "",
+                               int dump_stride = 1);
 }  // namespace mjpc
 
 #endif  // MJPC_MJPC_TESTSPEED_H_
