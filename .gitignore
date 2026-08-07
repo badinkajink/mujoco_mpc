@@ -39,3 +39,7 @@ python/dist/
 .superpowers/
 docs/plans/
 docs/specs/
+
+# scratch backups: use git, not .bak files (archived 2026-08-06)
+*.bak
+*.bak.*
