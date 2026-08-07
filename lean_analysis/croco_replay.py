@@ -79,6 +79,17 @@ FOOT_RGBA = (0.45, 0.45, 0.50, 0.75)
 TARGET_RGBA = (0.95, 0.15, 0.45, 0.85)
 FORCE_SCALE = 0.0015          # metres of arrow per newton (100 N -> 15 cm)
 
+# UNPLANNED table contacts (2026-08-07).  The first version of this drew only
+# contacts that walked up to a known brace SITE and dropped everything else,
+# which meant the one thing the grid replays most needed to show was invisible:
+# in most cells the largest force on the table does not go through the brace at
+# all -- it goes through the torso, or the reaching arm, or the gripper of the
+# arm that is not bracing (croco_why quantifies this).  A video that hides those
+# contacts shows a robot leaning on nothing and gives no clue why it stays up.
+# They are drawn in MAGENTA, one colour for all of them, because the message is
+# not "which unplanned part" but "this is not the brace".
+UNPLANNED_RGBA = (0.95, 0.25, 0.85, 0.95)
+
 # Camera presets.  `wide` is the S13 framing and is kept so the new videos are
 # comparable to the ones already on the docpage; `brace` is a close-up on the
 # tabletop, which is the only framing in which a 12 mm contact marker is legible.
@@ -206,7 +217,7 @@ def draw_contacts(scene, m, d, site_body, tbl, feet):
                 rgba = SITE_RGBA.get(body_site.get(rb))
                 rb = m.body_parentid[rb]
             if rgba is None:
-                continue
+                rgba = UNPLANNED_RGBA
         elif b1 in feet or b2 in feet:
             rgba = FOOT_RGBA
         else:
