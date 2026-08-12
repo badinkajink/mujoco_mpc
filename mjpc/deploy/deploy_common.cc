@@ -44,6 +44,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mjpc/agent.h"
+#include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/task.h"
 #include "mjpc/tasks/tasks.h"
 #include "mjpc/threadpool.h"
@@ -761,6 +762,20 @@ int RunDeployNode(const NodeConfig& cfg) {
   g_agent.Initialize(lm.model.get());
   g_agent.Allocate();
   g_agent.Reset();
+  if (cfg.cem_best_action) {
+    // --cem_best_action: hand the plant the single lowest-cost elite instead of
+    // the elite MEAN. Anti-hedging for the commit surge: under state noise the
+    // elites disagree and their mean attenuates the commanded step.
+    auto* cem = dynamic_cast<mjpc::CrossEntropyPlanner*>(&g_agent.ActivePlanner());
+    if (cem) {
+      cem->SetBestAction(true);
+      std::fprintf(stderr, "[node] --cem_best_action: executing lowest-cost ELITE "
+                           "(distribution update unchanged)\n");
+    } else {
+      std::fprintf(stderr, "[node] --cem_best_action IGNORED: active planner is "
+                           "not CrossEntropy\n");
+    }
+  }
   g_task = g_agent.ActiveTask();
   g_agent_model = g_agent.GetModel();
   g_model = mj_copyModel(nullptr, g_agent_model);

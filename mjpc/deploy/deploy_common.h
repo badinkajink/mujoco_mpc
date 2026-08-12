@@ -225,6 +225,8 @@ struct NodeConfig {
   int plan_trajectories = 0;           // >0 overrides sampling_trajectories AFTER the
                                        // per-strategy PlannerNumericOverrides; 0 = task default
   int plan_threads = 0;                // >0 overrides kPlanThreads(12); 0 = compiled default
+  bool cem_best_action = false;        // execute lowest-cost elite instead of elite mean
+                                       // (CEM anti-hedging; --cem_best_action)
   double stale_sec = kStaleSec;        // H1 watchdog threshold; default = the REAL-robot 50ms.
                                        // Loosen ONLY for sims whose lowstate publisher stalls
                                        // on a shared sim lock (RoboCasa sensor renders: 50-60ms

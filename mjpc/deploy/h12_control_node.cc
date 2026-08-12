@@ -149,6 +149,11 @@ ABSL_FLAG(int, plan_threads, 0,
           "ceil((traj+1)/threads) -- keep plan_trajectories < plan_threads. The node now WARNS "
           "when you are multi-wave. BENCH: pass 12 when co-running the Python twin (18 planner "
           "threads starve it to ~0.5x real-time).");
+ABSL_FLAG(bool, cem_best_action, false,
+          "CEM anti-hedging: execute the single lowest-cost ELITE instead of the elite MEAN "
+          "(planner distribution update unchanged). Targets the commit-surge crawl: averaging "
+          "disagreeing elites under state noise attenuates the commanded step (arXiv 2510.14643 "
+          "executes best-candidate for exactly this reason). OFF by default.");
 ABSL_FLAG(bool, straighten_start, false,
           "hold the measured (slumped) pose, wait for ENTER, then hand authority to the planner "
           "from the slump (SETTLE->BLEND, no drag). Pair with --strategy 25 (straighten). OFF by default.");
@@ -194,8 +199,16 @@ constexpr int kNU = 27;  // actuated joints on the handless H1-2
 // the droop to ~7 deg for the same torque. This is a MITIGATION test for the real fix
 // (support-aware feedforward); ankle ROLL (idx 5,11) left at 80. Clamp still bounds
 // |tau| <= 0.9*54 = 48.6 Nm, so at kp=200 the clamp bites past 13.9 deg error -> safe.
+// ARM KP RAISED 2026-08-08 (shoulder p/r 30->60, yaw/elbow 20->40): with
+// --gravity_ff 0 (required for the lean commit) the arm gets NO gravity
+// compensation, so an outstretched arm droops by tau_gravity/kp -- measured
+// 0.70 rad (40 deg) of shoulder-pitch droop in the reach phase, which is why
+// the right hand never arrives over the table even though the keyframe and
+// reach_target are both correct. Doubling halves the droop; the H2 torque
+// clamp (0.9*32 = 28.8 Nm at the shoulder) still bounds what can be emitted.
+// MUST stay == the planner model's arm <position> kp (PatchActuators parity).
 const double KP[kNU] = {150, 200, 200, 200, 200, 80,  150, 200, 200, 200, 200, 80,  200,
-                        30, 30, 20, 20, 15, 15, 15,   30, 30, 20, 20, 15, 15, 15};
+                        60, 60, 40, 40, 15, 15, 15,   60, 60, 40, 40, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
 // SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit, from
@@ -268,6 +281,7 @@ int main(int argc, char** argv) {
   // STRAIGHTEN boot (strategy 25): let the planner, not the scripted stand-pose lerp, drive
   // the rise. Only on a strat-25 boot -> every other strategy keeps its proven choreography.
   cfg.plan_trajectories = absl::GetFlag(FLAGS_plan_trajectories);
+  cfg.cem_best_action = absl::GetFlag(FLAGS_cem_best_action);
   cfg.plan_threads = absl::GetFlag(FLAGS_plan_threads);
   cfg.cost_log = absl::GetFlag(FLAGS_cost);
   cfg.straighten_start = absl::GetFlag(FLAGS_straighten_start);
