@@ -170,6 +170,17 @@ class Task {
     return {};
   }
 
+  // ★ 2026-08-10 LIVE CEM floor override. PlannerNumericOverrides above is
+  // startup-only, but the twin survival campaign showed the variance floor
+  // trades SURVIVAL against PRECISION with opposite slopes (std_min 0.01:
+  // 5/20 never-fell, crisp ladder; 0.05: 15/20 never-fell, robot "dances",
+  // seat collapses) -- so the right floor is phase-dependent. The planner
+  // polls this every Rollouts() pass; <= 0 (the default) means "no override,
+  // use the XML/GUI std_min" -> every other task byte-identical. Written from
+  // TransitionLocked (single-threaded), read from the plan loop -> the
+  // implementation must be an atomic in the derived task.
+  virtual double LiveStdMinOverride() const { return -1.0; }
+
   virtual std::string Name() const = 0;
   virtual std::string XmlPath() const = 0;
 
