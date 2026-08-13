@@ -23,14 +23,53 @@
 //
 // build:  croco_ext/build.sh      (writes croco_keepout*.so next to this file)
 
+// ---------------------------------------------------------------------------
+// S15 ADDENDUM: the activation was the wrong axis.
+//
+// Making each point's activation native took the S13 solve from 50 s to 14 s and
+// the MPC step from 119 ms to 76 ms, and then stopped, because what a keep-out
+// point costs is only half its own arithmetic.  Measured (croco_speed.py
+// scaling): a cost term that computes NOTHING -- a 1-row control residual --
+// costs 1.61 us per node, because CostModelSum::calcDiff unconditionally does
+//     Lx += w*Lx_i;  Lxx += w*Lxx_i;  Lxu += w*Lxu_i;  Luu += w*Luu_i
+// which for n x = 66, n u = 27 is 6960 doubles of dense accumulation per term,
+// over a private CostDataAbstract that holds its own copy of all four.  A
+// keep-out point costs 2.20 us, so 73% of it is bookkeeping over a residual that
+// is zero at almost every point at almost every node.
+//
+// 86 points x 50 nodes of that is a 5.4 MB-per-node working set and ~184 us per
+// node of accumulation, and it is why an in-situ calcDiff sweep costs 550 us per
+// node against the 323 us the same node measures in isolation: the isolated
+// benchmark is cache-warm and the sweep is not.
+//
+// So `CostModelBoxKeepOut` below fuses all 86 points into ONE cost term:
+//   * one accumulation into the shared Lxx instead of 86;
+//   * one CostDataAbstract instead of 86;
+//   * and, because the term now owns its own loop, the points whose activation
+//     is zero cost one SDF evaluation (~20 flops) instead of a frame Jacobian
+//     and a 33x33 Gauss-Newton block.  Typically 0-3 of the 86 are active.
+//
+// The maths is identical to the per-point stack, including the diag(g^2)
+// Hessian discussed below -- `test_keepout.py` checks the fused cost against a
+// CostModelSum of per-point costs on the real states, cost, Lx and Lxx alike.
+
+#include <pinocchio/fwd.hpp>
+
 #include <boost/python.hpp>
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <sstream>
+#include <vector>
+
+#include <pinocchio/algorithm/frames.hpp>
 
 #include "crocoddyl/core/activation-base.hpp"
+#include "crocoddyl/core/cost-base.hpp"
+#include "crocoddyl/multibody/data/multibody.hpp"
+#include "crocoddyl/multibody/states/multibody.hpp"
 
 namespace bp = boost::python;
 
@@ -117,6 +156,193 @@ class ActivationModelBoxKeepOut : public Base {
   double r_min_;
 };
 
+// --------------------------------------------------------------------------- //
+// The fused cost: every keep-out point in ONE CostModelAbstract.
+//
+// Written against `CostModelAbstractTpl` rather than as a residual + activation
+// pair on purpose.  A residual is the right abstraction when crocoddyl's
+// Gauss-Newton machinery should do the work; here the whole point is to NOT do
+// that work -- the term wants to write Lx and Lxx itself, touching only the
+// active points and only their nv x nv block.  Going through a residual of
+// dimension 86 would put a 86 x 66 Rx and a 66x66 GEMM back in the hot path,
+// which is the thing being removed.
+//
+// Lu, Lxu and Luu stay at the zeros the data was constructed with and are never
+// written, because the keep-out does not depend on u.  CostModelSum still
+// accumulates them (it cannot know), but that is one term's worth, not 86.
+class CostModelBoxKeepOut : public crocoddyl::CostModelAbstractTpl<double> {
+ public:
+  typedef crocoddyl::CostModelAbstractTpl<double> CostBase;
+  typedef crocoddyl::CostDataAbstractTpl<double> CostDataBase;
+  typedef crocoddyl::StateMultibodyTpl<double> StateMultibody;
+  typedef crocoddyl::DataCollectorMultibodyTpl<double> DataCollectorMultibody;
+  typedef crocoddyl::DataCollectorAbstractTpl<double> DataCollectorAbstract;
+
+  struct Data : public CostDataBase {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    // The base's constructor is templated as `Model<Scalar>*` and this cost is
+    // not a template, so it is handed the pointer as the BASE -- which is a
+    // template of exactly that form, and is all the base constructor touches
+    // (get_activation, get_residual, get_state, get_nu).
+    Data(CostModelBoxKeepOut* const model, DataCollectorAbstract* const data)
+        : CostDataBase(static_cast<CostBase*>(model), data),
+          J6(6, model->get_state()->get_nv()) {
+      J6.setZero();
+      pinocchio = nullptr;
+      DataCollectorMultibody* d = dynamic_cast<DataCollectorMultibody*>(data);
+      if (d == nullptr) {
+        throw_pretty(
+            "Invalid argument: the shared data should be derived from "
+            "DataCollectorMultibody");
+      }
+      pinocchio = d->pinocchio;
+      const std::size_t np = model->get_npoints();
+      active.reserve(np);
+      values.resize(np);
+    }
+    pinocchio::DataTpl<double>* pinocchio;
+    Eigen::MatrixXd J6;            // scratch for one frame Jacobian
+    std::vector<std::size_t> active;
+    Eigen::VectorXd values;        // r_min - sdf, per point (only active used)
+  };
+
+  // `nr = 1` is a formality: the base class insists on a residual model and an
+  // activation, and this cost uses neither.  Nothing reads the 1-vector.
+  CostModelBoxKeepOut(std::shared_ptr<StateMultibody> state, std::size_t nu,
+                      const Eigen::Vector3d& half, const Eigen::Vector3d& center,
+                      const std::vector<pinocchio::FrameIndex>& frames,
+                      const std::vector<double>& thresholds)
+      : CostBase(state, std::size_t(1), nu),
+        half_(half),
+        center_(center),
+        frames_(frames),
+        thresh_(thresholds),
+        pin_model_(state->get_pinocchio().get()) {
+    if (frames_.size() != thresh_.size()) {
+      throw_pretty("Invalid argument: frames and thresholds differ in length");
+    }
+  }
+
+  void calc(const std::shared_ptr<CostDataBase>& data,
+            const Eigen::Ref<const Eigen::VectorXd>&,
+            const Eigen::Ref<const Eigen::VectorXd>&) override {
+    Data* d = static_cast<Data*>(data.get());
+    d->active.clear();
+    double cost = 0.0;
+    for (std::size_t i = 0; i < frames_.size(); ++i) {
+      // The placement has to be refreshed here.  crocoddyl's contact forward
+      // dynamics calls pinocchio::computeAllTerms, which does NOT update frame
+      // placements -- ResidualModelFrameTranslation::calc updates the one frame
+      // it owns, which is why the per-point stack never had to think about it.
+      // Left out, every oMf holds whatever the last residual to touch it wrote,
+      // the active set comes back empty at every state, and the keep-out
+      // silently stops constraining anything.
+      pinocchio::updateFramePlacement(*pin_model_, *d->pinocchio, frames_[i]);
+      const Eigen::Vector3d p =
+          d->pinocchio->oMf[frames_[i]].translation() - center_;
+      const double v = thresh_[i] - sdfBox(p, half_);
+      d->values[i] = v;
+      if (v > 0.0) {
+        cost += 0.5 * v * v;
+        d->active.push_back(i);
+      }
+    }
+    d->cost = cost;
+  }
+
+  // NB `calc` must have run at this x: the active set and the residual values
+  // come from it.  That is crocoddyl's own contract for every residual in the
+  // library (calcDiff reads what calc cached), and the solver honours it.
+  void calcDiff(const std::shared_ptr<CostDataBase>& data,
+                const Eigen::Ref<const Eigen::VectorXd>&,
+                const Eigen::Ref<const Eigen::VectorXd>&) override {
+    Data* d = static_cast<Data*>(data.get());
+    const std::size_t nv = state_->get_nv();
+    d->Lx.setZero();
+    d->Lxx.setZero();
+    if (d->active.empty()) {
+      return;
+    }
+    for (std::size_t k = 0; k < d->active.size(); ++k) {
+      const std::size_t i = d->active[k];
+      const Eigen::Vector3d p =
+          d->pinocchio->oMf[frames_[i]].translation() - center_;
+      const Eigen::Vector3d g = sdfBoxGrad(p, half_);
+      const double v = d->values[i];
+      // LOCAL_WORLD_ALIGNED: the residual this replaces is a
+      // ResidualModelFrameTranslation, whose Rx is oRf * fJf.topRows(3) -- the
+      // world-aligned translation Jacobian, which is exactly the top three rows
+      // of the LWA frame Jacobian.
+      d->J6.setZero();
+      pinocchio::getFrameJacobian(*pin_model_, *d->pinocchio, frames_[i],
+                                  pinocchio::LOCAL_WORLD_ALIGNED, d->J6);
+      const auto J = d->J6.topRows(3);
+      // Lx += Rx^T * Ar  with Ar = -v * g, over the q block only.
+      d->Lx.head(nv).noalias() -= v * (J.transpose() * g);
+      // Lxx += Rq^T * diag(g^2) * Rq.  diag and not the outer product g g^T:
+      // crocoddyl stores Arr as an Eigen DiagonalMatrix, so the per-point stack
+      // this replaces only ever contributed the diagonal (see the note above),
+      // and reproducing it is what makes the two paths the same optimisation
+      // problem rather than merely similar ones.
+      const Eigen::Vector3d g2 = g.array().square();
+      d->Lxx.topLeftCorner(nv, nv).noalias() +=
+          J.transpose() * g2.asDiagonal() * J;
+    }
+  }
+
+  std::shared_ptr<CostDataBase> createData(
+      DataCollectorAbstract* const data) override {
+    return std::allocate_shared<Data>(Eigen::aligned_allocator<Data>(), this,
+                                      data);
+  }
+
+  std::size_t get_npoints() const { return frames_.size(); }
+
+  // Diagnostic: how many points are active at the state `calc` last saw.  This
+  // is the number that decides whether the fused form is fast, so it is
+  // readable rather than inferred.
+  static std::size_t n_active(const std::shared_ptr<CostDataBase>& data) {
+    return static_cast<Data*>(data.get())->active.size();
+  }
+
+  std::shared_ptr<crocoddyl::CostModelBase> cloneAsDouble() const override {
+    return std::make_shared<CostModelBoxKeepOut>(
+        std::static_pointer_cast<StateMultibody>(state_), nu_, half_, center_,
+        frames_, thresh_);
+  }
+  std::shared_ptr<crocoddyl::CostModelBase> cloneAsFloat() const override {
+    return cloneAsDouble();
+  }
+
+  void print(std::ostream& os) const override {
+    os << "CostModelBoxKeepOut {" << frames_.size() << " points, half=["
+       << half_.transpose() << "]}";
+  }
+
+ private:
+  Eigen::Vector3d half_;
+  Eigen::Vector3d center_;
+  std::vector<pinocchio::FrameIndex> frames_;
+  std::vector<double> thresh_;
+  const pinocchio::ModelTpl<double>* pin_model_;
+};
+
+std::shared_ptr<CostModelBoxKeepOut> make_keepout_cost(
+    std::shared_ptr<crocoddyl::StateMultibodyTpl<double> > state,
+    std::size_t nu, double hx, double hy, double hz, double cx, double cy,
+    double cz, const bp::list& frames, const bp::list& thresholds) {
+  std::vector<pinocchio::FrameIndex> f;
+  std::vector<double> t;
+  for (bp::ssize_t i = 0; i < bp::len(frames); ++i) {
+    f.push_back(bp::extract<pinocchio::FrameIndex>(frames[i]));
+  }
+  for (bp::ssize_t i = 0; i < bp::len(thresholds); ++i) {
+    t.push_back(bp::extract<double>(thresholds[i]));
+  }
+  return std::make_shared<CostModelBoxKeepOut>(
+      state, nu, Eigen::Vector3d(hx, hy, hz), Eigen::Vector3d(cx, cy, cz), f, t);
+}
+
 // Standalone SDF exports, so the Python side can check the two implementations
 // agree without going through an activation data.
 double py_sdf(double x, double y, double z, double hx, double hy, double hz) {
@@ -186,6 +412,26 @@ BOOST_PYTHON_MODULE(croco_keepout) {
            bp::args("self"))
       .add_property("r_min", &ActivationModelBoxKeepOut::get_r_min)
       .def("__repr__", &py_repr);
+
+  // The fused cost.  Exposed through a factory rather than a bp::init so the
+  // point list can arrive as plain Python lists -- this module deliberately
+  // registers no eigenpy converters of its own (see the note on the ctor above).
+  bp::class_<CostModelBoxKeepOut, bp::bases<crocoddyl::CostModelAbstractTpl<double> >,
+             std::shared_ptr<CostModelBoxKeepOut>, boost::noncopyable>(
+      "CostModelBoxKeepOut",
+      "Every table keep-out point as ONE cost term.\n\n"
+      "Equivalent to a CostModelSum of one CostModelResidual per point with\n"
+      "ActivationModelBoxKeepOut on a ResidualModelFrameTranslation, but it\n"
+      "skips the points whose activation is zero and accumulates into the\n"
+      "shared Lxx once instead of once per point.",
+      bp::no_init)
+      .def("__init__", bp::make_constructor(
+          &make_keepout_cost, bp::default_call_policies(),
+          bp::args("state", "nu", "hx", "hy", "hz", "cx", "cy", "cz",
+                   "frames", "thresholds")))
+      .def("n_active", &CostModelBoxKeepOut::n_active, bp::args("data"))
+      .staticmethod("n_active")
+      .add_property("npoints", &CostModelBoxKeepOut::get_npoints);
 
   bp::def("sdf_box", &py_sdf, bp::args("x", "y", "z", "hx", "hy", "hz"));
   bp::def("sdf_box_grad", &py_sdf_grad,

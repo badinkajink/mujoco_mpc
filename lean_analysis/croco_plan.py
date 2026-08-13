@@ -383,8 +383,21 @@ class LeanOCP:
 
         `cg.activation` returns the C++ implementation when croco_ext is built
         and the identical Python one otherwise (cg.IMPL says which).
+
+        With `cg.IMPL == "fused"` the whole point set is ONE cost term instead of
+        86.  That is not a micro-optimisation of the same structure: 86 terms is
+        ~130 us per node of CostModelSum accumulation that computes nothing (see
+        croco_geom's docstring), and it is the single largest item in the MPC
+        step.  The objective is unchanged -- same points, same thresholds, same
+        weight, same diag(g^2) Hessian -- and croco_ext/test_keepout.py checks
+        that on the real states.
         """
         if not self.keepout:
+            return
+        fused = cg.fused_cost(self.state, nu, self.table_half, self.table_c,
+                              self.keepout)
+        if fused is not None:
+            costs.addCost("ko_all", fused, weight)
             return
         for p in self.keepout:
             act = cg.activation(self.table_half, p["thresh"])

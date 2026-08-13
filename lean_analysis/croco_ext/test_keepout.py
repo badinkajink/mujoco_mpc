@@ -13,7 +13,17 @@ checks agreement before anything is allowed to use it:
   * `Arr`, remembering that crocoddyl stores it as a DIAGONAL matrix, so the
     Python model's np.outer(g, g) was only ever contributing its diagonal.
 
-usage: croco_ext/test_keepout.py
+S15 adds the same question one level up.  `CostModelBoxKeepOut` fuses all 86
+points into one cost term and skips the inactive ones, which is a much bigger
+change than swapping an activation: it bypasses crocoddyl's Gauss-Newton
+assembly and writes Lx and Lxx itself.  So the last section builds the real S13
+action model both ways -- 86 CostModelResidual terms against one fused term --
+and compares `cost`, `Lx` and `Lxx` out of a full calc/calcDiff at states taken
+from the planned trajectory, including states where the active set is non-empty.
+That is the check that matters: agreeing on an activation proves nothing about
+an assembly that no longer calls it.
+
+usage: croco_ext/test_keepout.py [--dir runs/... --tag s13]
 """
 
 import os
@@ -52,6 +62,78 @@ def sample_points(n=4000, seed=0):
     return pts
 
 
+def fused_vs_per_point(run_dir, tag, verbose=True):
+    """The fused cost term against the 86-term stack, on the real action models.
+
+    Both are put in a `DifferentialActionModelContactFwdDynamics` with the SAME
+    contacts, actuation and damping and nothing else in the cost sum, so the
+    comparison is of the keep-out and not of everything around it.  States come
+    from the planned trajectory, subsampled across the approach (where points go
+    active) and the braced phase (where the contact bodies sit on their
+    thresholds, the boundary case).
+    """
+    import json
+    import croco_plan as cp                                   # noqa: E402
+    import croco_replay as cr                                 # noqa: E402
+
+    plan_path = os.path.join(run_dir, f"plan_{tag}.json")
+    if not os.path.exists(plan_path):
+        print(f"\n(skipping the fused-cost check: no {plan_path})")
+        return 0.0
+    plan = json.load(open(plan_path))
+    ocp, _ = cr.build_ocp(plan, run_dir)
+    xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
+    us = np.load(os.path.join(run_dir, f"us_{tag}.npy"))
+
+    fused = cg.fused_cost(ocp.state, ocp.nu, ocp.table_half, ocp.table_c,
+                          ocp.keepout)
+    if fused is None:
+        print("\n(skipping the fused-cost check: CROCO_KEEPOUT is not `fused`)")
+        return 0.0
+
+    def dam(costs, braced):
+        return crocoddyl.DifferentialActionModelContactFwdDynamics(
+            ocp.state, ocp.actuation, ocp._contacts(braced), costs,
+            cp.INV_DAMPING, True)
+
+    per = crocoddyl.CostModelSum(ocp.state, ocp.nu)
+    for p in ocp.keepout:
+        per.addCost(f"ko_{p['geom']}_{p['fid']}", crocoddyl.CostModelResidual(
+            ocp.state, cg.activation(ocp.table_half, p["thresh"]),
+            crocoddyl.ResidualModelFrameTranslation(
+                ocp.state, p["fid"], ocp.table_c, ocp.nu)), 1e3)
+    one = crocoddyl.CostModelSum(ocp.state, ocp.nu)
+    one.addCost("ko_all", fused, 1e3)
+
+    worst = dict(cost=0.0, Lx=0.0, Lxx=0.0)
+    n_active_seen = []
+    for k in range(0, len(us), max(1, len(us) // 40)):
+        braced = k >= plan["n_approach"]
+        x, u = xs[k].copy(), us[k].copy()
+        vals = []
+        for costs in (per, one):
+            m = dam(costs, braced)
+            d = m.createData()
+            m.calc(d, x, u)
+            m.calcDiff(d, x, u)
+            vals.append((float(d.costs.cost), np.array(d.Lx), np.array(d.Lxx)))
+            if costs is one:
+                n_active_seen.append(
+                    ck.CostModelBoxKeepOut.n_active(d.costs.costs["ko_all"]))
+        worst["cost"] = max(worst["cost"], abs(vals[0][0] - vals[1][0]))
+        worst["Lx"] = max(worst["Lx"],
+                          float(np.max(np.abs(vals[0][1] - vals[1][1]))))
+        worst["Lxx"] = max(worst["Lxx"],
+                           float(np.max(np.abs(vals[0][2] - vals[1][2]))))
+    if verbose:
+        print(f"\nfused vs 86-term stack over {len(n_active_seen)} planned "
+              f"states ({sum(n > 0 for n in n_active_seen)} with a non-empty "
+              f"active set, max {max(n_active_seen)} points active):")
+        for k, v in worst.items():
+            print(f"  {k:5s} max |per-point - fused| = {v:.3e}")
+    return max(worst.values())
+
+
 def main():
     worst_s = worst_g = 0.0
     for p in sample_points():
@@ -82,7 +164,20 @@ def main():
     print(f"Ar         max |py - c++| = {worst_ar:.3e}")
     print(f"Arr diag   max |py - c++| = {worst_arr:.3e}")
 
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", default=os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "runs", "2026-08-06_session13"))
+    ap.add_argument("--tag", default="s13")
+    args = ap.parse_args()
+    worst_fused = fused_vs_per_point(args.dir, args.tag)
+
     ok = max(worst_s, worst_g, worst_v, worst_ar, worst_arr) < 1e-12
+    # The fused term reassociates the same sums (it accumulates one Lxx instead
+    # of 86 weighted ones), so it is held to floating-point agreement rather than
+    # to bit equality.  Lxx entries are O(1e3) here, so 1e-9 is ~1e-12 relative.
+    ok = ok and worst_fused < 1e-9
     print("\nAGREE" if ok else "\nDISAGREE -- do not use the C++ path")
     return 0 if ok else 1
 

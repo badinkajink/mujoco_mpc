@@ -34,14 +34,29 @@ EVERY POINT IS CHECKED AT q* BEFORE IT IS USED (`audit`).  A keep-out that the
 certified pose violates is a keep-out that forbids the answer, which is the trap
 the half-space fell into.
 
-TWO IMPLEMENTATIONS, ONE FUNCTION.  The activation started as a Python subclass
-of `crocoddyl.ActivationModelAbstract`, which costs an interpreter round-trip per
-point per node per solver sweep -- 86 x 290 = 24 940 of them for the S13 plan,
-and it dominated both the offline solve and the MPC step time.  `croco_ext/`
-holds a C++ transcription; `croco_ext/test_keepout.py` shows the two agree
-bit-for-bit, and `activation()` below picks the C++ one when it is built.
-CROCO_KEEPOUT=python forces the interpreter path, which is how the speed-up is
-measured rather than asserted.
+THREE IMPLEMENTATIONS, ONE FUNCTION (`CROCO_KEEPOUT` picks).  The activation
+started as a Python subclass of `crocoddyl.ActivationModelAbstract`, which costs
+an interpreter round-trip per point per node per solver sweep -- 86 x 290 =
+24 940 of them for the S13 plan, and it dominated both the offline solve and the
+MPC step time.  `croco_ext/` holds a C++ transcription.  That was S13, and it was
+only half the problem:
+
+  python   one Python activation per point, one cost term per point.  S12/S13's
+           starting point.
+  cpp      the C++ activation, still one cost term per point.  S13's speed-up:
+           50 s -> 14 s offline, 119 -> 76 ms per MPC step.
+  fused    (default) ALL points in one C++ `CostModelBoxKeepOut` cost term.
+
+The third exists because the second stopped short.  What a keep-out point costs
+is not mostly its own arithmetic: `CostModelSum::calcDiff` accumulates a private
+66x66 Lxx, 66x27 Lxu and 27x27 Luu per cost TERM regardless of what the term
+computes, which croco_speed.py measures at 1.61 us for a term that computes
+nothing at all against 2.20 us for a keep-out point.  86 points is therefore
+~130 us per node of pure bookkeeping and a 5.4 MB per-node working set, and the
+inactive points -- nearly all of them, nearly always -- pay it in full.  The
+fused term accumulates once and skips inactive points at the cost of one SDF
+evaluation.  `croco_ext/test_keepout.py` checks all three give the same cost,
+Lx and Lxx on the real planned states.
 """
 
 import os
@@ -61,8 +76,9 @@ crocoddyl = cb.import_crocoddyl()
 # to have happened first) and never fatally: a missing .so falls back to the
 # Python class with a one-line note, so a fresh checkout still runs.
 _EXT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "croco_ext")
+_MODE = os.environ.get("CROCO_KEEPOUT", "fused")
 _CPP = None
-if os.environ.get("CROCO_KEEPOUT", "cpp") != "python":
+if _MODE != "python":
     try:
         if _EXT_DIR not in sys.path:
             sys.path.insert(0, _EXT_DIR)
@@ -70,7 +86,8 @@ if os.environ.get("CROCO_KEEPOUT", "cpp") != "python":
     except ImportError:
         _CPP = None
 
-IMPL = "c++" if _CPP is not None else "python"
+_FUSED = _MODE == "fused" and hasattr(_CPP, "CostModelBoxKeepOut")
+IMPL = "fused" if _FUSED else ("c++" if _CPP is not None else "python")
 
 # Bodies whose geoms are candidates for keep-out: the bracing arm from the wrist
 # out, the reaching arm's hand, and the head.  Legs and torso are nowhere near
@@ -259,6 +276,25 @@ def activation(half, r_min):
         return _CPP.ActivationModelBoxKeepOut(float(h[0]), float(h[1]),
                                               float(h[2]), float(r_min))
     return ActivationModelBoxKeepOut(half, r_min)
+
+
+def fused_cost(state, nu, half, center, spec):
+    """All keep-out points as ONE crocoddyl cost, or None if not available.
+
+    `spec` is `keepout_spec`'s output AFTER croco_plan has resolved each point to
+    a Pinocchio frame (the `fid` key).  Returns a `CostModelBoxKeepOut`, which the
+    caller adds to its CostModelSum under a single name and a single weight --
+    the same weight the per-point stack applied to every point, so the two are
+    the same objective.
+    """
+    if not _FUSED or not spec:
+        return None
+    h = np.asarray(half, float)
+    c = np.asarray(center, float)
+    return _CPP.CostModelBoxKeepOut(
+        state, int(nu), float(h[0]), float(h[1]), float(h[2]),
+        float(c[0]), float(c[1]), float(c[2]),
+        [int(p["fid"]) for p in spec], [float(p["thresh"]) for p in spec])
 
 
 def keepout_spec(m, d, q_star, subset, bodies=None, geoms=None, prune=0.35):
