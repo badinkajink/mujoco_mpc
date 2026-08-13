@@ -535,6 +535,119 @@ def cmd_ladder(args):
     return dict(ladder=rows)
 
 
+# --------------------------------------------------------------- threads --- #
+def cmd_threads(args):
+    """MPC step against ShootingProblem.nthreads, each cell a full replay.
+
+    crocoddyl parallelises exactly two loops -- the per-node loops inside
+    `ShootingProblem::calc` and `::calcDiff` -- and nothing else.  The backward
+    pass is a Riccati recursion and is sequential by construction.  So the
+    ceiling here is Amdahl over the split croco_speed.py solver measures
+    (~45% derivative sweep, 25% line-search rollouts, 25% backward pass): the
+    rollouts go through `calc` and the sweep through `calcDiff`, so ~70% of the
+    step is parallel and the asymptote is ~3.3x however many threads are thrown
+    at it.
+
+    `nthreads_effective` is read back off the problem rather than assumed,
+    because against a libcrocoddyl built WITHOUT OpenMP `set_nthreads` prints a
+    warning and pins it to 1 -- so a table of "requested" would silently report
+    a speed-up that never happened.
+    """
+    import croco_replay as cr
+    rows = []
+    for n in args.threads:
+        log, plan = cr.replay(
+            args.tag, ctrl_mode="mpc", dt_plan=0.02, run_dir=args.dir,
+            mpc_horizon=args.horizon, mpc_iters=args.iters,
+            mpc_threads=n, seed=args.seed, q_noise=args.q_noise)
+        sm = cr.summarise(log, plan, "mpc", verbose=False)
+        s_ = sm["mpc_solve_ms"]
+        rows.append(dict(requested=n, effective=s_.get("nthreads_effective", 1),
+                         solve_ms=s_["mean"], p95_ms=s_["p95"],
+                         hz=1000.0 / s_["mean"], fell=sm["fell"],
+                         reach_mm=1000 * sm["reach_err_at_brace_end"],
+                         pen_mm=1000 * sm["worst_penetration"],
+                         margin_mm=1000 * sm["min_support_margin"]))
+        r = rows[-1]
+        print(f"    threads {r['requested']:3d} (effective {r['effective']:2d})  "
+              f"{r['solve_ms']:6.2f} ms  p95 {r['p95_ms']:6.2f}  "
+              f"{r['hz']:6.1f} Hz   reach {r['reach_mm']:5.1f} mm  "
+              f"{'FELL' if r['fell'] else 'upright'}")
+    base = rows[0]["solve_ms"]
+    print(f"\n    {'threads':>7s} {'ms':>7s} {'p95':>7s} {'Hz':>7s} "
+          f"{'speed-up':>9s} {'efficiency':>11s}")
+    for r in rows:
+        n = max(r["effective"], 1)
+        print(f"    {r['effective']:7d} {r['solve_ms']:7.2f} {r['p95_ms']:7.2f} "
+              f"{r['hz']:7.1f} {base / r['solve_ms']:8.2f}x "
+              f"{100 * (base / r['solve_ms']) / n:10.0f}%")
+    return dict(threads=rows)
+
+
+# ----------------------------------------------------------------- stage --- #
+def cmd_stage(args):
+    """Which stage of a step the threads actually reach.
+
+    crocoddyl's OpenMP is in the per-node loops of `ShootingProblem::calc` and
+    `::calcDiff`, and a step reaches only ONE of them.  Checked in
+    src/core/solvers/ddp.cpp rather than assumed:
+
+      solver.calcDiff  -> problem_->calc + problem_->calcDiff   BOTH parallel
+      forwardPass      -> a plain `for (t...) m->calc(d, xs_try_[t], ...)`, no
+                          pragma, because the rollout is a dependency chain
+                          (x_{t+1} comes from step t's xnext).  It never calls
+                          ShootingProblem::calc at all, so the thread count
+                          cannot touch it.
+      backwardPass     -> Riccati recursion, node t+1 feeds node t.  Sequential
+                          by construction.
+
+    So the parallel fraction of a step is the derivative sweep alone, and the
+    other two set the floor.  That is the difference between a 3x lever and a
+    1.5x one, and it is measured here rather than estimated.
+    """
+    plan, ocp, problem, xs, us = load_ocp(args.dir, args.tag)
+    H = args.horizon
+    k0 = plan["n_approach"] - H // 2
+    models = list(problem.runningModels)[k0:k0 + H]
+    sub = crocoddyl.ShootingProblem(xs[k0], models, problem.terminalModel)
+    solver = crocoddyl.SolverBoxFDDP(sub)
+    xs_w = [np.array(v) for v in xs[k0:k0 + H + 1]]
+    us_w = [np.array(v) for v in us[k0:k0 + H]]
+    solver.solve(xs_w, us_w, 1, False, 1e-9)
+
+    n_hi = max(args.threads)
+    out = []
+    meas = {}
+    for n in (1, n_hi):
+        sub.nthreads = n
+        eff = int(sub.nthreads)
+        meas[n] = dict(
+            eff=eff,
+            calcDiff=timeit(solver.calcDiff, args.reps // 4 or 1),
+            backward=timeit(solver.backwardPass, args.reps // 4 or 1),
+            rollout=timeit(lambda: solver.tryStep(1.0), args.reps // 4 or 1))
+    for key, label, parallel in (
+            ("calcDiff", "solver.calcDiff (calc + calcDiff sweep)", True),
+            ("rollout", "one line-search rollout (SolverDDP::forwardPass)", False),
+            ("backward", "backwardPass (Riccati + BoxQP)", False)):
+        out.append(dict(stage=label, parallel=parallel,
+                        t1_ms=meas[1][key] / 1000.0,
+                        tn_ms=meas[n_hi][key] / 1000.0))
+    eff = meas[n_hi]["eff"]
+    print(f"--- {H}-node window, 1 thread vs {eff}")
+    for r in out:
+        print(f"    {r['stage']:42s} {r['t1_ms']:7.2f} -> {r['tn_ms']:6.2f} ms"
+              f"   {r['t1_ms']/max(r['tn_ms'],1e-9):5.2f}x"
+              f"   {'parallel' if r['parallel'] else 'SEQUENTIAL'}")
+    # The floor is everything the threads cannot touch.  The rollout is counted
+    # ONCE, so this is a lower bound: FDDP's line search takes ~4 of them per
+    # iteration, and each one is on this side of the ledger.
+    seq = sum(r["tn_ms"] for r in out if not r["parallel"])
+    print(f"    sequential floor for a 1-iteration step: {seq:.2f} ms"
+          f"  (backward pass + ONE rollout; the line search takes ~4)")
+    return dict(stage=out, sequential_ms=seq, nthreads=eff, horizon=H)
+
+
 # -------------------------------------------------------------- manifest --- #
 def cmd_manifest(args):
     """Provenance, plus the allocation cost the term count also drives.
@@ -560,15 +673,37 @@ def cmd_manifest(args):
     import crocoddyl as _c
     import pinocchio as _p
     try:
+        # LD_PRELOAD is inherited by children, and preloading libcrocoddyl into
+        # `git` makes git fail to start -- which silently turned the recorded
+        # commit into "unknown" on every measurement taken under the OpenMP
+        # build.  Strip it for the subprocess only.
+        env = {k: v for k, v in os.environ.items() if k != "LD_PRELOAD"}
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"],
-                                         text=True, cwd=HERE).strip()
+                                         text=True, cwd=HERE, env=env).strip()
     except Exception:
         commit = "unknown"
+
+    # Whether multithreading is live is a property of the LOADED LIBRARY, not of
+    # the Python bindings -- the pywrap is the stock one either way, so its
+    # module constants say nothing.  Ask a real problem: set_nthreads pins the
+    # count to 1 and warns when the library lacks OpenMP, and honours it when it
+    # does not.
+    _probe = crocoddyl.ShootingProblem(
+        np.zeros(3), [crocoddyl.ActionModelUnicycle()] * 2,
+        crocoddyl.ActionModelUnicycle())
+    _probe.nthreads = 2
+    mt_live = int(_probe.nthreads) == 2
     out = dict(
         keepout_impl=cg.IMPL,
         passive_impl=type(ocp.actuation).__name__,
         crocoddyl=_c.__version__, pinocchio=_p.__version__,
-        multithreading=bool(getattr(_c, "WITH_MULTITHREADING", False)),
+        multithreading=mt_live,
+        multithreading_default=int(_probe.nthreads),
+        # Which libcrocoddyl is actually mapped -- the OpenMP rebuild is
+        # selected by LD_LIBRARY_PATH, so "which build am I measuring" is a
+        # question about the process and not about the environment.
+        libcrocoddyl=next((l.split()[-1] for l in open("/proc/self/maps")
+                           if "libcrocoddyl.so" in l), "unknown"),
         cpu=platform.processor() or platform.machine(),
         cpu_model=next((l.split(":", 1)[1].strip()
                         for l in open("/proc/cpuinfo")
@@ -614,7 +749,7 @@ def cmd_offline(args):
         tag = f"{args.tag}_off_{impl}"
         subprocess.run(
             [sys.executable, os.path.join(HERE, "croco_run.py"),
-             "--mode", "elbow+forearm+palm", "--dt", "0.02",
+             "--mode", args.mode, "--dt", "0.02",
              "--n-approach", "120", "--n-braced", "80",
              "--dir", args.dir, "--tag", tag],
             env=env, check=True, cwd=HERE, stdout=subprocess.DEVNULL)
@@ -637,7 +772,8 @@ def cmd_offline(args):
 
 CMDS = dict(terms=cmd_terms, scaling=cmd_scaling, step=cmd_step,
             pieces=cmd_pieces, solver=cmd_solver, sweep=cmd_sweep,
-            ladder=cmd_ladder, manifest=cmd_manifest, offline=cmd_offline)
+            ladder=cmd_ladder, manifest=cmd_manifest, offline=cmd_offline,
+            threads=cmd_threads, stage=cmd_stage)
 
 
 def main():
@@ -652,10 +788,19 @@ def main():
                     default=[0, 20, 40, 60, 86])
     ap.add_argument("--horizons", type=int, nargs="+", default=[50, 35, 25, 15])
     ap.add_argument("--iters-grid", type=int, nargs="+", default=[2, 1])
+    ap.add_argument("--threads", type=int, nargs="+",
+                    default=[1, 2, 4, 6, 8, 12, 16, 20])
     ap.add_argument("--cones", type=int, nargs="+", default=[1, 0])
     ap.add_argument("--impls", nargs="+", default=["python", "cpp", "fused"],
                     help="keep-out implementations for the `offline` command")
     ap.add_argument("--passive", default="cpp")
+    ap.add_argument("--mode", default="elbow+forearm",
+                    help="contact subset for the `offline` command's re-solve. "
+                         "Default is the top-ranked mode the CAD-faithful brace "
+                         "geometry certifies at the S13 target; the S13 mode "
+                         "elbow+forearm+palm certified against a wrist pad and "
+                         "gripper box that claimed hardware the CAD does not "
+                         "have (see the S14 brace_surfaces.py work).")
     ap.add_argument("--alphas", type=int, nargs="+", default=[0],
                     help="line-search ladder lengths to try (0 = crocoddyl's 10)")
     ap.add_argument("--seed", type=int, default=None)

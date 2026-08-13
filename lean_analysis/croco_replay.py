@@ -296,9 +296,15 @@ class MPC:
     """
 
     def __init__(self, ocp, models, terminal, horizon=40, iters=2,
-                 xs_plan=None, us_plan=None, n_alphas=0):
+                 xs_plan=None, us_plan=None, n_alphas=0, nthreads=0):
         cro = cb.import_crocoddyl()
         self.n_alphas = n_alphas
+        # 0 = leave crocoddyl's own default alone.  The knob only does anything
+        # against a libcrocoddyl built with -DBUILD_WITH_MULTITHREADS=ON; the
+        # stock conda-forge build prints a warning and pins it to 1, which is
+        # why `croco_speed.py threads` reports the value it read BACK rather
+        # than the value it asked for.
+        self.nthreads = nthreads
         self.ocp, self.models, self.terminal = ocp, models, terminal
         self.H = min(horizon, len(models))
         self.iters = iters
@@ -337,6 +343,8 @@ class MPC:
         re-applies its shifted previous solution for that period.  Whether that
         costs anything is the `alphas` column of croco_speed.py sweep.
         """
+        if self.nthreads:
+            problem.nthreads = self.nthreads
         solver = cro.SolverBoxFDDP(problem)
         if self.n_alphas:
             solver.alphas = [2.0 ** -i for i in range(self.n_alphas)]
@@ -439,7 +447,7 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
            fps=30, speed=1.0, push=0.0, push_at=0.5, push_dir=(1, 0, 0),
            push_hold=0.2, mpc_horizon=40, mpc_iters=2, seed=None, q_noise=0.0,
            cam="wide", ghost=True, qpos_out=None, mpc_cones=True,
-           mpc_alphas=0):
+           mpc_alphas=0, mpc_threads=0):
     xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
     us = np.load(os.path.join(run_dir, f"us_{tag}.npy"))
     with open(os.path.join(run_dir, f"plan_{tag}.json")) as fh:
@@ -473,7 +481,8 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                                 cones=plan["cones"] and mpc_cones)
             mpc = MPC(ocp, list(problem.runningModels), problem.terminalModel,
                       horizon=mpc_horizon, iters=mpc_iters,
-                      xs_plan=xs, us_plan=us, n_alphas=mpc_alphas)
+                      xs_plan=xs, us_plan=us, n_alphas=mpc_alphas,
+                      nthreads=mpc_threads)
 
     # NO inflated collision margin.  cs.load defaults to margin = 25 mm so the
     # IK can see collisions before it enters them; in a DYNAMICS replay that
@@ -673,6 +682,8 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
             mean=float(1000 * np.mean(mpc.solve_times)),
             p95=float(1000 * np.percentile(mpc.solve_times, 95)),
             horizon=mpc.H, iters=mpc.iters,
+            nthreads_requested=int(mpc.nthreads),
+            nthreads_effective=int(mpc.problem.nthreads),
             step_length_median=float(np.median(sl)),
             step_length_min=float(sl.min()),
             # A rung of crocoddyl's alpha ladder is a rollout, so log2(1/alpha)
@@ -779,6 +790,10 @@ def main():
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--mpc-horizon", type=int, default=40)
     ap.add_argument("--mpc-iters", type=int, default=2)
+    ap.add_argument("--mpc-threads", type=int, default=0,
+                    help="ShootingProblem.nthreads for the online problem "
+                         "(0 = crocoddyl's default).  Inert unless libcrocoddyl "
+                         "was built with OpenMP -- see the S16 docpage.")
     ap.add_argument("--mpc-alphas", type=int, default=0,
                     help="truncate the FDDP line-search ladder to this many "
                          "rungs (0 = crocoddyl's default 10).  Bounds the "
@@ -809,6 +824,7 @@ def main():
                        mpc_horizon=args.mpc_horizon, mpc_iters=args.mpc_iters,
                        mpc_cones=not args.mpc_no_cones,
                        mpc_alphas=args.mpc_alphas,
+                       mpc_threads=args.mpc_threads,
                        cam=args.cam, ghost=not args.no_ghost,
                        dt_plan=plan_dt(args.dir, tag))
     res = summarise(log, plan, args.ctrl)
