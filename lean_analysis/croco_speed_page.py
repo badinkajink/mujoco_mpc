@@ -393,6 +393,8 @@ def main():
         "HZ_S13": f'{lad["S13"]["hz"]:.0f}',
         "STEP_FUSED": f'{lad["S15a"]["solve_ms"]:.1f}',
         "STEP_FINAL": f'{lad["S15d"]["solve_ms"]:.1f}',
+        "P95_FINAL_RERUN": f'{d["ladder_rerun"]["ladder"][-1]["p95_ms"]:.1f}',
+        "MODE": json.load(open(os.path.join(a.dir, "croco", "plan_s13.json")))["mode"],
         "P95_FINAL": f'{lad["S15d"]["p95_ms"]:.1f}',
         "HZ_FINAL": f'{lad["S15d"]["hz"]:.0f}',
         "HZ_H50": f'{lad["S15c"]["hz"]:.0f}',
