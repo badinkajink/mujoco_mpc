@@ -82,6 +82,7 @@ no CoM barrier, no return phase) and reproduces its numbers to 7 figures.
 import argparse
 import json
 import os
+import sys
 import subprocess
 import time
 
@@ -132,6 +133,30 @@ class ActuationModelJointPassive:
     """Placeholder; the real class is built in `_make_actuation` (needs crocoddyl)."""
 
 
+def _cpp_actuation(state, damping, friction, eps):
+    """The C++ transcription of `_make_actuation`, or None if it is not built.
+
+    Same model, same numbers (croco_ext/test_passive.py); it is here because the
+    Python one is the last interpreted object in the hot path -- 4.7 us of a
+    323 us node in calcDiff, and 2.0 us in the `calc` that FDDP's line search
+    runs once per trial step.  CROCO_PASSIVE=python forces the interpreter path
+    so the difference stays measurable.
+    """
+    if os.environ.get("CROCO_PASSIVE", "cpp") == "python":
+        return None
+    try:
+        ext = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "croco_ext")
+        if ext not in sys.path:
+            sys.path.insert(0, ext)
+        import croco_passive
+    except ImportError:
+        return None
+    return croco_passive.ActuationModelJointPassive(
+        state, np.asarray(damping, float), np.asarray(friction, float),
+        float(eps))
+
+
 def _make_actuation(state, damping, friction, eps=FRICTION_EPS):
     """Floating-base actuation that also carries the plant's PASSIVE joint torques.
 
@@ -151,6 +176,10 @@ def _make_actuation(state, damping, friction, eps=FRICTION_EPS):
     armature is handled the other way, inside the pinocchio model, because
     pinocchio's mass matrix already knows how to carry it.
     """
+    cpp = _cpp_actuation(state, damping, friction, eps)
+    if cpp is not None:
+        return cpp
+
     class _Passive(crocoddyl.ActuationModelAbstract):
         def __init__(self):
             crocoddyl.ActuationModelAbstract.__init__(self, state, state.nv - 6)
