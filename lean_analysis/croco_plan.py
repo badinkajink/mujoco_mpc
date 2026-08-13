@@ -500,7 +500,18 @@ class LeanOCP:
 
     # --------------------------------------------------------------- phases --
     def build(self, dt=0.01, n_approach=120, n_braced=80, impulse=False,
-              cones=None, w_terminal=1e0, n_return=0, dwell=0):
+              cones=None, w_terminal=1e0, n_return=0, dwell=0,
+              enable_force=None):
+        # `enable_force` is the last argument of
+        # DifferentialActionModelContactFwdDynamics and it gates a real block of
+        # work in calcDiff: df_dx, df_du and the per-contact updateForceDiff,
+        # measured at 13 us of a 149 us braced node.  The ONLY costs that read
+        # those derivatives are the cone residuals, so it follows `cones` rather
+        # than being hard-coded True.  It does not gate the forces themselves --
+        # `calc` still solves for lambda_c -- so croco_forces.py still reads the
+        # planned wrenches off a cone-free solve.
+        if enable_force is None:
+            enable_force = self.cones if cones is None else bool(cones)
         approach = []
         for k in range(n_approach):
             costs = self._base_costs(braced=False, cones=cones)
@@ -530,7 +541,7 @@ class LeanOCP:
                         crocoddyl.ResidualModelFrameTranslation(
                             self.state, self.sites[s], tgt, self.nu)), w)
             dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
-                self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, True)
+                self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, enable_force)
             approach.append(crocoddyl.IntegratedActionModelEuler(dmodel, dt))
 
         # Optional impulse node: the bracing sites touch down at zero velocity.
@@ -597,7 +608,7 @@ class LeanOCP:
                             self.state, self.sites[s], self.site_ref[s],
                             self.nu)), self.w_hold)
             dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
-                self.state, self.actuation, self._contacts(True), costs, INV_DAMPING, True)
+                self.state, self.actuation, self._contacts(True), costs, INV_DAMPING, enable_force)
             braced.append(crocoddyl.IntegratedActionModelEuler(dmodel, dt))
 
         # RETURN: brace released, feet only again, back to the start pose.  The
@@ -612,7 +623,7 @@ class LeanOCP:
                                      x_ref=self.x0)
             self._geometry(costs, self.nu, feet_only=True)
             dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
-                self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, True)
+                self.state, self.actuation, self._contacts(False), costs, INV_DAMPING, enable_force)
             ret.append(crocoddyl.IntegratedActionModelEuler(dmodel, dt))
 
         # Terminal.  Without a return phase this is the braced pose: at q*, at
@@ -632,7 +643,7 @@ class LeanOCP:
                 1e3)
         tdmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
             self.state, self.actuation, self._contacts(terminal_braced), tcosts,
-            INV_DAMPING, True)
+            INV_DAMPING, enable_force)
         terminal = crocoddyl.IntegratedActionModelEuler(tdmodel, 0.0)
 
         # Hand the torque limits to the solver as BOX BOUNDS.  SolverBoxFDDP only

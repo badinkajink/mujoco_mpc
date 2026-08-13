@@ -296,13 +296,20 @@ class MPC:
     """
 
     def __init__(self, ocp, models, terminal, horizon=40, iters=2,
-                 xs_plan=None, us_plan=None):
+                 xs_plan=None, us_plan=None, n_alphas=0):
         cro = cb.import_crocoddyl()
+        self.n_alphas = n_alphas
         self.ocp, self.models, self.terminal = ocp, models, terminal
         self.H = min(horizon, len(models))
         self.iters = iters
         self.xs_plan, self.us_plan = xs_plan, us_plan
         self.solve_times = []
+        # Line-search diagnostics.  FDDP's forward pass is a full nonlinear
+        # rollout PER TRIAL STEP, and crocoddyl's default alpha ladder has 10
+        # rungs, so a step that walks to the bottom costs ten rollouts -- as much
+        # again as the backward pass it followed.  Whether that happens is not
+        # inferable from the mean solve time, so it is recorded.
+        self.step_lengths = []
         # ONE problem, rotated with circularAppend, not a fresh ShootingProblem
         # per control step.  Rebuilding costs an allocateData over the whole
         # horizon every 20 ms, and with the box keep-out that is 25 nodes x 86
@@ -312,9 +319,28 @@ class MPC:
         self.datas = [m.createData() for m in models]
         self.problem = cro.ShootingProblem(
             ocp.x0, list(models[:self.H]), terminal)
-        self.solver = cro.SolverBoxFDDP(self.problem)
+        self.solver = self._make_solver(cro, self.problem)
         self.head = self.H            # index of the next model to append
         self.xs = self.us = None
+
+    def _make_solver(self, cro, problem):
+        """A BoxFDDP with, optionally, a TRUNCATED line-search ladder.
+
+        FDDP's forward pass is a full nonlinear rollout per trial step, and
+        crocoddyl's default ladder is ten rungs down to alpha = 2^-9.  Measured
+        here the median step is 0.125-0.1875, i.e. ~4 rollouts -- but the tail of
+        the distribution is what decides whether a control period is met, and the
+        p95 is 40% above the mean for exactly this reason.  Capping the ladder at
+        `n_alphas` rungs BOUNDS the rollouts per iteration, which is the shape a
+        real-time budget wants: a step that would have needed a tenth of a rung
+        is not taken at all, the regularisation goes up, and the controller
+        re-applies its shifted previous solution for that period.  Whether that
+        costs anything is the `alphas` column of croco_speed.py sweep.
+        """
+        solver = cro.SolverBoxFDDP(problem)
+        if self.n_alphas:
+            solver.alphas = [2.0 ** -i for i in range(self.n_alphas)]
+        return solver
 
     def __call__(self, k, x_meas):
         """Returns (first control, first predicted state) or (None, None)."""
@@ -339,7 +365,7 @@ class MPC:
             cro = cb.import_crocoddyl()
             self.problem = cro.ShootingProblem(
                 x_meas, list(self.models[k:]), self.terminal)
-            self.solver = cro.SolverBoxFDDP(self.problem)
+            self.solver = self._make_solver(cro, self.problem)
             self.head = len(self.models)
         self.problem.x0 = x_meas
         H = self.problem.T
@@ -360,6 +386,7 @@ class MPC:
         t0 = time.time()
         self.solver.solve(xs, us, self.iters, False, 1e-9)
         self.solve_times.append(time.time() - t0)
+        self.step_lengths.append(float(self.solver.stepLength))
         self.xs, self.us = list(self.solver.xs), list(self.solver.us)
         return np.array(self.solver.us[0]), np.array(self.solver.xs[1])
 
@@ -411,7 +438,8 @@ def build_ocp(plan, run_dir):
 def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
            fps=30, speed=1.0, push=0.0, push_at=0.5, push_dir=(1, 0, 0),
            push_hold=0.2, mpc_horizon=40, mpc_iters=2, seed=None, q_noise=0.0,
-           cam="wide", ghost=True, qpos_out=None):
+           cam="wide", ghost=True, qpos_out=None, mpc_cones=True,
+           mpc_alphas=0):
     xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
     us = np.load(os.path.join(run_dir, f"us_{tag}.npy"))
     with open(os.path.join(run_dir, f"plan_{tag}.json")) as fh:
@@ -427,13 +455,25 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
         ocp, _ = build_ocp(plan, run_dir)
         state = ocp.state
         if ctrl_mode == "mpc":
+            # The ONLINE problem may drop the cone costs while the OFFLINE plan
+            # keeps them.  That is a real change to what the MPC optimises and it
+            # is opt-in for that reason -- but it is the largest remaining item
+            # in the step: the five cone terms are 36 us of a 131 us braced node,
+            # and they are also the only costs that read the contact-force
+            # derivatives, so dropping them lets `enable_force` go off too, for
+            # 50 us total.  The plan the horizon slides over was solved WITH the
+            # cones, so the trajectory being tracked is still cone-feasible; the
+            # question this makes measurable is whether re-solving needs to
+            # re-check that every 20 ms.  `--mpc-no-cones` and the (H, iters,
+            # cones) grid in croco_speed.py sweep report what it costs.
             problem = ocp.build(dt=plan["dt"], n_approach=plan["n_approach"],
                                 n_braced=plan["n_braced"],
                                 n_return=plan.get("n_return", 0),
-                                dwell=plan.get("dwell", 0), cones=plan["cones"])
+                                dwell=plan.get("dwell", 0),
+                                cones=plan["cones"] and mpc_cones)
             mpc = MPC(ocp, list(problem.runningModels), problem.terminalModel,
                       horizon=mpc_horizon, iters=mpc_iters,
-                      xs_plan=xs, us_plan=us)
+                      xs_plan=xs, us_plan=us, n_alphas=mpc_alphas)
 
     # NO inflated collision margin.  cs.load defaults to margin = 25 mm so the
     # IK can see collisions before it enters them; in a DYNAMICS replay that
@@ -628,10 +668,17 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
         np.save(qpos_out, np.array(qtrace))
 
     if mpc is not None:
+        sl = np.array(mpc.step_lengths)
         plan["mpc_solve_ms"] = dict(
             mean=float(1000 * np.mean(mpc.solve_times)),
             p95=float(1000 * np.percentile(mpc.solve_times, 95)),
-            horizon=mpc.H, iters=mpc.iters)
+            horizon=mpc.H, iters=mpc.iters,
+            step_length_median=float(np.median(sl)),
+            step_length_min=float(sl.min()),
+            # A rung of crocoddyl's alpha ladder is a rollout, so log2(1/alpha)
+            # rollouts were thrown away before one was accepted.
+            trials_median=float(np.median(np.log2(1.0 / sl)) + 1),
+            frac_full_step=float(np.mean(sl >= 1.0)))
     return log, plan
 
 
@@ -701,6 +748,10 @@ def summarise(log, plan, ctrl_mode, verbose=True):
         print(f"  MPC solve            mean {s['mean']:.1f} ms, p95 {s['p95']:.1f} ms "
               f"(H={s['horizon']}, {s['iters']} iters, control period "
               f"{plan['dt']*1000:.0f} ms)")
+        if "step_length_median" in s:
+            print(f"  MPC line search      median step {s['step_length_median']:.4f}"
+                  f" ({s['trials_median']:.0f} rollouts), "
+                  f"{100*s['frac_full_step']:.0f}% took the full step")
     return res
 
 
@@ -728,6 +779,15 @@ def main():
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--mpc-horizon", type=int, default=40)
     ap.add_argument("--mpc-iters", type=int, default=2)
+    ap.add_argument("--mpc-alphas", type=int, default=0,
+                    help="truncate the FDDP line-search ladder to this many "
+                         "rungs (0 = crocoddyl's default 10).  Bounds the "
+                         "rollouts per iteration, and so the worst-case step.")
+    ap.add_argument("--mpc-no-cones", action="store_true",
+                    help="drop the friction/wrench cone costs from the ONLINE "
+                         "problem only (the plan keeps them).  Also switches "
+                         "enable_force off, since the cones are the only costs "
+                         "that read the contact-force derivatives.")
     ap.add_argument("--cam", default="wide", choices=sorted(CAMERAS),
                     help="camera preset for --video")
     ap.add_argument("--no-ghost", action="store_true",
@@ -747,6 +807,8 @@ def main():
                        push_dir=[float(v) for v in args.push_dir.split(",")],
                        seed=args.seed, q_noise=args.q_noise,
                        mpc_horizon=args.mpc_horizon, mpc_iters=args.mpc_iters,
+                       mpc_cones=not args.mpc_no_cones,
+                       mpc_alphas=args.mpc_alphas,
                        cam=args.cam, ghost=not args.no_ghost,
                        dt_plan=plan_dt(args.dir, tag))
     res = summarise(log, plan, args.ctrl)
