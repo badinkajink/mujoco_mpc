@@ -1379,6 +1379,38 @@ int RunDeployNode(const NodeConfig& cfg) {
   for (int i = 0; i < cfg.nu; i++) arm_q_init[i] = sd->qpos[7 + i];   // refined to measured pose on first live state
   bool arm_init_set = false;
   double ramp_eff = start_ramp_sec;   // rescaled at latch by distance-from-home (see loop)
+  // ---- BRING-UP WAYPOINTS (2026-08-12, HAMS frame-task pattern): keyframes named
+  //      bringup_wp1..bringup_wp8 in the task XML define intermediate stations for the
+  //      scripted rise (arms swing BACK-tucked, then settle to the stance) so the ramp
+  //      never sweeps the hands forward through an obstacle (real run 6: gripper snagged
+  //      the table edge during the straight measured->stand lerp). Absent keys = the
+  //      original single-lerp path, byte-identical.
+  double bringup_wp[8][kMaxNU];
+  int n_bringup_wp = 0;
+  bool bringup_wps_live = false;   // latched with ramp_eff on the first live state
+  for (int w = 0; w < 8; w++) {
+    char nm[16];
+    snprintf(nm, sizeof(nm), "bringup_wp%d", w + 1);
+    int kid = mj_name2id(g_model, mjOBJ_KEY, nm);
+    if (kid < 0) break;
+    for (int i = 0; i < cfg.nu; i++)
+      bringup_wp[n_bringup_wp][i] = g_model->key_qpos[kid * nq + 7 + moff + i];
+    n_bringup_wp++;
+  }
+  if (n_bringup_wp > 0)
+    std::fprintf(stderr, "[node] bring-up WAYPOINT ramp: measured -> %d station(s) -> "
+                         "destination (%.1fs/segment; falls back to direct lerp when "
+                         "starting near home)\n", n_bringup_wp, kStartRampSec * 0.5);
+  // piecewise-linear path through {arm_q_init, wp1..wpN, dest} at parameter s in [0,1]
+  auto bringup_path_at = [&](double s, const double* dest, int joint) -> double {
+    const int nseg = n_bringup_wp + 1;
+    double fs = std::fmin(std::fmax(s, 0.0), 1.0) * nseg;
+    int seg = std::fmin((int)fs, nseg - 1);
+    double u = fs - seg;
+    const double* a = (seg == 0) ? arm_q_init : bringup_wp[seg - 1];
+    const double* b = (seg == n_bringup_wp) ? dest : bringup_wp[seg];
+    return (1.0 - u) * a[joint] + u * b[joint];
+  };
   bool handover_active = false;       // align GO -> settle+policy-blend into MJPC (not a cold re-run)
   double handover_t0 = 0.0;           // WALL time at which the align hand-over began
 
@@ -1914,6 +1946,16 @@ int RunDeployNode(const NodeConfig& cfg) {
       double d0 = 0.0;
       for (int i = 0; i < cfg.nu; i++) d0 = std::fmax(d0, std::fabs(arm_q_init[i] - home_q[i]));
       ramp_eff = start_ramp_sec * std::fmin(1.0, d0 / 0.5);
+      // WAYPOINT ramp engages only on genuinely off-home starts (d0 >= 0.5 rad, the
+      // harness-supported regime): the path is longer than the direct lerp, so each
+      // segment gets half the stock ramp time. Near-home starts keep the fast direct
+      // path (a home-started robot has nothing to swing clear of).
+      bringup_wps_live = (n_bringup_wp > 0 && d0 >= 0.5 && !straighten_active);
+      if (bringup_wps_live) {
+        ramp_eff = kStartRampSec * 0.5 * (n_bringup_wp + 1);
+        std::fprintf(stderr, "[node] bring-up WAYPOINT path ACTIVE: %d station(s), "
+                             "%.1fs total\n", n_bringup_wp, ramp_eff);
+      }
       if (straighten_active) ramp_eff = 0.0;   // straighten-start: the planner drives the rise;
                                                // the scripted bring-up ramp/muzzle is bypassed
                                                // (hold slump -> ENTER -> handover -> full authority),
@@ -2268,6 +2310,13 @@ int RunDeployNode(const NodeConfig& cfg) {
             tgt = action[i];                     // full policy authority
           }
         }
+        // WAYPOINT rise: while still climbing (aa<1) route through the bring-up
+      // stations instead of the straight blend. tgt == home_q for the whole
+      // rise (see above), so the path ends exactly where the old lerp did and
+      // every post-rise branch (hold/blend/switch) is untouched.
+      if (bringup_wps_live && aa < 1.0)
+        base = bringup_path_at(aa, home_q, i);
+      else
         base = (1.0 - aa) * arm_q_init[i] + aa * tgt;
       } else {
         base = (warming || i >= nact) ? cur.q[i] : action[i];
