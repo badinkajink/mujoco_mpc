@@ -244,6 +244,40 @@ const double TAU_LIMIT[kNU] = {200, 200, 200, 300, 60, 40,
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
+  // AUTO-LOG (2026-08-12): mirror ALL node output to a timestamped file so the
+  // operator's normal launch command needs no tee/redirect. popen("tee")
+  // inherits the CURRENT stdout (the terminal); dup2 then routes our own
+  // stdout+stderr INTO tee -> terminal display unchanged, file gets a copy.
+  // Real-run diagnostics (LEAN_DEBUG lines) were lost on 08-11/08-12 because
+  // shell tee invocations kept silently failing; this closes that hole.
+  {
+    char path[512];
+    time_t now = time(nullptr);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    const char* home = getenv("HOME");
+    snprintf(path, sizeof(path),
+             "%s/Desktop/h12/logs/node_auto_%02d%02d_%02d%02d%02d.log",
+             home ? home : "/tmp", tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour,
+             tmv.tm_min, tmv.tm_sec);
+    std::string teecmd = std::string("exec tee -a '") + path + "'";
+    FILE* tp = popen(teecmd.c_str(), "w");
+    if (tp) {
+      setvbuf(tp, nullptr, _IOLBF, 0);
+      fflush(stdout);
+      fflush(stderr);
+      dup2(fileno(tp), fileno(stdout));
+      dup2(fileno(tp), fileno(stderr));
+      setvbuf(stdout, nullptr, _IOLBF, 0);
+      setvbuf(stderr, nullptr, _IOLBF, 0);
+      std::fprintf(stderr, "[node] auto-log -> %s\n", path);
+    } else {
+      std::fprintf(stderr, "[node] auto-log DISABLED (tee spawn failed)\n");
+    }
+  }
+  // LEAN_DEBUG defaults ON (setenv with overwrite=0: an explicit
+  // LEAN_DEBUG=0 in the environment still disables the diagnostic lines).
+  setenv("LEAN_DEBUG", "1", 0);
   h12deploy::NodeConfig cfg;
   cfg.nu = kNU;
   cfg.kp = KP;
