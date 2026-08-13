@@ -211,10 +211,20 @@ def fig_budget(d):
 
 # ----------------------------------------------------------------- tables --
 def table_ladder(d):
+    """The ladder, with the repeat run's step time beside the first.
+
+    Two runs and not one because the machine drifts: a full re-run of the ladder
+    an hour later came back 5-10% slower ACROSS EVERY RUNG, ratios intact.  That
+    is thermal/scheduling variance and not a regression, but a single column of
+    milliseconds would invite reading a 12.2 as if it were repeatable to 0.1, and
+    the p95 claim at the bottom rung has only ~15% of margin against the control
+    period.  So both runs are shown.
+    """
     period = d["meta"]["meta"]["control_period_ms"]
+    rerun = {r["rung"]: r for r in d.get("ladder_rerun", {}).get("ladder", [])}
     out = ['<div class="scroll"><table><thead><tr><th>rung</th>'
            '<th>keep-out</th><th>actuation</th><th>H</th><th>iters</th>'
-           f'<th>step {MS}</th><th>p95 {MS}</th><th>Hz</th>'
+           f'<th>step {MS}</th><th>repeat {MS}</th><th>p95 {MS}</th><th>Hz</th>'
            '<th>reach err mm</th><th>survives</th></tr></thead><tbody>']
     for r in d["ladder"]["ladder"]:
         cls = "bad" if r["solve_ms"] > period else "good"
@@ -223,7 +233,8 @@ def table_ladder(d):
                    f'<td>{r["CROCO_PASSIVE"]}</td>'
                    f'<td>{r["horizon"]}</td><td>{r["iters"]}</td>'
                    f'<td class="{cls}">{r["solve_ms"]:.1f}</td>'
-                   f'<td>{r["p95_ms"]:.1f}</td>'
+                   f'<td>{rerun[r["rung"]]["solve_ms"]:.1f}</td>'
+                   f'<td>{r["p95_ms"]:.1f} / {rerun[r["rung"]]["p95_ms"]:.1f}</td>'
                    f'<td class="{cls}">{r["hz"]:.1f}</td>'
                    f'<td>{r["reach_mm"]:.1f}</td>'
                    f'<td>{"no — FELL" if r["fell"] else "yes"}</td></tr>')
