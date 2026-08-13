@@ -26,6 +26,7 @@
 // ramp/hold/blend timings, torque-budget clamp, ...) are compiled-in constants --
 // see deploy_common.h for the full flag-diet rationale.
 
+#include <csignal>
 #include <cstdlib>
 #include <string>
 
@@ -260,7 +261,12 @@ int main(int argc, char** argv) {
              "%s/Desktop/h12/logs/node_auto_%02d%02d_%02d%02d%02d.log",
              home ? home : "/tmp", tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour,
              tmv.tm_min, tmv.tm_sec);
-    std::string teecmd = std::string("exec tee -a '") + path + "'";
+    // setsid: detach tee from the terminal's foreground process group so the
+    // operator's Ctrl+C cannot kill it (2026-08-12: tee died mid-run at
+    // 20:02:27 and the brace runs lost their logs). SIGPIPE ignored below so
+    // even a dead tee can never kill the node itself.
+    signal(SIGPIPE, SIG_IGN);
+    std::string teecmd = std::string("exec setsid tee -a '") + path + "'";
     FILE* tp = popen(teecmd.c_str(), "w");
     if (tp) {
       setvbuf(tp, nullptr, _IOLBF, 0);
