@@ -47,9 +47,43 @@ def main():
     ap.add_argument("--w-land", type=float, default=5e3)
     ap.add_argument("--w-hold", type=float, default=1e3)
     ap.add_argument("--w-com", type=float, default=1e3)
+    ap.add_argument("--w-cone", type=float, default=1e1,
+                    help="friction/wrench cone barrier weight.  1e1 is the "
+                         "S13-S16 value; see the S17 docpage for what it costs")
+    ap.add_argument("--w-reach", type=float, default=1e2,
+                    help="reach cost on the braced phase (terminal/dwell get 10x)")
+    ap.add_argument("--cop-shrink", type=float, default=1.0,
+                    help="scale on the sole rectangle the foot WRENCH CONE is "
+                         "written against.  <1 demands centre-of-pressure "
+                         "margin, i.e. asks the plan not to ride the tipping "
+                         "edge")
+    ap.add_argument("--min-nforce", type=float, default=1.0,
+                    help="minimum contact normal force [N] in the cones")
+    ap.add_argument("--w-ctrl", type=float, default=1e-3,
+                    help="control regulariser.  With bilateral 6D foot welds a "
+                         "subspace of internal preload is free to the model and "
+                         "is not free to the plant -- this is what prices it")
+    ap.add_argument("--n-hold", type=int, default=0,
+                    help="leading nodes of the approach spent holding the start "
+                         "pose, so the departure from rest is planned")
+    ap.add_argument("--w-hold-state", type=float, default=1e2)
+    ap.add_argument("--w-com-damp", type=float, default=0.0,
+                    help="weight on horizontal centroidal linear momentum on "
+                         "the feet-only phases: the derivative half of the CoM "
+                         "terms, which is where a topple shows up first")
+    ap.add_argument("--w-com-track", type=float, default=0.0,
+                    help="quadratic pull of the CoM toward the middle of the "
+                         "feet on the feet-only phases (0 = off, barrier only)")
     ap.add_argument("--com-margin", type=float, default=0.03)
     ap.add_argument("--tag", default=None,
                     help="override the output file tag (default: the mode name)")
+    ap.add_argument("--stance-dx", type=float, default=None,
+                    help="rigid x offset of the whole robot [m] (default: the "
+                         "value modes.json was certified at)")
+    ap.add_argument("--stance-dy", type=float, default=None,
+                    help="rigid y offset of the whole robot [m].  Negative "
+                         "moves the bracing shoulder toward the table's "
+                         "centreline -- see croco_stance.py and S14")
     ap.add_argument("--dir", default="runs/2026-08-05_session12/croco")
     ap.add_argument("--modes", default=None,
                     help="modes.json to read q* from (default: <dir>/modes.json)")
@@ -64,9 +98,17 @@ def main():
     q_star = np.loadtxt(os.path.join(os.path.dirname(modes_path),
                                      entry["qpos_file"]))
 
+    if args.stance_dx is not None:
+        cs.STANCE_DX = args.stance_dx
+    if args.stance_dy is not None:
+        cs.STANCE_DY = args.stance_dy
+    elif "stance_dy" in modes:
+        cs.STANCE_DY = modes["stance_dy"]       # follow the pose we aim at
+    if "stance_dx" in modes and args.stance_dx is None:
+        cs.STANCE_DX = modes["stance_dx"]
+
     m_mj, d_mj = cs.load()
-    kid = mujoco.mj_name2id(m_mj, mujoco.mjtObj.mjOBJ_KEY, args.start)
-    q0 = m_mj.key_qpos[kid].copy()
+    q0 = cs.start_qpos(m_mj, args.start)
     d_mj.qpos[:] = q0
     mujoco.mj_forward(m_mj, d_mj)
     table_z = cs.table_top_z(m_mj, d_mj)
@@ -82,7 +124,12 @@ def main():
                      reach_target=np.array(modes["target"]),
                      cones=not args.no_cones, legacy=args.legacy,
                      keepout=not args.no_keepout, com_margin=args.com_margin,
-                     w_land=args.w_land, w_hold=args.w_hold, w_com=args.w_com)
+                     w_land=args.w_land, w_hold=args.w_hold, w_com=args.w_com,
+                     w_cone=args.w_cone, w_reach=args.w_reach,
+                     cop_shrink=args.cop_shrink, min_nforce=args.min_nforce,
+                     w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
+                     w_ctrl=args.w_ctrl,
+                     n_hold=args.n_hold, w_hold_state=args.w_hold_state)
     n_tot = args.n_approach + args.n_braced + args.n_return
     total_t = n_tot * args.dt
     print(f"horizon   {n_tot} nodes, dt={args.dt}, "
@@ -105,10 +152,16 @@ def main():
                n_return=args.n_return, dwell=args.dwell, mu=args.mu,
                legacy=args.legacy, keepout=len(ocp.keepout),
                w_land=args.w_land, w_hold=args.w_hold, w_com=args.w_com,
+               w_cone=args.w_cone, w_reach=args.w_reach,
+               cop_shrink=args.cop_shrink, min_nforce=args.min_nforce,
+               w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
+               w_ctrl=args.w_ctrl,
+               n_hold=args.n_hold, w_hold_state=args.w_hold_state,
                com_margin=args.com_margin,
                converged=bool(ok), solve_seconds=secs, commit=git_head(),
                stage1=({"converged": stage1[0], "cost": stage1[1]}
                        if stage1 else None),
+               stance_dx=cs.STANCE_DX, stance_dy=cs.STANCE_DY,
                target=modes["target"], model=os.path.basename(cs.MODEL),
                tau_basis=cs.TAU_BASIS)
 

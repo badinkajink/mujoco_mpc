@@ -230,7 +230,9 @@ class LeanOCP:
     def __init__(self, subset, q_star_mj, q0_mj, mu=0.6, table_z=None,
                  reach_target=None, clearance=0.02, cones=True, legacy=False,
                  keepout=True, com_margin=0.03, w_land=5e3, w_hold=1e3,
-                 w_com=1e3, land_z_weight=3.0):
+                 w_com=1e3, land_z_weight=3.0, w_cone=1e1, w_reach=1e2,
+                 cop_shrink=1.0, min_nforce=1.0, w_com_track=0.0,
+                 w_ctrl=1e-3, n_hold=0, w_hold_state=1e2, w_com_damp=0.0):
         self.rmodel = cb.build_pin(reconcile_passive=not legacy)
         self.sites = cb.mj_site_frames(self.rmodel)
         self.subset = list(subset)
@@ -294,6 +296,50 @@ class LeanOCP:
         # restores exactly that so the old numbers are reproducible from this file.
         self.w_land = 5e1 if legacy else w_land
         self.w_hold, self.w_com = w_hold, w_com
+        # THE COST BALANCE IS THE ROBUSTNESS STORY (S17).  These two were
+        # hard-coded constants until the noise sweep was traced to them: a
+        # quadratic barrier at weight 1e3 charges 0.14 for standing 17 mm outside
+        # the foot polygon, against ~25 for the landing cost that is pulling the
+        # arm down, so the optimiser sells the support polygon to buy the brace
+        # and does it three orders of magnitude below cost.  Same for the cones,
+        # which are the only thing stopping the plan from asking the rigid feet
+        # for a wrench they cannot supply.
+        self.w_cone, self.w_reach = w_cone, w_reach
+        # COP MARGIN.  The wrench cone's centre-of-pressure rows are written
+        # against the sole RECTANGLE, so a plan whose CoP rides the heel edge
+        # satisfies them exactly -- and that is what the S13-S16 plan does.  A
+        # CoP on the edge IS the tipping boundary, and the rigid 6D foot contact
+        # in this OCP cannot represent the robot rotating over it: the instant
+        # the plant does, the measured state is off the model's own constraint
+        # manifold and the DDP's line search collapses (measured: alpha = 0.002,
+        # no descent, at 1, 2 and 5 iterations and at every horizon up to the
+        # whole remaining maneuver).  Shrinking the box the cone is written
+        # against is how the plan is asked to keep a margin it can lose and
+        # still be inside a model that describes what happens next.
+        self.cop_shrink, self.min_nforce = cop_shrink, min_nforce
+        self.w_com_track = w_com_track
+        # LAUNCHING FROM REST.  The plan's first control was 112 N.m away from
+        # the torque that statically holds the start pose (knees at -67 N.m
+        # where +10 is wanted), so the maneuver opens with a lurch the plant
+        # cannot absorb: held properly at `stand` and then handed this plan, the
+        # robot topples.  Two knobs against it.  `w_ctrl` is crocoddyl's control
+        # regulariser, which was 1e-3 -- effectively off -- and matters more
+        # here than a control-effort term usually does, because the feet are
+        # BILATERAL 6D welds: the two leg chains form a closed loop, so a whole
+        # subspace of internal preload produces no motion in the model and costs
+        # the objective nothing, while MuJoCo's unilateral feet answer it by
+        # sliding.  `n_hold` gives the OCP the first `n_hold` nodes of the
+        # approach to sit still at x0, so the departure from rest is planned
+        # rather than assumed.
+        self.w_ctrl, self.n_hold, self.w_hold_state = \
+            w_ctrl, n_hold, w_hold_state
+        # Horizontal centroidal LINEAR momentum, i.e. CoM velocity times mass.
+        # The position terms above -- barrier and tracking alike -- can only
+        # answer an excursion that has already happened; this is the derivative
+        # half, and it is the one a topple announces itself in first.  The
+        # angular rows are left alone: the lean is a deliberate rotation of the
+        # trunk and penalising its momentum penalises the maneuver.
+        self.w_com_damp = w_com_damp
         self.land_w = np.ones(3) if legacy else \
             np.array([1.0, 1.0, land_z_weight]) ** 2
 
@@ -340,8 +386,10 @@ class LeanOCP:
                     pin.LOCAL_WORLD_ALIGNED, self.nu, CONTACT_GAINS))
         return contacts
 
-    def _base_costs(self, braced, w_state=1e-1, w_ctrl=1e-3, cones=None,
+    def _base_costs(self, braced, w_state=1e-1, w_ctrl=None, cones=None,
                     x_ref=None):
+        if w_ctrl is None:
+            w_ctrl = self.w_ctrl
         costs = crocoddyl.CostModelSum(self.state, self.nu)
         costs.addCost("stateReg", crocoddyl.CostModelResidual(
             self.state,
@@ -382,22 +430,24 @@ class LeanOCP:
         if not cones:
             return costs
         wrench = crocoddyl.WrenchCone(np.eye(3), self.mu,
-                                      np.array(cb.FOOT_HALF) * 2.0,
-                                      4, False, 1.0, 1e4)
+                                      np.array(cb.FOOT_HALF) * 2.0
+                                      * self.cop_shrink,
+                                      4, False, self.min_nforce, 1e4)
         wact = crocoddyl.ActivationModelQuadraticBarrier(
             crocoddyl.ActivationBounds(wrench.lb, wrench.ub))
         for f in FEET:
             costs.addCost(f"cone_{f}", crocoddyl.CostModelResidual(
                 self.state, wact, crocoddyl.ResidualModelContactWrenchCone(
-                    self.state, self.sites[f], wrench, self.nu)), 1e1)
+                    self.state, self.sites[f], wrench, self.nu)), self.w_cone)
         if braced:
-            cone = crocoddyl.FrictionCone(np.eye(3), self.mu, 4, False, 1.0, 1e4)
+            cone = crocoddyl.FrictionCone(np.eye(3), self.mu, 4, False,
+                                          self.min_nforce, 1e4)
             act = crocoddyl.ActivationModelQuadraticBarrier(
                 crocoddyl.ActivationBounds(cone.lb, cone.ub))
             for s in self.subset:
                 costs.addCost(f"cone_{s}", crocoddyl.CostModelResidual(
                     self.state, act, crocoddyl.ResidualModelContactFrictionCone(
-                        self.state, self.sites[s], cone, self.nu)), 1e1)
+                        self.state, self.sites[s], cone, self.nu)), self.w_cone)
         return costs
 
     def _keep_out(self, costs, nu, weight=1e3):
@@ -453,6 +503,30 @@ class LeanOCP:
         costs.addCost("comSupport", crocoddyl.CostModelResidual(
             self.state, act, crocoddyl.ResidualModelCoMPosition(
                 self.state, np.zeros(3), nu)), self.w_com)
+        # A barrier is silent until it is already too late, and its weight is
+        # therefore not the robustness knob it looks like: the plan cost is
+        # IDENTICAL to 15 digits at w_com = 1e3 and at 1e6, because the nominal
+        # trajectory never leaves the box -- and the perturbed runs that do
+        # leave it are already falling when the term first speaks.  Measured in
+        # the S17 weight table: 1e3 -> 1e6 changes the survival rate by nothing.
+        # `w_com_track` is the always-on version: pull the CoM toward the middle
+        # of the feet through the feet-only phases, so there is a gradient
+        # BEFORE the excursion rather than a penalty after it.  Off by default.
+        if self.w_com_track:
+            mid = 0.5 * (self.support_lo + self.support_hi)
+            costs.addCost("comTrack", crocoddyl.CostModelResidual(
+                self.state,
+                crocoddyl.ActivationModelWeightedQuad(np.array([1.0, 1.0, 0.0])),
+                crocoddyl.ResidualModelCoMPosition(
+                    self.state, np.array([mid[0], mid[1], 0.0]), nu)),
+                self.w_com_track)
+        if self.w_com_damp:
+            costs.addCost("comDamp", crocoddyl.CostModelResidual(
+                self.state,
+                crocoddyl.ActivationModelWeightedQuad(
+                    np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])),
+                crocoddyl.ResidualModelCentroidalMomentum(
+                    self.state, np.zeros(6), nu)), self.w_com_damp)
 
     def _table_barrier(self, costs, nu, weight=5e2):
         """Keep the whole bracing arm and the reaching hand ABOVE the table plane.
@@ -513,8 +587,13 @@ class LeanOCP:
         if enable_force is None:
             enable_force = self.cones if cones is None else bool(cones)
         approach = []
+        n_hold = min(self.n_hold, max(n_approach - 2, 0))
         for k in range(n_approach):
-            costs = self._base_costs(braced=False, cones=cones)
+            in_hold = k < n_hold
+            costs = self._base_costs(
+                braced=False, cones=cones,
+                w_state=self.w_hold_state if in_hold else 1e-1,
+                x_ref=self.x0 if in_hold else None)
             self._geometry(costs, self.nu, feet_only=True)
             # Guide each bracing site toward its certified landing spot, ramped in
             # over the phase so the pull is weak while the robot is still upright
@@ -529,7 +608,8 @@ class LeanOCP:
             # below it) and the residual is z-weighted, because a lateral miss of
             # 20 mm still lands on a 0.6 x 1.2 m table while a vertical miss of
             # 20 mm is the difference between a contact and thin air.
-            frac = k / max(n_approach - 1, 1)
+            frac = 0.0 if in_hold else \
+                (k - n_hold) / max(n_approach - n_hold - 1, 1)
             w = self.w_land * frac ** 2
             if w > 0:
                 for s in self.subset:
@@ -585,7 +665,8 @@ class LeanOCP:
                 costs.addCost("reach", crocoddyl.CostModelResidual(
                     self.state, crocoddyl.ResidualModelFrameTranslation(
                         self.state, self.sites["reach"], self.reach_target,
-                        self.nu)), 1e3 if in_dwell else 1e2)
+                        self.nu)),
+                    10 * self.w_reach if in_dwell else self.w_reach)
             if in_dwell:
                 nv = self.rmodel.nv
                 w_rest = np.concatenate([np.zeros(nv), np.ones(nv)])
@@ -640,7 +721,7 @@ class LeanOCP:
             tcosts.addCost("reach", crocoddyl.CostModelResidual(
                 self.state, crocoddyl.ResidualModelFrameTranslation(
                     self.state, self.sites["reach"], self.reach_target, self.nu)),
-                1e3)
+                10 * self.w_reach)
         tdmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
             self.state, self.actuation, self._contacts(terminal_braced), tcosts,
             INV_DAMPING, enable_force)

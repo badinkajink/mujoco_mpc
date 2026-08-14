@@ -316,6 +316,25 @@ def load(ik_margin=IK_MARGIN):
     return m, d
 
 
+def start_qpos(m, key):
+    """A named keyframe with the STANCE OFFSET applied, as `load` would apply it.
+
+    `load` shifts the robot after resetting to SEED_KEY, but the crocoddyl track
+    reads its START pose out of a DIFFERENT keyframe (`stand`) and did so by
+    indexing `m.key_qpos` directly -- so every plan silently ignored the stance
+    offset while the IK that produced its q* honoured it.  That combination
+    plans a maneuver from a stance the robot is not in.  Both paths go through
+    here now.
+    """
+    kid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, key)
+    if kid < 0:
+        raise KeyError(f"no keyframe {key!r}")
+    q = m.key_qpos[kid].copy()
+    q[0] += STANCE_DX          # free-joint translation: the whole robot,
+    q[1] += STANCE_DY          # feet included.  The table does not move.
+    return q
+
+
 def bid(m, name):
     return mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, name)
 

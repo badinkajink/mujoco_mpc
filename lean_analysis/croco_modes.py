@@ -230,7 +230,14 @@ def main():
                     default=[0.9047, -0.2348, 1.0982],
                     help="reach target; default is the session-12 target")
     ap.add_argument("--out", default="runs/2026-08-05_session12/croco")
+    ap.add_argument("--stance-dy", type=float, default=None,
+                    help="rigid y offset of the whole robot [m] before the IK")
+    ap.add_argument("--stance-dx", type=float, default=None)
     args = ap.parse_args()
+    if args.stance_dx is not None:
+        cs.STANCE_DX = args.stance_dx
+    if args.stance_dy is not None:
+        cs.STANCE_DY = args.stance_dy
 
     os.makedirs(args.out, exist_ok=True)
     print(f"target {args.target}   sites {SITES5}   ({2**len(SITES5)} subsets)\n")
@@ -243,6 +250,7 @@ def main():
               f"effort={r['effort']:.3f}  max_ratio={r['max_ratio']:.2f}")
 
     manifest = {"target": list(map(float, args.target)),
+                "stance_dx": cs.STANCE_DX, "stance_dy": cs.STANCE_DY,
                 "sites": list(SITES5),
                 "model": os.path.basename(cs.MODEL),
                 "brace_arm": cs.BRACE_ARM, "site_set": cs.SITE_SET,
