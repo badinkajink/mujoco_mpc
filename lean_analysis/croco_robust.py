@@ -338,7 +338,24 @@ SIM2REAL = (
      for v in (0.010, 0.020, 0.040)] +
     [(f"table_y{int(v*1000)}", dict(table_shift=(0.0, v, 0.0)))
      for v in (0.020, 0.040)] +
-    [(f"late{v}", dict(schedule_shift=v)) for v in (-10, -5, 5, 10)]
+    [(f"late{v}", dict(schedule_shift=v)) for v in (-10, -5, 5, 10)] +
+    # The base estimate decomposed, because "the estimator has to be good" is
+    # not a specification.  An IMU gives orientation and angular rate cheaply
+    # and neither position nor linear velocity at all, so which of the four it
+    # is decides whether this is a solved problem or a research one.
+    [("base_p2mm", dict(sense=dict(base_p=0.002)))] +
+    [("base_p10mm", dict(sense=dict(base_p=0.010)))] +
+    [("base_r10mrad", dict(sense=dict(base_r=0.010)))] +
+    [("base_v10", dict(sense=dict(base_v=0.010)))] +
+    [("base_v50", dict(sense=dict(base_v=0.050)))] +
+    [("base_w10", dict(sense=dict(base_w=0.010)))] +
+    [("base_pv_good", dict(sense=dict(base_p=0.002, base_r=0.002,
+                                      base_v=0.002, base_w=0.002)))] +
+    [("base_rp2mrad", dict(sense=dict(base_rp=0.002)))] +
+    [("base_rp10mrad", dict(sense=dict(base_rp=0.010)))] +
+    [("base_yaw2mrad", dict(sense=dict(base_yaw=0.002)))] +
+    [("base_yaw10mrad", dict(sense=dict(base_yaw=0.010)))] +
+    [("base_yaw50mrad", dict(sense=dict(base_yaw=0.050)))]
 )
 
 
@@ -353,6 +370,9 @@ def cmd_sim2real(args):
     contact schedule thinks touchdown happened.
     """
     out = [("baseline", {})] + list(SIM2REAL)
+    if args.only:
+        want = set(args.only.split(","))
+        out = [(n, kw) for n, kw in out if n in want]
     res = []
     for name, kw in out:
         print(f"\n=== {name}  {kw}", flush=True)
@@ -370,6 +390,46 @@ def cmd_sim2real(args):
         res.append(rec)
         json.dump(dict(sim2real=res), open(args.out, "w"), indent=1)
     return dict(sim2real=res)
+
+
+def cmd_trace(args):
+    """Full logs for the runs the diagnosis figure is drawn from.
+
+    Four runs on one plan and one disturbance: the fix on and off, on a seed
+    that survives either way and a seed that does not.  Saved whole rather than
+    summarised because the claim being made is about WHERE in the trajectory
+    the CoM leaves the feet, and a summary cannot show that.
+    """
+    out = {}
+    for name, tag, settle, seed in (
+            ("s15_ok", args.tags[0], 0, args.seeds[0]),
+            ("s15_fall", args.tags[0], 0, args.seeds[-1]),
+            ("fixed_ok", args.tags[-1], args.settle, args.seeds[0]),
+            ("fixed_was_fall", args.tags[-1], args.settle, args.seeds[-1])):
+        r, log = one(tag, args.dir, seed=seed, profile="q0.02",
+                     horizon=args.horizon, iters=args.iters,
+                     threads=args.threads, tau_clamp=not args.no_tau_clamp,
+                     settle=settle)
+        out[name] = dict(summary=r, tag=tag, settle=settle, seed=seed,
+                         t=[x["t"] for x in log],
+                         com=[x["com"] for x in log],
+                         pelvis_z=[x["pelvis_z"] for x in log],
+                         margin=[x["support_margin"] for x in log],
+                         tau=[x["tau_ratio"] for x in log],
+                         brace=[x["F_brace_total"] for x in log])
+        print(f"  {name:16s} {'OK ' if r['ok'] else 'BAD'} {r['why']}",
+              flush=True)
+    # the foot polygon the margin is measured against, so the figure can draw it
+    import contact_select as cs
+    import mujoco
+    m, d = cs.load(ik_margin=0.0)
+    d.qpos[:] = cs.start_qpos(m, "stand")
+    mujoco.mj_forward(m, d)
+    pts = np.array([cs.point_world(m, d, b, o)[:2] for f in cs.FEET
+                    for b, o in cs.foot_corners(m, d, f)])
+    out["support"] = dict(lo=pts.min(axis=0).tolist(),
+                          hi=pts.max(axis=0).tolist())
+    return dict(trace=out)
 
 
 def main():
@@ -401,6 +461,10 @@ def main():
     p.add_argument("--pushes", type=float, nargs="*", default=[])
 
     p = sub.add_parser("sim2real"); common(p)
+    p.add_argument("--only", default=None)
+
+    p = sub.add_parser("trace"); common(p)
+    p.add_argument("--tags", nargs="+", default=["w_s15", "L_hold50"])
 
     p = sub.add_parser("matrix"); common(p)
     p.add_argument("--tags", nargs="+", default=["w_s15", "w_track1e4"])
@@ -419,7 +483,8 @@ def main():
     args = ap.parse_args()
     args.out = args.out or f"{args.cmd}.json"
     res = dict(stress=cmd_stress, weights=cmd_weights,
-               matrix=cmd_matrix, sim2real=cmd_sim2real)[args.cmd](args)
+               matrix=cmd_matrix, sim2real=cmd_sim2real,
+               trace=cmd_trace)[args.cmd](args)
     with open(args.out, "w") as fh:
         json.dump(res, fh, indent=1)
     print(f"\nwrote {args.out}")

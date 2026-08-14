@@ -232,7 +232,8 @@ class LeanOCP:
                  keepout=True, com_margin=0.03, w_land=5e3, w_hold=1e3,
                  w_com=1e3, land_z_weight=3.0, w_cone=1e1, w_reach=1e2,
                  cop_shrink=1.0, min_nforce=1.0, w_com_track=0.0,
-                 w_ctrl=1e-3, n_hold=0, w_hold_state=1e2, w_com_damp=0.0):
+                 w_ctrl=1e-3, n_hold=0, w_hold_state=1e2, w_com_damp=0.0,
+                 drop=()):
         self.rmodel = cb.build_pin(reconcile_passive=not legacy)
         self.sites = cb.mj_site_frames(self.rmodel)
         self.subset = list(subset)
@@ -340,6 +341,12 @@ class LeanOCP:
         # angular rows are left alone: the lean is a deliberate rotation of the
         # trunk and penalising its momentum penalises the maneuver.
         self.w_com_damp = w_com_damp
+        # ABLATION.  Names of cost GROUPS to leave out of every node, so
+        # "is this term necessary" can be answered by deleting it and running
+        # the same verdict rather than by reasoning about the objective.  A
+        # group that can be dropped with no measurable consequence is a group
+        # that should not be paid for at 60 Hz.
+        self.drop = set(drop)
         self.land_w = np.ones(3) if legacy else \
             np.array([1.0, 1.0, land_z_weight]) ** 2
 
@@ -391,15 +398,18 @@ class LeanOCP:
         if w_ctrl is None:
             w_ctrl = self.w_ctrl
         costs = crocoddyl.CostModelSum(self.state, self.nu)
-        costs.addCost("stateReg", crocoddyl.CostModelResidual(
-            self.state,
-            crocoddyl.ActivationModelWeightedQuad(self.w_state),
-            crocoddyl.ResidualModelState(
-                self.state, self.x_star if x_ref is None else x_ref, self.nu)),
-            w_state)
-        costs.addCost("ctrlReg", crocoddyl.CostModelResidual(
-            self.state, crocoddyl.ResidualModelControl(self.state, self.nu)),
-            w_ctrl)
+        if "stateReg" not in self.drop:
+            costs.addCost("stateReg", crocoddyl.CostModelResidual(
+                self.state,
+                crocoddyl.ActivationModelWeightedQuad(self.w_state),
+                crocoddyl.ResidualModelState(
+                    self.state, self.x_star if x_ref is None else x_ref,
+                    self.nu)),
+                w_state)
+        if "ctrlReg" not in self.drop:
+            costs.addCost("ctrlReg", crocoddyl.CostModelResidual(
+                self.state, crocoddyl.ResidualModelControl(self.state, self.nu)),
+                w_ctrl)
 
         # Joint limits, as a two-sided barrier on the state.  The reference MUST be
         # state.zero() and not a zeroed copy of x_star: zeroing x_star zeroes the
@@ -409,12 +419,13 @@ class LeanOCP:
         nv = self.state.nv
         lb = np.concatenate([self.state.lb[1:nv + 1], self.state.lb[-nv:]])
         ub = np.concatenate([self.state.ub[1:nv + 1], self.state.ub[-nv:]])
-        costs.addCost("jointLim", crocoddyl.CostModelResidual(
-            self.state,
-            crocoddyl.ActivationModelQuadraticBarrier(
-                crocoddyl.ActivationBounds(lb, ub)),
-            crocoddyl.ResidualModelState(self.state, self.state.zero(), self.nu)),
-            1e1)
+        if "jointLim" not in self.drop:
+            costs.addCost("jointLim", crocoddyl.CostModelResidual(
+                self.state,
+                crocoddyl.ActivationModelQuadraticBarrier(
+                    crocoddyl.ActivationBounds(lb, ub)),
+                crocoddyl.ResidualModelState(self.state, self.state.zero(),
+                                             self.nu)), 1e1)
 
         # Contact cones.  mu is the study's 0.6, and min_nforce > 0 is what makes
         # these UNILATERAL -- without it a "contact" is free to pull the robot down.
@@ -427,6 +438,8 @@ class LeanOCP:
         # and dies with a bare MemoryError, which is how this was found.
         if cones is None:
             cones = self.cones
+        if "cones" in self.drop:
+            cones = False
         if not cones:
             return costs
         wrench = crocoddyl.WrenchCone(np.eye(3), self.mu,
@@ -471,7 +484,7 @@ class LeanOCP:
         weight, same diag(g^2) Hessian -- and croco_ext/test_keepout.py checks
         that on the real states.
         """
-        if not self.keepout:
+        if not self.keepout or "keepout" in self.drop:
             return
         fused = cg.fused_cost(self.state, nu, self.table_half, self.table_c,
                               self.keepout)
@@ -500,6 +513,8 @@ class LeanOCP:
         hi = np.array([self.support_hi[0], self.support_hi[1], np.inf])
         act = crocoddyl.ActivationModelQuadraticBarrier(
             crocoddyl.ActivationBounds(lo, hi))
+        if "comSupport" in self.drop:
+            return
         costs.addCost("comSupport", crocoddyl.CostModelResidual(
             self.state, act, crocoddyl.ResidualModelCoMPosition(
                 self.state, np.zeros(3), nu)), self.w_com)
@@ -611,7 +626,7 @@ class LeanOCP:
             frac = 0.0 if in_hold else \
                 (k - n_hold) / max(n_approach - n_hold - 1, 1)
             w = self.w_land * frac ** 2
-            if w > 0:
+            if w > 0 and "land" not in self.drop:
                 for s in self.subset:
                     tgt = self.site_ref[s] + np.array(
                         [0, 0, self.clearance * (1 - frac)])
@@ -680,7 +695,7 @@ class LeanOCP:
             # arrived at is the height it keeps, and the S12 plan spent all 41
             # braced nodes with the elbow 10 mm above the table and the forearm
             # 15 mm inside it.  This is the position half the contact does not do.
-            if not self.legacy:
+            if not self.legacy and "hold" not in self.drop:
                 for s in self.subset:
                     costs.addCost(f"hold_{s}", crocoddyl.CostModelResidual(
                         self.state,

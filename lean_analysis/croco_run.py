@@ -67,6 +67,10 @@ def main():
                     help="leading nodes of the approach spent holding the start "
                          "pose, so the departure from rest is planned")
     ap.add_argument("--w-hold-state", type=float, default=1e2)
+    ap.add_argument("--drop", default="",
+                    help="comma-separated cost groups to leave out: stateReg, "
+                         "ctrlReg, jointLim, cones, keepout, comSupport, land, "
+                         "hold.  For the ablation table")
     ap.add_argument("--w-com-damp", type=float, default=0.0,
                     help="weight on horizontal centroidal linear momentum on "
                          "the feet-only phases: the derivative half of the CoM "
@@ -129,7 +133,8 @@ def main():
                      cop_shrink=args.cop_shrink, min_nforce=args.min_nforce,
                      w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
                      w_ctrl=args.w_ctrl,
-                     n_hold=args.n_hold, w_hold_state=args.w_hold_state)
+                     n_hold=args.n_hold, w_hold_state=args.w_hold_state,
+                     drop=[v for v in args.drop.split(",") if v])
     n_tot = args.n_approach + args.n_braced + args.n_return
     total_t = n_tot * args.dt
     print(f"horizon   {n_tot} nodes, dt={args.dt}, "
@@ -157,6 +162,7 @@ def main():
                w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
                w_ctrl=args.w_ctrl,
                n_hold=args.n_hold, w_hold_state=args.w_hold_state,
+               drop=args.drop,
                com_margin=args.com_margin,
                converged=bool(ok), solve_seconds=secs, commit=git_head(),
                stage1=({"converged": stage1[0], "cost": stage1[1]}

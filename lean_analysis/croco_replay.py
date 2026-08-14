@@ -346,10 +346,21 @@ def corrupt(x, sense, rng, bias, nq):
     """
     x = x.copy()
     x[0:3] += bias["base_p"] + rng.normal(0, sense.get("base_p", 0.0) / 3, 3)
-    if sense.get("base_r"):
-        dr = bias["base_r"] + rng.normal(0, sense["base_r"] / 3, 3)
+    if np.any(bias["base_r"]):
+        rp = sense.get("base_rp", sense.get("base_r", 0.0))
+        yaw = sense.get("base_yaw", sense.get("base_r", 0.0))
+        dr = bias["base_r"] + np.array([rng.normal(0, rp / 3),
+                                        rng.normal(0, rp / 3),
+                                        rng.normal(0, yaw / 3)])
+        # `@`, not `*`.  numpy's `*` on two 3x3 arrays is element-wise, which
+        # silently returns a non-orthonormal matrix -- and pin.Quaternion
+        # accepts it, so the run does not fail, it just gets a corrupted
+        # attitude of a magnitude that has nothing to do with dr.  It looked
+        # like a 0.001-degree attitude error toppling the robot, at exactly the
+        # same reach error for every magnitude tried, which is what gave it
+        # away: a physical sensitivity has a slope.
         q = pin.Quaternion(x[6], x[3], x[4], x[5])
-        q = pin.Quaternion(pin.exp3(dr) * q.matrix())
+        q = pin.Quaternion(pin.exp3(dr) @ q.matrix())
         x[3:7] = [q.x, q.y, q.z, q.w]
     x[7:nq] += bias["q"] + rng.normal(0, sense.get("q", 0.0), nq - 7)
     x[nq:nq + 3] += bias["base_v"] + rng.normal(0, sense.get("base_v", 0.0) / 3, 3)
@@ -592,7 +603,8 @@ def build_ocp(plan, run_dir):
                      w_com_damp=plan.get("w_com_damp", 0.0),
                      w_ctrl=plan.get("w_ctrl", 1e-3),
                      n_hold=plan.get("n_hold", 0),
-                     w_hold_state=plan.get("w_hold_state", 1e2))
+                     w_hold_state=plan.get("w_hold_state", 1e2),
+                     drop=[v for v in plan.get("drop", "").split(",") if v])
     return ocp, q_star
 
 
@@ -717,9 +729,17 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
     srng = np.random.default_rng((seed or 0) + 9973)
     sbias = {}
     if sense:
+        # Attitude error is split into roll/pitch and yaw on purpose.  They come
+        # from different places on a real robot -- gravity pins roll and pitch
+        # to a tenth of a degree and nothing pins yaw at all without a
+        # magnetometer or vision -- so a single "orientation error" number
+        # cannot say whether this loop is deployable.
+        rp = sense.get("base_rp", sense.get("base_r", 0.0))
+        yaw = sense.get("base_yaw", sense.get("base_r", 0.0))
         sbias = dict(
             base_p=srng.normal(0, sense.get("base_p", 0.0), 3),
-            base_r=srng.normal(0, sense.get("base_r", 0.0), 3),
+            base_r=np.array([srng.normal(0, rp), srng.normal(0, rp),
+                             srng.normal(0, yaw)]),
             base_v=srng.normal(0, sense.get("base_v", 0.0), 3),
             q=srng.normal(0, sense.get("q_bias", 0.0), nq - 7))
     if mu_scale != 1.0:

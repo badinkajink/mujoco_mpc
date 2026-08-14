@@ -230,6 +230,64 @@ def stress_all(root, cs_cells, seeds, profiles, horizon, iters, threads,
         print(f"    -> {r*100:.0f}% of {n}", flush=True)
 
 
+# ----------------------------------------------------------------- videos --
+# The cells the page shows.  Chosen to span what the grid is FOR: the far edge
+# where it is hardest, both extremes of the lateral axis, the stance-shifted
+# version of the same reach, and one hand-near-the-wood target.
+VIDEO_CELLS = [
+    ((1.250, -0.2348, 1.0982), 0.0, "brace",
+     "x = 1.25 m, the far edge of the envelope. The hardest cell in the grid "
+     "and the one that still falls under the winch."),
+    ((1.150, -0.280, 1.0982), 0.0, "wide",
+     "x = 1.15, y = &minus;0.28 &mdash; askew to the far rail, 18 mm from the "
+     "edge of the table."),
+    ((1.050, 0.120, 1.0982), 0.0, "wide",
+     "y = +0.12, askew toward the BRACING arm's side: the reaching arm crosses "
+     "the body and the brace has less table to work with."),
+    ((1.150, -0.2348, 1.0982), -0.12, "wide",
+     "The same far reach with the robot stood 120 mm toward the target. "
+     "Survival 75% against 62% square-on."),
+    ((1.150, -0.2348, 1.020), 0.0, "brace",
+     "Hand 35 mm off the wood, the low target S7.4 left unsolved."),
+    ((1.050, -0.2348, 1.0982), 0.0, "wide",
+     "The middle of the envelope, for reference: stand, lean, brace, reach, hold."),
+]
+
+
+def make_videos(root, media, seed=None, settle=25, horizon=35, iters=1,
+                threads=12, force=False):
+    """Render the docpage's videos, one per chosen cell, through the same
+    replay every number in the grid came from."""
+    import croco_robust as crb
+    os.makedirs(media, exist_ok=True)
+    out = []
+    for t, dy, cam, caption in VIDEO_CELLS:
+        cell = cell_dir(root, t, dy)
+        mpath = os.path.join(cell, "modes.json")
+        if not os.path.exists(mpath):
+            print(f"{cname(t, dy)}  not certified, skipping")
+            continue
+        name = best_mode(json.load(open(mpath)))
+        tag = name.replace("+", "_")
+        if not os.path.exists(os.path.join(cell, f"plan_{tag}.json")):
+            continue
+        fn = f"s17_{cname(t, dy)}_{cam}.mp4"
+        dst = os.path.join(media, fn)
+        if os.path.exists(dst) and not force:
+            print(f"{fn}  exists")
+        else:
+            r, _ = crb.one(tag, cell, seed=seed,
+                           profile="nominal" if seed is None else "winch1",
+                           horizon=horizon, iters=iters, threads=threads,
+                           settle=settle, video=dst, cam=cam)
+            print(f"{fn}  {'OK' if r['ok'] else r['why']}  "
+                  f"reach {r['reach_mm']:.1f} mm", flush=True)
+        out.append(dict(file=fn, cell=cname(t, dy), target=list(t),
+                        stance_dy=dy, mode=name, cam=cam,
+                        caption=f"<b>{name}</b>. {caption}"))
+    return out
+
+
 # ---------------------------------------------------------------- collect --
 def collect(root, cs_cells):
     import croco_sweep as csw
@@ -299,7 +357,8 @@ def show(rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=["certify", "plan", "stress", "collect"])
+    ap.add_argument("stage",
+                    choices=["certify", "plan", "stress", "collect", "videos"])
     ap.add_argument("--dir", default="runs/2026-08-14_session17/grid")
     ap.add_argument("--targets", default=None,
                     help="'x,y,z;x,y,z' (default: the grid above)")
@@ -349,6 +408,15 @@ def main():
         stress_all(args.dir, cl, args.seeds, args.profiles, args.horizon,
                    args.mpc_iters, args.threads, not args.no_tau_clamp,
                    settle=args.settle, force=args.force)
+    elif args.stage == "videos":
+        v = make_videos(args.dir, os.path.join(HERE, "..", "docs", "lean",
+                                               "media"),
+                        settle=args.settle, horizon=args.horizon,
+                        iters=args.mpc_iters, threads=args.threads,
+                        force=args.force)
+        out = args.out or os.path.join(args.dir, "videos.json")
+        json.dump(dict(videos=v), open(out, "w"), indent=1)
+        print(f"\nwrote {out}")
     else:
         rows = collect(args.dir, cl)
         show(rows)
