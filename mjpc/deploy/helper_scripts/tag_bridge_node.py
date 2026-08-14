@@ -206,7 +206,9 @@ class TagCore:
             self.yaw_off = _wrap(self.yaw_off + alpha * _wrap(off - self.yaw_off))
         xy = (_rz(self.yaw_off) @ p_torso_table)[:2]
         self.n_solved += 1
-        return xy, self.yaw_off, err
+        # p_torso_table (un-rotated table-frame pose) rides along for the
+        # 2026-08-13 --abs-world mode; legacy callers unpack 3 values.
+        return xy, self.yaw_off, err, p_torso_table
 
 
 def _selftest():
@@ -255,7 +257,7 @@ def _selftest():
     core = TagCore(bundle, cam_pos, cam_R, yaw_tau=0.0)
     out = core.step(detections, K, dist, imu_quat, waist, dt=0.033)
     assert out is not None, "solve failed"
-    xy, yoff, err = out
+    xy, yoff, err = out[0], out[1], out[2]
     want_xy = (_rz(yaw_imu_world) @ p_torso_true)[:2]
     e = float(np.linalg.norm(xy - want_xy))
     good = e < 1e-6 and err < 0.1
@@ -318,6 +320,10 @@ def main():
                     help="head camera OPTICAL-frame pitch-down (deg) in the torso "
                          "frame. Default = 0.8859291 rad from the same URDF "
                          "camera_joint.")
+    ap.add_argument("--abs-world", action="store_true",
+                    help="publish ABSOLUTE model-world xy (table corner at "
+                         "0.45,0.2975) instead of the imu-yaw-rotated relative "
+                         "pose; pair with est --aux-abs")
     ap.add_argument("--yaw-tau", type=float, default=30.0)
     ap.add_argument("--min-tags", type=int, default=1)
     ap.add_argument("--max-reproj-px", type=float, default=3.0)
@@ -407,7 +413,16 @@ def main():
                           imu_quat, waist, dt=0.033)
             if r is None:
                 return
-            xy, yoff, err = r
+            xy, yoff, err = r[0], r[1], r[2]
+            if a.abs_world:
+                # 2026-08-13 ABSOLUTE MODE: publish the robot's true pose in
+                # MODEL-WORLD coords (table front-left top corner at
+                # (0.45, +0.2975); bundle x+ into the slab = world x+,
+                # bundle y+ across = world y-). Un-rotated table-frame pose
+                # (r[3]) so IMU yaw_off never leaks into position. Pair with
+                # est --aux-abs (latch bypass) or the est will re-relativize.
+                p_tt = r[3]
+                xy = np.array([0.45 + p_tt[0], 0.2975 - p_tt[1]])
             out_msg.position[0], out_msg.position[1] = float(xy[0]), float(xy[1])
             out_msg.position[2] = 0.0
             for k in range(3):

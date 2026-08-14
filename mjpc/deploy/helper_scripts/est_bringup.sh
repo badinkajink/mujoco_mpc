@@ -29,12 +29,13 @@ HAMS_SETUP="$HOME/Desktop/HAMS/core_ws/install/setup.bash"
 BUNDLE="$HOME/Desktop/h12/table_tags/table_tag_bundle.yaml"
 
 # ---------- args ------------------------------------------------------------
-EST=""; WANT_LIDAR=0; WANT_APRIL=0; EST_ARGS=()
+EST=""; WANT_LIDAR=0; WANT_APRIL=0; WANT_ABS=0; EST_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     v1|v3|v4) EST="$1" ;;
     lidar)    WANT_LIDAR=1 ;;
     april|aruco|tags) WANT_APRIL=1 ;;
+    abs) WANT_ABS=1 ;;
     --) shift; EST_ARGS=("$@"); break ;;
     *) echo "unknown arg: $1  (usage: est_bringup.sh v1|v3|v4 [lidar] [april] [-- est-flags])"; exit 2 ;;
   esac
@@ -238,7 +239,13 @@ if [ $WANT_APRIL -eq 1 ]; then
     wait_topic /realsense/head/color/image_raw/compressed 40
   fi
   # venv python for the same editable-install reason as lio_bridge above
-  launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE"
+  ABS_FLAG=""
+  if [ "${WANT_ABS:-0}" -eq 1 ]; then
+    ABS_FLAG="--abs-world"
+    EST_ARGS+=(--aux-abs)
+    echo "[bringup] ABSOLUTE anchor mode: tag_bridge --abs-world + est --aux-abs"
+  fi
+  launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE" $ABS_FLAG
   sleep 2
 fi
 

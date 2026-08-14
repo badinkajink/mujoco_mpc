@@ -135,7 +135,8 @@ class V4Core(V3Core):
                 # calibration FRESH so engagement continues seamlessly from the
                 # trusted state instead of yanking toward a stale offset
                 self._aux_consumed = True
-                self.aux_offset_xy = self.pos_xy - aux["xy"]
+                self.aux_offset_xy = (np.zeros(2) if getattr(a, "aux_abs", False)
+                                      else self.pos_xy - aux["xy"])
                 self.aux_deferred += 1
             else:
                 self._aux_consumed = True             # fuse each sample once
@@ -163,7 +164,9 @@ class V4Core(V3Core):
                 # chi2: an anchor >1 m from the current belief is a mis-solve
                 # (wrong tag id / frame flip), not a correction.
                 if vel_ok and a.aux_xy_tau > 0.0:
-                    if self.aux_offset_xy is None:
+                    if getattr(a, "aux_abs", False):
+                        self.aux_offset_xy = np.zeros(2)
+                    elif self.aux_offset_xy is None:
                         self.aux_offset_xy = self.pos_xy - aux["xy"]
                     target = aux["xy"] + self.aux_offset_xy
                     if aux.get("pos_only") and \
@@ -394,6 +397,13 @@ def build_parser():
                         "gentle enough that the world reference cannot fight the "
                         "controller's feet-tuned trim loop. The full-rate "
                         "--aux-xy-tau applies only with feet fully unloaded.")
+    g.add_argument("--aux-abs", action="store_true",
+                   help="2026-08-13 ABSOLUTE ANCHOR: the aux source publishes "
+                        "absolute model-world xy (tag_bridge --abs-world); "
+                        "bypass the bring-up offset latch (offset ≡ 0) so the "
+                        "belief IS the true robot-vs-table pose. Without this "
+                        "flag the latch preserves whatever offset existed at "
+                        "first fusion (the flat_7 lottery).")
     g.add_argument("--aux-gate", choices=["planted", "always"], default="planted",
                    help="'planted' (default): fuse aux ONLY while leg odometry is "
                         "blind (feet unloaded / slipping / not upright) -- while "

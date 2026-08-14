@@ -38,6 +38,11 @@ def main():
                     help="age of the sample when published")
     ap.add_argument("--domain", type=int, default=0)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--frame-offset", type=float, nargs=2, default=[0.0, 0.0],
+                    help="2026-08-13: constant xy added to every sample -- "
+                         "emulates a mis-latched/mis-calibrated anchor frame "
+                         "(0 0 = absolute truth, the tag_bridge --abs-world "
+                         "contract)")
     a = ap.parse_args()
 
     from unitree_sdk2py.core.channel import (ChannelFactoryInitialize,
@@ -76,8 +81,8 @@ def main():
         if pick is None:
             continue
         nx, ny = rng.normal(0.0, a.noise_mm / 1000.0, 2)
-        out.position[0] = pick[0] + nx
-        out.position[1] = pick[1] + ny
+        out.position[0] = pick[0] + nx + a.frame_offset[0]
+        out.position[1] = pick[1] + ny + a.frame_offset[1]
         out.position[2] = 0.0
         for k in range(3):
             out.velocity[k] = 0.0
