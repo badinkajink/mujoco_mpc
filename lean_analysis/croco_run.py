@@ -81,6 +81,10 @@ def main():
     ap.add_argument("--com-margin", type=float, default=0.03)
     ap.add_argument("--tag", default=None,
                     help="override the output file tag (default: the mode name)")
+    ap.add_argument("--start-settled", action="store_true",
+                    help="take the start pose from a static hold of the "
+                         "keyframe rather than from the keyframe, so the plan "
+                         "begins where the controller's settle ends")
     ap.add_argument("--stance-dx", type=float, default=None,
                     help="rigid x offset of the whole robot [m] (default: the "
                          "value modes.json was certified at)")
@@ -113,6 +117,14 @@ def main():
 
     m_mj, d_mj = cs.load()
     q0 = cs.start_qpos(m_mj, args.start)
+    if args.start_settled:
+        # Plan from where the plant WILL BE when the controller hands over,
+        # not from where the keyframe says it is.  See croco_replay.
+        import croco_replay as cr
+        m_p, d_p = cs.load(ik_margin=0.0)
+        q0 = cr.settled_start(m_p, d_p, q0)
+        print(f"start     settled: {np.linalg.norm(q0[7:34] - cs.start_qpos(m_mj, args.start)[7:34]):.4f} rad "
+              f"from the {args.start} keyframe")
     d_mj.qpos[:] = q0
     mujoco.mj_forward(m_mj, d_mj)
     table_z = cs.table_top_z(m_mj, d_mj)
@@ -168,6 +180,7 @@ def main():
                stage1=({"converged": stage1[0], "cost": stage1[1]}
                        if stage1 else None),
                stance_dx=cs.STANCE_DX, stance_dy=cs.STANCE_DY,
+               start_settled=bool(args.start_settled),
                target=modes["target"], model=os.path.basename(cs.MODEL),
                tau_basis=cs.TAU_BASIS)
 

@@ -335,6 +335,36 @@ def hold_torque(m, d, q0, seconds=3.0, ki=8.0, tol=2e-3):
     return tau, q, err
 
 
+def settled_start(m, d, q0, seconds=0.5):
+    """Where the plant is after `seconds` of the static hold that precedes the
+    maneuver -- which is where a plan should START, not where the keyframe is.
+
+    The controller's settle (see `replay`) holds the start pose under the
+    static-equilibrium QP's torque.  That holds it, but not exactly: the servo
+    still needs a position error to make up whatever the QP's min-effort
+    solution does not, and the pose ends about 0.09 rad away from the keyframe
+    over 27 joints.  The plan meanwhile begins at the keyframe.  Closing that
+    last gap is what this is for -- and unlike everything else in the launch
+    story it is deterministic, so it can be baked into the plan offline.
+    """
+    kp, _ = servo_gains(m)
+    nq = cb.NQ_ROBOT
+    lim = cs.torque_limits(m)
+    d.qpos[:] = q0
+    d.qvel[:] = 0
+    mujoco.mj_forward(m, d)
+    tau = np.clip(np.array(cs.equilibrium_qp(m, d, ())["tau"], float),
+                  -lim, lim)
+    qd = q0[7:nq].copy()
+    for _ in range(int(round(seconds / m.opt.timestep))):
+        d.ctrl[:] = qd + tau / kp
+        mujoco.mj_step(m, d)
+    q = d.qpos.copy()
+    d.qvel[:] = 0
+    mujoco.mj_forward(m, d)
+    return q
+
+
 def corrupt(x, sense, rng, bias, nq):
     """A state ESTIMATE from the true state: per-run bias plus white noise.
 
