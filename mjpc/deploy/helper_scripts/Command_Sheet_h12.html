@@ -421,14 +421,7 @@ cd ~/Desktop/h12/h1_mujoco
         <span class="term-dot" style="background:#34d399"></span>
         <span class="lbl ml-2">est_bringup.sh — the one command</span>
       </div>
-<pre class="cmd"><span class="c"># ── SELFTESTS (offline, no robot/DDS — run before anything live). All 4 re-verified 2026-07-31.</span>
-cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
-~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v3.py --selftest   <span class="c"># PASS 6/6</span>
-~/Desktop/h12/h1_mujoco/.venv/bin/python base_estimator_node_v4.py --selftest   <span class="c"># PASS 8/8 (incl no-aux==v3, two-tier pull)</span>
-~/Desktop/h12/h1_mujoco/.venv/bin/python tag_bridge_node.py --selftest          <span class="c"># PASS 4/4</span>
-~/Desktop/h12/h1_mujoco/.venv/bin/python lio_bridge_node.py --selftest          <span class="c"># PASS 3/3</span>
-
-<span class="c"># ── NATIVE BRINGUP (laptop). Estimator runs in the FOREGROUND → Ctrl-C tears the whole set down.</span>
+<pre class="cmd"><span class="c"># ── NATIVE BRINGUP (laptop). Estimator runs in the FOREGROUND → Ctrl-C tears the whole set down.</span>
 <span class="c">#    Logs: ~/Desktop/h12/est_bringup_logs/&lt;timestamp&gt;/ . Controller/safety/estop are NOT started here.</span>
 cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
 ./est_bringup.sh v1                  <span class="c"># baseline estimator only</span>
@@ -439,87 +432,7 @@ cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
 ./est_bringup.sh v4 lidar april      <span class="c"># everything</span>
 ./est_bringup.sh v4 april -- --out-topic rt/sportmodestate_est   <span class="c"># anything after -- goes to the estimator</span>
 
-<span class="c"># ── PRECONDITIONS (all verified present 2026-07-31; check before you drive to the lab)</span>
-<span class="c">#   /home/code                        symlink → ~/Desktop/HAMS   (HAMS overlay was docker-built)</span>
-<span class="c">#                                     sudo ln -s ~/Desktop/HAMS /home/code</span>
-<span class="c">#   ~/Desktop/h12/table_tags/table_tag_bundle.yaml   FILLED (locked v3 symmetric layout)</span>
-<span class="c">#   ~/Desktop/HAMS/core_ws/install/setup.bash        HAMS overlay built</span>
-<span class="c">#   LIDAR = 192.168.123.120 · robot = 192.168.123.161 · cam driver runs on PC4 .164</span>
-<span class="c">#   DDS: cyclonedds + domain 0 + PINNED NIC  (cyclonedds_laptop.xml)</span>
-<span class="c">#   MID360_config_laptop.json is the LAPTOP copy — HAMS files stay untouched</span>
-
-<span class="c"># ── v4 AUX-BUS FLAGS (defaults shown; v4 runs fine with NO bridge at all)</span>
-<span class="c">#   --aux-topic rt/aux_odom    --aux-age-max 0.2    stale aux ignored → degrades to v3 in 200 ms</span>
-<span class="c">#   --aux-rv 0.05 --aux-chi2 11.34                  velocity fuse gate (mode-1 sources)</span>
-<span class="c">#   --aux-gate planted                              defer the pull while the feet carry load</span>
-<span class="c">#   --aux-xy-tau 2.0   --aux-xy-tau-soft 30.0       TWO-TIER pull: fast when unloaded,</span>
-<span class="c">#                                                   slow (tau-soft) while slipping/loaded</span>
 </pre>
-    </div>
-
-    <div class="term">
-      <div class="term-bar">
-        <span class="term-dot" style="background:#f87171"></span>
-        <span class="term-dot" style="background:#fbbf24"></span>
-        <span class="term-dot" style="background:#34d399"></span>
-        <span class="lbl ml-2">real-robot capture protocol — run in THIS order, every arm</span>
-      </div>
-<pre class="cmd"><span class="c"># 1. POWER CYCLE, then set ankle zeros.  Zeros SLIP without a power cycle.</span>
-<span class="c"># 2. IMU zero check — a baked imu_pitch offset injects ~1.6 deg/month of lean.</span>
-<span class="c">#    Zeroing it is what produced the 112.2 s record.</span>
-~/Desktop/h12/h1_mujoco/.venv/bin/python .../imu_zero_check.py
-
-<span class="c"># 3. Controller via the LAUNCH FILE — never `ros2 run`.</span>
-<span class="c">#    ★ `ros2 run` skips mjpc_real.yaml and ZEROES the IMU calibration.</span>
-
-<span class="c"># 4. ONE estimator at a time — they all publish rt/sportmodestate.</span>
-./est_bringup.sh <span class="hl">v3</span>                    <span class="c"># swap the arm here, nothing else changes</span>
-
-<span class="c"># 5. Recorder alongside, same DDS domain (passive, never publishes).</span>
-cd ~/Desktop/h12 &amp;&amp; ~/Desktop/h12/h1_mujoco/.venv/bin/python dds_tools/dds_live_recorder.py \
-  --out ~/Desktop/h12/logs/est_real/<span class="hl">v3_run00</span>.npz
-<span class="c">#    captures rt/lowstate (q/dq/tau, IMU quat+gyro+accel) + rt/lowcmd (full PD command)</span>
-<span class="c">#            + rt/sportmodestate (the estimator's base pose) → joint_forensics.py reads it</span>
-
-<span class="c"># 6. HANDS OFF.  Every previous leaning v4 run was hand-assisted — that is what</span>
-<span class="c">#    contaminated the trim verdicts.  A steadied run is not a datapoint.</span>
-<span class="c"># 7. FIXED WINDOW, identical for every arm (suggest 120 s cap).</span>
-<span class="c">#    A window that runs "until it falls" gives survivors longer windows and</span>
-<span class="c">#    FABRICATES separation (slope ~1/sqrt(T)).  Fixed window or no comparison.</span>
-<span class="c"># 8. Strategy 6 (stand) for estimator characterisation — the only strategy that</span>
-<span class="c">#    reliably holds on real, and it exercises base velocity + height directly.</span>
-</pre>
-    </div>
-
-    <div class="term">
-      <div class="term-bar">
-        <span class="term-dot" style="background:#f87171"></span>
-        <span class="term-dot" style="background:#fbbf24"></span>
-        <span class="term-dot" style="background:#34d399"></span>
-        <span class="lbl ml-2">manual chain (fallback only — est_bringup.sh supersedes this)</span>
-      </div>
-<pre class="cmd"><span class="c"># T5  head cameras (HAMS overlay)</span>
-source ~/Desktop/HAMS/core_ws/install/setup.bash
-ros2 launch cl_realsense h12_rs_cams.launch.py    <span class="c"># ros2 topic hz /realsense/head/color/image_raw/compressed ≈30</span>
-
-<span class="c"># T6  tag bridge → rt/aux_odom (mode 2 = position-only; v4 never fuses tag velocity)</span>
-<span class="c">#     ★ extrinsic defaults are now URDF-DERIVED (h1_2_handless_ros.urdf camera_joint) —</span>
-<span class="c">#       no longer placeholders. Override only if the URDF changes:</span>
-<span class="c">#       --cam-pos 0.11109 0.0175 0.68789   --cam-pitch-deg 50.760</span>
-PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
-python3 tag_bridge_node.py --bundle ~/Desktop/h12/table_tags/table_tag_bundle.yaml
-<span class="c">#     residual risk: the D435i COLOR sensor sits a few mm off the camera body origin.</span>
-<span class="c">#     FIELD CHECK still applies: move the TABLE a measured 10 cm → anchor xy moves 10±1 cm.</span>
-<span class="c">#     ★ tags were mounted 90 deg off convention — TagCore now AUTO-LOCKS corner_rot.</span>
-
-<span class="c"># T7  LIO bridge (mode 1: velocity + xy from FAST-LIO /Odometry)</span>
-PYTHONPATH=$PYTHONPATH:~/Desktop/h12/h1_mujoco/.venv/lib/python3.10/site-packages \
-python3 lio_bridge_node.py --twist-frame world
-<span class="c">#     verify: stand still, rotate the waist → aux v must stay ~0</span>
-
-<span class="c"># T4  estimator alongside (side topic first; watch: aux=ok(used N…), zupt %, upright=Y)</span>
-cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python .../base_estimator_node_v4.py --out-topic rt/sportmodestate_est</pre>
     </div>
 
     <ul class="space-y-1.5 text-xs">
@@ -629,8 +542,8 @@ cd ~/Desktop/h12/h1_mujoco
 source ~/core_ws/install/setup.bash &amp;&amp; export ROS_DOMAIN_ID=0 &amp;&amp; ros2 run estop estop_node
 
 <span class="c"># T2  safety layer — the lab's STRICT config on real hardware (after ~8 s)</span>
-cd ~/core_ws/src/h12_safety_layer
-uv run h12_safety_layer/script/safety_layer_main.py --config <span class="hl">default_safety_full</span></pre>
+cd HAMS/core_ws/src/h12_safety_layer
+python3 h12_safety_layer/script/safety_layer_main.py --config <span class="hl">default_safety_full</span></pre>
     </div>
 
     <!-- ── B1 ─────────────────────────────────────────────── -->
@@ -1102,5 +1015,69 @@ python3 mjpc/deploy/helper_scripts/wasd_teleop.py</code></pre>
   </footer>
 
 </main>
+<style>
+  /* per-line + per-group copy buttons (2026-08-13) */
+  pre.cmd .cmdline{display:block;position:relative;padding-right:4.6em;border-radius:4px;}
+  pre.cmd .cmdline:hover{background:rgba(148,163,184,.07);}
+  pre.cmd .copybtn,pre.cmd .grpbtn{position:absolute;top:50%;transform:translateY(-50%);
+    opacity:0;transition:opacity .12s;cursor:pointer;background:rgba(15,26,46,.9);
+    border:1px solid #334155;border-radius:4px;color:#94a3b8;font-size:10px;
+    line-height:1;padding:2px 5px;font-family:inherit;}
+  pre.cmd .copybtn{right:2px;}
+  pre.cmd .grpbtn{right:2.3em;color:#7dd3fc;border-color:#38506e;}
+  pre.cmd .cmdline:hover .copybtn,pre.cmd .cmdline:hover .grpbtn{opacity:1;}
+  pre.cmd .copybtn.ok,pre.cmd .grpbtn.ok{color:#34d399;border-color:#34d399;opacity:1;}
+</style>
+<script>
+  // Per-line copy (⧉) on every command line, plus a group copy (⧉⧉) on the
+  // FIRST line of each comment/blank-separated group of consecutive command
+  // lines — copies the whole group (e.g. cd + command) newline-joined.
+  // Copied text strips comment spans (.c).
+  (function(){
+    const esc = t => t.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    document.querySelectorAll('pre.cmd').forEach(pre => {
+      const lines = pre.innerHTML.split('\n').map(html => {
+        const probe = document.createElement('div');
+        probe.innerHTML = html;
+        probe.querySelectorAll('span.c').forEach(el => el.remove());
+        const cmd = probe.textContent.replace(/\s+$/,'');
+        return { html, cmd: cmd.trim() ? cmd : null };
+      });
+      const out = [];
+      let i = 0;
+      while (i < lines.length) {
+        if (!lines[i].cmd) { out.push('<span class="cmdline">'+lines[i].html+'</span>'); i++; continue; }
+        let j = i;
+        while (j < lines.length && lines[j].cmd) j++;
+        const group = lines.slice(i, j).map(x => x.cmd).join('\n');
+        for (let k = i; k < j; k++) {
+          let btns = '<button class="copybtn" data-cmd="'+esc(lines[k].cmd)+'" title="copy this line">⧉</button>';
+          if (k === i && j - i > 1)
+            btns += '<button class="grpbtn" data-cmd="'+esc(group)+'" title="copy whole group ('+(j-i)+' lines)">⧉⧉</button>';
+          out.push('<span class="cmdline">'+lines[k].html+btns+'</span>');
+        }
+        i = j;
+      }
+      pre.innerHTML = out.join('\n');
+    });
+    document.addEventListener('click', e => {
+      const b = e.target.closest('.copybtn,.grpbtn');
+      if (!b) return;
+      const txt = b.dataset.cmd, old = b.textContent;
+      const done = () => { b.textContent = '✓'; b.classList.add('ok');
+        setTimeout(() => { b.textContent = old; b.classList.remove('ok'); }, 900); };
+      const fallback = () => {
+        const ta = document.createElement('textarea');
+        ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_) {}
+        ta.remove();
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(txt).then(done).catch(fallback);
+      else fallback();
+    });
+  })();
+</script>
 </body>
 </html>
