@@ -53,6 +53,22 @@ case "$EST" in
   v4) EST_FILE="base_estimator_node_v4.py" ;;
 esac
 
+# 2026-08-13: for v4+APRIL, default the aux gate to ALWAYS unless the caller
+# passed their own --aux-gate. The planted-regime deferral was protection
+# against the July LIO *velocity* aux; april is position-only + 2s tau, and
+# with the default gate the corrections sat unused through entire stands ->
+# ~3.5 mm/s believed drift = the run-6/7 "march". Every real brace success
+# (runs 8-15) and every bench since runs with always. LIDAR mode keeps the
+# regime gate (velocity aux DID hurt stands).
+if [ "$EST" = "v4" ] && [ $WANT_APRIL -eq 1 ] && [ $WANT_LIDAR -eq 0 ]; then
+  has_gate=0
+  for a in "${EST_ARGS[@]}"; do case "$a" in --aux-gate*) has_gate=1 ;; esac; done
+  if [ $has_gate -eq 0 ]; then
+    EST_ARGS+=(--aux-gate always)
+    echo "[bringup] v4+april: defaulting '--aux-gate always' (pass your own --aux-gate to override)"
+  fi
+fi
+
 LOGDIR="$HOME/Desktop/h12/est_bringup_logs/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$LOGDIR"
 PIDS=()

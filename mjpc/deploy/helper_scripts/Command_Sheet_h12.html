@@ -435,7 +435,7 @@ cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
 ./est_bringup.sh v3                  <span class="c"># v3 only  (frozen A/B baseline)</span>
 ./est_bringup.sh v4                  <span class="c"># v4, no bridges  == v3 behaviour</span>
 ./est_bringup.sh v4 lidar            <span class="c"># livox driver + FAST-LIO + lio_bridge + v4</span>
-./est_bringup.sh v4 april            <span class="c"># realsense cams + tag_bridge + v4</span>
+./est_bringup.sh v4 april            <span class="c"># realsense cams + tag_bridge + v4 (--aux-gate always is DEFAULT for this mode)</span>
 ./est_bringup.sh v4 lidar april      <span class="c"># everything</span>
 ./est_bringup.sh v4 april -- --out-topic rt/sportmodestate_est   <span class="c"># anything after -- goes to the estimator</span>
 
@@ -649,9 +649,9 @@ uv run h12_safety_layer/script/safety_layer_main.py --config <span class="hl">de
           <span class="term-dot" style="background:#34d399"></span>
           <span class="lbl ml-2">laptop (wired 192.168.123.x · Tailscale OFF)</span>
         </div>
-<pre class="cmd"><span class="c"># T3  estimator — defaults: auto-pins enx, PUBLISHES rt/sportmodestate</span>
-cd ~/Desktop/h12/h1_mujoco
-.venv/bin/python ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts/base_estimator_node.py
+<pre class="cmd"><span class="c"># T3  estimator — v4 + AprilTags (aux-gate always is DEFAULT for v4 april)</span>
+cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
+./est_bringup.sh v4 april
 
 <span class="c"># T4  node — defaults: auto-pins enx, consumes rt/sportmodestate (= the estimate)</span>
 <span class="c"># --twin_dt 0.001 ROBOT-ONLY (real tick=1kHz); IMU pitch calib +1.6° BAKED IN (default)</span>
