@@ -57,6 +57,7 @@ import time
 import numpy as np
 
 import croco_bridge as cb          # first: sets RTLD_GLOBAL (see that module)
+import pinocchio as pin
 import contact_select as cs
 import croco_plan as cp
 import mujoco
@@ -248,6 +249,115 @@ def draw_contacts(scene, m, d, site_body, tbl, feet):
     return added
 
 
+SEAT_JOINTS = ["left_ankle_roll_joint", "left_ankle_pitch_joint",
+               "right_ankle_roll_joint", "right_ankle_pitch_joint"]
+
+
+def seat_stance(m, d, q, iters=40, tol=1e-5):
+    """Level the soles on the floor: the start pose, seated.
+
+    THE DEFECT.  At the shipped `stand` keyframe the feet are not flat.  Each
+    sole is rolled about 6.4 deg (9 mm of corner-height spread across an 80 mm
+    sole), so the robot stands on its two INNER foot edges -- a knife-edge
+    stance whose support polygon is a pair of lines, not a pair of rectangles.
+    Every static hold from that pose topples backwards within 1.2 s no matter
+    how the joints are held: with integral action driving the joint error to
+    0.005 rad the robot still leaves, because the joints were never the problem.
+    The maneuver survived it only because the MPC is actively correcting from
+    the first control period, which is also why the failure looked like a
+    controller problem and was not.
+
+    THE FIX.  Gauss-Newton on five numbers -- base height and the two ankle
+    roll/pitch pairs -- driving all eight sole corners onto the floor plane.
+    Ankles only: the stance width, the hip angles and everything above the knee
+    are what the study certified its poses against, and this must not move them.
+    """
+    adr = [m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, j)]
+           for j in SEAT_JOINTS]
+    idx = [2] + adr                      # base z, then the four ankle joints
+    q = q.copy()
+
+    def corners():
+        d.qpos[:] = q
+        d.qvel[:] = 0
+        mujoco.mj_forward(m, d)
+        return np.array([cs.point_world(m, d, b, o)[2]
+                         for f in cs.FEET
+                         for b, o in cs.foot_corners(m, d, f)])
+
+    for _ in range(iters):
+        r = corners()
+        if np.max(np.abs(r)) < tol:
+            break
+        J = np.zeros((len(r), len(idx)))
+        for c, i in enumerate(idx):
+            q[i] += 1e-5
+            J[:, c] = (corners() - r) / 1e-5
+            q[i] -= 1e-5
+        step, *_ = np.linalg.lstsq(J, -r, rcond=None)
+        q[idx] += np.clip(step, -0.05, 0.05)
+    corners()
+    return q
+
+
+def hold_torque(m, d, q0, seconds=3.0, ki=8.0, tol=2e-3):
+    """The feedforward that actually holds `q0`, found by integral action.
+
+    Not `mj_inverse`: with contacts in the loop the inverse dynamics at
+    qacc = 0 returns a generalised force including six rows no actuator can
+    supply, and driving the servo with its actuated part folds the robot up
+    (measured: pelvis 1.00 m -> 0.39 m).  Integral action asks the plant the
+    question directly -- raise the feedforward until the joints stop sagging --
+    and what it converges to IS the static torque, contacts and all.
+
+    Returns (tau, settled_qpos, joint error).  The error is the interesting
+    output: it says whether the pose is holdable inside the clamp basis at all.
+    """
+    kp, _ = servo_gains(m)
+    nq = cb.NQ_ROBOT
+    lim = cs.torque_limits(m)
+    d.qpos[:] = q0
+    d.qvel[:] = 0
+    mujoco.mj_forward(m, d)
+    tau = np.zeros(m.nu)
+    qd = q0[7:nq].copy()
+    for _ in range(int(round(seconds / m.opt.timestep))):
+        e = qd - d.qpos[7:nq]
+        tau = np.clip(tau + ki * kp * e * m.opt.timestep, -lim, lim)
+        d.ctrl[:] = qd + tau / kp
+        mujoco.mj_step(m, d)
+        if np.max(np.abs(e)) < tol and np.max(np.abs(d.qvel[:nq - 1])) < 1e-2:
+            break
+    q = d.qpos.copy()
+    err = float(np.max(np.abs(qd - q[7:nq])))
+    d.qvel[:] = 0
+    mujoco.mj_forward(m, d)
+    return tau, q, err
+
+
+def corrupt(x, sense, rng, bias, nq):
+    """A state ESTIMATE from the true state: per-run bias plus white noise.
+
+    Split that way on purpose.  A state estimator's error is dominated by a
+    slowly-varying term -- IMU bias, an accumulated yaw, a base position that
+    has drifted since the last contact reset -- and a controller that re-solves
+    every 20 ms rejects white noise far more easily than a constant offset.
+    Reporting a single "state noise" number would therefore flatter the loop.
+    """
+    x = x.copy()
+    x[0:3] += bias["base_p"] + rng.normal(0, sense.get("base_p", 0.0) / 3, 3)
+    if sense.get("base_r"):
+        dr = bias["base_r"] + rng.normal(0, sense["base_r"] / 3, 3)
+        q = pin.Quaternion(x[6], x[3], x[4], x[5])
+        q = pin.Quaternion(pin.exp3(dr) * q.matrix())
+        x[3:7] = [q.x, q.y, q.z, q.w]
+    x[7:nq] += bias["q"] + rng.normal(0, sense.get("q", 0.0), nq - 7)
+    x[nq:nq + 3] += bias["base_v"] + rng.normal(0, sense.get("base_v", 0.0) / 3, 3)
+    x[nq + 3:nq + 6] += rng.normal(0, sense.get("base_w", 0.0), 3)
+    x[nq + 6:] += rng.normal(0, sense.get("v", 0.0), nq - 7)
+    return x
+
+
 def servo_gains(m):
     """(kp, kd) per actuator, read off the MJCF position actuators."""
     kp = m.actuator_gainprm[:m.nu, 0].copy()
@@ -295,8 +405,33 @@ class MPC:
     makes the per-step solve time reportable rather than embarrassing.
     """
 
+    COARSE = """A COARSER MPC GRID, and why it is decimation and not a
+    non-uniform horizon.
+
+    The obvious structural saving is a fine head at the control period and a
+    coarse tail at a multiple of it: a 1 s preview in 30 nodes instead of 50.
+    It is not implementable cheaply here, and the reason is the window
+    management rather than the models.  crocoddyl gives exactly one cheap
+    sliding operation, `circularAppend`, measured at 4.4 us -- and it ROTATES
+    the whole list, which is only correct if every node is the same duration.
+    A mixed fine/coarse window has to be re-pointed with `updateModel`, measured
+    at 263 us per node because it re-creates that node's data (`createData`
+    alone is 98 us).  Re-pointing a 15-node coarse tail every control period is
+    3.9 ms against a ~10 ms step: the window management costs more than the
+    fifteen nodes it removes.
+
+    What IS cheap is a UNIFORM grid at n times the control period, because
+    rotation stays valid -- the window simply advances one coarse node every n
+    control periods instead of one fine node every period.  The controller
+    still runs at the control period and still re-solves from the measured
+    state every time; what changes is that its grid shifts on a coarser clock.
+    So `dt_scale` decimates: model i of the coarse list is the plan's node i
+    integrated for n*dt, and the window covers plan nodes anchored n apart.
+    Same preview, n times fewer nodes, one `circularAppend` per n periods."""
+
     def __init__(self, ocp, models, terminal, horizon=40, iters=2,
-                 xs_plan=None, us_plan=None, n_alphas=0, nthreads=0):
+                 xs_plan=None, us_plan=None, n_alphas=0, nthreads=0,
+                 dt_scale=1):
         cro = cb.import_crocoddyl()
         self.n_alphas = n_alphas
         # 0 = leave crocoddyl's own default alone.  The knob only does anything
@@ -305,6 +440,15 @@ class MPC:
         # why `croco_speed.py threads` reports the value it read BACK rather
         # than the value it asked for.
         self.nthreads = nthreads
+        # DECIMATION.  Every index below is in COARSE units; `__call__` maps the
+        # control step into them.  At dt_scale = 1 this is the identity and the
+        # path is bit-for-bit the one S13-S16 measured.
+        self.dt_scale = max(int(dt_scale), 1)
+        n = self.dt_scale
+        if n > 1:
+            models = list(models[::n])
+            xs_plan = None if xs_plan is None else xs_plan[::n]
+            us_plan = None if us_plan is None else us_plan[::n]
         self.ocp, self.models, self.terminal = ocp, models, terminal
         self.H = min(horizon, len(models))
         self.iters = iters
@@ -352,6 +496,7 @@ class MPC:
 
     def __call__(self, k, x_meas):
         """Returns (first control, first predicted state) or (None, None)."""
+        k = k // self.dt_scale
         if k >= len(self.models):
             return None, None
         if k + self.H <= len(self.models):
@@ -428,8 +573,7 @@ def build_ocp(plan, run_dir):
     entry = next(e for e in modes["modes"] if e["name"] == plan["mode"])
     q_star = np.loadtxt(os.path.join(run_dir, entry["qpos_file"]))
     m, d = cs.load()
-    kid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, plan["start"])
-    q0 = m.key_qpos[kid].copy()
+    q0 = cs.start_qpos(m, plan["start"])
     d.qpos[:] = q0
     mujoco.mj_forward(m, d)
     ocp = cp.LeanOCP(plan["subset"], q_star, q0, mu=plan["mu"],
@@ -439,7 +583,16 @@ def build_ocp(plan, run_dir):
                      keepout=bool(plan.get("keepout", 0)),
                      com_margin=plan.get("com_margin", 0.03),
                      w_land=plan.get("w_land", 5e3), w_hold=plan.get("w_hold", 1e3),
-                     w_com=plan.get("w_com", 1e3))
+                     w_com=plan.get("w_com", 1e3),
+                     w_cone=plan.get("w_cone", 1e1),
+                     w_reach=plan.get("w_reach", 1e2),
+                     cop_shrink=plan.get("cop_shrink", 1.0),
+                     min_nforce=plan.get("min_nforce", 1.0),
+                     w_com_track=plan.get("w_com_track", 0.0),
+                     w_com_damp=plan.get("w_com_damp", 0.0),
+                     w_ctrl=plan.get("w_ctrl", 1e-3),
+                     n_hold=plan.get("n_hold", 0),
+                     w_hold_state=plan.get("w_hold_state", 1e2))
     return ocp, q_star
 
 
@@ -447,11 +600,19 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
            fps=30, speed=1.0, push=0.0, push_at=0.5, push_dir=(1, 0, 0),
            push_hold=0.2, mpc_horizon=40, mpc_iters=2, seed=None, q_noise=0.0,
            cam="wide", ghost=True, qpos_out=None, mpc_cones=True,
-           mpc_alphas=0, mpc_threads=0):
+           mpc_alphas=0, mpc_threads=0, tau_clamp=False, mpc_dt_scale=1,
+           base_xy=0.0, base_z=0.0, base_yaw=0.0, base_rp=0.0, settle=0,
+           sense=None, mu_scale=1.0, table_shift=(0.0, 0.0, 0.0),
+           schedule_shift=0):
     xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
     us = np.load(os.path.join(run_dir, f"us_{tag}.npy"))
     with open(os.path.join(run_dir, f"plan_{tag}.json")) as fh:
         plan = json.load(fh)
+    # STANCE FIRST, before any cs.load() in this call: the offset is part of the
+    # model the plan was solved against, and a replay that loads the unshifted
+    # stance is replaying a plan for a robot standing somewhere else.
+    cs.STANCE_DX = plan.get("stance_dx", cs.STANCE_DX)
+    cs.STANCE_DY = plan.get("stance_dy", cs.STANCE_DY)
     subset = plan["subset"]
     Kpath = os.path.join(run_dir, f"K_{tag}.npy")
     Ks = np.load(Kpath) if os.path.exists(Kpath) else None
@@ -479,10 +640,17 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                                 n_return=plan.get("n_return", 0),
                                 dwell=plan.get("dwell", 0),
                                 cones=plan["cones"] and mpc_cones)
+            problem = ocp.build(dt=plan["dt"] * max(int(mpc_dt_scale), 1),
+                                n_approach=plan["n_approach"],
+                                n_braced=plan["n_braced"],
+                                n_return=plan.get("n_return", 0),
+                                dwell=plan.get("dwell", 0),
+                                cones=plan["cones"] and mpc_cones) \
+                if mpc_dt_scale > 1 else problem
             mpc = MPC(ocp, list(problem.runningModels), problem.terminalModel,
                       horizon=mpc_horizon, iters=mpc_iters,
                       xs_plan=xs, us_plan=us, n_alphas=mpc_alphas,
-                      nthreads=mpc_threads)
+                      nthreads=mpc_threads, dt_scale=mpc_dt_scale)
 
     # NO inflated collision margin.  cs.load defaults to margin = 25 mm so the
     # IK can see collisions before it enters them; in a DYNAMICS replay that
@@ -491,17 +659,82 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
     # against.  S12's replays ran with it on.
     m, d = cs.load(ik_margin=0.0)
     kp, kd = servo_gains(m)
+    ctrl_lo, ctrl_hi = m.actuator_ctrlrange[:m.nu].T.copy()
+    if tau_clamp:
+        # The PLANT clamped to the same basis the plan is solved against.
+        # Without this the servo term can push a joint past the clamp limit --
+        # measured at 1.11x on left_shoulder_pitch in the nominal replay -- so a
+        # run can be "successful" while asking the hardware for torque its
+        # safety layer would refuse.  With it, the limit is enforced by the
+        # actuator rather than checked afterwards, and the controller has to
+        # cope with saturation instead of being credited for exceeding it.
+        lim = cs.torque_limits(m)
+        m.actuator_forcerange[:m.nu, 0] = -lim
+        m.actuator_forcerange[:m.nu, 1] = lim
+        m.actuator_forcelimited[:m.nu] = 1
     nsub = max(1, int(round(dt_plan / m.opt.timestep)))
 
-    kid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, plan["start"])
-    qpos_full = m.key_qpos[kid].copy()
+    qpos_full = cs.start_qpos(m, plan["start"])
     nq = cb.NQ_ROBOT
     d.qpos[:] = cb.pin_to_mj(xs[0][:nq], qpos_full)
     d.qvel[:] = 0
-    if q_noise:
+    # HOW THE ROBOT ARRIVES.  S15's noise model perturbed the 27 joint angles and
+    # left the floating base exactly where the plan put it, which is not how this
+    # robot is instantiated: it is lowered on a winch, so the pose it starts from
+    # varies in the BASE -- where it lands on the floor, which way it is facing,
+    # and how level it is -- as much as in the joints.  Those are different
+    # disturbances.  Joint noise alone moves the feet relative to the floor and
+    # is really a drop test (measured: 12-25 mm of foot-corner spread at
+    # 0.02 rad); base noise moves the whole robot relative to the TABLE, which
+    # is what decides whether the certified landing spots are still where the
+    # brace is going.
+    if q_noise or base_xy or base_z or base_yaw or base_rp:
         rng = np.random.default_rng(seed)
-        d.qpos[7:nq] += rng.normal(0.0, q_noise, nq - 7)
+        if q_noise:
+            d.qpos[7:nq] += rng.normal(0.0, q_noise, nq - 7)
+        if base_xy:
+            d.qpos[0:2] += rng.normal(0.0, base_xy, 2)
+        if base_z:
+            d.qpos[2] += rng.normal(0.0, base_z)
+        if base_yaw or base_rp:
+            rpy = np.array([rng.normal(0.0, base_rp), rng.normal(0.0, base_rp),
+                            rng.normal(0.0, base_yaw)])
+            dq, out = np.zeros(4), np.zeros(4)
+            mujoco.mju_euler2Quat(dq, rpy, "xyz")
+            mujoco.mju_mulQuat(out, dq, d.qpos[3:7])
+            d.qpos[3:7] = out
     mujoco.mj_forward(m, d)
+
+    # WHAT THE CONTROLLER IS ALLOWED TO KNOW.  Everything above hands the MPC
+    # MuJoCo's exact state.  On hardware the floating base is an ESTIMATE -- IMU
+    # plus leg kinematics plus a contact assumption -- and its error is
+    # slowly-varying, not white, so it is modelled as a per-run bias with a
+    # smaller white part on top.  Joint angles are encoders (good) and joint
+    # velocities are differentiated encoders (not).  Note what is NOT here: the
+    # cone costs never read a force sensor.  Their residual is A*lambda - b with
+    # lambda the wrench the OCP's own KKT solve produces for (x, u), so the
+    # privileged quantity in this loop is the STATE, not the contact force.
+    srng = np.random.default_rng((seed or 0) + 9973)
+    sbias = {}
+    if sense:
+        sbias = dict(
+            base_p=srng.normal(0, sense.get("base_p", 0.0), 3),
+            base_r=srng.normal(0, sense.get("base_r", 0.0), 3),
+            base_v=srng.normal(0, sense.get("base_v", 0.0), 3),
+            q=srng.normal(0, sense.get("q_bias", 0.0), nq - 7))
+    if mu_scale != 1.0:
+        # The plan assumes mu = 0.6 at the table and the floor and nobody has
+        # measured it.  This scales the PLANT's tangential friction only.
+        m.geom_friction[:, 0] *= mu_scale
+    if any(table_shift):
+        # The table where the plan thinks it is, versus where it is.  The
+        # landing spots, the keep-out box and the reach target are all written
+        # in world coordinates off the nominal table, so moving the real one is
+        # exactly the perception error a deployment would carry.
+        tj = m.body_jntadr[cs.bid(m, "table")]
+        adr = m.jnt_qposadr[tj]
+        d.qpos[adr:adr + 3] += np.asarray(table_shift, float)
+        mujoco.mj_forward(m, d)
 
     renderer = frames = None
     if video:
@@ -547,13 +780,33 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
     # rather than for the ones that turn out to be interesting.
     qtrace = []
 
-    for k in range(len(us)):
+    # SETTLE.  `settle` control periods spent on the FIRST node of the plan
+    # before the maneuver is allowed to advance: the controller holds the start
+    # pose while the winch lets go.  It is not cosmetic -- the initial state is
+    # off the plan by construction now (base pose included), and a receding
+    # horizon that starts advancing its schedule from a state it has not yet
+    # stabilised is solving for a maneuver the robot is not standing in.  The
+    # settle steps are scored separately (plan["settle"]) and kept OUT of `log`
+    # so every metric downstream still indexes the plan's own node numbering.
+    settle_log = []
+    tau_hold = np.zeros(m.nu)
+    if settle:
+        keep_q, keep_v = d.qpos.copy(), d.qvel.copy()
+        d.qpos[:] = cb.pin_to_mj(xs[0][:nq], qpos_full)
+        d.qvel[:] = 0
+        mujoco.mj_forward(m, d)
+        tau_hold = np.array(cs.equilibrium_qp(m, d, ())["tau"], float)
+        d.qpos[:], d.qvel[:] = keep_q, keep_v
+        mujoco.mj_forward(m, d)
+    for k in [0] * settle + list(range(len(us))):
+        in_settle = len(settle_log) < settle
         q_plan = xs[k][:nq]
         v_plan = xs[k][nq:]
         # Pinocchio joint order == MJCF joint order for the 27 actuated joints,
         # and both put them after the free joint, so the slice is direct.
         qj, vj = q_plan[7:], v_plan[6:]
 
+        clip_max, clip_n = 0.0, 0
         if ctrl_mode == "kinematic":
             d.qpos[:] = cb.pin_to_mj(q_plan, qpos_full)
             d.qvel[:] = 0
@@ -573,6 +826,40 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
             # except `torque_meas` is that command with a different tau_ff, so
             # the ladder isolates the feedforward and leaves the interface fixed.
             q_des, v_des = qj, vj
+            if in_settle:
+                # A STATIC HOLD, and the feedforward is the thing that makes
+                # it one.  Three candidates were measured from the `stand` pose,
+                # all with the joints commanded to the keyframe:
+                #   tau_ff = 0            sags 0.09 rad in 0.2 s and topples
+                #                         backwards by 1.2 s
+                #   tau_ff = plan u[0]    holds, but 112 N.m away from static
+                #                         (knees -67 N.m where +10 is wanted),
+                #                         so it settles 0.59 rad off the pose
+                #   tau_ff = static QP    holds the pose: pelvis 0.995 m and CoM
+                #                         inside the polygon for 3 s
+                # The third is the study's own `equilibrium_qp`, i.e. the same
+                # object that certified q*, evaluated at the START pose with
+                # feet-only support.  It is a constant of the keyframe, not of
+                # the plan, so it is exactly what a stand controller would have
+                # loaded before the maneuver was ever commanded.
+                q_des, v_des = xs[0][7:nq], np.zeros(nq - 7)
+                tau_ff = np.clip(tau_hold, -tau_lim, tau_lim)
+                tau_cmd = tau_ff
+                raw_ctrl = q_des + (tau_ff + kd * v_des) / kp
+                d.ctrl[:] = raw_ctrl
+                clip = np.maximum(ctrl_lo - raw_ctrl, raw_ctrl - ctrl_hi)
+                clip_max = float(max(clip.max(), 0.0))
+                clip_n = int(np.sum(clip > 1e-9))
+                for _ in range(nsub):
+                    mujoco.mj_step(m, d)
+                settle_log.append(dict(
+                    k=-1, t=0.0, pelvis_z=float(d.qpos[2]),
+                    tracking_err=float(np.linalg.norm(d.qpos[7:nq] - q_des)),
+                    tau_ratio=float(np.max(np.abs(d.actuator_force[:m.nu])
+                                           / tau_lim)),
+                    support_margin=support_margin(m, d),
+                    com=[float(v) for v in d.subtree_com[1]]))
+                continue
             if ctrl_mode == "hold":
                 q_des, v_des = xs[0][7:nq], np.zeros(nq - 7)
                 tau_ff = np.zeros(m.nu)
@@ -584,6 +871,8 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                 x_meas = np.concatenate([
                     cb.mj_to_pin(d.qpos),
                     cb.mj_to_pin_v(d.qvel, d.xmat[1].reshape(3, 3))])
+                if sense:
+                    x_meas = corrupt(x_meas, sense, srng, sbias, nq)
                 if ctrl_mode == "torque_meas":
                     tau_ff = us[k]
                 elif ctrl_mode == "riccati":
@@ -593,7 +882,12 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                     dx = state.diff(xs[k], x_meas)
                     tau_ff = us[k] - Ks[min(k, len(Ks) - 1)] @ dx
                 else:                                    # mpc
-                    u0, xs1 = mpc(k, x_meas)
+                    # SCHEDULE SHIFT.  The contact schedule is prescribed by
+                    # clock; on hardware the touchdown instant comes from a
+                    # detector with latency.  A positive shift is the controller
+                    # believing the brace is down before it is.
+                    u0, xs1 = mpc(min(max(k + schedule_shift, 0),
+                                      len(us) - 1), x_meas)
                     if u0 is None:
                         tau_ff = us[k]
                     else:
@@ -613,7 +907,20 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                     q_des = None
             tau_cmd = tau_ff
             if q_des is not None:
-                d.ctrl[:] = q_des + (tau_ff + kd * v_des) / kp
+                # RAW before MuJoCo clamps it.  <position> actuators declare a
+                # ctrlrange equal to the joint range, and the servo inversion
+                # puts the feedforward INTO the setpoint -- so a command that
+                # needs tau_ff near the limit asks for a setpoint tau_ff/kp
+                # outside the joint range and is silently truncated.  Recorded
+                # rather than assumed: `ctrl_clip` is how much of the command
+                # the plant never saw.
+                raw_ctrl = q_des + (tau_ff + kd * v_des) / kp
+                d.ctrl[:] = raw_ctrl
+                clip = np.maximum(ctrl_lo - raw_ctrl, raw_ctrl - ctrl_hi)
+                clip_max = float(max(clip.max(), 0.0))
+                clip_n = int(np.sum(clip > 1e-9))
+            else:
+                clip_max, clip_n = 0.0, 0
             # DISTURBANCE.  A sustained horizontal force on the pelvis, held for
             # `push_hold` seconds, rather than a velocity impulse on the base.
             # The impulse version is nearly free to reject -- both feet are on the
@@ -636,6 +943,8 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
                    com=[float(v) for v in d.subtree_com[1]],
                    support_margin=support_margin(m, d),
                    tau_ratio=float(np.max(np.abs(d.actuator_force[:m.nu]) / tau_lim)),
+                   tau_argmax=int(np.argmax(np.abs(d.actuator_force[:m.nu]) / tau_lim)),
+                   ctrl_clip=clip_max, ctrl_clip_n=clip_n,
                    cmd_ratio=float(np.max(np.abs(tau_cmd) / tau_lim)))
         f_brace = {s: 0.0 for s in subset}
         f_feet = 0.0
@@ -676,6 +985,15 @@ def replay(tag, ctrl_mode="riccati", dt_plan=0.02, run_dir=".", video=None,
     if qpos_out:
         np.save(qpos_out, np.array(qtrace))
 
+    if settle_log:
+        plan["settle"] = dict(
+            steps=len(settle_log),
+            fell=bool(min(r["pelvis_z"] for r in settle_log) < 0.55),
+            min_pelvis_z=min(r["pelvis_z"] for r in settle_log),
+            max_tau_ratio=max(r["tau_ratio"] for r in settle_log),
+            min_support_margin=min(r["support_margin"] for r in settle_log),
+            drift_rad=settle_log[-1]["tracking_err"],
+            com_x=[r["com"][0] for r in settle_log[::5]])
     if mpc is not None:
         sl = np.array(mpc.step_lengths)
         plan["mpc_solve_ms"] = dict(
@@ -787,6 +1105,31 @@ def main():
                          "falls (the planned CoP rides the heel edge)")
     ap.add_argument("--q-noise", type=float, default=0.0,
                     help="std [rad] of joint noise on the initial state")
+    ap.add_argument("--base-xy", type=float, default=0.0,
+                    help="std [m] of horizontal error in where the winch sets "
+                         "the robot down")
+    ap.add_argument("--base-z", type=float, default=0.0,
+                    help="std [m] of vertical error in where the winch lets go")
+    ap.add_argument("--base-yaw", type=float, default=0.0,
+                    help="std [rad] of heading error at release")
+    ap.add_argument("--base-rp", type=float, default=0.0,
+                    help="std [rad] of roll/pitch error at release")
+    ap.add_argument("--sense", default=None,
+                    help="state-estimate error, 'k=v,k=v' over "
+                         "base_p,base_r,base_v,base_w,q,q_bias,v.  The base "
+                         "terms get a per-run bias plus white noise at a third "
+                         "of it; the joint terms are white")
+    ap.add_argument("--mu-scale", type=float, default=1.0,
+                    help="scale the PLANT's friction; the plan still assumes mu")
+    ap.add_argument("--table-shift", default="0,0,0",
+                    help="move the real table [m] while the plan keeps its "
+                         "nominal one -- i.e. a perception error")
+    ap.add_argument("--schedule-shift", type=int, default=0,
+                    help="advance (+) or retard (-) the prescribed contact "
+                         "schedule by this many control periods")
+    ap.add_argument("--settle", type=int, default=0,
+                    help="control periods held on the plan's first node before "
+                         "the maneuver advances (the winch letting go)")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--mpc-horizon", type=int, default=40)
     ap.add_argument("--mpc-iters", type=int, default=2)
@@ -794,10 +1137,20 @@ def main():
                     help="ShootingProblem.nthreads for the online problem "
                          "(0 = crocoddyl's default).  Inert unless libcrocoddyl "
                          "was built with OpenMP -- see the S16 docpage.")
+    ap.add_argument("--mpc-dt-scale", type=int, default=1,
+                    help="integrate the ONLINE problem at this multiple of the "
+                         "control period.  The window then advances one coarse "
+                         "node every n periods -- same preview, n times fewer "
+                         "nodes.  See MPC.COARSE for why a fine head plus a "
+                         "coarse tail is not the cheaper option it looks like")
     ap.add_argument("--mpc-alphas", type=int, default=0,
                     help="truncate the FDDP line-search ladder to this many "
                          "rungs (0 = crocoddyl's default 10).  Bounds the "
                          "rollouts per iteration, and so the worst-case step.")
+    ap.add_argument("--tau-clamp", action="store_true",
+                    help="clamp the PLANT's actuator force to the clamp basis, "
+                         "so the position servo cannot push a joint past the "
+                         "safety limit the plan is solved against")
     ap.add_argument("--mpc-no-cones", action="store_true",
                     help="drop the friction/wrench cone costs from the ONLINE "
                          "problem only (the plan keeps them).  Also switches "
@@ -821,10 +1174,23 @@ def main():
                        push_at=args.push_at, push_hold=args.push_hold,
                        push_dir=[float(v) for v in args.push_dir.split(",")],
                        seed=args.seed, q_noise=args.q_noise,
+                       base_xy=args.base_xy, base_z=args.base_z,
+                       base_yaw=args.base_yaw, base_rp=args.base_rp,
+                       settle=args.settle,
+                       sense=(dict((k, float(v)) for k, v in
+                                   (kv.split("=") for kv in
+                                    args.sense.split(",")))
+                              if args.sense else None),
+                       mu_scale=args.mu_scale,
+                       table_shift=[float(v) for v in
+                                    args.table_shift.split(",")],
+                       schedule_shift=args.schedule_shift,
                        mpc_horizon=args.mpc_horizon, mpc_iters=args.mpc_iters,
                        mpc_cones=not args.mpc_no_cones,
                        mpc_alphas=args.mpc_alphas,
                        mpc_threads=args.mpc_threads,
+                       mpc_dt_scale=args.mpc_dt_scale,
+                       tau_clamp=args.tau_clamp,
                        cam=args.cam, ghost=not args.no_ghost,
                        dt_plan=plan_dt(args.dir, tag))
     res = summarise(log, plan, args.ctrl)
