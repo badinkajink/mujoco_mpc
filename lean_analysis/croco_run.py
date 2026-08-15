@@ -67,6 +67,21 @@ def main():
                     help="leading nodes of the approach spent holding the start "
                          "pose, so the departure from rest is planned")
     ap.add_argument("--w-hold-state", type=float, default=1e2)
+    ap.add_argument("--w-jlim", type=float, default=1e3,
+                    help="joint-limit barrier weight.  DEFAULT CHANGED in S17 "
+                         "from 1e1, which was too weak to hold: seven of the 25 "
+                         "grid plans pushed a hip yaw up to 2.6 deg past its "
+                         "+-24.6 deg range, and commanding the gripper "
+                         "perpendicular to the table pushed one 14 deg past. "
+                         "Pass 1e1 to reproduce S13-S16 exactly")
+    ap.add_argument("--w-vel", type=float, default=0.0,
+                    help="velocity regulariser, all joints, every phase.  The "
+                         "move-to-brace peaks at 2.5-3.2 rad/s unpriced")
+    ap.add_argument("--reach-rot", default=None,
+                    choices=["flat", "down", "side"],
+                    help="hold the REACHING gripper at this world orientation "
+                         "through the braced phase")
+    ap.add_argument("--w-reach-rot", type=float, default=0.0)
     ap.add_argument("--drop", default="",
                     help="comma-separated cost groups to leave out: stateReg, "
                          "ctrlReg, jointLim, cones, keepout, comSupport, land, "
@@ -146,6 +161,8 @@ def main():
                      w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
                      w_ctrl=args.w_ctrl,
                      n_hold=args.n_hold, w_hold_state=args.w_hold_state,
+                     w_jlim=args.w_jlim, w_vel=args.w_vel,
+                     reach_rot=args.reach_rot, w_reach_rot=args.w_reach_rot,
                      drop=[v for v in args.drop.split(",") if v])
     n_tot = args.n_approach + args.n_braced + args.n_return
     total_t = n_tot * args.dt
@@ -174,7 +191,8 @@ def main():
                w_com_track=args.w_com_track, w_com_damp=args.w_com_damp,
                w_ctrl=args.w_ctrl,
                n_hold=args.n_hold, w_hold_state=args.w_hold_state,
-               drop=args.drop,
+               drop=args.drop, w_jlim=args.w_jlim, w_vel=args.w_vel,
+               reach_rot=args.reach_rot, w_reach_rot=args.w_reach_rot,
                com_margin=args.com_margin,
                converged=bool(ok), solve_seconds=secs, commit=git_head(),
                stage1=({"converged": stage1[0], "cost": stage1[1]}

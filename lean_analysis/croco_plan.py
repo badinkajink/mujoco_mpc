@@ -233,6 +233,7 @@ class LeanOCP:
                  w_com=1e3, land_z_weight=3.0, w_cone=1e1, w_reach=1e2,
                  cop_shrink=1.0, min_nforce=1.0, w_com_track=0.0,
                  w_ctrl=1e-3, n_hold=0, w_hold_state=1e2, w_com_damp=0.0,
+                 w_jlim=1e3, w_vel=0.0, reach_rot=None, w_reach_rot=0.0,
                  drop=()):
         self.rmodel = cb.build_pin(reconcile_passive=not legacy)
         self.sites = cb.mj_site_frames(self.rmodel)
@@ -347,6 +348,24 @@ class LeanOCP:
         # group that can be dropped with no measurable consequence is a group
         # that should not be paid for at 60 Hz.
         self.drop = set(drop)
+        # JOINT LIMITS.  The weight was hard-coded at 1e1 and the S17 ablation
+        # called the term inert -- which was true of the single target it was
+        # ablated on and false of the grid.  Over the 25 planned cells EVERY
+        # plan comes within 5% of a joint bound and seven of them cross one, the
+        # hip yaws by up to 2.6 deg (their range is only +-24.6 deg).  So the
+        # barrier is active where it matters and, at 1e1, too weak to hold.
+        self.w_jlim = w_jlim
+        # HOW FAST THE APPROACH MOVES.  The planned move-to-brace peaks at
+        # 2.5-3.2 rad/s and 68-104 rad/s^2, on the bracing shoulder roll: the
+        # arm is thrown out rather than placed.  Nothing in the objective priced
+        # that -- the state regulariser's velocity block rides at w_state = 1e-1
+        # on the approach -- so this is a velocity-only term with its own weight.
+        self.w_vel = w_vel
+        # REACHING-HAND ORIENTATION.  Unconstrained, the solve keeps the tool
+        # axis within 0.1 deg of horizontal all by itself, so asking for
+        # `flat` should be free and asking for `down` should not.  What each
+        # costs is the point of the experiment.
+        self.reach_rot, self.w_reach_rot = reach_rot, w_reach_rot
         self.land_w = np.ones(3) if legacy else \
             np.array([1.0, 1.0, land_z_weight]) ** 2
 
@@ -406,6 +425,14 @@ class LeanOCP:
                     self.state, self.x_star if x_ref is None else x_ref,
                     self.nu)),
                 w_state)
+        if self.w_vel and "vel" not in self.drop:
+            nv = self.state.nv
+            costs.addCost("velReg", crocoddyl.CostModelResidual(
+                self.state,
+                crocoddyl.ActivationModelWeightedQuad(
+                    np.concatenate([np.zeros(nv), np.ones(nv)])),
+                crocoddyl.ResidualModelState(self.state, self.state.zero(),
+                                             self.nu)), self.w_vel)
         if "ctrlReg" not in self.drop:
             costs.addCost("ctrlReg", crocoddyl.CostModelResidual(
                 self.state, crocoddyl.ResidualModelControl(self.state, self.nu)),
@@ -425,7 +452,7 @@ class LeanOCP:
                 crocoddyl.ActivationModelQuadraticBarrier(
                     crocoddyl.ActivationBounds(lb, ub)),
                 crocoddyl.ResidualModelState(self.state, self.state.zero(),
-                                             self.nu)), 1e1)
+                                             self.nu)), self.w_jlim)
 
         # Contact cones.  mu is the study's 0.6, and min_nforce > 0 is what makes
         # these UNILATERAL -- without it a "contact" is free to pull the robot down.
@@ -462,6 +489,29 @@ class LeanOCP:
                     self.state, act, crocoddyl.ResidualModelContactFrictionCone(
                         self.state, self.sites[s], cone, self.nu)), self.w_cone)
         return costs
+
+    # Named orientations for the REACHING gripper, as world rotations of its
+    # frame.  The frame's x axis is the tool axis (REACH_OFF points along it),
+    # so:
+    #   flat   identity: tool axis forward, horizontal, palm down -- which is
+    #          what the unconstrained solve already does to within 0.1 deg
+    #   down   tool axis straight down, i.e. approach the tabletop from above,
+    #          the orientation a pick off the table would need
+    #   side   tool axis forward, rolled 90 deg: palm facing the far rail
+    REACH_ROT = {
+        "flat": np.eye(3),
+        "down": np.array([[0., 0., -1.], [0., 1., 0.], [1., 0., 0.]]),
+        "side": np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]]),
+    }
+
+    def _reach_orientation(self, costs, nu, weight):
+        """Hold the reaching gripper at a commanded world orientation."""
+        if not self.reach_rot or not weight:
+            return
+        R = self.REACH_ROT[self.reach_rot]
+        costs.addCost("reachRot", crocoddyl.CostModelResidual(
+            self.state, crocoddyl.ResidualModelFrameRotation(
+                self.state, self.sites["reach"], R, nu)), weight)
 
     def _keep_out(self, costs, nu, weight=1e3):
         """Keep every non-contact geom out of the TABLE BOX (croco_geom).
@@ -682,6 +732,9 @@ class LeanOCP:
                         self.state, self.sites["reach"], self.reach_target,
                         self.nu)),
                     10 * self.w_reach if in_dwell else self.w_reach)
+                self._reach_orientation(
+                    costs, self.nu,
+                    (10 if in_dwell else 1) * self.w_reach_rot)
             if in_dwell:
                 nv = self.rmodel.nv
                 w_rest = np.concatenate([np.zeros(nv), np.ones(nv)])
@@ -737,6 +790,7 @@ class LeanOCP:
                 self.state, crocoddyl.ResidualModelFrameTranslation(
                     self.state, self.sites["reach"], self.reach_target, self.nu)),
                 10 * self.w_reach)
+            self._reach_orientation(tcosts, self.nu, 10 * self.w_reach_rot)
         tdmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(
             self.state, self.actuation, self._contacts(terminal_braced), tcosts,
             INV_DAMPING, enable_force)

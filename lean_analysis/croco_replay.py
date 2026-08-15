@@ -634,6 +634,12 @@ def build_ocp(plan, run_dir):
                      w_ctrl=plan.get("w_ctrl", 1e-3),
                      n_hold=plan.get("n_hold", 0),
                      w_hold_state=plan.get("w_hold_state", 1e2),
+                     # 1e1 is the pre-S17 default, so a plan solved before this
+                     # session still gets the weight it was solved with.
+                     w_jlim=plan.get("w_jlim", 1e1),
+                     w_vel=plan.get("w_vel", 0.0),
+                     reach_rot=plan.get("reach_rot"),
+                     w_reach_rot=plan.get("w_reach_rot", 0.0),
                      drop=[v for v in plan.get("drop", "").split(",") if v])
     return ocp, q_star
 

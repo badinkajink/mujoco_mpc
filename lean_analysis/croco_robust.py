@@ -240,15 +240,97 @@ WEIGHT_SETS = [
     ("minf20",         {"min_nforce": 20.0}),
 ]
 
+# ---- three follow-up studies, each a delta on the S17 endpoint (n_hold = 50)
+BASE = {"n_hold": 50}
+
+JLIM_SETS = [(f"jlim{int(np.log10(w))}", dict(BASE, w_jlim=w))
+             for w in (1e1, 1e2, 1e3, 1e4)]
+
+VEL_SETS = ([("vel0", dict(BASE))] +
+            [(f"vel{v:g}", dict(BASE, w_vel=v)) for v in (0.1, 1.0, 10.0)] +
+            # the other way to calm it: give the same motion more time
+            [("slow200", dict(BASE, n_approach=200, n_braced=100)),
+             ("slow200_vel1", dict(BASE, n_approach=200, n_braced=100,
+                                   w_vel=1.0))])
+
+# Does the expensive orientation survive an honest joint-limit barrier?  `down`
+# achieves its target by driving a joint 205-250 mrad past its range at
+# w_jlim = 1e1, so the interesting cell is `down` at a weight that will not let
+# it -- and whether it can then still get the gripper pointed down at all.
+ROT_SETS = ([("rot_none", dict(BASE))] +
+            [(f"rot_down_{int(np.log10(w))}_jlim3",
+              dict(BASE, reach_rot="down", w_reach_rot=w, w_jlim=1e3))
+             for w in (1e2, 1e3)] +
+            [("rot_flat_2_jlim3", dict(BASE, reach_rot="flat",
+                                       w_reach_rot=1e2, w_jlim=1e3))] +
+            [(f"rot_{r}_{int(np.log10(w))}", dict(BASE, reach_rot=r,
+                                                  w_reach_rot=w))
+             for r in ("flat", "down", "side") for w in (1e1, 1e2, 1e3)])
+
+GROUPS = {"weights": WEIGHT_SETS, "jlim": JLIM_SETS, "vel": VEL_SETS,
+          "rot": ROT_SETS}
+
+
+def plan_metrics(run_dir, tag):
+    """What the PLAN looks like, as distinct from what the replay does.
+
+    Peak speed and acceleration because "the move-to-brace looks fast" is a
+    property of the trajectory and not of the controller, and joint-bound
+    overshoot because a soft barrier can be active and still lose.
+    """
+    import contact_select as cs_
+    import mujoco
+    m, _ = cs_.load()
+    jid = [m.actuator_trnid[i, 0] for i in range(m.nu)]
+    lo, hi = m.jnt_range[jid].T
+    xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
+    pl = json.load(open(os.path.join(run_dir, f"plan_{tag}.json")))
+    nq = 34
+    q, v = xs[:, 7:nq], xs[:, nq + 6:]
+    a = np.diff(v, axis=0) / pl["dt"]
+    over = np.maximum(lo - q, q - hi).max()
+    j = int(np.abs(a).max(axis=0).argmax())
+    return dict(v_max=float(np.abs(v).max()), a_max=float(np.abs(a).max()),
+                a_argmax=mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, jid[j]),
+                jlim_over_mrad=float(1000 * max(over, 0.0)),
+                plan_reach_mm=1000 * pl.get("reach_err", float("nan")),
+                plan_iters=pl["iters"], plan_seconds=pl["solve_seconds"],
+                plan_converged=bool(pl["converged"]),
+                plan_tau=pl["max_torque_ratio"], plan_cost=pl["cost"],
+                reach_rot_err_deg=reach_rot_error(run_dir, tag))
+
+
+def reach_rot_error(run_dir, tag):
+    """Angle between the reaching gripper's achieved and commanded orientation
+    at the end of the braced phase [deg].  Reported even when nothing was
+    commanded, against `flat`, so the unconstrained column means something."""
+    import croco_bridge as cb_
+    import croco_plan as cp_
+    import pinocchio as pin
+    pl = json.load(open(os.path.join(run_dir, f"plan_{tag}.json")))
+    R_ref = cp_.LeanOCP.REACH_ROT.get(pl.get("reach_rot") or "flat")
+    rmodel = cb_.build_pin()
+    sites = cb_.mj_site_frames(rmodel)
+    rdata = rmodel.createData()
+    xs = np.load(os.path.join(run_dir, f"xs_{tag}.npy"))
+    q = xs[len(xs) - 1 - pl.get("n_return", 0)][:rmodel.nq]
+    pin.forwardKinematics(rmodel, rdata, q)
+    pin.updateFramePlacements(rmodel, rdata)
+    R = rdata.oMf[sites["reach"]].rotation
+    return float(np.degrees(np.linalg.norm(pin.log3(R_ref.T @ R))))
+
+
 def cmd_weights(args):
-    sets = [(n, w) for n, w in WEIGHT_SETS
+    sets = [(n, w) for n, w in GROUPS[args.group]
             if not args.only or n in args.only.split(",")]
     out = []
     for name, w in sets:
         tag = f"w_{name}"
+        w = dict(w)
+        na = w.pop("n_approach", args.n_approach)
+        nb = w.pop("n_braced", args.n_braced)
         ok, secs = plan_one(args.dir, tag, args.mode, w, dt=args.dt,
-                            n_approach=args.n_approach,
-                            n_braced=args.n_braced, force=args.force)
+                            n_approach=na, n_braced=nb, force=args.force)
         print(f"\n=== {name:16s} {w}  plan {'ok' if ok else 'FAILED'} "
               f"({secs:.0f}s)", flush=True)
         if not ok:
@@ -263,12 +345,14 @@ def cmd_weights(args):
         rn, n = rate(rows, args.profiles[-1])
         print(f"    -> nominal {'OK' if r0 else 'BAD'}, "
               f"{args.profiles[-1]}: {rn*100:.0f}% of {n}")
-        out.append(dict(name=name, weights=w, planned=True,
-                        plan_reach_mm=1000 * pl.get("reach_err", float("nan")),
-                        plan_iters=pl["iters"], plan_seconds=pl["solve_seconds"],
-                        plan_converged=pl["converged"],
-                        plan_tau=pl["max_torque_ratio"], rows=rows,
-                        survive=rn, survive_n=n))
+        rec = dict(name=name, weights=w, planned=True, rows=rows,
+                   survive=rn, survive_n=n)
+        rec.update(plan_metrics(args.dir, tag))
+        print(f"    -> |v|max {rec['v_max']:.2f} rad/s, "
+              f"|a|max {rec['a_max']:.0f} rad/s^2, "
+              f"jlim over {rec['jlim_over_mrad']:.1f} mrad, "
+              f"rot err {rec['reach_rot_err_deg']:.1f} deg")
+        out.append(rec)
         json.dump(dict(weights=out), open(args.out, "w"), indent=1)
     return dict(weights=out)
 
@@ -473,6 +557,7 @@ def main():
     p.add_argument("--dt-scales", type=int, nargs="+", default=[1])
 
     p = sub.add_parser("weights"); common(p)
+    p.add_argument("--group", default="weights", choices=sorted(GROUPS))
     p.add_argument("--mode", default="elbow+forearm")
     p.add_argument("--dt", type=float, default=0.02)
     p.add_argument("--n-approach", type=int, default=120)
