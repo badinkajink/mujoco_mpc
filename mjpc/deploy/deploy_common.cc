@@ -1221,6 +1221,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   // around a false vertical -> a steady lean (sim-confirmed). Cancel it here.
   const double imu_pitch_off = cfg.imu_pitch_offset_deg * M_PI / 180.0;
   const double imu_roll_off = cfg.imu_roll_offset_deg * M_PI / 180.0;
+  const double imu_yaw_off = cfg.imu_yaw_offset_deg * M_PI / 180.0;
   // SESSION IMU ALIGNMENT (2026-07-19, --ac_imu_align): the autocalib's gravity
   // anchor measures the fused quat's pitch/roll error against the plumb-line in
   // every still window -- and on real it came out CONSTANT (+2.1..+2.6 deg pitch
@@ -1245,10 +1246,11 @@ int RunDeployNode(const NodeConfig& cfg) {
                  "(stock %.1fs + %.1fs) so witness+confirm+apply land BEFORE "
                  "policy handover (--ac_hold_extra 0 for stock timing)\n",
                  ramp_hold_eff, kRampHoldSec, ramp_hold_eff - kRampHoldSec);
-  if (imu_pitch_off != 0.0 || imu_roll_off != 0.0)
+  if (imu_pitch_off != 0.0 || imu_roll_off != 0.0 || imu_yaw_off != 0.0)
     std::printf("[node] IMU zero-offset calibration ON: perceived base orientation rotated "
-                "pitch%+.2f roll%+.2f deg before planning\n",
-                cfg.imu_pitch_offset_deg, cfg.imu_roll_offset_deg);
+                "pitch%+.2f roll%+.2f yaw%+.2f deg before planning\n",
+                cfg.imu_pitch_offset_deg, cfg.imu_roll_offset_deg,
+                cfg.imu_yaw_offset_deg);
   // NOT const: --ankle_autocalib REPLACES these with its own solve at the end of
   // the bring-up ramp hold (absolute offsets, encoder - true -- not deltas on the
   // manual flags). Written only from the main control loop, the same thread that
@@ -1290,6 +1292,14 @@ int RunDeployNode(const NodeConfig& cfg) {
       double d[4], ax[3] = {1, 0, 0}, t[4];
       mju_axisAngle2Quat(d, ax, rcorr);
       mju_mulQuat(t, bq, d); mju_copy4(bq, t);
+    }
+    // ★ 2026-08-14 heading correction: yaw is a WORLD-frame error (the gyro
+    // integration drifted while the world stayed put), so unlike the body-frame
+    // pitch/roll mount corrections above it PRE-multiplies about world z.
+    if (imu_yaw_off != 0.0) {
+      double d[4], ax[3] = {0, 0, 1}, t[4];
+      mju_axisAngle2Quat(d, ax, imu_yaw_off);
+      mju_mulQuat(t, d, bq); mju_copy4(bq, t);
     }
     mju_normalize4(bq);
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];

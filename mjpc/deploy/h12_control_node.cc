@@ -78,6 +78,11 @@ ABSL_FLAG(double, bad_orient_rad, 0.0,
           "validated deployments unchanged). See h12_lower_body_controller for the rationale.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
+ABSL_FLAG(double, imu_yaw_offset_deg, 0.0,
+          "WORLD-frame heading correction (deg). The IMU yaw is an uncorrected gyro "
+          "integration (~0.1 deg/s random walk); a rotated heading corkscrews the brace "
+          "dive. Measure the believed-vs-table yaw with the AprilTag bridge at bring-up "
+          "and pass the correction here. 0 = off (byte-identical).");
 ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
           "LEFT ankle-roll zero-offset calibration (deg): SUBTRACTED from the perceived roll AND "
           "ADDED to the command, so a foot the encoder reports rolled is both reasoned about and "
@@ -305,6 +310,7 @@ int main(int argc, char** argv) {
   cfg.imu_pitch_offset_deg = absl::GetFlag(FLAGS_imu_pitch_offset_deg);
   cfg.bad_orient_rad = absl::GetFlag(FLAGS_bad_orient_rad);
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
+  cfg.imu_yaw_offset_deg = absl::GetFlag(FLAGS_imu_yaw_offset_deg);
   cfg.ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
   cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
