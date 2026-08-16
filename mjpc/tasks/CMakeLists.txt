@@ -397,6 +397,21 @@ add_custom_target(
         -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_modified_magpie.xml.patch
         -P ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/apply_patch_tolerant.cmake
   COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml.rej
+  # ACTUATOR TORQUE BUDGET (2026-08-16, icra2026 merge). The forcerange validated
+  # on the real robot for the braced lean. It arrived from icra2026 as a hunk in the
+  # magpie patch above, which CANNOT work: the hunk's context lines quote the
+  # ctrlranges _gen_h12_base_limits.py rewrites from CL_Assets, so it rejected -- and
+  # apply_patch_tolerant discards the .rej, so the build shipped an UNBUDGETED model
+  # while reporting success. Re-imported here instead, where a bad joint set is a hard
+  # failure. Scoped to the magpie model on purpose: this runs AFTER the stabilize /
+  # stand / upper derivations above, all of which are tuned against an unbudgeted
+  # actuator, which is the same scoping the patch hunk had.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/_gen_h12_base_limits.py
+        ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_handless.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        --forcerange real
   COMMAND ${CMAKE_COMMAND} -E make_directory
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes
   COMMAND ${CMAKE_COMMAND} -E rm -f

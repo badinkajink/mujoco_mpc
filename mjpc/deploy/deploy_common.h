@@ -134,6 +134,18 @@ struct NodeConfig {
   std::string lowstate_topic = "rt/lowstate";
   std::string sportstate_topic;        // truth vs rt/sportmodestate_est (estimator-in-loop)
   double imu_pitch_offset_deg = 0.0;   // real H1-2 mount calib 1.6; twin 0
+  double imu_yaw_offset_deg = 0.0;     // WORLD-frame heading correction (deg).
+                                       // The IMU yaw is a gyro integration with
+                                       // no absolute reference: it random-walks
+                                       // ~0.1 deg/s and rotates the whole
+                                       // planning frame off the real table
+                                       // (08-14: all 4 evening runs stood at a
+                                       // believed yaw of 9-26 deg -> corkscrew
+                                       // dives). Measure with the tag bridge
+                                       // (yaw_off print, <2 deg accurate) and
+                                       // pass the NEGATIVE of the believed
+                                       // error. Applied as a world z pre-
+                                       // multiply in fill_state; 0 = off.
   double imu_roll_offset_deg = 0.0;
   // R6 (2026-07-04): bad-orientation damp fallback (Unitree deploy parity:
   // bad_orientation(1.0 rad) -> Passive FSM). base tilt > this [rad] latches
@@ -225,6 +237,8 @@ struct NodeConfig {
   int plan_trajectories = 0;           // >0 overrides sampling_trajectories AFTER the
                                        // per-strategy PlannerNumericOverrides; 0 = task default
   int plan_threads = 0;                // >0 overrides kPlanThreads(12); 0 = compiled default
+  bool cem_best_action = false;        // execute lowest-cost elite instead of elite mean
+                                       // (CEM anti-hedging; --cem_best_action)
   double stale_sec = kStaleSec;        // H1 watchdog threshold; default = the REAL-robot 50ms.
                                        // Loosen ONLY for sims whose lowstate publisher stalls
                                        // on a shared sim lock (RoboCasa sensor renders: 50-60ms

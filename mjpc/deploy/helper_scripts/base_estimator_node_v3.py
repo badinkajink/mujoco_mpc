@@ -92,7 +92,7 @@ class V3Core:
         self.v = np.zeros(3)
         self.P = self.I3 * 0.04
         self.rej = 0
-        self.pos_xy = np.zeros(2)
+        self.pos_xy = np.array(getattr(a, "init_xy", [0.0, 0.0]), float)
         self.slip = SlipMonitor(a.slip_thresh, 1.0)   # detection only; fac unused here
         self.cos_tilt = float(np.cos(np.deg2rad(a.upright_tilt_deg)))
         self.zupt_n = 0
@@ -344,6 +344,19 @@ def build_parser():
                    default=True)
     v.add_argument("--stale-ms", type=float, default=300.0,
                    help="stop publishing when rt/lowstate goes this stale (0 = never)")
+    v.add_argument("--init-xy", type=float, nargs=2, default=[0.0, 0.0],
+                   metavar=("X", "Y"),
+                   help="initial odometric xy belief (bench tool: inject a "
+                        "believed base offset; leg odom never observes absolute "
+                        "position, so it persists)")
+    v.add_argument("--vel-noise", type=float, default=0.0,
+                   help="bench tool: 1-sigma m/s Gaussian noise added to the "
+                        "PUBLISHED base velocity (emulates the real leg-odom "
+                        "velocity noise floor, ~0.009 median speed)")
+    v.add_argument("--pos-noise", type=float, default=0.0,
+                   help="bench tool: 1-sigma m white xy jitter on the PUBLISHED "
+                        "position (the node FDs position for qvel; ~0.0001 "
+                        "reproduces the real node-side velocity noise floor)")
     return ap
 
 
@@ -401,6 +414,12 @@ def main():
 
     core = V3Core(a, m, data, foot_ids, height_C, float(home_q[2]),
                   imu_is_pelvis=False, verbose=True)
+    vel_noise_std = float(getattr(a, "vel_noise", 0.0))
+    pos_noise_std = float(getattr(a, "pos_noise", 0.0))
+    vel_noise_rng = np.random.default_rng(0)
+    if vel_noise_std > 0.0 or pos_noise_std > 0.0:
+        print(f"[est] BENCH noise ACTIVE: vel sigma {vel_noise_std*1000:.1f} mm/s, "
+              f"pos sigma {pos_noise_std*1000:.2f} mm on published stream")
     print(f"[est] v3 publishing -> '{a.out_topic}' @ {a.rate:.0f}Hz | RW-EKF "
           f"(amax={a.ekf_amax} r0={a.ekf_r0} r1={a.ekf_r1} chi2={a.ekf_chi2} "
           f"rejcap={a.ekf_rejcap}) | waist-fix={'ON' if a.waist_fix else 'OFF'} | "
@@ -456,6 +475,18 @@ def main():
         omega_w = R @ gyro
         site_p = np.array([out["xy"][0], out["xy"][1], out["base_height"]]) + roff
         site_v = out["v"] + np.cross(omega_w, roff)
+        if vel_noise_std > 0.0:
+            # bench tool (--vel-noise): emulate the REAL leg-odom velocity
+            # noise floor (~9 mm/s median) on the published velocity only --
+            # the internal EKF state stays clean, like the real robot where
+            # the noise lives in the leg-kinematic measurement chain.
+            site_v = site_v + vel_noise_rng.normal(0.0, vel_noise_std, 3)
+        if pos_noise_std > 0.0:
+            # bench tool (--pos-noise): white xy jitter on the PUBLISHED
+            # position. The node derives base qvel by finite-differencing this
+            # stream through a 30 ms LPF (deploy_common.cc), so ~0.1 mm here at
+            # 500 Hz reproduces the real ~9 mm/s node-side velocity floor.
+            site_p[0:2] = site_p[0:2] + vel_noise_rng.normal(0.0, pos_noise_std, 2)
 
         if publish_ok:
             for k in range(3):

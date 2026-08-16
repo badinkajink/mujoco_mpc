@@ -29,12 +29,13 @@ HAMS_SETUP="$HOME/Desktop/HAMS/core_ws/install/setup.bash"
 BUNDLE="$HOME/Desktop/h12/table_tags/table_tag_bundle.yaml"
 
 # ---------- args ------------------------------------------------------------
-EST=""; WANT_LIDAR=0; WANT_APRIL=0; EST_ARGS=()
+EST=""; WANT_LIDAR=0; WANT_APRIL=0; WANT_ABS=0; EST_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     v1|v3|v4) EST="$1" ;;
     lidar)    WANT_LIDAR=1 ;;
     april|aruco|tags) WANT_APRIL=1 ;;
+    abs) WANT_ABS=1 ;;
     --) shift; EST_ARGS=("$@"); break ;;
     *) echo "unknown arg: $1  (usage: est_bringup.sh v1|v3|v4 [lidar] [april] [-- est-flags])"; exit 2 ;;
   esac
@@ -52,6 +53,22 @@ case "$EST" in
   v3) EST_FILE="base_estimator_node_v3.py" ;;
   v4) EST_FILE="base_estimator_node_v4.py" ;;
 esac
+
+# 2026-08-13: for v4+APRIL, default the aux gate to ALWAYS unless the caller
+# passed their own --aux-gate. The planted-regime deferral was protection
+# against the July LIO *velocity* aux; april is position-only + 2s tau, and
+# with the default gate the corrections sat unused through entire stands ->
+# ~3.5 mm/s believed drift = the run-6/7 "march". Every real brace success
+# (runs 8-15) and every bench since runs with always. LIDAR mode keeps the
+# regime gate (velocity aux DID hurt stands).
+if [ "$EST" = "v4" ] && [ $WANT_APRIL -eq 1 ] && [ $WANT_LIDAR -eq 0 ]; then
+  has_gate=0
+  for a in "${EST_ARGS[@]}"; do case "$a" in --aux-gate*) has_gate=1 ;; esac; done
+  if [ $has_gate -eq 0 ]; then
+    EST_ARGS+=(--aux-gate always)
+    echo "[bringup] v4+april: defaulting '--aux-gate always' (pass your own --aux-gate to override)"
+  fi
+fi
 
 LOGDIR="$HOME/Desktop/h12/est_bringup_logs/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$LOGDIR"
@@ -222,7 +239,13 @@ if [ $WANT_APRIL -eq 1 ]; then
     wait_topic /realsense/head/color/image_raw/compressed 40
   fi
   # venv python for the same editable-install reason as lio_bridge above
-  launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE"
+  ABS_FLAG=""
+  if [ "${WANT_ABS:-0}" -eq 1 ]; then
+    ABS_FLAG="--abs-world"
+    EST_ARGS+=(--aux-abs)
+    echo "[bringup] ABSOLUTE anchor mode: tag_bridge --abs-world + est --aux-abs"
+  fi
+  launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE" $ABS_FLAG
   sleep 2
 fi
 

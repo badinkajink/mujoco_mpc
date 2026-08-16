@@ -421,6 +421,13 @@ void CrossEntropyPlanner::Rollouts(int num_trajectory, int horizon,
   // lock std_min
   double std_min = std_min_;
   double std_initial = std_initial_;
+  // ★ 2026-08-10 live task override (see Task::LiveStdMinOverride): the lean
+  // task widens the floor in fall-prone transition phases and tightens it while
+  // the brace must stay seated. <= 0 (every other task) -> no change.
+  {
+    double live = task->LiveStdMinOverride();
+    if (live > 0.0) std_min = live;
+  }
 
   // random search
   int count_before = pool.GetCount();
