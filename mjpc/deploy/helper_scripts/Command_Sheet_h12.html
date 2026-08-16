@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>H1-2 Deploy Command Sheet — A1 / A2 / A3 / B (Lean ‖ Stabilize) / C (Grasp)</title>
+<title>H1-2 Deploy Command Sheet — A1 / A2 / A3 / B (Lean ‖ Stabilize ‖ Brace) / C (Grasp)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
@@ -495,9 +495,9 @@ ros2 launch h1_bringup <span class="k">h1_sim_fullbody_bench.launch.py</span></p
   <section id="b" class="space-y-5 scroll-mt-6 relative left-1/2 -translate-x-1/2 w-[min(90rem,94vw)]">
     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <h2 class="display text-2xl">B — Hardware deploy</h2>
-      <span class="eyebrow">two tracks side by side · Lean (full-body) ‖ Stabilize (loco-manip)</span>
+      <span class="eyebrow">three tracks side by side · Lean (full-body) ‖ Stabilize (loco-manip) ‖ Brace (strat-22)</span>
     </div>
-    <div class="grid lg:grid-cols-2 gap-6 items-start">
+    <div class="grid lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
 
     <!-- ════════ LEFT: LEAN — full-body stand ════════ -->
     <article id="b-lean" class="card card-hair p-6 space-y-5" style="border-color:rgba(244,63,94,.4)">
@@ -707,6 +707,74 @@ ros2 action send_goal --feedback /named_config custom_ros_messages/action/NamedC
       </div>
 
     </article><!-- /b-stabilize -->
+
+    <!-- ════════ THIRD: BRACE — strat-22 forearm brace + reach + stand-back ════════ -->
+    <article id="b-brace" class="card card-hair p-6 space-y-5" style="border-color:rgba(16,185,129,.45)">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="display text-xl">B · Brace — strat-22 forearm brace · reach · stand-back</h2>
+        <span class="pill pill-rose">ROBOT</span>
+        <span class="pill pill-amber">flat_6 lineage</span>
+      </div>
+      <p class="text-sm text-slate-300 leading-relaxed">
+        Full pipeline on hardware: stand → lean → flat forearm <strong>brace</strong> on the table →
+        billiard-arc <strong>reach</strong> → press-hold <strong>release staircase</strong> → stand back.
+        Same node/safety as Lean; the estimator adds the <strong>RealSense cams + AprilTag bridge</strong>
+        (<code class="text-xs">est_bringup.sh v4 april</code> auto-starts the cams if no
+        <code class="text-xs">/realsense/head/...</code> publisher is alive).
+      </p>
+
+      <div class="rounded-lg border border-emerald-900/70 bg-emerald-950/30 p-3.5 text-xs text-emerald-100/90 leading-relaxed">
+        <strong class="text-emerald-200">Pre-flight (each run).</strong>
+        ① node RESTARTED since any XML edit — it loads the task XML at start, md5 must read
+        <code>987aafc5</code>. ② table: left edge ≥ 35 cm from the robot centreline, near edge ~37 cm.
+        ③ <strong>believed yaw &lt; 5°</strong> before engaging — a 15–30° believed yaw is the
+        corkscrew/foot-twist regime (flat_7/8, new_1..3); if high, restart the estimator with the
+        robot standing at the spot in its final heading. ④ NO <code>abs</code> keyword (frame bias, flat_11).
+      </div>
+
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#f87171"></span>
+          <span class="term-dot" style="background:#fbbf24"></span>
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">4 terminals · laptop, robot on DDS</span>
+        </div>
+<pre class="cmd"><span class="c"># T0  config sanity — must print 987aafc5...</span>
+md5sum ~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml
+
+<span class="c"># T1  safety layer — strict full config</span>
+cd ~/Desktop/h12/h12_safety_layer
+uv run h12_safety_layer/script/safety_layer_main.py --config default_safety_full.yaml
+
+<span class="c"># T2  estimator + cams + tag bridge (v4, april anchor; aux-gate always is default)</span>
+cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
+./est_bringup.sh <span class="hl">v4 april</span>
+
+<span class="c"># T3  node — strat 22, real flags (task XML loads NOW: restart after any edit)</span>
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy <span class="hl">22</span> --gravity_ff 0.85
+
+<span class="c"># T4  recorder — passive, name the run; produces the analysis .npz</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py --tag real_v4a_lean_&lt;run&gt;</pre>
+      </div>
+
+      <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
+        <strong class="text-rose-200">Estop rules (measured, 08-14).</strong>
+        Seats at ~30° then pitch <strong>creeps past ~45°</strong> with the pelvis sinking →
+        <strong>estop</strong>: past CoM 218 mm the fold is unrecoverable by construction.
+        Inclined stall with roll &lt; 10° → <em>wait</em> (flat_14 self-flattened after 30 s).
+        Release grinding pitch slowly down → let it grind (stall-relaxation unsticks plateaus).
+      </div>
+
+      <p class="text-xs text-slate-400 leading-relaxed">
+        Config lineage: XML <code>987aafc5</code> (arms-up stand +60 mm hand clearance ·
+        reach z 1.1430 · billiard arc through reach · flat-gate band <code>gate_lo .05</code> ·
+        r2 gate .21 + stall relaxation · knee-sym 1.5/.30 · width floor .30/2.0 ·
+        <code>com_cap_fwd .145</code>) + strategy JSON <code>e4c5ba25</code>.
+        Fallback = the same pair (this <em>is</em> the flat_6 lineage; no separate rollback needed).
+      </p>
+    </article><!-- /b-brace -->
 
     </div><!-- /grid -->
   </section>
