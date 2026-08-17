@@ -56,3 +56,6 @@ studies/runs/
 
 # staged model tree (stage_assets.sh STAGE_ROOT default for a root-owned build/)
 studies/runs/_stage/
+
+# built native extensions (studies/croco_ext/build.sh)
+studies/croco_ext/*.so
