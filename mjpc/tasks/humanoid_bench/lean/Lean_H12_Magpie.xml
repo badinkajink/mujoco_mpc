@@ -676,6 +676,30 @@
              if RankP sustains >80% drop radius to 0.46, if the elbow still folds push to 0.50.
              No rebuild (runtime numeric). -->
         <numeric name="reach_radius" data="0.46"/>
+        <!-- ★ 2026-08-17 reach_body_clamp: project the LADDER's reach target onto the
+             arm-reach sphere (reach_radius) centred at the yaw-correct reaching
+             shoulder. INACTIVE at the nominal brace (target ~0.31 m inside the
+             0.46 sphere = byte-identical pull); from a yaw-walked/displaced brace
+             (real tags_12/15: 10-20 deg walk on the slick pad zone) the hand still
+             extends toward the target's bearing but is never asked past the arm ->
+             no base recruitment (the 19 cm forward surge / torso-on-slab family).
+             0 = off. -->
+        <numeric name="reach_body_clamp" data="1"/>
+        <!-- ★ 2026-08-17 reach_yaw_gate [rad]: hold the forearm_brace_lean rung
+             (brace keeps pressing) while |believed heading| > this, so the reach
+             can never fire from a yaw-walked brace. 0.26 rad = 15 deg: tags_12/15
+             fired at ~17-20 deg believed and detonated; run12-class square braces
+             sit at 3-8 deg. Requires the yaw preflight (believed heading
+             table-aligned). 0 = off. -->
+        <numeric name="reach_yaw_gate" data="0.26"/>
+        <!-- ★ 2026-08-17 reach_fwd_cap [m]: during the forearm_brace_lean rung,
+             cap the heading-frame FORWARD component (from torso_pos) of BOTH the
+             reach air target and ideal_brace at this value. newtags_2 FK: hand
+             forward-of-torso was 0.62 m at lean-rung end and the reach then
+             commanded 0.71 m — extension the lean arc never had (user: no going
+             forward past the lean rung). The pad closes on the slab by BODY
+             motion instead. OFF at brace_flat onward. 0 = off. -->
+        <numeric name="reach_fwd_cap" data="0"/>
         <!-- ★ 2026-06-25 CORRECTED 0.28->0.12: the elbow was NEVER the reach limit (static hold
              of a FULL forward stretch = ~4 Nm = 22% of 18). The drop only angled the arm DOWN,
              pulling Rhand_fwd BELOW the 0.404 m home pose = the "never stretched" the user saw.

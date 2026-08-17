@@ -568,6 +568,61 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     brace_air_target[1] = object_pos[1];
     brace_air_target[2] = table_face_z + 0.30;  // ~30 cm above the table FACE
                                                // (was the geom CENTRE = 245 mm)
+    // ★ 2026-08-17 BODY-ANCHORED REACH CLAMP (`reach_body_clamp` numeric,
+    // 0/absent = OFF = byte-identical). The ladder's reach target is a WORLD
+    // point FK'd from the NOMINAL braced pose; real braces yaw-walk 10-20 deg
+    // on a slick pad zone (tags_12/15) and the same world point then sits
+    // outside the arm envelope from the rotated pose -> the residual never
+    // nulls -> the planner recruits the BASE (19 cm forward surge, torso on
+    // slab, heels up = the run-8 family, twice on 08-17). Fix = the validated
+    // strat-21 sphere clamp: project the target onto the arm-reach sphere
+    // (`reach_radius`) centred at the YAW-CORRECT reaching shoulder. At the
+    // nominal brace the target is INSIDE the sphere (~0.31 m vs 0.46) so the
+    // clamp is inactive = identical behavior; from a rotated/displaced brace
+    // the hand still extends toward the target's bearing but can never be
+    // asked past the arm -> no base recruitment and the error can null.
+    // (No reach_drop lift-cap here: the +0.30 air height is deliberate and
+    // the side-swing arc owns the approach geometry.)
+    int nbc = mj_name2id(model, mjOBJ_NUMERIC, "reach_body_clamp");
+    if (nbc >= 0 && model->numeric_data[model->numeric_adr[nbc]] > 0.0) {
+      double sl = reach_right ? -0.148 : 0.148;
+      double sh[3] = {torso_pos[0] + sl * heading_lft[0],
+                      torso_pos[1] + sl * heading_lft[1],
+                      torso_pos[2] + 0.219};
+      double v[3];
+      mju_sub3(v, brace_air_target, sh);
+      int rr2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_radius");
+      double R = rr2 >= 0
+          ? model->numeric_data[model->numeric_adr[rr2]] : 0.46;
+      double r = mju_norm3(v);
+      if (r > R && r > 1e-6) {
+        mju_scl3(v, v, R / r);
+        mju_add3(brace_air_target, sh, v);
+      }
+    }
+    // ★ 2026-08-17 FORWARD-EXTENSION CAP (`reach_fwd_cap` numeric, 0/absent =
+    // OFF = byte-identical). newtags_2 forensics: during the forearm_brace_lean
+    // rung the hand's forward-of-torso extension grew from 0.62 m (lean-rung
+    // end) to 0.71 m -- the reach commands MORE forward extension than the lean
+    // arc ever did (user: "i dont want it to go forward more than the lean
+    // rung"). Cap the HEADING-FRAME forward component of the reach target at
+    // the lean-end value; the pad then closes on the table by BODY motion
+    // (the dive advances torso_pos, which carries the capped point forward)
+    // instead of extra arm extension. Scoped to is_forearm_brace = the reach
+    // rung ONLY, so the seated brace_flat geometry is untouched. The matching
+    // cap on ideal_brace (Brace Pos w700 during this rung -- the DOMINANT
+    // forward pull) is applied where ideal_brace is built, same numeric.
+    int nfc = mj_name2id(model, mjOBJ_NUMERIC, "reach_fwd_cap");
+    double fcap = (nfc >= 0)
+        ? model->numeric_data[model->numeric_adr[nfc]] : 0.0;
+    if (fcap > 0.0) {
+      double e = (brace_air_target[0] - torso_pos[0]) * heading_fwd[0] +
+                 (brace_air_target[1] - torso_pos[1]) * heading_fwd[1];
+      if (e > fcap) {
+        brace_air_target[0] -= (e - fcap) * heading_fwd[0];
+        brace_air_target[1] -= (e - fcap) * heading_fwd[1];
+      }
+    }
     reach_target = brace_air_target;
   }
   // reach_to_target (Strategy 21): the standalone reach primitive. The target is
@@ -771,6 +826,27 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       // the physical FACE instead of the geom centre (`brace_target_face`).
       brace_press_z
   };
+  // ★ 2026-08-17 FORWARD-EXTENSION CAP, ideal_brace side (`reach_fwd_cap`
+  // numeric, 0/absent = OFF = byte-identical; see the brace_air_target block
+  // for the full rationale). ONLY the horizontal forward component is capped
+  // -- the deliberately-deep brace_press_z downward drive (the bow engine) is
+  // untouched -- and ONLY during the forearm_brace_lean reach rung: from
+  // brace_flat onward ideal_brace is uncapped so the seated press geometry is
+  // byte-identical. As the dive advances torso_pos the capped point converges
+  // onto the true slab target, so seating is delayed-by-geometry, not denied.
+  if (is_forearm_brace) {
+    int nfc2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_fwd_cap");
+    double fcap2 = (nfc2 >= 0)
+        ? model->numeric_data[model->numeric_adr[nfc2]] : 0.0;
+    if (fcap2 > 0.0) {
+      double e2 = (ideal_brace[0] - torso_pos[0]) * heading_fwd[0] +
+                  (ideal_brace[1] - torso_pos[1]) * heading_fwd[1];
+      if (e2 > fcap2) {
+        ideal_brace[0] -= (e2 - fcap2) * heading_fwd[0];
+        ideal_brace[1] -= (e2 - fcap2) * heading_fwd[1];
+      }
+    }
+  }
 
   double penalty_hand = hand_dist_penalty * hand_dist;
   double brace_dist = mju_dist3(bracing_hand, ideal_brace);
@@ -3608,6 +3684,40 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                      ? model->numeric_data[model->numeric_adr[bcv]] : 0.0;
                  const std::string& kfn =
                      motion_strategy_.GetCurrentKeyframe().name;
+                 // ★ 2026-08-17 YAW-SANE ADVANCE (`reach_yaw_gate` numeric,
+                 // rad; 0/absent = OFF = byte-identical). Real tags_12/15:
+                 // the brace yaw-walked 10-20 deg on the slick pad zone and
+                 // the reach then fired FROM the rotated pose -- the
+                 // world-frame pull came in oblique and detonated the brace
+                 // (forward surge, torso on slab). Hold the LEAN rung (arm
+                 // keeps bracing; Brace Pos stays active) while the believed
+                 // heading is outside +-gate. With the node's yaw preflight
+                 // the believed heading is table-aligned, so this is a true
+                 // "brace still square to the table" check. If the pose
+                 // never recovers the ladder simply holds the brace -- safe
+                 // stall, operator decides -- instead of a guaranteed fall.
+                 if (kfn == "forearm_brace_lean") {
+                   int nyg = mj_name2id(model, mjOBJ_NUMERIC,
+                                        "reach_yaw_gate");
+                   double ymax = nyg >= 0
+                       ? model->numeric_data[model->numeric_adr[nyg]] : 0.0;
+                   if (ymax > 0.0) {
+                     const double* qb = data->qpos + 3;  // free-joint quat
+                     double yawb = std::atan2(
+                         2.0 * (qb[0] * qb[3] + qb[1] * qb[2]),
+                         1.0 - 2.0 * (qb[2] * qb[2] + qb[3] * qb[3]));
+                     if (mju_abs(yawb) > ymax) {
+                       static int yg_note = 0;
+                       if (++yg_note % 100 == 1)
+                         std::printf(
+                             "[lean-gate] HOLD %s: heading %+.0f deg > +-%.0f "
+                             "(yaw-walked brace; reach would fire oblique)\n",
+                             kfn.c_str(), yawb * 180.0 / M_PI,
+                             ymax * 180.0 / M_PI);
+                       return false;
+                     }
+                   }
+                 }
                  bool brace_side = (kfn == "forearm_brace_lean" ||
                                     kfn == "forearm_brace_mid" ||
                                     kfn == "forearm_brace_reach");
