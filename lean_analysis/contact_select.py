@@ -140,6 +140,63 @@ SITES = {
     "hip":     ("torso_link",              np.array([0.050,  0.000, -0.050])),
     "torso":   ("torso_link",              np.array([0.070,  0.000,  0.050])),
 }
+# THE PALM SITE AND ITS BRACE FACE ARE DERIVED, NOT DECLARED (2026-08-16).
+#
+# The two values above for "palm" were (0.0965, +-0.0315, 0) with the aligner
+# below driving the gripper's local +-Y face at the wood. Both were read off the
+# HAND-AUTHORED gripper proxy, and that proxy turned out to be transposed 90 deg
+# and 25 mm short (see _gen_magpie_gripper.py). Against the corrected CAD:
+#
+#   * the site lands 26 mm short in x and 18.1 mm INSIDE the gripper body, so
+#     the static QP was certifying a contact point that lives in solid
+#     geometry. It certified happily -- a point has no thickness -- and then the
+#     dynamic replay had to drive the box 18 mm through the table to put that
+#     point on it. Measured: elbow+palm cells certify, then fall in the NOMINAL
+#     replay (0% survival, no disturbance at all) with `penetration` failures.
+#   * the widest face flips. Old half-extents (0.0415, 0.0170, 0.0667) put the
+#     83x133 mm face normal to Y; corrected (0.0415, 0.0667, 0.0170) puts it
+#     normal to Z. So the aligner was laying the 83x34 mm EDGE on the table and
+#     calling it a palm brace. This is S15's "133 mm across against 34", with
+#     the two faces swapped.
+#
+# Hard-coding either number again would just re-arm the same trap, so both are
+# now read off `*_gripper_collision` at load(): the site is the centre of the
+# widest face, on its outward side, and PALM_AXIS is that face's normal.
+PALM_AXIS = np.array([0.0, 0.0, -1.0])      # set by _resolve_palm(); local frame
+
+
+def _resolve_palm(m):
+    """Point the palm site and the align axis at the gripper's widest face.
+
+    Returns (offset, axis) in the gripper BODY frame and updates the module
+    globals, so every consumer of SITES["palm"] / PALM_AXIS follows the model.
+    """
+    global PALM_AXIS
+    body = "%s_magpie_gripper" % BRACE_ARM
+    g = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM,
+                          "%s_gripper_collision" % BRACE_ARM)
+    b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, body)
+    if g < 0 or b < 0 or m.geom_type[g] != mujoco.mjtGeom.mjGEOM_BOX:
+        return SITES["palm"][1], PALM_AXIS      # handless / sphere variants
+    # geom pose in the body frame (the geom carries its own pos/quat)
+    d0 = mujoco.MjData(m)
+    mujoco.mj_forward(m, d0)
+    R = d0.xmat[b].reshape(3, 3)
+    c = R.T @ (d0.geom_xpos[g] - d0.xpos[b])
+    h = m.geom_size[g][:3].copy()
+    # widest face: the axis whose PERPENDICULAR pair has the largest area
+    areas = [4 * h[(i + 1) % 3] * h[(i + 2) % 3] for i in range(3)]
+    k = int(np.argmax(areas))
+    # brace on the face pointing DOWN in the gripper's own frame, i.e. -k
+    off = c.copy()
+    off[k] -= h[k]
+    axis = np.zeros(3)
+    axis[k] = -1.0
+    PALM_AXIS = axis
+    SITES["palm"] = (body, off)
+    return off, axis
+
+
 ARM_SITES = ("elbow", "forearm", "palm")
 TRUNK_SITES = ("hip", "torso")
 REACH_BODY = "%s_wrist_yaw_link" % _OTHER
@@ -313,6 +370,7 @@ def load(ik_margin=IK_MARGIN):
         d.qpos[0] += STANCE_DX      # free-joint translation == move the whole
         d.qpos[1] += STANCE_DY      # robot, feet included (see STANCE_DX above)
     mujoco.mj_forward(m, d)
+    _resolve_palm(m)          # site + brace face follow the model, never a constant
     return m, d
 
 
@@ -552,7 +610,8 @@ def palm_align_rows(m, d, n_dof):
     """Gauss-Newton rows that roll the wrist until the gripper's flat SIDE face
     lies against the table.
 
-    The face's outward normal is the gripper body's local +-y (see SITES).  It
+    The face's outward normal is PALM_AXIS, DERIVED from the gripper's
+    collision box (see _resolve_palm) rather than assumed to be +-y.  It
     must end up pointing at the table, i.e. along world -z.  Writing a for that
     body-fixed axis in world and t = (0,0,-1), the residual is
 
@@ -577,7 +636,7 @@ def palm_align_rows(m, d, n_dof):
     b = bid(m, body)
     R = d.xmat[b].reshape(3, 3)
     t = np.array([0.0, 0.0, -1.0])
-    a = R @ np.array([0.0, 1.0, 0.0])
+    a = R @ (-PALM_AXIS)          # outward normal of the widest face (derived)
     if a @ t < 0:
         a = -a                       # the other face is the near one
     M = np.outer(a, t) - (a @ t) * np.eye(3)
