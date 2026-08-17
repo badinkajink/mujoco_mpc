@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage the h1_2 / lean MuJoCo assets WITHOUT a full MJPC C++ build.
 #
-# WHY.  Every lean_analysis script loads its model out of
+# WHY.  Every studies script loads its model out of
 # `build/mjpc/tasks/humanoid_bench/lean/`, which normally only exists because
 # cmake's `copy_model_resources` target built it.  That target also stages
 # menagerie, dm_control, the panda, the quadrotor -- none of which this study

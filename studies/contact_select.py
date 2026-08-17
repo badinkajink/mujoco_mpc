@@ -46,7 +46,7 @@ from scipy.optimize import lsq_linear
 import os
 # Where the STAGED lean task lives.  Defaults to this checkout's own build tree
 # (../build/... relative to this file) so the study runs on any machine that has
-# run `lean_analysis/stage_assets.sh` or a real MJPC build; LEAN_TASK_DIR
+# run `studies/stage_assets.sh` or a real MJPC build; LEAN_TASK_DIR
 # overrides it.  Was hardcoded to one developer's absolute path, which is why
 # nothing in here ran anywhere else.
 _LEAN_DIR = os.environ.get(

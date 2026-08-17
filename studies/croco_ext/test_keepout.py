@@ -31,8 +31,8 @@ import sys
 
 import numpy as np
 
-# Run as `croco_ext/test_keepout.py` from lean_analysis/ and sys.path[0] is
-# croco_ext/, not lean_analysis/ -- so croco_bridge is not importable and the
+# Run as `croco_ext/test_keepout.py` from studies/ and sys.path[0] is
+# croco_ext/, not studies/ -- so croco_bridge is not importable and the
 # script that exists to check the extension cannot import the extension's own
 # dispatch module.  Put the study's directory on the path explicitly.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

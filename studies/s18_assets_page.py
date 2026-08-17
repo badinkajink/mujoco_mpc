@@ -110,26 +110,78 @@ def sec_certify(new, old):
 
 
 def sec_grid(run_dir):
-    """The stress result, when it exists."""
-    p = os.path.join(run_dir, "grid.json")
-    if not os.path.exists(p):
-        return ("<h2>3 &middot; Does it survive</h2>\n" + MISSING % "grid.json")
-    g = json.load(open(p))
-    rows = g.get("rows", [])
+    """The stress result, curated -- and what it does not say."""
+    import collections
+    pth = os.path.join(run_dir, "grid.json")
+    if not os.path.exists(pth):
+        return "<h2>3 &middot; Does it survive</h2>\n" + MISSING % "grid.json"
+    rows = json.load(open(pth)).get("rows", [])
     if not rows:
         return "<h2>3 &middot; Does it survive</h2>\n" + MISSING % "grid.json rows"
-    keys = [k for k in rows[0] if k not in ("cell", "target", "stance_dy")]
-    head = "".join(f"<th>{k}</th>" for k in keys)
-    out = ["<h2>3 &middot; Does it survive</h2>",
-           "<p>Each cell is planned once and then replayed in MuJoCo under the "
-           "MPC from a spread of initial conditions. The verdict is the whole "
-           "test: upright, hand on target, torques inside the clamp basis, "
-           "nothing through the table.</p>",
-           f'<table><thead><tr><th>cell</th>{head}</tr></thead><tbody>']
+
+    nom = sum(1 for r in rows if r.get("nominal_ok"))
+    w_ok = w_n = 0
     for r in rows:
-        tds = "".join(f"<td>{r.get(k)}</td>" for k in keys)
-        out.append(f"<tr><td><code>{r.get('cell')}</code></td>{tds}</tr>")
+        rate = (r.get("rate") or {}).get("winch1")
+        if rate:
+            w_ok += rate[0] * rate[1]
+            w_n += rate[1]
+    # PER-SEED outcomes live in `why` (a list, one entry per winch1 seed).
+    # `reasons` is a dict keyed by contact MODE and is about certification --
+    # iterating it here silently compared key sets and reported that every cell
+    # agreed, which was an artefact and not a result.
+    seqs = [tuple(r.get("why") or []) for r in rows if r.get("why")]
+    n_seeds = max((len(x) for x in seqs), default=0)
+    always_fail = [i for i in range(n_seeds)
+                   if seqs and all(x[i] != "ok" for x in seqs if len(x) == n_seeds)]
+    pats = collections.Counter(seqs)
+    top_n = pats.most_common(1)[0][1] if pats else 0
+
+    out = [
+        "<h2>3 &middot; Does it survive</h2>",
+        "<p>Each cell is planned once, then replayed in MuJoCo under the MPC. "
+        "<b>Nominal</b> is the plan with no disturbance at all &mdash; it asks "
+        "whether the trajectory is executable. <b>winch1</b> perturbs how the "
+        "robot arrives: 20&nbsp;mm of placement, 10&nbsp;mm of height, "
+        "50&nbsp;mrad of heading, 20&nbsp;mrad of tilt, 0.02&nbsp;rad of joint "
+        "noise.</p>",
+        f"<p><b>Nominal: {nom} of {len(rows)} cells.</b> That is the number the "
+        "palm-site fix bought &mdash; before it, every <code>elbow+palm</code> "
+        "cell failed nominal at 0%, because the plan was aiming a contact point "
+        "that sat 18&nbsp;mm inside the gripper.</p>",
+        f"<p><b>winch1: {100 * w_ok / max(w_n, 1):.0f}%</b> "
+        f"({int(round(w_ok))} of {w_n} runs), against S17's 75%. "
+        "<i>Do not read this as a controller regression yet.</i> "
+        f"Seeds {', '.join(str(i + 1) for i in always_fail)} fail in "
+        f"<b>every one of the {len(seqs)} cells</b>, and {top_n} cells share "
+        "the identical outcome sequence end to end. The result is therefore set "
+        "by which disturbance the seed drew, not by the target &mdash; and five "
+        "draws is too few to separate five correlated variables. The leading "
+        "suspect is start height: the "
+        "two surviving seeds are the two that start low "
+        "(&minus;15 and &minus;21&nbsp;mm); all three that fall start at or "
+        "above nominal. Isolating it needs a fixed-offset sweep, which the "
+        "profile cannot currently express (it takes standard deviations, not "
+        "offsets). Open.</p>",
+        '<table><thead><tr><th>cell</th><th>mode</th><th>nominal</th>'
+        '<th>winch1</th><th>reach (mm)</th></tr></thead><tbody>']
+    for r in rows:
+        rate = (r.get("rate") or {}).get("winch1")
+        w = "&mdash;" if not rate else f"{100 * rate[0]:.0f}%"
+        n_ok = r.get("nominal_ok")
+        cls_ = ' class="hi"' if not n_ok else ""
+        out.append(
+            f"<tr{cls_}><td><code>{r.get('cell')}</code></td>"
+            f"<td>{r.get('mode')}</td>"
+            f"<td>{'ok' if n_ok else '<b>FAIL</b>'}</td><td>{w}</td>"
+            f"<td>{(r.get('reach_mm') or 0):.0f}</td></tr>")
     out.append("</tbody></table>")
+    out.append(
+        "<p class=\"note\">Solve time here is 84.7&nbsp;ms mean / 138.8&nbsp;ms "
+        "p95 against a 20&nbsp;ms control period, because this environment's "
+        "crocoddyl is not the OpenMP build S15 measured 12.4&nbsp;ms on. "
+        "Survival is unaffected (the replay is not real-time); the timing "
+        "numbers are not comparable to S15/S17 until that build is restored.</p>")
     return "\n".join(out)
 
 

@@ -9,7 +9,7 @@ the files simple_metrics.py / simple_region_svg.py wrote. Every number and every
 figure in the page therefore comes from the run directory, not from a transcript.
 
 usage: simple_page.py --body _body_simple_2026-08-06.html \
-                      --run ../lean_analysis/runs/2026-08-06_simple/matrix \
+                      --run ../studies/runs/2026-08-06_simple/matrix \
                       --out 2026-08-06_lean_simple.html --title "..."
 """
 import argparse

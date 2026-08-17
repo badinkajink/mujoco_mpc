@@ -42,17 +42,17 @@ docs/specs/
 # Lean contact-selection study: the SCRIPTS and the sweep RESULTS (json) are tracked;
 # the bulk rollout logs and rendered media are not -- they are regenerable from the
 # scripts and would add ~50 MB. docs/lean/media is rebuilt by studies/make_videos.py.
-lean_analysis/*.csv
-lean_analysis/*.png
-lean_analysis/strat2.log
+studies/*.csv
+studies/*.png
+studies/strat2.log
 docs/lean/media/
 docs/lean/media_old/
-lean_analysis/videos.log
-lean_analysis/runs/
+studies/videos.log
+studies/runs/
 
 # scratch backups: use git, not .bak files (archived 2026-08-06, icra2026)
 *.bak
 *.bak.*
 
 # staged model tree (stage_assets.sh STAGE_ROOT default for a root-owned build/)
-lean_analysis/runs/_stage/
+studies/runs/_stage/

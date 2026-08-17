@@ -58,7 +58,7 @@ try:
 except ImportError as exc:                     # pragma: no cover
     raise SystemExit(
         f"croco_mfd not importable ({exc}).\n"
-        "Build it:  lean_analysis/croco_ext/build.sh mfd") from exc
+        "Build it:  studies/croco_ext/build.sh mfd") from exc
 
 RUN_DEFAULT = os.path.join(HERE, "runs", "2026-08-06_session13")
 TAG_DEFAULT = "s13"

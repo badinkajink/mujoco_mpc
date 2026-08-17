@@ -90,7 +90,7 @@ def require():
     if bad:
         raise SystemExit("croco_env: missing assets:\n" + "\n".join(
             "  %s: %s" % (k, p) for k, p in bad)
-            + "\nRun lean_analysis/stage_assets.sh and export the paths it prints.")
+            + "\nRun studies/stage_assets.sh and export the paths it prints.")
 
 
 def main():

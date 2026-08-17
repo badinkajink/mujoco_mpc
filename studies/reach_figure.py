@@ -15,7 +15,7 @@ import sys
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/home/humanoid/Programs/mjpc_icra2026/lean_analysis")
+sys.path.insert(0, "/home/humanoid/Programs/mjpc_icra2026/studies")
 import contact_select as cs
 
 W, H = 760, 250

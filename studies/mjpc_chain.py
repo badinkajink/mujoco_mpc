@@ -45,7 +45,7 @@ import stability as st
 ROOT = "/home/humanoid/Programs/mjpc_icra2026"
 BIN = ROOT + "/build/bin/testspeed"
 TASK = "Lean H12 Magpie"
-QP_POSE = ROOT + "/lean_analysis/runs/2026-08-04_session11/qp_brace_qpos.txt"
+QP_POSE = ROOT + "/studies/runs/2026-08-04_session11/qp_brace_qpos.txt"
 
 BRACE_BODIES = {"elbow": "%s_shoulder_yaw_link" % cs.BRACE_ARM,
                 "forearm": "%s_elbow_link" % cs.BRACE_ARM,

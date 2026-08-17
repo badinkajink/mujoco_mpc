@@ -18,11 +18,11 @@
 # from a green light instead of from a bisect.
 #
 # usage:
-#   lean_analysis/run_session.sh check                 # env + assets only
-#   lean_analysis/run_session.sh stage                 # (re)stage the model
-#   lean_analysis/run_session.sh grid   [stages...]    # default: certify plan stress collect
-#   lean_analysis/run_session.sh videos                # grid videos + gripper orientations
-#   lean_analysis/run_session.sh all
+#   studies/run_session.sh check                 # env + assets only
+#   studies/run_session.sh stage                 # (re)stage the model
+#   studies/run_session.sh grid   [stages...]    # default: certify plan stress collect
+#   studies/run_session.sh videos                # grid videos + gripper orientations
+#   studies/run_session.sh all
 #
 # env:
 #   CROCO_PY     interpreter (default: the `croco` conda env)
