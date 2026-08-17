@@ -22,7 +22,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/mjpc/tasks"
-DST="$ROOT/build/mjpc/tasks"
+# STAGE_ROOT relocates the staged tree. Default is this checkout's own build/,
+# but that directory is often root-owned (docker creates it as a bind-mount
+# target), so the study needs to be able to stage somewhere writable. Point
+# LEAN_TASK_DIR at "$STAGE_ROOT/mjpc/tasks/humanoid_bench/lean" to run against
+# whatever this produces -- see the echo at the end, which prints the exact
+# export line.
+STAGE_ROOT="${STAGE_ROOT:-$ROOT/build}"
+DST="$STAGE_ROOT/mjpc/tasks"
 CL="${CL_ASSETS_DIR:-$ROOT/build/_deps/cl_assets-src}"
 PY="${PYTHON:-python3}"
 
@@ -50,6 +57,9 @@ patch -p0 -f "$HB/h1_2/h1_2_modified_magpie.xml" \
       < "$SRC/humanoid_bench/h1_2_modified_magpie.xml.patch"
 rm -f "$HB/h1_2/h1_2_modified_magpie.xml.rej"
 
+# The mesh symlinks have to exist BEFORE the two magpie steps below: both of
+# them load the staged model to check their own work, and the model only
+# resolves through lean/meshes/h1_2.
 for t in lean beginning; do
   rm -rf "$HB/$t/meshes"
   mkdir -p "$HB/$t/meshes"
@@ -57,4 +67,27 @@ for t in lean beginning; do
   ln -sfn meshes/h1_2 "$HB/$t/h1_2"
 done
 
+# Actuator torque budget, magpie-scoped -- mirrors the --forcerange real step in
+# mjpc/tasks/CMakeLists.txt. (icra2026 shipped this as a patch hunk; it cannot
+# apply after the CL limit import above rewrites the ctrlranges it quotes.)
+"$PY" "$SRC/humanoid_bench/h1_2_base/_gen_h12_base_limits.py" \
+      "$CL/mujoco_assets/h1_2_handless.xml" \
+      "$HB/h1_2/h1_2_modified_magpie.xml" \
+      "$HB/h1_2/h1_2_modified_magpie.xml" \
+      --forcerange real
+
+# The real magpie gripper, from CL_Assets -- mirrors the _gen_magpie_gripper.py
+# step in mjpc/tasks/CMakeLists.txt. Welded, so nq/nv/nu and the inertia are
+# unchanged; the script verifies that through the task model and refuses to
+# write otherwise.
+"$PY" "$SRC/humanoid_bench/h1_2_base/_gen_magpie_gripper.py" \
+      "$CL/mujoco_assets/h1_2_magpie.xml" \
+      "$HB/h1_2/h1_2_modified_magpie.xml" \
+      "$HB/h1_2/h1_2_modified_magpie.xml" \
+      --jaw open --collision cad \
+      --meshdir "$HB/h1_2" \
+      --verify-with "$HB/lean/Lean_H12_Magpie.xml"
+
 echo "staged $HB/lean/Lean_H12_Magpie.xml"
+echo "run the study against it with:"
+echo "  export LEAN_TASK_DIR=$HB/lean"

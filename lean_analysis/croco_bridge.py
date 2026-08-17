@@ -81,13 +81,40 @@ def import_crocoddyl():
     return _crocoddyl
 
 # The URDF crocoddyl plans on.  Same provenance rule as contact_select._LEAN_DIR:
-# default to the CL_Assets checkout under this repo's build tree (the pinned SHA
-# the MJCF is staged from, so the two models are the same robot by construction),
-# overridable with H12_URDF.
-URDF = os.environ.get(
-    "H12_URDF",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                 "build/_deps/cl_assets-src/ros_assets/h1_2_magpie.urdf"))
+# it must be the SAME CL_Assets tree the MJCF was staged from, or the bridge is
+# reconciling two different robots and its parity test is meaningless.
+#
+# Resolution order, first hit wins:
+#   H12_URDF        explicit path
+#   CL_ASSETS_DIR   the same variable stage_assets.sh takes -- so ONE export
+#                   points both halves of the study at one CL_Assets checkout
+#   build/_deps     the cmake FetchContent location, for a real MJPC build
+#
+# Was H12_URDF-or-FetchContent only, which meant a machine that staged with
+# CL_ASSETS_DIR (because build/ is root-owned, as it is under docker) got a
+# staged MJCF and no URDF, and failed here with urdfdom's "does not contain a
+# valid URDF model" -- a parse error for a file that is simply absent.
+def _find_urdf():
+    rel = "ros_assets/h1_2_magpie.urdf"
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tried = []
+    for cand in (os.environ.get("H12_URDF"),
+                 os.path.join(os.environ["CL_ASSETS_DIR"], rel)
+                 if os.environ.get("CL_ASSETS_DIR") else None,
+                 os.path.join(root, "build/_deps/cl_assets-src", rel)):
+        if not cand:
+            continue
+        tried.append(cand)
+        if os.path.exists(cand):
+            return cand
+    raise SystemExit(
+        "croco_bridge: no H1-2 magpie URDF found. Tried:\n  "
+        + "\n  ".join(tried)
+        + "\nSet CL_ASSETS_DIR to the CL_Assets checkout you staged the MJCF "
+          "from (the same one stage_assets.sh took), or H12_URDF to the file.")
+
+
+URDF = _find_urdf()
 URDF_DIR = os.path.dirname(URDF)
 
 # The 27 actuated joints, in MJCF order.  Pinocchio is asked to match this order

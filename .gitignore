@@ -53,3 +53,6 @@ lean_analysis/runs/
 # scratch backups: use git, not .bak files (archived 2026-08-06, icra2026)
 *.bak
 *.bak.*
+
+# staged model tree (stage_assets.sh STAGE_ROOT default for a root-owned build/)
+lean_analysis/runs/_stage/
