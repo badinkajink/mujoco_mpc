@@ -89,9 +89,11 @@ def _wrap(a):
 
 
 def load_bundle(path):
-    """{id: (centre_xyz, size)} from table_tag_bundle.yaml (identity-orientation
-    convention -- a tag mounted rotated needs a real quaternion and this loader
-    extended; keep the mounting rule instead)."""
+    """{id: (centre_xyz, size, rot)} from table_tag_bundle.yaml. rot = optional
+    per-tag mounting rotation in quarter-turns CCW (about table +z) away from
+    the page-top-toward-+x convention; absent = 0 = the old identity behaviour.
+    ★ 2026-08-17: added so a tag taped down a quarter-turn off (real tags 0/1
+    after the centreline move) can be DECLARED instead of re-stuck."""
     import re
     tags = {}
     for line in open(os.path.expanduser(path)):
@@ -99,18 +101,26 @@ def load_bundle(path):
                          r"\s*y:\s*([-\d.]+),\s*z:\s*([-\d.]+)", line)
         if mrow:
             tid = int(mrow.group(1))
+            mrot = re.search(r"rot:\s*(-?\d+)", line)
             tags[tid] = (np.array([float(mrow.group(3)), float(mrow.group(4)),
-                                   float(mrow.group(5))]), float(mrow.group(2)))
+                                   float(mrow.group(5))]), float(mrow.group(2)),
+                         int(mrot.group(1)) % 4 if mrot else 0)
     return tags
 
 
-def tag_corners_table(centre, size):
-    """Object points in the table frame, aruco corner order (TL, TR, BR, BL)."""
+def tag_corners_table(centre, size, rot=0):
+    """Object points in the table frame, aruco corner order (TL, TR, BR, BL).
+    rot = quarter-turns CCW the physical print is mounted away from the
+    page-top-toward-+x convention (0 = stock)."""
     h = size / 2.0
-    return np.array([centre + h * U - h * R,     # top-left
-                     centre + h * U + h * R,     # top-right
-                     centre - h * U + h * R,     # bottom-right
-                     centre - h * U - h * R])    # bottom-left
+    u, r = U, R
+    for _ in range(rot % 4):
+        u = np.array([-u[1], u[0], 0.0])     # rotz +90
+        r = np.array([-r[1], r[0], 0.0])
+    return np.array([centre + h * u - h * r,     # top-left
+                     centre + h * u + h * r,     # top-right
+                     centre - h * u + h * r,     # bottom-right
+                     centre - h * u - h * r])    # bottom-left
 
 
 class TagCore:
@@ -143,8 +153,10 @@ class TagCore:
         for tid, corners in detections.items():
             if tid not in self.bundle:
                 continue
-            c, s = self.bundle[tid]
-            obj.append(tag_corners_table(c, s))
+            ent = self.bundle[tid]
+            c, s = ent[0], ent[1]
+            rk = ent[2] if len(ent) > 2 else 0   # per-tag mounting rot (2026-08-17)
+            obj.append(tag_corners_table(c, s, rk))
             img.append(np.roll(np.asarray(corners, float).reshape(4, 2),
                                rot_k, axis=0))
         if len(obj) < self.min_tags:
