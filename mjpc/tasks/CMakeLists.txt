@@ -412,6 +412,22 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
         --forcerange real
+  # THE REAL MAGPIE GRIPPER (2026-08-16), stamped on from CL_Assets. Replaces a
+  # hand-authored proxy that was wrong three ways -- it drew the 26 mm ADAPTER
+  # PUCK instead of the 170 mm gripper, transposed the jaw separation axis from
+  # wrist y to wrist z, and sat 25 mm short in x. See the script's header for the
+  # measurements and the three witnesses (CL MJCF, CL URDF, STL extents).
+  # Welded: no joint, no body, mass=0 density=0, so nq/nv/nu and the inertia are
+  # unchanged -- the script re-loads the task model and refuses to write if any
+  # of them move. Magpie-scoped, like the forcerange step above.
+  COMMAND ${Python_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/_gen_magpie_gripper.py
+        ${cl_assets_SOURCE_DIR}/mujoco_assets/h1_2_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_magpie.xml
+        --jaw open --collision cad
+        --meshdir ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2
+        --verify-with ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/lean/Lean_H12_Magpie.xml
   COMMAND ${CMAKE_COMMAND} -E make_directory
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/stabilize/meshes
   COMMAND ${CMAKE_COMMAND} -E rm -f
