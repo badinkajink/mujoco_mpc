@@ -37,6 +37,13 @@ def main():
     ap.add_argument("--latency-ms", type=float, default=60.0,
                     help="age of the sample when published")
     ap.add_argument("--domain", type=int, default=0)
+    ap.add_argument("--iface", default=None,
+                    help="DDS interface, e.g. lo for a same-host twin. Must "
+                         "match the twin and the estimator: unset means the "
+                         "SDK autodetermines, and an anchor that autodetermines "
+                         "while everyone else is pinned to lo publishes "
+                         "perfectly good samples onto a bus nobody reads "
+                         "(v4 just keeps saying aux=IDLE).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--frame-offset", type=float, nargs=2, default=[0.0, 0.0],
                     help="2026-08-13: constant xy added to every sample -- "
@@ -50,7 +57,10 @@ def main():
     from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
     from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_
 
-    ChannelFactoryInitialize(a.domain)
+    if a.iface:
+        ChannelFactoryInitialize(a.domain, a.iface)
+    else:
+        ChannelFactoryInitialize(a.domain)
     rng = np.random.default_rng(a.seed)
     # (t_mono, xy) ring buffer so the published sample is latency-ms OLD
     buf = collections.deque(maxlen=256)
