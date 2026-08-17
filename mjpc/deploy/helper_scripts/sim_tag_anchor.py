@@ -38,6 +38,19 @@ def main():
                     help="age of the sample when published")
     ap.add_argument("--domain", type=int, default=0)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--walk-mm", type=float, default=0.0,
+                    help="1-sigma of a SLOW BIAS RANDOM WALK (OU, tau 30s) on the "
+                         "anchor xy, mm. Real healthy bundle: ~15-25; the 08-16 "
+                         "worn-tag bundle measured 70-80. 0 = off (legacy).")
+    ap.add_argument("--headdown-deg", type=float, default=0.0,
+                    help="base pitch (deg) past which the camera loses the tags "
+                         "(head-down blackout emulation, from rt/lowstate IMU). "
+                         "0 = off (legacy). Real: outages START when the torso "
+                         "pitches for the brace; healthy tags ~2-3s gaps, worn 13s+.")
+    ap.add_argument("--headdown-gap", type=float, default=2.5,
+                    help="mean blackout burst length (s) while past --headdown-deg; "
+                         "between bursts a ~0.5s publish window opens (matches the "
+                         "flickery real accept pattern at grazing angles)")
     ap.add_argument("--frame-offset", type=float, nargs=2, default=[0.0, 0.0],
                     help="2026-08-13: constant xy added to every sample -- "
                          "emulates a mis-latched/mis-calibrated anchor frame "
@@ -65,6 +78,24 @@ def main():
     out = unitree_go_msg_dds__SportModeState_()
 
     lat = a.latency_ms / 1000.0
+    # head-down blackout needs the IMU pitch: tap rt/lowstate (bench bus)
+    hd = {"pitch": 0.0}
+    if a.headdown_deg > 0:
+        try:
+            from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+            import math as _m
+            def _on_ls(msg):
+                q = msg.imu_state.quaternion
+                hd["pitch"] = _m.degrees(_m.asin(max(-1, min(1,
+                    2 * (q[0] * q[2] - q[3] * q[1])))))
+            _ls = ChannelSubscriber("rt/lowstate", LowState_)
+            _ls.Init(_on_ls, 10)
+        except Exception as e:
+            print(f"[simtag] headdown tap failed ({e}) -- blackout emulation OFF")
+            a.headdown_deg = 0.0
+    walk = [0.0, 0.0]
+    WTAU = 30.0
+    gap_until = 0.0
     n, t0, last_note = 0, time.monotonic(), 0.0
     print(f"[simtag] {a.truth_topic} -> {a.aux_topic} mode=2 "
           f"@{a.rate:.0f}Hz noise {a.noise_mm}mm latency {a.latency_ms:.0f}ms",
@@ -80,7 +111,24 @@ def main():
                 break
         if pick is None:
             continue
+        # head-down blackout: while pitched past the threshold, publish only in
+        # brief windows separated by exponential-length silent bursts.
+        if a.headdown_deg > 0 and hd["pitch"] > a.headdown_deg:
+            if now < gap_until:
+                continue
+            if rng.random() < (1.0 / a.rate) / 0.5:   # ~end of a 0.5s window
+                gap_until = now + rng.exponential(a.headdown_gap)
+                continue
+        # slow bias random walk (OU) -- the real anchor's wander, distinct from
+        # per-sample white noise
+        if a.walk_mm > 0:
+            dt_w = 1.0 / a.rate
+            sig = a.walk_mm / 1000.0
+            for k in range(2):
+                walk[k] += (-walk[k] * dt_w / WTAU
+                            + sig * (2 * dt_w / WTAU) ** 0.5 * rng.normal())
         nx, ny = rng.normal(0.0, a.noise_mm / 1000.0, 2)
+        nx += walk[0]; ny += walk[1]
         out.position[0] = pick[0] + nx + a.frame_offset[0]
         out.position[1] = pick[1] + ny + a.frame_offset[1]
         out.position[2] = 0.0
