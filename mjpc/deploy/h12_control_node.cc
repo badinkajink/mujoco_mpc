@@ -26,8 +26,11 @@
 // ramp/hold/blend timings, torque-budget clamp, ...) are compiled-in constants --
 // see deploy_common.h for the full flag-diet rationale.
 
+#include <cmath>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <string>
 
 #include <absl/flags/flag.h>
@@ -83,6 +86,15 @@ ABSL_FLAG(double, imu_yaw_offset_deg, 0.0,
           "integration (~0.1 deg/s random walk); a rotated heading corkscrews the brace "
           "dive. Measure the believed-vs-table yaw with the AprilTag bridge at bring-up "
           "and pass the correction here. 0 = off (byte-identical).");
+ABSL_FLAG(std::string, yaw_preflight, "auto",
+          "AUTO-MEASURE the IMU-vs-table yaw offset at startup via the AprilTag preflight "
+          "(helper_scripts/yaw_preflight.py) and apply it as --imu_yaw_offset_deg. "
+          "'auto' (default) runs it only when ALL of: task starts with 'Lean', "
+          "--twin_dt 0.001 (real robot; twin benches use 0.005/0.002 and are untouched), "
+          "and no manual --imu_yaw_offset_deg was passed (manual always wins). "
+          "'on' forces it, 'off' disables. Requires the realsense pipeline up on the robot "
+          "PC and the robot standing at its final heading BEFORE launch. On measurement "
+          "failure the node WARNS LOUDLY and continues with offset 0 (legacy behavior).");
 ABSL_FLAG(double, ankle_roll_offset_l_deg, 0.0,
           "LEFT ankle-roll zero-offset calibration (deg): SUBTRACTED from the perceived roll AND "
           "ADDED to the command, so a foot the encoder reports rolled is both reasoned about and "
@@ -311,6 +323,61 @@ int main(int argc, char** argv) {
   cfg.bad_orient_rad = absl::GetFlag(FLAGS_bad_orient_rad);
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.imu_yaw_offset_deg = absl::GetFlag(FLAGS_imu_yaw_offset_deg);
+  // YAW PREFLIGHT (2026-08-17): the IMU yaw is gyro-integrated from power-on and
+  // walks ~0.1 deg/min; every real Lean session needs the IMU-vs-table offset
+  // measured at bring-up (runs tags_13/14 without it: lunge lands sin(24deg)
+  // ~20 cm left, brace collapses <15 s). Baked in so the operator cannot forget.
+  {
+    const std::string yp = absl::GetFlag(FLAGS_yaw_preflight);
+    const bool manual_off = absl::GetFlag(FLAGS_imu_yaw_offset_deg) != 0.0;
+    const bool lean_task = cfg.task_id.rfind("Lean", 0) == 0;
+    const bool real_clock = cfg.twin_dt <= 0.0011;  // real robot = 1 kHz tick
+    const bool want = (yp == "on") ||
+                      (yp == "auto" && lean_task && real_clock && !manual_off);
+    if (want) {
+      // Run the tag preflight in the ROS2 env the tag bridge uses (rclpy +
+      // CycloneDDS on the robot's domain). YAW_PREFLIGHT_CMD env overrides for
+      // testing. 'timeout 45' so a hung camera can never wedge bring-up.
+      const char* home = getenv("HOME");
+      std::string hs = std::string(home ? home : "") +
+          "/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts";
+      std::string cmd;
+      if (const char* ov = getenv("YAW_PREFLIGHT_CMD")) {
+        cmd = ov;
+      } else {
+        cmd = "timeout 45 bash -c 'source /opt/ros/humble/setup.bash && "
+              "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=0 "
+              "CYCLONEDDS_URI=file://" + hs + "/cyclonedds_laptop.xml && "
+              "python3 " + hs + "/yaw_preflight.py --seconds 12' 2>&1";
+      }
+      std::printf("[node] YAW PREFLIGHT: measuring IMU-vs-table yaw (~12 s; robot must be\n"
+                  "[node]   standing at its final heading, camera up) ...\n");
+      std::fflush(stdout);
+      double meas = std::numeric_limits<double>::quiet_NaN();
+      if (FILE* pf = popen(cmd.c_str(), "r")) {
+        char line[512];
+        while (fgets(line, sizeof(line), pf)) {
+          std::fputs(line, stdout);  // relay diagnostics to the operator/log
+          double v;
+          if (std::sscanf(line, "YAW_PREFLIGHT_OFFSET_DEG=%lf", &v) == 1) meas = v;
+        }
+        pclose(pf);
+      }
+      if (std::isfinite(meas) && std::fabs(meas) < 45.0) {
+        cfg.imu_yaw_offset_deg = meas;
+        std::printf("[node] YAW PREFLIGHT APPLIED: --imu_yaw_offset_deg %.2f\n", meas);
+      } else {
+        std::printf("**********************************************************************\n"
+                    "[node] YAW PREFLIGHT FAILED (%s) -- continuing with offset 0.\n"
+                    "[node] A drifted heading corkscrews the brace dive (lands ~20 cm off\n"
+                    "[node] per 25 deg of error). Fix the camera/tags or pass\n"
+                    "[node] --imu_yaw_offset_deg manually. --yaw_preflight off silences this.\n"
+                    "**********************************************************************\n",
+                    std::isfinite(meas) ? "offset >45 deg rejected" : "no measurement");
+      }
+      std::fflush(stdout);
+    }
+  }
   cfg.ankle_roll_offset_l_deg = absl::GetFlag(FLAGS_ankle_roll_offset_l_deg);
   cfg.ankle_roll_offset_r_deg = absl::GetFlag(FLAGS_ankle_roll_offset_r_deg);
   cfg.ankle_pitch_offset_l_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_l_deg);
