@@ -3907,6 +3907,23 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                              data->time - sp_since > stall_sec) {
                            eff_lim = mju_min(plim + stall_max,
                                              mju_max(plim, sp_best + stall_eps));
+                           // ★ 2026-08-18 FULL-OPEN ESCALATION
+                           // (`standback_stall_full_sec`, 0 = off). Run 23_9:
+                           // an early TRANSIENT dip set sp_best=0.423, locking
+                           // the gate to best+eps=0.433 while the sustainable
+                           // press oscillated at 0.434-0.45 -- the robot sat
+                           // 1-15 mrad short for 695 SECONDS until operator
+                           // nudges crossed it. "Reached best once" does not
+                           // mean best is re-achievable. If the stall persists
+                           // past this many seconds, open the gate to the full
+                           // plim+stall_max ceiling -- the bound already sized
+                           // as safe-to-release (33 deg believed).
+                           double full_sec =
+                               snum("standback_stall_full_sec", 0.0);
+                           if (full_sec > 0.0 &&
+                               data->time - sp_since > full_sec) {
+                             eff_lim = plim + stall_max;
+                           }
                            static int st_note = 0;
                            if (++st_note % 200 == 1)
                              std::printf("[lean-gate] %s STALLED %.0fs at "
