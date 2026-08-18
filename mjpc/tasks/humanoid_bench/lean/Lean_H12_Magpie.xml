@@ -699,7 +699,7 @@
              commanded 0.71 m — extension the lean arc never had (user: no going
              forward past the lean rung). The pad closes on the slab by BODY
              motion instead. OFF at brace_flat onward. 0 = off. -->
-        <numeric name="reach_fwd_cap" data="0"/>
+        <numeric name="reach_fwd_cap" data="0.62"/>
         <!-- ★ 2026-06-25 CORRECTED 0.28->0.12: the elbow was NEVER the reach limit (static hold
              of a FULL forward stretch = ~4 Nm = 22% of 18). The drop only angled the arm DOWN,
              pulling Rhand_fwd BELOW the 0.404 m home pose = the "never stretched" the user saw.

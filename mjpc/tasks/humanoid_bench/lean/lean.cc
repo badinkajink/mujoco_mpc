@@ -826,27 +826,14 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       // the physical FACE instead of the geom centre (`brace_target_face`).
       brace_press_z
   };
-  // ★ 2026-08-17 FORWARD-EXTENSION CAP, ideal_brace side (`reach_fwd_cap`
-  // numeric, 0/absent = OFF = byte-identical; see the brace_air_target block
-  // for the full rationale). ONLY the horizontal forward component is capped
-  // -- the deliberately-deep brace_press_z downward drive (the bow engine) is
-  // untouched -- and ONLY during the forearm_brace_lean reach rung: from
-  // brace_flat onward ideal_brace is uncapped so the seated press geometry is
-  // byte-identical. As the dive advances torso_pos the capped point converges
-  // onto the true slab target, so seating is delayed-by-geometry, not denied.
-  if (is_forearm_brace) {
-    int nfc2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_fwd_cap");
-    double fcap2 = (nfc2 >= 0)
-        ? model->numeric_data[model->numeric_adr[nfc2]] : 0.0;
-    if (fcap2 > 0.0) {
-      double e2 = (ideal_brace[0] - torso_pos[0]) * heading_fwd[0] +
-                  (ideal_brace[1] - torso_pos[1]) * heading_fwd[1];
-      if (e2 > fcap2) {
-        ideal_brace[0] -= (e2 - fcap2) * heading_fwd[0];
-        ideal_brace[1] -= (e2 - fcap2) * heading_fwd[1];
-      }
-    }
-  }
+  // ★ 2026-08-17 (revised same day): reach_fwd_cap NO LONGER touches
+  // ideal_brace. The first version capped it too and the gate failed 0/5 with
+  // shallow-seat edge-prop falls -- the pad's forward drive is load-bearing
+  // for the deep seat. The cap now bounds ONLY the reach target (see the
+  // brace_air_target block): the reaching arm may aim anywhere -- left,
+  // right, nearer -- but never past the lean-rung extension line, which is
+  // the post-brace torso-drag ("lurch") the user wants gone while keeping
+  // generalized reach targets.
 
   double penalty_hand = hand_dist_penalty * hand_dist;
   double brace_dist = mju_dist3(bracing_hand, ideal_brace);
