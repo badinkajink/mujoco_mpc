@@ -363,9 +363,22 @@ int main(int argc, char** argv) {
         }
         pclose(pf);
       }
-      if (std::isfinite(meas) && std::fabs(meas) < 45.0) {
+      // ★ 2026-08-18: acceptance widened 45 -> 75 deg. Run 23_7: the robot was
+      // power-cycled at a different heading and the preflight measured the true
+      // rotation as 45.69 deg with sd 0.04 over 180/180 solves -- a CORRECT,
+      // high-confidence measurement rejected by 0.69 deg, and the run then flew
+      // with a -46 deg believed heading (dive 19 cm right, twisted brace, kill).
+      // The guard's job is to catch preflight MALFUNCTIONS, and those show up as
+      // low solve counts / high sd, not as clean large angles. 75 deg still
+      // rejects a mirror-flipped/garbage solve; beyond that the operator should
+      // re-place the robot anyway.
+      if (std::isfinite(meas) && std::fabs(meas) < 75.0) {
         cfg.imu_yaw_offset_deg = meas;
         std::printf("[node] YAW PREFLIGHT APPLIED: --imu_yaw_offset_deg %.2f\n", meas);
+        if (std::fabs(meas) > 30.0)
+          std::printf("[node] NOTE: large offset (>30 deg) -- robot was likely powered on\n"
+                      "[node] at a different heading. Prefer power-cycling AT the final\n"
+                      "[node] heading so the IMU zero starts near the table frame.\n");
       } else {
         std::printf("**********************************************************************\n"
                     "[node] YAW PREFLIGHT FAILED (%s) -- continuing with offset 0.\n"
@@ -373,7 +386,7 @@ int main(int argc, char** argv) {
                     "[node] per 25 deg of error). Fix the camera/tags or pass\n"
                     "[node] --imu_yaw_offset_deg manually. --yaw_preflight off silences this.\n"
                     "**********************************************************************\n",
-                    std::isfinite(meas) ? "offset >45 deg rejected" : "no measurement");
+                    std::isfinite(meas) ? "offset >75 deg rejected" : "no measurement");
       }
       std::fflush(stdout);
     }
