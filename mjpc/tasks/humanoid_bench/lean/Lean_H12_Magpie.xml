@@ -68,6 +68,14 @@
              arms over the table by hand on real runs 12-14). -0.16 rad lifts the lowest
              hand point to +60 mm over the tabletop; CoM moves 3 mm. -->
         <key name="stand_up" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 1.5 0 1.035 1 0 0 0"/>
+        <!-- ★ 2026-08-18 standback_r4: post-recovery RIGHT-ARM CLEAR station.
+             After the stand-back the right arm hangs low/under the tabletop; the
+             direct pull to the stand pose sweeps it INTO the slab (operator had to
+             nudge it out on runs 23_11/12). Same idea as the bring-up waypoints,
+             reversed: tuck the arm BACK (shP +0.45, elbow -0.90 = the wp1 arm) so
+             it exits under the table rearward through free space, then the final
+             stand_up brings it home from BEHIND. Body = the stand pose.  -->
+        <key name="standback_r4" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.90 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <key name="stand"    qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <!-- straighten (strategy 25, pre-stand bring-up): CoM-CENTERED stand pose (hip
              -0.15/knee 0.35/ankle -0.28) = the wide-basin handoff target. stand_up plants
