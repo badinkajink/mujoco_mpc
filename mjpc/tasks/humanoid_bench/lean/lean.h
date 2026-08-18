@@ -258,6 +258,13 @@ class lean : public Task {
     names[6]  = "h12_simple_stand";         // stand: mission phase 0, deploy default
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
+    // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the
+    // forearm_brace_reach rung's "Reaching Hand Dist" weight is 0 — the
+    // post-brace right-arm extension toward the OBJECT is the retrieval
+    // mission's payload, not part of the recovery; with it off the ladder
+    // goes brace -> consolidate press -> release/standback directly (user:
+    // "i want it to not do that extra reaching ... initiate the recovery").
+    names[23] = "h12_recovery_only";        // recovery-only brace (22 minus reach)
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;
