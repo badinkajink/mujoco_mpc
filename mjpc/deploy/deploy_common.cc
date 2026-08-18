@@ -2055,6 +2055,21 @@ int RunDeployNode(const NodeConfig& cfg) {
       }
       for (int k = 0; k < 3; k++) sd->qvel[k] = fd_vel[k];
     }
+    // ★ 2026-08-18 VELOCITY CO-ROTATION (gated on --yaw_fusion). The quat above
+    // is pre-rotated by imu_yaw_off into the table frame, but the base velocity
+    // (est-frame position finite-diff, or the cross-stream fallback) stays in
+    // the drifted IMU frame -- an internally inconsistent world. At a large
+    // offset the planner reads sin(off) x forward speed as PHANTOM LATERAL
+    // velocity and "corrects" it into a real side-fall at dive commit (23_17:
+    // 25 cm right collapse at a 24 deg zero, perfect preflight). Rotating the
+    // linear velocity by the SAME offset is pivot-free (free vector) and closes
+    // the loop; position stays untouched (continuously tag-anchored).
+    if (cfg.yaw_fusion && imu_yaw_off != 0.0) {
+      const double cy = std::cos(imu_yaw_off), sy = std::sin(imu_yaw_off);
+      const double vx = sd->qvel[0], vy = sd->qvel[1];
+      sd->qvel[0] = cy * vx - sy * vy;
+      sd->qvel[1] = sy * vx + cy * vy;
+    }
     // snapshot the MEASURED base pose NOW -- latency prediction overwrites sd->qpos below, but B0
     // and the status line must report the real (measured) height/tilt/knees, not the predicted ones.
     double meas_base_z = sd->qpos[2];
