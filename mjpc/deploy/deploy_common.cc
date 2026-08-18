@@ -990,6 +990,36 @@ int RunDeployNode(const NodeConfig& cfg) {
       },
       10);
 
+  // ★ 2026-08-18 LIVE TAG-YAW TAP (--yaw_fusion, default off). The tag bridge
+  // already tracks the IMU-vs-table yaw offset continuously (its LPF'd yaw_off,
+  // built to follow IMU yaw drift) and now carries it in aux_odom.position[2]
+  // (previously a dead 0.0; the estimator fuses xy only). The static preflight
+  // offset rots at the measured warm-drift rate (1.7-2.5 deg/min after long
+  // powered sessions) -- 2-4 deg stale by dive commit = every dive lands left.
+  // This tap lets the control loop slew its heading correction live.
+  struct AuxYawTap {
+    std::mutex mu;
+    double yoff = 0.0;                       // rad, bridge convention
+    std::chrono::steady_clock::time_point stamp{};
+    bool have = false;
+  } auxyaw;
+  ChannelSubscriberPtr<SportState> aux_sub;
+  if (cfg.yaw_fusion) {
+    aux_sub.reset(new ChannelSubscriber<SportState>("rt/aux_odom"));
+    aux_sub->InitChannel(
+        [&auxyaw](const void* msg) {
+          const SportState* s = static_cast<const SportState*>(msg);
+          if (s->mode() != 2) return;        // tag bridge contract
+          std::lock_guard<std::mutex> lk(auxyaw.mu);
+          auxyaw.yoff = s->position().at(2);
+          auxyaw.stamp = std::chrono::steady_clock::now();
+          auxyaw.have = true;
+        },
+        10);
+    std::fprintf(stderr, "[node] yaw_fusion ON: slewing --imu_yaw_offset_deg toward "
+                         "-aux_odom.position[2] at <=0.1 deg/s (fresh <0.5s only)\n");
+  }
+
   ChannelPublisherPtr<LowCmd> cmd_pub(
       new ChannelPublisher<LowCmd>(cfg.lowcmd_topic));
   cmd_pub->InitChannel();
@@ -1221,7 +1251,11 @@ int RunDeployNode(const NodeConfig& cfg) {
   // around a false vertical -> a steady lean (sim-confirmed). Cancel it here.
   const double imu_pitch_off = cfg.imu_pitch_offset_deg * M_PI / 180.0;
   const double imu_roll_off = cfg.imu_roll_offset_deg * M_PI / 180.0;
-  const double imu_yaw_off = cfg.imu_yaw_offset_deg * M_PI / 180.0;
+  // ★ 2026-08-18 non-const: --yaw_fusion slews this LIVE toward the tag
+  // bridge's continuously tracked IMU-vs-table yaw offset (rides in
+  // aux_odom.position[2]); written only from the main control loop, the same
+  // thread that reads it in fill_state => no race (ankle-offset pattern).
+  double imu_yaw_off = cfg.imu_yaw_offset_deg * M_PI / 180.0;
   // SESSION IMU ALIGNMENT (2026-07-19, --ac_imu_align): the autocalib's gravity
   // anchor measures the fused quat's pitch/roll error against the plumb-line in
   // every still window -- and on real it came out CONSTANT (+2.1..+2.6 deg pitch
@@ -1558,6 +1592,32 @@ int RunDeployNode(const NodeConfig& cfg) {
       continue;
     }
     stale_warned = false;
+    // ★ 2026-08-18 live yaw slew (--yaw_fusion): track the bridge's measured
+    // IMU-vs-table yaw error. Node offset convention = NEGATIVE of the bridge's
+    // yaw_off (preflight applies -median(err); the bridge's yoff IS that err).
+    // Rate cap 0.1 deg/s: ~3x the worst measured warm drift, far too slow to
+    // step the heading; only fresh (<0.5 s) high-rate bridge output is used.
+    if (cfg.yaw_fusion) {
+      double target = 0.0; bool ok = false;
+      {
+        std::lock_guard<std::mutex> lk(auxyaw.mu);
+        if (auxyaw.have &&
+            std::chrono::duration<double>(t_tick - auxyaw.stamp).count() < 0.5) {
+          target = -auxyaw.yoff; ok = true;
+        }
+      }
+      if (ok) {
+        const double rate = 0.1 * M_PI / 180.0;          // rad/s
+        double err = target - imu_yaw_off;
+        double step = std::max(-rate * ctrl_dt, std::min(rate * ctrl_dt, err));
+        imu_yaw_off += step;
+        static long yf_note = 0;
+        if (++yf_note % (static_cast<long>(ctrl_hz) * 30) == 1)
+          std::fprintf(stderr, "[node] yaw_fusion: offset %.2f deg (bridge target "
+                               "%.2f, gap %.2f)\n", imu_yaw_off * 180.0 / M_PI,
+                       target * 180.0 / M_PI, err * 180.0 / M_PI);
+      }
+    }
 
     if (!tick0_set && cur.have_ls) { tick0 = cur.tick; tick0_set = true; }
     double twin_time = static_cast<double>(static_cast<int64_t>(cur.tick) -

@@ -81,6 +81,12 @@ ABSL_FLAG(double, bad_orient_rad, 0.0,
           "validated deployments unchanged). See h12_lower_body_controller for the rationale.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
+ABSL_FLAG(bool, yaw_fusion, false,
+          "LIVE tag-yaw fusion (2026-08-18): slew the heading correction toward the\n"
+          "tag bridge's continuously tracked IMU-vs-table yaw offset (rides in\n"
+          "aux_odom.position[2]) at <=0.1 deg/s. Fixes the warm-IMU drift making the\n"
+          "one-shot preflight offset stale (1.7-2.5 deg/min measured; every dive\n"
+          "landed left). Requires the 2026-08-18 tag_bridge_node. Default OFF.");
 ABSL_FLAG(double, imu_yaw_offset_deg, 0.0,
           "WORLD-frame heading correction (deg). The IMU yaw is an uncorrected gyro "
           "integration (~0.1 deg/s random walk); a rotated heading corkscrews the brace "
@@ -323,6 +329,7 @@ int main(int argc, char** argv) {
   cfg.bad_orient_rad = absl::GetFlag(FLAGS_bad_orient_rad);
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.imu_yaw_offset_deg = absl::GetFlag(FLAGS_imu_yaw_offset_deg);
+  cfg.yaw_fusion = absl::GetFlag(FLAGS_yaw_fusion);
   // YAW PREFLIGHT (2026-08-17): the IMU yaw is gyro-integrated from power-on and
   // walks ~0.1 deg/min; every real Lean session needs the IMU-vs-table offset
   // measured at bring-up (runs tags_13/14 without it: lunge lands sin(24deg)

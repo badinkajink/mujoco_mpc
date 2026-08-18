@@ -436,7 +436,15 @@ def main():
                 p_tt = r[3]
                 xy = np.array([0.45 + p_tt[0], 0.2975 - p_tt[1]])
             out_msg.position[0], out_msg.position[1] = float(xy[0]), float(xy[1])
-            out_msg.position[2] = 0.0
+            # ★ 2026-08-18 LIVE YAW SIDE-CHANNEL: position[2] was a dead 0.0 (v4
+            # fuses xy only and provably never reads z). Carry the continuously
+            # tracked IMU-vs-table yaw offset [rad] so the CONTROL NODE can slew
+            # its --imu_yaw_offset_deg live (--yaw_fusion, default off) instead
+            # of freezing the preflight value -- the warm-IMU drift (1.7-2.5
+            # deg/min measured 08-17/18) made the static offset rot 2-4 deg by
+            # dive time and steered every dive left. Estimator behavior with
+            # this field: byte-identical.
+            out_msg.position[2] = float(yoff)
             for k in range(3):
                 out_msg.velocity[k] = 0.0
             out_msg.mode = 2                       # POSITION-ONLY (v4 contract)

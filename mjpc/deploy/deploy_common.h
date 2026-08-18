@@ -135,6 +135,8 @@ struct NodeConfig {
   std::string sportstate_topic;        // truth vs rt/sportmodestate_est (estimator-in-loop)
   double imu_pitch_offset_deg = 0.0;   // real H1-2 mount calib 1.6; twin 0
   double imu_yaw_offset_deg = 0.0;     // WORLD-frame heading correction (deg).
+  bool yaw_fusion = false;             // slew the yaw offset live from the tag
+                                       // bridge's aux_odom.position[2] (2026-08-18)
                                        // The IMU yaw is a gyro integration with
                                        // no absolute reference: it random-walks
                                        // ~0.1 deg/s and rotates the whole
