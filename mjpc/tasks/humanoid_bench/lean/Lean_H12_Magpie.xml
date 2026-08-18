@@ -953,6 +953,14 @@
              sway on the twin: median 0.007, p90 0.013, max 0.026 m/s -> 0.015
              delays the advance by at most ~a sway half-period. -->
         <numeric name="phase_advance_quiet_vel" data="0.015"/>
+        <!-- ★ 2026-08-17 phase_advance_quiet_wvel [rad/s]: 0 = OFF. >0 = ALSO hold
+             phase advance while base roll/pitch RATE exceeds this. Built 08-11
+             (pre-commit roll rate = best failure predictor, AUC 0.71) but never
+             enabled. newtags_5/6 both launched the dive mid-twist (-8.7 deg roll
+             kick / +30 deg in-flight spin -> oblique landings, edge slip). 0.12
+             holds the commit for a calm sample; sway is ~1 s periodic so the
+             wait costs at most ~half a period. -->
+        <numeric name="phase_advance_quiet_wvel" data="0.12"/>
         <!-- phase_advance_upright_deg (2026-08-10): 0 = OFF = byte-identical. >0 =
              also hold the advance while |torso pitch| exceeds this (deg), capped at
              phase_advance_upright_wait seconds past the dwell. The restored-0.985
