@@ -316,8 +316,8 @@
              swing BACK-tucked then settle to stand, so the bring-up never sweeps
              the hands forward through the table edge (real run 6 estop). Consumed
              by deploy_common bring-up; absent keys = old single-lerp behavior. -->
-        <key name="bringup_wp1" qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0.45 0.15 0 -0.9 0 0 0 0.45 -0.15 0 0.9 0 0 0 1.5 0 1.035 1 0 0 0"/>
-        <key name="bringup_wp2" qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0.2 0.1 0 -0.4 0 0 0 0.2 -0.1 0 0.4 0 0 0 1.5 0 1.035 1 0 0 0"/>
+        <key name="bringup_wp1" qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0.45 0.15 0 -0.9 0 0 0 0.45 -0.15 0 -0.9 0 0 0 1.5 0 1.035 1 0 0 0"/>
+        <key name="bringup_wp2" qpos="0.19 0 1.000 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 0.2 0.1 0 -0.4 0 0 0 0.2 -0.1 0 -0.4 0 0 0 1.5 0 1.035 1 0 0 0"/>
     </keyframe>
     
     <!-- 0.03 0.03 are the gripper pos for parallel jaw -->
