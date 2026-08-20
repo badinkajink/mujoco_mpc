@@ -425,6 +425,7 @@
              lateral moment arm. MUST be appended to BOTH lean models in lockstep or the
              residual counts desync. -->
         <user name="Brace Arm Plane" dim="1" user="0 0.0 0.0 100.0"/>
+        <user name="Left Foot Capture" dim="1" user="6 0.0 0.0 300.0 0.3"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

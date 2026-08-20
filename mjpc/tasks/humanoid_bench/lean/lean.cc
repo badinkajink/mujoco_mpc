@@ -3010,6 +3010,31 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = plane_err;
   }
 
+  // --- Left Foot Capture Step (dim 1, 2026-08-19) -----------------------------
+  // Slide the LEFT foot forward toward the (forward) capture point during the
+  // unloading phases, so a forward-tipping CoM is caught by an emergent forward
+  // step instead of the passive BACKWARD foot-slide (the reaction to the torso
+  // lunging over planted feet -- again_19). ONE-SIDED: only drives the foot
+  // FORWARD when it sits behind the capture point; never pulls it back, so a
+  // good/ahead stance costs nothing. Gated to reach/release (unloading) -- OFF
+  // in the seat and free-stand. capture_point[0] and foot_left_pos are read from
+  // the SAME estimator frame, so their difference is drift-invariant. The
+  // Foot-Left-Up (anti-roll) + Left-Leg-Anchor (flatness) terms stay active, so
+  // the foot SLIDES flat rather than lifting. Weight lives in the JSON rungs
+  // ("Left Foot Capture"); XML default 0 => inert unless a rung sets it.
+  {
+    double lfc = 0.0;
+    const std::string &kfn_lfc = residual_keyframe_.name;
+    if (foot_left_pos &&
+        (kfn_lfc == "forearm_brace_reach" ||
+         kfn_lfc == "forearm_brace_release")) {
+      constexpr double kCapDeadband = 0.03;  // m: ignore a small forward lead
+      double ahead = capture_point[0] - foot_left_pos[0];  // >0 = capture fwd of foot
+      lfc = mju_max(0.0, ahead - kCapDeadband);
+    }
+    residual[counter++] = lfc;
+  }
+
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
   // // Check if we have elbow sensors (indicates H12_Hands model)
   // bool has_elbow_sensors = false;
