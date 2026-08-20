@@ -994,7 +994,8 @@
              residual exists to kill, and the arm-contact gate disabled it exactly
              when the brace creates the asymmetry. y axis only -- the forward lean
              is untouched. Phases that legitimately stand off-centre carry weight 0. -->
-        <numeric name="lateral_center_braced" data="0.0"/>
+        <numeric name="lateral_center_braced" data="1.0"/>
+        <numeric name="stand_com_fwd" data="0.02"/>
         <!-- lean_commit_retry (2026-08-07): 0 = OFF = BYTE-IDENTICAL. >0 = seconds a
              detected commit STALL (lean/mid phase, tilt 12-28 deg, pad NOT on table,
              >=6 s in phase) must persist before the strategy regresses to stand and

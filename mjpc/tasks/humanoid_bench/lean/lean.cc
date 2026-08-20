@@ -2174,7 +2174,24 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     }
     residual[counter++] = pelvis_band + com_over;
   } else {
-    residual[counter++] = 0.0;
+    // ★ 2026-08-19 STAND FORWARD-CoM BIAS (free-stand only). The pelvis-forward
+    // term above is any_arm_contact-gated, so free standing has NO sagittal
+    // authority: the home pose parks the CoM ~3 cm behind the feet and Posture
+    // holds it there -> ZMP sits ~8 cm AHEAD of the CoM = a persistent BACKWARD
+    // tip (user held every run upright). One-sided pull of the CoM toward
+    // midfoot + `stand_com_fwd`. Numeric 0 = OFF = byte-identical; only the
+    // recovery model sets it, so every other task is unchanged. Scaled by the
+    // JSON "Pelvis Forward" weight (0 in every non-recovery stand rung).
+    double stand_fwd = GetNumberOrDefault(0.0, model, "stand_com_fwd");
+    double sres = 0.0;
+    if (stand_fwd > 0.0) {
+      double midfoot_x = 0.5 * (foot_right_pos[0] + foot_left_pos[0]);
+      int pid_com = mj_name2id(model, mjOBJ_BODY, "pelvis");
+      double com_x = (pid_com >= 0) ? data->subtree_com[3 * pid_com + 0]
+                                    : midfoot_x;
+      sres = mju_max(0.0, (midfoot_x + stand_fwd) - com_x);
+    }
+    residual[counter++] = sres;
   }
 
   // ----- contact keyframe residual ----- //
