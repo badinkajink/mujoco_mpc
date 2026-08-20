@@ -1607,15 +1607,36 @@ int RunDeployNode(const NodeConfig& cfg) {
         }
       }
       if (ok) {
-        const double rate = 0.1 * M_PI / 180.0;          // rad/s
+        // ★ 2026-08-19 STATIONARY TAG RE-ZERO (best-practice "recalibrate bias
+        // when still"). Warm gyro bias drifts the yaw zero ~0.4 deg/min over a
+        // session (measured: tag -20 -> -33 deg in 30 min); the 0.1 deg/s slew
+        // is far too slow to null that before a dive commits, so sessions died
+        // every ~3 runs. FIX: when the robot is STATIONARY and UPRIGHT -- the
+        // operator-timed pre-dive hold, NOT bowed in a brace, NOT moving -- snap
+        // the offset to the tag at a FAST rate (5 deg/s: closes a 13 deg gap in
+        // ~2.6 s). The gyro + upright gates exclude the dive, the brace (bowed
+        // ~30 deg -> pitch gate) and the standback (moving -> gyro gate); the
+        // final settled stand also qualifies, which is harmless. Rate-limited
+        // (not an instant step) so it never jolts the standing pose.
+        double gyro_mag = std::sqrt(cur.gyro[0] * cur.gyro[0] +
+                                    cur.gyro[1] * cur.gyro[1] +
+                                    cur.gyro[2] * cur.gyro[2]);
+        double qw = cur.quat[0], qx = cur.quat[1], qy = cur.quat[2], qz = cur.quat[3];
+        double bpitch = std::asin(std::fmax(-1.0, std::fmin(1.0, 2 * (qw * qy - qz * qx))));
+        double broll  = std::atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy));
+        bool still_upright = gyro_mag < 0.05 &&            // < ~2.9 deg/s
+                             std::fabs(bpitch) < 0.26 &&    // < ~15 deg
+                             std::fabs(broll)  < 0.26;
+        const double rate = (still_upright ? 5.0 : 0.1) * M_PI / 180.0;  // rad/s
         double err = target - imu_yaw_off;
         double step = std::max(-rate * ctrl_dt, std::min(rate * ctrl_dt, err));
         imu_yaw_off += step;
         static long yf_note = 0;
         if (++yf_note % (static_cast<long>(ctrl_hz) * 30) == 1)
           std::fprintf(stderr, "[node] yaw_fusion: offset %.2f deg (bridge target "
-                               "%.2f, gap %.2f)\n", imu_yaw_off * 180.0 / M_PI,
-                       target * 180.0 / M_PI, err * 180.0 / M_PI);
+                               "%.2f, gap %.2f%s)\n", imu_yaw_off * 180.0 / M_PI,
+                       target * 180.0 / M_PI, err * 180.0 / M_PI,
+                       still_upright ? ", FAST re-zero (still+upright)" : "");
       }
     }
 
