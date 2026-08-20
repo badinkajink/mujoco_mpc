@@ -81,12 +81,13 @@ ABSL_FLAG(double, bad_orient_rad, 0.0,
           "validated deployments unchanged). See h12_lower_body_controller for the rationale.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
-ABSL_FLAG(bool, yaw_fusion, false,
+ABSL_FLAG(bool, yaw_fusion, true,
           "LIVE tag-yaw fusion (2026-08-18): slew the heading correction toward the\n"
           "tag bridge's continuously tracked IMU-vs-table yaw offset (rides in\n"
           "aux_odom.position[2]) at <=0.1 deg/s. Fixes the warm-IMU drift making the\n"
           "one-shot preflight offset stale (1.7-2.5 deg/min measured; every dive\n"
-          "landed left). Requires the 2026-08-18 tag_bridge_node. Default OFF.");
+          "landed left). Requires the 2026-08-18 tag_bridge_node. Default ON\n"
+          "(2026-08-19; disable with --noyaw_fusion).");
 ABSL_FLAG(double, imu_yaw_offset_deg, 0.0,
           "WORLD-frame heading correction (deg). The IMU yaw is an uncorrected gyro "
           "integration (~0.1 deg/s random walk); a rotated heading corkscrews the brace "
