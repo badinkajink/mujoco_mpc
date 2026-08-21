@@ -265,6 +265,14 @@ class lean : public Task {
     // goes brace -> consolidate press -> release/standback directly (user:
     // "i want it to not do that extra reaching ... initiate the recovery").
     names[23] = "h12_recovery_only";        // recovery-only brace (22 minus reach)
+    // ★ 2026-08-20 strat 24: strat 23 with the vestigial forearm_brace_reach
+    // keyframe DELETED (not just neutered). Sequence: stand_up ->
+    // forearm_brace_lean -> forearm_brace_release -> standback_r1..r4 ->
+    // stand_up. Removes the phase-2 CoM-lunge that sources the "torso hits
+    // table" lurch; the reach braced NO harder than lean in the good runs
+    // (22/28: ~9 Nm shoulder both) and is a mission leftover, not a recovery
+    // need. Carries B (Brace Roll Level 200) on the same lean rung.
+    names[24] = "h12_recovery_noreach";     // strat 23 minus the reach keyframe
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;
