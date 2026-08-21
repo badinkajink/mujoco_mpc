@@ -790,10 +790,28 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
                        GetNumberOrDefault(0.07, model, "brace_target_inset");
     }
   }
+  // ★ 2026-08-20 brace_target_slab_lat (0 = OFF = BYTE-IDENTICAL): anchor the
+  // LATERAL brace target to the TABLE's y-centre instead of the body-tied
+  // torso_y. WHY: real 24_2/24_3 dove with the body physically yawed ~+20 deg
+  // (placement + feet yaw-walk; estimate healthy) and the torso-relative target
+  // let the left forearm swing to wrist_y +0.35, off the +0.30 side edge. The
+  // estimate is trustworthy (IMU agrees with the tags), so aiming at the slab's
+  // absolute y keeps the brace on the table regardless of body yaw. Pair with
+  // the Brace Arm Plane edge-keepout. `brace_lat_inset` = offset from the slab
+  // centre toward the bracing side (default 0.20; the side edge is +-0.30).
+  double brace_y_target = torso_pos[1] + (reach_right ? 0.24 : -0.24);
+  {
+    int blat_id = mj_name2id(model, mjOBJ_NUMERIC, "brace_target_slab_lat");
+    double blat = (blat_id >= 0) ? model->numeric_data[model->numeric_adr[blat_id]] : 0.0;
+    int tgy = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+    if (blat > 0.5 && tgy >= 0) {
+      double lat = GetNumberOrDefault(0.20, model, "brace_lat_inset");
+      brace_y_target = data->geom_xpos[3 * tgy + 1] + (reach_right ? lat : -lat);
+    }
+  }
   double ideal_brace[3] = {
       brace_x_target,  // legacy: partway to the table centre; gated: on the slab
-      // bracing arm = the OTHER arm (reach_right -> left arm braces, so +0.24).
-      torso_pos[1] + (reach_right ? 0.24 : -0.24),
+      brace_y_target,  // legacy: torso_y +-0.24; slab_lat: table y-centre +-inset
       // 2026-05-22: press TARGET 6 cm BELOW the surface (was -0.02). Under the
       // real-robot (doc) ROM the bracing forearm stalled ~7 cm ABOVE the table:
       // with the target only 2 cm under the surface the downward Brace-Pos pull

@@ -1059,6 +1059,13 @@
              phantom-arm world where nothing arrested the pad. -->
         <numeric name="brace_target_slab" data="0.0"/>
         <numeric name="brace_target_inset" data="0.05"/>
+        <!-- brace_target_slab_lat (2026-08-20): 0 = OFF = BYTE-IDENTICAL. 1 = anchor
+             the LATERAL brace target to the TABLE y-centre (+brace_lat_inset toward
+             the bracing side) instead of torso_y +-0.24, so a yawed/off-square body
+             still aims the forearm at the slab (real 24_2/24_3 fix; estimate healthy,
+             body physically ~+20deg off). -->
+        <numeric name="brace_target_slab_lat" data="1.0"/>
+        <numeric name="brace_lat_inset" data="0.20"/>
         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
         <!-- Slider → strategy. GetStrategyNames() in lean.h is 36 slots long and every
              slot not listed here is PADDED with h12_simple_stand: Strategy is a
