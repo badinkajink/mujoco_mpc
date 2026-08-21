@@ -3052,6 +3052,43 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = lfc;
   }
 
+  // --- Brace Roll Level (dim 1, 2026-08-20 "design B") ------------------------
+  // Keep the TORSO level (roll -> 0) through the dive + brace hold. The seat
+  // attitude is THE binding constraint on strat-23 recovery: a clean, flat seat
+  // -> full autonomous recovery; a rolled seat -> collapse regardless of yaw.
+  // The Brace Arm Plane block owns forearm ELEVATION (pitch of the pad), but
+  // NOTHING owned torso ROLL -- real runs 27 (roll -10) and 33 (roll +7) swung
+  // the whole body sideways, which walks the bracing shoulder (and the pad) off
+  // the table edge before/while it seats. Balance/Lateral Center constrain CoM
+  // POSITION, not body roll ANGLE, so this is a genuinely new lever.
+  //
+  // Measure roll about the torso's OWN forward axis, from gravity expressed in
+  // the torso frame: roll = atan2(-R[7], R[8]). This is YAW-INVARIANT (yaw is a
+  // rotation about the gravity axis, so it does not change how gravity projects
+  // onto forward/left/up) and DECOUPLED from the heavy dive PITCH (which loads
+  // R[6], the forward component) -- both of which corrupt a naive world-frame
+  // roll read exactly when the robot is pitched 30-40 deg and yaw-drifted.
+  // Gated to `forearm_brace_lean` (== is_forearm_brace) only: the dive AND the
+  // hold live in that rung until the flat-verify gate advances, so this flattens
+  // the whole approach. Deadband `brace_roll_tol` (rad, default 0.06 ~ 3.4 deg)
+  // keeps the natural brace pose free; weight = JSON "Brace Roll Level".
+  {
+    double roll_res = 0.0;
+    if (is_forearm_brace) {
+      int b_to_r = mj_name2id(model, mjOBJ_BODY, "torso_link");
+      if (b_to_r >= 0) {
+        double const *R = data->xmat + 9 * b_to_r;
+        double roll = std::atan2(-R[7], R[8]);
+        int nrt = mj_name2id(model, mjOBJ_NUMERIC, "brace_roll_tol");
+        double roll_tol =
+            (nrt >= 0 && model->numeric_data[model->numeric_adr[nrt]] >= 0.0)
+                ? model->numeric_data[model->numeric_adr[nrt]] : 0.06;
+        roll_res = mju_max(0.0, mju_abs(roll) - roll_tol);
+      }
+    }
+    residual[counter++] = roll_res;
+  }
+
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
   // // Check if we have elbow sensors (indicates H12_Hands model)
   // bool has_elbow_sensors = false;

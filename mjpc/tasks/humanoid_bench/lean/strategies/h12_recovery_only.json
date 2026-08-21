@@ -126,7 +126,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 0.0
+      "Brace Arm Plane": 0.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 0.0
   },
@@ -255,7 +256,8 @@
       "Body Table Clearance": 150.0,
       "Brace Wrist Cock": 150.0,
       "Left Leg Anchor": 400.0,
-      "Brace Arm Plane": 300.0
+      "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 200.0
     }
   },
   {
@@ -384,6 +386,7 @@
       "Brace Wrist Cock": 150.0,
       "Left Leg Anchor": 400.0,
       "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0,
       "Left Foot Capture": 250.0
     }
   },
@@ -514,6 +517,7 @@
       "Body Yaw": 40.0,
       "Left Leg Anchor": 400.0,
       "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0,
       "Left Foot Capture": 250.0
     }
   },
@@ -644,7 +648,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 300.0
+      "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 40.0
   },
@@ -775,7 +780,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 300.0
+      "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 45.0
   },
@@ -906,7 +912,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 300.0
+      "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 15.0
   },
@@ -1037,7 +1044,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 300.0
+      "Brace Arm Plane": 300.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 0.0
   },
@@ -1168,7 +1176,8 @@
       "Foot Stability": 15.0,
       "Joint Vel. Limit": 5.0,
       "Knees Straight": 40.0,
-      "Brace Arm Plane": 0.0
+      "Brace Arm Plane": 0.0,
+      "Brace Roll Level": 0.0
     },
     "brace_force_target": 0.0
   }

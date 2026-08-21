@@ -426,6 +426,8 @@
              residual counts desync. -->
         <user name="Brace Arm Plane" dim="1" user="0 0.0 0.0 100.0"/>
         <user name="Left Foot Capture" dim="1" user="6 0.0 0.0 300.0 0.3"/>
+        <!-- Brace Roll Level (2026-08-20 "design B") -- LOCKSTEP with Magpie model. -->
+        <user name="Brace Roll Level" dim="1" user="0 0.0 0.0 300.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

@@ -461,6 +461,13 @@
         <numeric name="brace_flat_tol" data="0.05"/>
         <numeric name="brace_flat_gate" data="0.17"/>
         <numeric name="brace_flat_gain" data="4.0"/>
+        <!-- brace_flat_engage (2026-08-20, m above slab where the flatness ramp
+             starts; absent/<=0 => 0.25 = BYTE-IDENTICAL). Raise to flatten the
+             COMMIT, not just the final seat. -->
+        <numeric name="brace_flat_engage" data="0.25"/>
+        <!-- brace_roll_tol (2026-08-20 "design B", rad; deadband for the new
+             Brace Roll Level term. 0.06 ~ 3.4 deg of free torso roll). -->
+        <numeric name="brace_roll_tol" data="0.06"/>
         <!-- ★★★ brace_flat_target (2026-08-14, rad; 0 = OFF = old |elev|->0).
              The LEGAL BAND for this arm+gripper on a 0.985 m slab is
              elevation 0.0 .. +9.4 deg (forearm-borne AND hand-clear AND inside
@@ -1256,6 +1263,11 @@
              residual counts desync. -->
         <user name="Brace Arm Plane" dim="1" user="0 0.0 0.0 100.0"/>
         <user name="Left Foot Capture" dim="1" user="6 0.0 0.0 300.0 0.3"/>
+        <!-- Brace Roll Level (2026-08-20 "design B"): torso roll -> 0 through the
+             dive+hold, gated to forearm_brace_lean in lean.cc. MUST stay the LAST
+             user cost and be appended to BOTH lean models in lockstep or the
+             residual counts desync. -->
+        <user name="Brace Roll Level" dim="1" user="0 0.0 0.0 300.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>
