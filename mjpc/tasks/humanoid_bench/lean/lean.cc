@@ -3007,7 +3007,16 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
           double surf_z2 = data->geom_xpos[3 * g_tab + 2] +
                            model->geom_size[3 * g_tab + 2];
           double pad_z2 = data->geom_xpos[3 * g_pad2 + 2];
-          constexpr double kFlatEngage = 0.25;  // m above slab: ramp start
+          // ★ 2026-08-20 engage distance exposed as `brace_flat_engage` (m above
+          // slab where the flatness ramp starts; absent/<=0 => 0.25 =
+          // BYTE-IDENTICAL). Raising it flattens the COMMIT, not just the final
+          // seat -- real 35/37 seated inclined (+15..+23 deg) because the arm
+          // committed inclined ABOVE the old 25 cm window and the press then
+          // held it there. Tunable so twin iterations skip a rebuild.
+          int neng = mj_name2id(model, mjOBJ_NUMERIC, "brace_flat_engage");
+          double kFlatEngage =
+              (neng >= 0 && model->numeric_data[model->numeric_adr[neng]] > 0.0)
+                  ? model->numeric_data[model->numeric_adr[neng]] : 0.25;
           double act = mju_clip(
               1.0 - (pad_z2 - surf_z2) / kFlatEngage, 0.0, 1.0);
           if (act > 0.0 && flat_tol > 0.0) {
