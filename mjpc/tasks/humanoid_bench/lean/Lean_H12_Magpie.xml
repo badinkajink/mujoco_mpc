@@ -451,7 +451,7 @@
              contact to count in the verify gate (0 = off). -->
         <!-- 2026-08-13 release pitch gate: hold release/standback rungs until
              believed pitch is below these (rad); arm keeps pressing. 0=off. -->
-        <numeric name="standback_pitch_release" data="0.42"/>
+        <numeric name="standback_pitch_release" data="0.50"/>
         <numeric name="standback_pitch_r1" data="0.30"/>
         <numeric name="standback_pitch_r2" data="0.21"/>
         <!-- ★★ standback stall relaxation (2026-08-14). sec<=0 = OFF.
@@ -460,15 +460,15 @@
              capped at +0.05 rad (2.9 deg) so a deep plateau stays blocked.
              Real run 13 lost a completed ladder by 0.1-0.4 deg this way. -->
         <numeric name="standback_stall_sec" data="12.0"/>
-        <numeric name="standback_stall_eps" data="0.01"/>
+        <numeric name="standback_stall_eps" data="0.04"/>
         <numeric name="standback_stall_max" data="0.16"/>
         <!-- ★ 2026-08-18 standback_stall_full_sec [s]: if the release-side stall
              persists this long, open the gate all the way to plim+stall_max
              (run 23_9: transient-best lock held the robot 695s at 1-15 mrad
              short; operator had to nudge). 0 = off. -->
-        <numeric name="standback_stall_full_sec" data="45.0"/>
+        <numeric name="standback_stall_full_sec" data="40.0"/>
         <numeric name="brace_sink_slack" data="0.12"/>
-        <numeric name="brace_contact_zmargin" data="0.05"/>
+        <numeric name="brace_contact_zmargin" data="0.08"/>
         <numeric name="brace_contact_xyslack" data="0.12"/>
         <numeric name="brace_knee_sym" data="1.5"/>
         <numeric name="brace_knee_sym_db" data="0.12"/>
