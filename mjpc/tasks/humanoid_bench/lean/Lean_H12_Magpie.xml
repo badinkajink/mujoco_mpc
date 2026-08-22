@@ -492,6 +492,37 @@
              ladders sat (+5.2 / +8.8 deg). The one-sided protection the band
              analysis calls for therefore belongs in the GATE
              (brace_flat_gate_lo), not in the cost target. -->
+        <!-- brace_erect_target (2026-08-20, rad): pitch below which the "Brace
+             Erect" release un-bow term is free; above it, one-sided penalty that
+             actively presses the counter push-off down to gate-safe. 0.38 rad
+             (~21.8 deg) sits ~2 deg UNDER the release exit gate
+             (standback_pitch_release=0.42) so crossing the gate is inside the
+             gradient. Lower = erect harder (risk: yank the still-loaded arm);
+             higher = weaker help. Weight lives in JSON "Brace Erect". -->
+        <numeric name="brace_erect_target" data="0.38"/>
+        <!-- brace_lead_x0 / brace_lead_gain (2026-08-21, m): the load-scaled
+             forward ceiling for the "Brace Reach Lead" anti-lunge term. Forward
+             base-x up to brace_lead_x0 is FREE (reach the ~0.16 m good seat with
+             zero brace load); beyond it the ceiling opens by brace_lead_gain per
+             unit load_frac (=force/140 N) as the forearm presses. penalty =
+             max(0, base_x - (x0 + gain*load_frac)). Good stood runs seat 0.16,
+             transient 0.22-0.27 WITH load; lunges run to 0.30-0.41 WITHOUT load.
+             x0=0.20 keeps the whole legitimate approach penalty-free (cannot
+             deadlock the seat like Balance did); gain=0.10 opens to ~0.30 only at
+             full press. Lower x0 / lower gain = tighter cap (risk: fight the good
+             transient); higher = looser. Weight lives in JSON "Brace Reach Lead". -->
+        <numeric name="brace_lead_x0" data="0.24"/>
+        <numeric name="brace_lead_gain" data="0.10"/>
+        <!-- brace_inward_target (2026-08-21, rad): the bracing shoulder-roll
+             threshold for the "Brace Arm Inward" forcing cost. Roll at/inward of
+             this (more negative) is FREE; rolling OUTWARD past it (toward 0/+) is
+             penalised, forcing the optimizer to reach the table with an inward
+             (strong-strut) arm instead of splaying. -0.15 sits just outward of
+             the good runs' -0.19 so the good pose is penalty-free. More negative
+             = demand deeper tuck (risk: forearm slides off table medially / can't
+             reach); less negative = weaker. Weight lives in JSON "Brace Arm
+             Inward". LEFT arm braces -> left_shoulder_roll, inward = NEGATIVE. -->
+        <numeric name="brace_inward_target" data="-0.15"/>
         <!-- brace_flat_gate_lo (rad, >0): max allowed NEGATIVE elevation for
              contact to certify. Negative = gripper-first = illegal hand-brace
              and the stall pose. 0.05 rad = -2.9 deg of noise headroom. -->
@@ -1271,10 +1302,26 @@
         <user name="Brace Arm Plane" dim="1" user="0 0.0 0.0 100.0"/>
         <user name="Left Foot Capture" dim="1" user="6 0.0 0.0 300.0 0.3"/>
         <!-- Brace Roll Level (2026-08-20 "design B"): torso roll -> 0 through the
-             dive+hold, gated to forearm_brace_lean in lean.cc. MUST stay the LAST
-             user cost and be appended to BOTH lean models in lockstep or the
-             residual counts desync. -->
+             dive+hold, gated to forearm_brace_lean in lean.cc. Appended to BOTH
+             lean models in lockstep or the residual counts desync. -->
         <user name="Brace Roll Level" dim="1" user="0 0.0 0.0 300.0"/>
+        <!-- Brace Erect (2026-08-20): active un-bow gradient for the release
+             phase (penalise believed base pitch above brace_erect_target).
+             Appended to BOTH lean models in lockstep or the residual counts
+             desync. -->
+        <user name="Brace Erect" dim="1" user="0 0.0 0.0 300.0"/>
+        <!-- Brace Reach Lead (2026-08-21): anti-ballistic-lunge for the dive.
+             One-sided load-scaled forward-x ceiling, gated to forearm_brace_lean.
+             Inert below the line (cannot deadlock the seat like Balance did); only
+             penalises the CoM outrunning the brace load. MUST stay the LAST user
+             cost and be appended to BOTH lean models in lockstep. -->
+        <user name="Brace Reach Lead" dim="1" user="0 0.0 0.0 400.0"/>
+        <!-- Brace Arm Inward (2026-08-21): FORCE the bracing shoulder INWARD (the
+             root lurch fix). One-sided penalty on left_shoulder_roll splaying
+             outward past brace_inward_target, gated to forearm_brace_lean. Makes
+             the good inward brace deterministic instead of a CEM coin-flip. MUST
+             stay the LAST user cost, lockstep BOTH lean models. -->
+        <user name="Brace Arm Inward" dim="1" user="0 0.0 0.0 500.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

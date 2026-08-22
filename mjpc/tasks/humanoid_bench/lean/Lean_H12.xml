@@ -428,6 +428,12 @@
         <user name="Left Foot Capture" dim="1" user="6 0.0 0.0 300.0 0.3"/>
         <!-- Brace Roll Level (2026-08-20 "design B") -- LOCKSTEP with Magpie model. -->
         <user name="Brace Roll Level" dim="1" user="0 0.0 0.0 300.0"/>
+        <!-- Brace Erect (2026-08-20) -- LOCKSTEP with Magpie model. -->
+        <user name="Brace Erect" dim="1" user="0 0.0 0.0 300.0"/>
+        <!-- Brace Reach Lead (2026-08-21) -- LOCKSTEP with Magpie model. -->
+        <user name="Brace Reach Lead" dim="1" user="0 0.0 0.0 400.0"/>
+        <!-- Brace Arm Inward (2026-08-21) -- LOCKSTEP with Magpie model. MUST stay LAST. -->
+        <user name="Brace Arm Inward" dim="1" user="0 0.0 0.0 500.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>

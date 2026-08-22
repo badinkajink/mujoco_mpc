@@ -3116,6 +3116,134 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = roll_res;
   }
 
+  // --- Brace Erect (dim 1, 2026-08-20) ---------------------------------------
+  // ACTIVE un-bow gradient for the RELEASE phase. Root cause of the release
+  // stall (real 24_4: 109 s grind to 26 deg; 24_5: full-open DUMPED at 31 deg ->
+  // bad push-off + 75 deg yaw scramble; 24_6: 33 deg dive barely walked to 29):
+  // the release POSTURE keyframe is a deep 54-deg hip-flex bow, and the
+  // pelvis-tilt erecting term goes FLAT (free bow up to 60 deg) whenever an arm
+  // is on the table -- which is the whole release. So release has NO spring
+  // pulling the torso up; it can only DRIFT the pitch down via pelvis-forward +
+  // base-height, and a deep dive (30-33 deg) outruns that drift. The pitch gate
+  // then either grinds forever or hits the full-open escape and releases from
+  // depth. This term restores a one-sided erecting gradient DURING RELEASE:
+  // penalise believed base pitch above `brace_erect_target` (rad), free at/below
+  // it, so the planner actively presses the counter push-off and walks the bow
+  // down to gate-safe INSTEAD of drifting-or-dumping. One-sided (max(0,.)) so it
+  // never pulls PAST the target into a backward tip (backward_tilt_gain still
+  // owns that side). Believed pitch is read from data->qpos EXACTLY as the
+  // release pitch gate reads it, so the erect target and the gate share a frame.
+  // Target sits just BELOW the gate (standback_pitch_release=0.42) so crossing
+  // the gate lies INSIDE the gradient, not at its dead edge. Gated to
+  // forearm_brace_release only; weight lives in JSON "Brace Erect" (0 elsewhere).
+  {
+    double erect_res = 0.0;
+    if (residual_keyframe_.name == "forearm_brace_release") {
+      const double *q = data->qpos;  // free-joint quat wxyz at [3..6]
+      double sinp = 2.0 * (q[3] * q[5] - q[6] * q[4]);
+      sinp = mju_clip(sinp, -1.0, 1.0);
+      double bpitch = std::asin(sinp);
+      int nbe = mj_name2id(model, mjOBJ_NUMERIC, "brace_erect_target");
+      double etgt = (nbe >= 0) ? model->numeric_data[model->numeric_adr[nbe]]
+                               : 0.38;  // rad ~ 21.8 deg, ~2 deg under the gate
+      erect_res = mju_max(0.0, bpitch - etgt);
+    }
+    residual[counter++] = erect_res;
+  }
+
+  // --- Brace Reach Lead (dim 1, 2026-08-21) -----------------------------------
+  // ANTI-BALLISTIC-LUNGE term for the DIVE. Real strat-24 data: the good stood
+  // runs (24_20/24_24/24_26) seat the CoM at base_x ~ +0.16 m with a transient
+  // overshoot to ~0.22-0.27 that SETTLES back; the faceplant runs (24_21/23/27/
+  // 28, again_3/4) let that forward excursion RUN AWAY to +0.30..+0.41 and never
+  // settle. The discriminator is NOT position alone (a good transient and a lunge
+  // overlap around 0.27-0.30) -- it is position RELATIVE TO BRACE LOAD: the good
+  // 0.27 happens WHILE the forearm presses; the lunge 0.35 happens with the arm
+  // still in the air (force ~0). This is exactly the load-limited-support-polygon
+  // idea the Balance residual already encodes -- but raising Balance to enforce it
+  // DEADLOCKED the seat (2026-08-21: Bal=30 starved the press, Bal=10 ground 200 s
+  // and fell), because Balance is a STRONG TWO-SIDED projection of the whole
+  // capture point: it penalises the CoM being anywhere but over the feet, which
+  // also forbids the forward commit REQUIRED to load the brace -> bootstrapping
+  // deadlock.
+  //
+  // This term avoids that failure by being STRICTLY ONE-SIDED and INERT below a
+  // load-scaled forward line: allow forward base-x up to `brace_lead_x0` for FREE
+  // (enough to reach the ~0.16 seat and start pressing -- zero force needed), then
+  // open the ceiling further by `brace_lead_gain * load_frac` as MEASURED brace
+  // force builds (load_frac = force/140 N, same divisor as the Balance polygon).
+  // penalty = max(0, base_x - (x0 + gain*load_frac)). Below the line it is exactly
+  // ZERO -- it never pulls the CoM back during a legitimate seat, so it CANNOT
+  // starve the press the way Balance did; it only bites the runaway forward
+  // excursion that outruns the load. Gated to forearm_brace_lean (the dive/seat
+  // lives entirely in that rung until the flat-verify gate advances); release does
+  // not lunge (base_x is already coming back < x0). base_x is data->qpos[0], the
+  // SAME frame the estimator feeds and the recording logs (seat ~0.16). Numerics
+  // brace_lead_x0 / brace_lead_gain are XML-tunable; weight = JSON "Brace Reach
+  // Lead". MUST stay the LAST user cost, lockstep BOTH lean XMLs, or residual
+  // counts desync.
+  {
+    double lead_res = 0.0;
+    if (is_forearm_brace) {
+      double bf = TableBraceForce(model, data, /*brace_left=*/reach_right);
+      double load_frac = mju_min(1.0, bf / 140.0);
+      int nx0 = mj_name2id(model, mjOBJ_NUMERIC, "brace_lead_x0");
+      int ngn = mj_name2id(model, mjOBJ_NUMERIC, "brace_lead_gain");
+      double x0 = (nx0 >= 0) ? model->numeric_data[model->numeric_adr[nx0]]
+                             : 0.20;  // m, forward base-x free without any load
+      double gain = (ngn >= 0) ? model->numeric_data[model->numeric_adr[ngn]]
+                               : 0.10;  // m of extra reach per unit load_frac
+      double x_allow = x0 + gain * load_frac;
+      lead_res = mju_max(0.0, data->qpos[0] - x_allow);
+    }
+    residual[counter++] = lead_res;
+  }
+
+  // --- Brace Arm Inward (dim 1, 2026-08-21) -----------------------------------
+  // FORCE the bracing arm INWARD -- the root fix for the ballistic lurch. Real
+  // data (08-20 vs 08-21): when the planner commands the bracing shoulder roll
+  // INWARD (~-0.20, arm adducted, strut points BACK along the fall) the dive is
+  // CONTAINED (peak base_x ~0.24, no lurch, clean seat); when it SPLAYS the
+  // shoulder outward (~-0.05..+0.08, strut points SIDEWAYS) the same fall
+  // over-runs to base_x 0.30-0.41 (lurch) AND rolls out. The brace arm is a
+  // strut: its ability to arrest the forward-falling CoM is the BACKWARD
+  // projection of its force, which collapses as the arm rotates out. So the
+  // inward pose isn't cosmetic -- it sets the catch CAPACITY.
+  //
+  // The brace keyframe already TARGETS inward (Posture pulls left_shoulder_roll
+  // toward its key), but Posture (w~60) is a WEAK soft target and the Brace Pos
+  // cost (reach the hand to the table, w up to 700) dominates the shoulder --
+  // among the many redundant arm poses that all reach the table, the optimizer
+  // freely picks inward OR splayed (CEM-stochastic), so the good pose is a
+  // coin-flip (73% inward on 08-20, crashed to ~14% on 08-21). Proof it's a soft
+  // target the optimizer overrides: biasing the keyframe to -0.18 still yielded
+  // an ACHIEVED -0.054. This term removes that freedom: a ONE-SIDED penalty on
+  // the bracing shoulder roll being more OUTWARD than `brace_inward_target`, so
+  // splaying to reach the table becomes EXPENSIVE and the optimizer is forced to
+  // reach it with an inward arm (which the good runs prove is reachable). The
+  // arm still ADAPTS its reach to hit the real table -- it just cannot splay to
+  // do it. One-sided (max(0,.)) so tucking MORE inward than the target is free
+  // (never fights a naturally deeper tuck). Gated to forearm_brace_lean (the
+  // dive/seat, where the pose is set + the lurch happens) and reach_right (LEFT
+  // arm braces -> left_shoulder_roll, inward = NEGATIVE). Weight = JSON "Brace
+  // Arm Inward"; target = numeric brace_inward_target (rad, default -0.15, just
+  // outward of the good -0.19 so the good pose is penalty-free). MUST stay the
+  // LAST user cost, lockstep BOTH lean XMLs, or residual counts desync.
+  {
+    double inward_res = 0.0;
+    if (is_forearm_brace && reach_right) {  // LEFT arm braces
+      int jid = mj_name2id(model, mjOBJ_JOINT, "left_shoulder_roll_joint");
+      if (jid >= 0) {
+        double roll = data->qpos[model->jnt_qposadr[jid]];  // inward = negative
+        int nit = mj_name2id(model, mjOBJ_NUMERIC, "brace_inward_target");
+        double itgt = (nit >= 0) ? model->numeric_data[model->numeric_adr[nit]]
+                                 : -0.15;  // rad; free at/inward of this
+        inward_res = mju_max(0.0, roll - itgt);  // penalise OUTWARD (roll > tgt)
+      }
+    }
+    residual[counter++] = inward_res;
+  }
+
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
   // // Check if we have elbow sensors (indicates H12_Hands model)
   // bool has_elbow_sensors = false;
