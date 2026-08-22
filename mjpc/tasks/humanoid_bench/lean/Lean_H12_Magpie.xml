@@ -467,7 +467,7 @@
         <numeric name="brace_flat_engage" data="0.25"/>
         <!-- brace_roll_tol (2026-08-20 "design B", rad; deadband for the new
              Brace Roll Level term. 0.06 ~ 3.4 deg of free torso roll). -->
-        <numeric name="brace_roll_tol" data="0.06"/>
+        <numeric name="brace_roll_tol" data="0.03"/>
         <!-- ★★★ brace_flat_target (2026-08-14, rad; 0 = OFF = old |elev|->0).
              The LEGAL BAND for this arm+gripper on a 0.985 m slab is
              elevation 0.0 .. +9.4 deg (forearm-borne AND hand-clear AND inside

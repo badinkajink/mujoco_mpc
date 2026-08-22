@@ -3100,8 +3100,22 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // the whole approach. Deadband `brace_roll_tol` (rad, default 0.06 ~ 3.4 deg)
   // keeps the natural brace pose free; weight = JSON "Brace Roll Level".
   {
+    // ★ 2026-08-21 ROLL-LEVELING EXTENDED TO THE PUSH-OFF. Originally gated to
+    // forearm_brace_lean (is_forearm_brace) only; but the standback un-bow is
+    // laterally marginal (real 24_18 left, 24_20 right) -- a tall, rising body
+    // with the right arm unloading tips sideways, and NOTHING held the torso
+    // ROLL level there (Lateral Center steers CoM y, which the design found HURTS
+    // the standback; this is the roll ANGLE, a different lever). Fire the same
+    // gravity-in-torso roll residual through release + standback_r1..r4 too, so
+    // the un-bow stays level the way the dive now does. Weight lives per-phase in
+    // JSON "Brace Roll Level" (0 in the rungs => inert until set).
     double roll_res = 0.0;
-    if (is_forearm_brace) {
+    const std::string &kfn_roll = residual_keyframe_.name;
+    bool roll_level_active =
+        is_forearm_brace || kfn_roll == "forearm_brace_release" ||
+        kfn_roll == "standback_r1" || kfn_roll == "standback_r2" ||
+        kfn_roll == "standback_r3" || kfn_roll == "standback_r4";
+    if (roll_level_active) {
       int b_to_r = mj_name2id(model, mjOBJ_BODY, "torso_link");
       if (b_to_r >= 0) {
         double const *R = data->xmat + 9 * b_to_r;
