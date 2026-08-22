@@ -67,6 +67,15 @@
              forward torso motion jammed them into the near edge (operator had to lift the
              arms over the table by hand on real runs 12-14). -0.16 rad lifts the lowest
              hand point to +60 mm over the tabletop; CoM moves 3 mm. -->
+        <!-- hip_pitch L/R -0.36 -> -0.31 (2026-08-20): the stand pose parked the
+             CoM behind the feet, so the free stand slowly leaned BACKWARD (real
+             24_9 terminal: CoM slid 14 cm behind midfoot over 30 s, base pitch
+             +5 -> -4 deg, user estopped). FK: reducing hip flexion moves CoM
+             forward (~+2.7 cm at -0.32; ankle is ~0 lever). Capped at -0.32 so
+             the nominal CoM lands ~+0.082 m = ~1.3 cm inside the front support edge
+             (+0.095) -- more (e.g. -0.26 -> +0.123) tips FORWARD. Knee/ankle
+             unchanged. NOTE: static bias alone can't fully cancel a 14 cm dynamic
+             drift; this re-centers the drift range off the back edge. -->
         <key name="stand_up" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <!-- ★ 2026-08-18 standback_r4: post-recovery RIGHT-ARM CLEAR station.
              After the stand-back the right arm hangs low/under the tabletop; the
@@ -75,6 +84,13 @@
              reversed: tuck the arm BACK (shP +0.45, elbow -0.90 = the wp1 arm) so
              it exits under the table rearward through free space, then the final
              stand_up brings it home from BEHIND. Body = the stand pose.  -->
+        <!-- right_shoulder_pitch: original +0.45 (=+25.8 deg) tipped the body back;
+             -0.16 (forward) removed the up-and-back bringup the user relies on to
+             clear the table. Compromise +0.30 (=+17 deg, 2026-08-20): a clear
+             backward/up bringup for table clearance, ~2/3 of the original so less
+             backward CoM impulse. NOTE: the terminal backward LEAN is a dynamic
+             drift, NOT this arm (24_10 fell back with r4 at -0.16). Elbow (-0.90)
+             left as-is. -->
         <key name="standback_r4" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.90 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <key name="stand"    qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <!-- straighten (strategy 25, pre-stand bring-up): CoM-CENTERED stand pose (hip
