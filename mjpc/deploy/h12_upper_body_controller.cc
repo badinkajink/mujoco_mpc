@@ -104,8 +104,8 @@ constexpr int kNU = 15;  // UPPER-BODY controller: torso + left arm (7) + right
 // byte-identical to the P6.2 precision-gate model. (The FrameTask's stiffer
 // debug.yaml gains -- shoulder 200-240 -- are a real-robot A/B lever, NOT the
 // default: changing kp changes the gate-tested plant model.)
-const double KP[kNU] = {200,  40, 40, 40, 40, 40, 40, 40,
-                              40, 40, 40, 40, 40, 40, 40};
+const double KP[kNU] = {200,  90, 40, 40, 90, 40, 40, 40,
+                              90, 40, 40, 90, 40, 40, 40};
 const double KV[kNU] = {5,    10, 10, 10, 10, 2, 2, 2,
                               10, 10, 10, 10, 2, 2, 2};
 // SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit),

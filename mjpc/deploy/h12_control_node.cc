@@ -232,8 +232,40 @@ constexpr int kNU = 27;  // actuated joints on the handless H1-2
 // reach_target are both correct. Doubling halves the droop; the H2 torque
 // clamp (0.9*32 = 28.8 Nm at the shoulder) still bounds what can be emitted.
 // MUST stay == the planner model's arm <position> kp (PatchActuators parity).
+// ELBOW KP RAISED 2026-08-21 (elbow 40->90, both arms, idx 16/23): the bracing
+// forearm is a load-bearing STRUT, but at kp=40 the brace reaction back-drives
+// the elbow -- it takes 0.32 rad of sag before the PD makes its max holding
+// torque, so a marginally harder dive-landing BUCKLES the elbow (real again_30/
+// 31/32 elbow flexed 35-55deg -> torso folds forward onto the table, base_x runs
+// to 0.42) while the gentle landings (25/29, elbow rigid) seat clean at 0.23.
+// At kp=90 the elbow reaches max torque at 0.14 rad -> catches the sag before
+// runaway = rigid strut = consistent contained commit. Torque ceiling UNCHANGED
+// (estop clamp 0.9*14.4=13Nm; kp=90 hits it sooner, never exceeds). Matches the
+// 08-08 arm-kp raise rationale (droop under --gravity_ff 0). Both arms for
+// parity; only the left (bracing) arm is loaded.
+// SHOULDER-PITCH KP RAISED 2026-08-22 (60->90, both arms, idx 13/20): with the
+// elbow at kp90 tracking cleanly (err 0.10, tau 6 of 13), the buckle-fail moved
+// UPSTREAM: the SHOULDER PITCH is the joint the brace moment binds (joint-load
+// ledger 08-01). again_45: shoulder sagged 0.19->0.27 rad below cmd as the
+// post-seat load ramped (~6-10 s), sag grows the moment arm (self-feeding), the
+// planner (frc-parity, knows the clamp) then COMMANDS the elbow fold as its
+// feasible re-plan, and post-fold shoulder tau pins at -28.3 ~= the 0.9*32=28.8
+// clamp = out of authority. Clean runs (46) survive the same fight: err peaks
+// 0.36 @ 13.4 Nm then RECOVERS. kp90 fights the sag at 0.2 rad instead of
+// letting it reach 0.36 -> stays in the recovering regime. Clamp unchanged.
+// REVERTED 2026-08-22 00:40 (90->60) for a sanity A/B: at shoulder kp90 the
+// planner settled the arm in a mild elbow flex (-0.36..-0.55) that keeps the
+// lean keyframe distance above the 0.3 advance tolerance -> 47b held a PERFECT
+// brace 90 s and NEVER advanced (47a advanced 60 s late). Reverting tests
+// whether the advance returns (and whether the fold coin-flip returns with it).
+// Alternative kept in mind: kp90 + lean target_distance_tolerance 0.3->0.4.
+// A/B COMPLETE, RE-APPLIED 2026-08-22 00:45 (60->90 FINAL): the kp60 sanity run
+// reproduced the fold in the exact script (sag err +0.34 @ t63 -> planner
+// commands elbow fold t66 -> x 0.15->0.30, stuck). kp90 runs never fold but
+// settle elbow -0.4, so the PAIRED fix is kp90 + lean tolerance 0.3->0.4
+// (JSON). Both proven separately; shipped together.
 const double KP[kNU] = {150, 200, 200, 200, 200, 80,  150, 200, 200, 200, 200, 80,  200,
-                        60, 60, 40, 40, 15, 15, 15,   60, 60, 40, 40, 15, 15, 15};
+                        90, 60, 40, 90, 15, 15, 15,   90, 60, 40, 90, 15, 15, 15};
 const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
                         10, 10, 10, 10, 2, 2, 2,  10, 10, 10, 10, 2, 2, 2};
 // SAFETY-LAYER TAU-ESTOP thresholds (estop torque_ratio x URDF torque limit, from
