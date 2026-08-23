@@ -77,6 +77,14 @@ ABSL_FLAG(int, dump_stride, 1,
           "28 MB per 20 s rollout; 5 (100 Hz) resolves contact make/break just "
           "as well and every consumer subsamples anyway.");
 
+ABSL_FLAG(std::string, disturb, "",
+          "Apply an UNMODELLED external force pulse to one body: "
+          "\"body=NAME,force=fx|fy|fz,t0=SEC,dur=SEC[,period=SEC][,n=COUNT]\". "
+          "Written to xfrc_applied after the planner has already snapshotted "
+          "the state, so the push is a genuine disturbance rather than "
+          "something the controller can plan around. Echoed into --dump_traj "
+          "as dfx,dfy,dfz. Empty (default) applies nothing.");
+
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   std::string task_name = absl::GetFlag(FLAGS_task);
@@ -93,7 +101,8 @@ int main(int argc, char** argv) {
       dump_residual_steps, dump_perturb, dump_traj, start_key,
       absl::GetFlag(FLAGS_strategy), absl::GetFlag(FLAGS_start_qpos),
       absl::GetFlag(FLAGS_phase_schedule), absl::GetFlag(FLAGS_weights),
-      absl::GetFlag(FLAGS_numeric), absl::GetFlag(FLAGS_dump_stride));
+      absl::GetFlag(FLAGS_numeric), absl::GetFlag(FLAGS_dump_stride),
+      absl::GetFlag(FLAGS_disturb));
   if (cost < 0) {
     return -1;
   }

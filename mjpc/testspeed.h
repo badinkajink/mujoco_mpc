@@ -76,6 +76,19 @@ namespace mjpc {
 // sampling_spline_points, n_elite) can still be changed -- the planners read
 // them in Initialize(). S12 §9 warned that sweeping the costs without sweeping
 // the search attributes the result to the wrong knob; this is the other knob.
+// `disturb`, if non-empty, applies an UNMODELLED external force pulse to one
+// body during the rollout: "body=NAME,force=fx|fy|fz,t0=SEC,dur=SEC[,period=SEC]
+// [,n=COUNT]". It is written to data->xfrc_applied immediately before mj_step,
+// i.e. AFTER agent.state.Set() has already snapshotted the state the planner
+// will think about. xfrc_applied is not part of mjpc::State, so the planner's
+// rollouts never see the push and cannot pre-compensate for it -- the controller
+// meets the disturbance the way the real robot would, as an unannounced shove.
+// That is the whole point: a push the planner models is a tracking test, not a
+// robustness test. The applied force is echoed into the --dump_traj CSV as
+// dfx,dfy,dfz so a scorer can locate the pulse windows without re-deriving the
+// schedule. Empty (the default) writes nothing and leaves every other run
+// bit-for-bit unchanged.
+//
 double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                int steps_per_planning_iteration,
                                double total_time,
@@ -88,7 +101,8 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                std::string phase_schedule = "",
                                std::string weights = "",
                                std::string numerics = "",
-                               int dump_stride = 1);
+                               int dump_stride = 1,
+                               std::string disturb = "");
 }  // namespace mjpc
 
 #endif  // MJPC_MJPC_TESTSPEED_H_

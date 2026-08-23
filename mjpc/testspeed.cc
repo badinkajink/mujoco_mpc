@@ -113,6 +113,90 @@ bool ParseAssignments(const std::string& spec,
   return !out->empty();
 }
 
+// An unmodelled external force pulse train applied to one body. See the comment
+// on `disturb` in testspeed.h for why the planner is deliberately kept blind to
+// it. Defaults: a single pulse (n = 1), no repeat.
+struct Disturbance {
+  int body = -1;
+  double f[3] = {0, 0, 0};
+  double t0 = 0.0, dur = 0.0, period = 0.0;
+  int n = 1;
+
+  // Is a pulse active at time t? Pulses are [t0 + k*period, + dur).
+  bool Active(double t) const {
+    if (body < 0 || dur <= 0.0) return false;
+    for (int k = 0; k < n; k++) {
+      const double s = t0 + k * period;
+      if (t >= s && t < s + dur) return true;
+      if (period <= 0.0) break;
+    }
+    return false;
+  }
+};
+
+// Parse the --disturb spec. Reuses ParseAssignments for the numeric keys, but
+// `body` is a name, so it is lifted out first. Every key is validated: a typo
+// that silently applied no force would look exactly like a robust controller,
+// which is the one failure this measurement must not have.
+bool ParseDisturb(const std::string& spec, const mjModel* model,
+                  Disturbance* out) {
+  std::string rest;
+  std::string body_name;
+  size_t i = 0;
+  while (i < spec.size()) {
+    size_t comma = spec.find(',', i);
+    if (comma == std::string::npos) comma = spec.size();
+    const std::string item = spec.substr(i, comma - i);
+    if (item.rfind("body=", 0) == 0) {
+      body_name = item.substr(5);
+    } else {
+      if (!rest.empty()) rest += ",";
+      rest += item;
+    }
+    i = comma + 1;
+  }
+  if (body_name.empty()) {
+    std::cerr << "--disturb: missing body=NAME\n";
+    return false;
+  }
+  out->body = mj_name2id(model, mjOBJ_BODY, body_name.c_str());
+  if (out->body < 0) {
+    std::cerr << "--disturb: no body named '" << body_name << "'\n";
+    return false;
+  }
+  std::vector<std::pair<std::string, std::vector<double>>> kv;
+  if (!rest.empty() && !ParseAssignments(rest, &kv)) {
+    std::cerr << "--disturb: malformed spec '" << spec << "'\n";
+    return false;
+  }
+  for (const auto& [name, v] : kv) {
+    if (name == "force") {
+      if (v.size() != 3) {
+        std::cerr << "--disturb: force needs 3 components, got " << v.size()
+                  << "\n";
+        return false;
+      }
+      for (int k = 0; k < 3; k++) out->f[k] = v[k];
+    } else if (name == "t0" && v.size() == 1) {
+      out->t0 = v[0];
+    } else if (name == "dur" && v.size() == 1) {
+      out->dur = v[0];
+    } else if (name == "period" && v.size() == 1) {
+      out->period = v[0];
+    } else if (name == "n" && v.size() == 1) {
+      out->n = static_cast<int>(v[0]);
+    } else {
+      std::cerr << "--disturb: unknown or malformed key '" << name << "'\n";
+      return false;
+    }
+  }
+  if (out->dur <= 0.0) {
+    std::cerr << "--disturb: dur must be > 0\n";
+    return false;
+  }
+  return true;
+}
+
 // Print every mjSENS_USER residual SCALAR of `data->sensordata`, in sensor
 // declaration order, as `idx<TAB>name[off]<TAB>value` at full %.17g precision.
 // `idx` is the scalar's position in the task residual vector (a running counter
@@ -183,7 +267,8 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
                                std::string phase_schedule,
                                std::string weights,
                                std::string numerics,
-                               int dump_stride) {
+                               int dump_stride,
+                               std::string disturb) {
   std::cout << "Test MJPC Speed: " << task_name << "\n";
   std::cout << " MuJoCo version " << mj_versionString() << "\n";
   if (mjVERSION_HEADER != mj_version()) {
@@ -360,6 +445,18 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     std::cout << "\n";
   }
 
+  Disturbance dist;
+  if (!disturb.empty()) {
+    if (!ParseDisturb(disturb, model, &dist)) {
+      mj_deleteData(data);
+      return -1;
+    }
+    std::cout << " disturb: body=" << mj_id2name(model, mjOBJ_BODY, dist.body)
+              << " force=(" << dist.f[0] << "," << dist.f[1] << ","
+              << dist.f[2] << ") N  t0=" << dist.t0 << " dur=" << dist.dur
+              << " period=" << dist.period << " n=" << dist.n << "\n";
+  }
+
   std::cout << " Planning threads:  " << planner_thread_count << "\n";
   ThreadPool pool(planner_thread_count);
 
@@ -419,7 +516,10 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     // `phase` is the commanded phase parameter, not an observation of it. Under
     // --phase_schedule they are the same thing (manual mode pins the keyframe);
     // without it the column reads the XML default and says nothing.
-    std::fprintf(traj, ",phase\n");
+    // The applied disturbance, echoed so a scorer can find the pulse windows
+    // without re-deriving the schedule from the command line. All zero when
+    // --disturb is unset.
+    std::fprintf(traj, ",phase,dfx,dfy,dfz\n");
   }
 
   int total_steps = ceil(total_time / model->opt.timestep);
@@ -443,6 +543,19 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
     agent.ActivePlanner().ActionFromPolicy(
         data->ctrl, agent.state.state().data(),
         agent.state.time(), /*use_previous=*/false);
+
+    // The push goes on here and nowhere earlier: agent.state.Set() above has
+    // already captured the state, so the planner plans against a world with no
+    // disturbance in it and the controller has to reject the push reactively.
+    // Cleared and rewritten every step so a pulse ends exactly when it should.
+    if (dist.body >= 0) {
+      mju_zero(data->xfrc_applied + 6 * dist.body, 6);
+      if (dist.Active(data->time)) {
+        for (int j = 0; j < 3; j++)
+          data->xfrc_applied[6 * dist.body + j] = dist.f[j];
+      }
+    }
+
     mj_step(model, data);
     double cost = agent.ActiveTask()->CostValue(data->sensordata);
     total_cost += cost;
@@ -464,8 +577,12 @@ double SynchronousPlanningCost(std::string task_name, int planner_thread_count,
         std::fprintf(traj, ",%.17g", data->ctrl[j]);
       for (int j = 0; j < model->nu; j++)
         std::fprintf(traj, ",%.17g", data->actuator_force[j]);
-      std::fprintf(traj, ",%.17g\n",
+      std::fprintf(traj, ",%.17g", 
                    task->parameters.size() > 2 ? task->parameters[2] : -1.0);
+      const double* xf =
+          dist.body >= 0 ? data->xfrc_applied + 6 * dist.body : nullptr;
+      std::fprintf(traj, ",%.17g,%.17g,%.17g\n", xf ? xf[0] : 0.0,
+                   xf ? xf[1] : 0.0, xf ? xf[2] : 0.0);
       std::fflush(traj);
     }
 
