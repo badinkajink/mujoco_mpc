@@ -73,12 +73,23 @@ class ContactKeyframe {
   // Positive = use this exact target in the Brace Force residual.
   mjtNum brace_force_target;
 
+  // ★ 2026-08-22 TARGET PHASE (lean strat 25 "h12_brace_targeting"): when this
+  // holds exactly 3 numbers [depth_in_from_near_edge, lateral_right_of_center,
+  // height_above_face] (metres, TABLE frame), the lean task treats the phase as
+  // a right-arm TARGET HOVER: the reach target is built from the table geom at
+  // these offsets (+ the `target_col_y` numeric added to lateral), the right
+  // arm is masked out of Posture, and phase advance switches to gripper-vs-
+  // target distance (so target_distance_tolerance/success_sustain_time mean
+  // "hand within tol for T s"). Empty (default) = normal phase, byte-identical.
+  std::vector<mjtNum> reach_target_table;
+
   ContactKeyframe()
       : name(""),
         contact_pairs{},
         facing_target(),
         weight(),
         brace_force_target(-1.),
+        reach_target_table(),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1),

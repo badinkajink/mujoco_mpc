@@ -46,6 +46,7 @@ void ContactKeyframe::Reset() {
   facing_target.clear();
   weight.clear();
   brace_force_target = -1.;
+  reach_target_table.clear();
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -75,7 +76,8 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"target_distance_tolerance", keyframe.target_distance_tolerance},
            {"weight", keyframe.weight},
            {"brace_force_target", keyframe.brace_force_target},
-           {"target_ramp_sec", keyframe.target_ramp_sec}};
+           {"target_ramp_sec", keyframe.target_ramp_sec},
+           {"reach_target_table", keyframe.reach_target_table}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -89,5 +91,8 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   // Optional fields — older strategy JSONs without them get the sentinel -1.
   keyframe.brace_force_target = j.value("brace_force_target", -1.);
   keyframe.target_ramp_sec = j.value("target_ramp_sec", -1.);
+  // ★ 2026-08-22 target-phase field (lean strat 25); absent = empty = normal.
+  keyframe.reach_target_table =
+      j.value("reach_target_table", std::vector<mjtNum>());
 }
 }  // namespace mjpc::humanoid
