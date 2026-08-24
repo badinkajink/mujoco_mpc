@@ -404,6 +404,28 @@ void LeanSimple::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // Measured need: at Table Keepout = 200 (one shared term), the far-target
   // rollout finished with the `torso` box on the slab in 309 of 309 sampled
   // frames and the `hip` capsule in 260.
+  //
+  // ★ MEASURED CEILING (2026-08-23) -- READ THIS BEFORE QUOTING A TRUNK-CONTACT
+  // RATE OUT OF THIS TASK. The residual is `max(0, K - gap)` and a rigid slab
+  // clamps gap at ~0, so the term is BOUNDED at K = 0.05: the whole cost of
+  // lying on the table is weight*K = 1500*0.05 = 75 units and it cannot grow.
+  // It is therefore BLIND TO LOAD -- a 0 N brush and a 402 N chest-load score
+  // identically. Against `Reach` (weight 400, same norm) 75 units is 187 mm, so
+  // a torso pitch that gains ~19 cm of hand travel PAYS FOR lying on the table.
+  // The planner takes that trade: at the hardware's reach target, 12 of 16
+  // braced rollouts finish with the chest on the slab, carrying 68-402 N
+  // (median 150 N = 23% of body weight), nothing falls, and the rest buys NO
+  // accuracy -- settled reach error 8.6 mm resting vs 7.5 mm clean. Clean runs
+  // park at +43 mm, 7 mm inside the shoulder at +50 mm where the residual goes
+  // to zero. The term does exactly what it is written to do, and then stops
+  // caring. Hardware at the same target rested on 2 of 15 runs, both failures.
+  //
+  // The fix, if it is ever wanted, is to charge the CONTACT NORMAL IN NEWTONS
+  // rather than the gap -- sum `mj_contactForce` over contacts pairing
+  // kTrunkBodies with the `table` body, keeping a scaled proximity ramp so the
+  // band still has a gradient. That is unbounded and load-aware. NOT DONE HERE:
+  // it re-costs every rollout the study has published and so needs its own
+  // re-run rather than a quiet change under the existing numbers.
   residual[counter++] = std::max(0.0, kKeepoutClearance - keep_gap[3]);
 
   // ---- 5: reach ---------------------------------------------------------- //
