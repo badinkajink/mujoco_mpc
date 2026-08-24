@@ -539,6 +539,14 @@
              reach); less negative = weaker. Weight lives in JSON "Brace Arm
              Inward". LEFT arm braces -> left_shoulder_roll, inward = NEGATIVE. -->
         <numeric name="brace_inward_target" data="-0.15"/>
+        <!-- ★ 2026-08-22 target_col_y (strat 25 h12_brace_targeting, m): lateral
+             offset ADDED to every target phase's reach_target_table[1]
+             (right-of-centerline). One strategy JSON encodes column A
+             (lateral 0.04); the operator sets this to 0 / 0.12 / 0.24 between
+             runs to select column A / B / C of the 3x3 grid. Absent/0 = col A.
+             Ignored entirely unless the active phase carries
+             reach_target_table (strat <=24 byte-identical). -->
+        <numeric name="target_col_y" data="0.12"/>
         <!-- brace_flat_gate_lo (rad, >0): max allowed NEGATIVE elevation for
              contact to certify. Negative = gripper-first = illegal hand-brace
              and the stall pose. 0.05 rad = -2.9 deg of noise headroom. -->

@@ -568,6 +568,35 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     brace_air_target[1] = object_pos[1];
     brace_air_target[2] = table_face_z + 0.30;  // ~30 cm above the table FACE
                                                // (was the geom CENTRE = 245 mm)
+    // ★ 2026-08-22 TARGET PHASE (strat 25 h12_brace_targeting): when the active
+    // phase carries `reach_target_table` = [depth_in_from_near_edge,
+    // lateral_right_of_centerline, height_above_face] (m, TABLE frame), build
+    // the hover target from the table_top geom at those offsets instead of the
+    // mocap object. `target_col_y` (numeric, default 0) ADDS to lateral so one
+    // JSON serves all grid columns (operator sets the numeric between runs).
+    // Frame note: the planner world is table-anchored through the tag-bridge
+    // aux odometry, and the model table is axis-aligned, so near-edge x =
+    // center - half_depth and RIGHT of centerline = -y. Empty field =
+    // byte-identical. Clamp + fwd cap below are DIVE-ONLY (skipped when this
+    // field is set): they exist so a far mocap object cannot recruit the
+    // base; on a hover they rewrite A3 into a 0.46 m shoulder-sphere point
+    // and the 5 cm advance ball never fills (real 045411: hand parked at
+    // x≈0.65 / z≈1.33 instead of the table point).
+    if (residual_keyframe_.reach_target_table.size() == 3) {
+      int tg25 = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+      if (tg25 >= 0) {
+        const double* tc25 = data->geom_xpos + 3 * tg25;
+        double half_depth25 = model->geom_size[3 * tg25 + 0];
+        double face25 = tc25[2] + model->geom_size[3 * tg25 + 2];
+        int cy25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
+        double col_y = (cy25 >= 0)
+            ? model->numeric_data[model->numeric_adr[cy25]] : 0.0;
+        const auto& rtt = residual_keyframe_.reach_target_table;
+        brace_air_target[0] = tc25[0] - half_depth25 + rtt[0];
+        brace_air_target[1] = tc25[1] - (rtt[1] + col_y);
+        brace_air_target[2] = face25 + rtt[2];
+      }
+    }
     // ★ 2026-08-17 BODY-ANCHORED REACH CLAMP (`reach_body_clamp` numeric,
     // 0/absent = OFF = byte-identical). The ladder's reach target is a WORLD
     // point FK'd from the NOMINAL braced pose; real braces yaw-walk 10-20 deg
@@ -584,7 +613,8 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // (No reach_drop lift-cap here: the +0.30 air height is deliberate and
     // the side-swing arc owns the approach geometry.)
     int nbc = mj_name2id(model, mjOBJ_NUMERIC, "reach_body_clamp");
-    if (nbc >= 0 && model->numeric_data[model->numeric_adr[nbc]] > 0.0) {
+    if (residual_keyframe_.reach_target_table.size() != 3 &&
+        nbc >= 0 && model->numeric_data[model->numeric_adr[nbc]] > 0.0) {
       double sl = reach_right ? -0.148 : 0.148;
       double sh[3] = {torso_pos[0] + sl * heading_lft[0],
                       torso_pos[1] + sl * heading_lft[1],
@@ -615,7 +645,7 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int nfc = mj_name2id(model, mjOBJ_NUMERIC, "reach_fwd_cap");
     double fcap = (nfc >= 0)
         ? model->numeric_data[model->numeric_adr[nfc]] : 0.0;
-    if (fcap > 0.0) {
+    if (residual_keyframe_.reach_target_table.size() != 3 && fcap > 0.0) {
       double e = (brace_air_target[0] - torso_pos[0]) * heading_fwd[0] +
                  (brace_air_target[1] - torso_pos[1]) * heading_fwd[1];
       if (e > fcap) {
@@ -1514,6 +1544,21 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       leg_gain = GetNumberOrDefault(6.0, model, "crouch_leg_extension_gain");
     for (int li : {1, 3, 7, 9}) residual[counter + li] *= leg_gain;
   }
+  // ★ 2026-08-22 TARGET-PHASE RIGHT-ARM POSTURE MASK (strat 25): during a
+  // target-hover phase (reach_target_table set) the RIGHT arm belongs to the
+  // Reaching Hand Dist cost ALONE — Posture pulling it back toward the lean
+  // keyframe's bring-up pose would add a permanent hover bias (offset ~
+  // posture_w/reach_w) that directly corrupts the precision measurement. Zero
+  // ONLY the right-arm entries (actuators 20..26); left arm, legs, torso and
+  // every brace/balance term stay byte-identical to forearm_brace_lean.
+  // ★ 2026-08-22b: mask SHOULDER+ELBOW ONLY (20..23). Freeing the wrists
+  // (24..26) made gripper orientation cost-free and the planner pointed the
+  // gripper straight UP to lift the 17 cm wrist-yaw site toward a high target
+  // (real 25_18, tips-up all run). Wrists stay under Posture so the gripper
+  // holds the keyframe orientation and the site rides at the jaw as intended.
+  if (residual_keyframe_.reach_target_table.size() == 3) {
+    for (int ai = 20; ai <= 23; ai++) residual[counter + ai] = 0.0;
+  }
   // PIN THE NON-REACHING ARM (strat 21, 2026-06-23). The reach keeps GLOBAL
   // Posture LOW (12) on purpose so the REACHING arm is free to extend (line ~75,
   // the jab lesson: a high Posture parks a limb at rest). But that ALSO leaves the
@@ -1869,8 +1914,15 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         is_forearm_brace ||
         residual_keyframe_.name == "forearm_brace_mid" ||
         residual_keyframe_.name == "forearm_brace_reach";
+    // ★ 2026-08-22 TARGET PHASES BYPASS THE VIA (strat 25): the side-swing arc
+    // exists to keep the DIVING hand off the slab front edge; a hover target is
+    // INTERIOR and only +0.05 ABOVE the surface, but the braced hand rides at
+    // z≈1.05 < surf+0.10, so the via engaged PERMANENTLY and replaced the
+    // hover target every step (twin smoke run00: hand chased [x,-0.52,1.19],
+    // never converged, gripper jaw ground the slab at 970 N). The straight
+    // pull climbs to the hover point fine. Dive/lean keeps the via unchanged.
     if (ss >= 0 && model->numeric_data[model->numeric_adr[ss]] > 0.0 &&
-        swing_phase) {
+        swing_phase && residual_keyframe_.reach_target_table.size() != 3) {
       int tg = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
       if (tg < 0) tg = mj_name2id(model, mjOBJ_GEOM, "table_top");
       if (tg >= 0 && std::isfinite(table_near_edge_x)) {
@@ -1900,6 +1952,24 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
           reach_target = via_storage;
         }
       }
+    }
+  }
+  // ★ 2026-08-23 TIP TARGETING (strat-25 precision): when a phase carries
+  // reach_target_table, drive the physical GRIPPER JAW TIP, not the wrist
+  // `right_hand` site. The tip sits 55 mm beyond the site along the hand
+  // axis (verified vs the tag-30 calibration: tag->tip 10.4 cm, tag->site
+  // ~4 cm), so site-on-target parked the tip ~5 cm PAST the target — the
+  // "past B3" every precision run showed. Local tip point in the
+  // right_magpie_gripper body frame measured from right_gripper_jaw_a's far
+  // corner at qpos0. No XML/sensor change (the h1_2 model is patch-generated).
+  double tip_storage[3];
+  if (residual_keyframe_.reach_target_table.size() == 3) {
+    int gtb = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
+    if (gtb >= 0) {
+      const double tip_local[3] = {0.2254, -0.0118, -0.1062};
+      mju_mulMatVec3(tip_storage, data->xmat + 9 * gtb, tip_local);
+      mju_addTo3(tip_storage, data->xpos + 3 * gtb);
+      reaching_hand = tip_storage;
     }
   }
   double reach_err[3];
@@ -3791,9 +3861,66 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
   } else {
     const mjpc::humanoid::ContactKeyframe& current_kf =
         motion_strategy_.GetCurrentKeyframe();
-    const double total_distance =
+    double total_distance =
         motion_strategy_.CalculateTotalKeyframeDistance(
             data, mjpc::humanoid::ContactKeyframeErrorType::kNorm);
+    // ★ 2026-08-22 TARGET-PHASE ADVANCE (strat 25): a hover phase succeeds when
+    // the GRIPPER is on the commanded table point, not when the joints match the
+    // (shared lean) keyframe — the hovering arm legitimately sits far from the
+    // keyframe pose, which would block the keyframe-distance gate forever (the
+    // 47b failure mode, by design this time). Replace the distance with
+    // ||right_hand − target_world|| built EXACTLY like the residual-side target
+    // (table_top geom + reach_target_table + target_col_y), so the tolerance
+    // (0.05) + sustain (6 s) machinery below works unchanged. The brace-contact
+    // verify and yaw gate still guard the advance. Empty field = byte-identical.
+    if (current_kf.reach_target_table.size() == 3) {
+      int tg25 = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+      int hs25 = mj_name2id(model, mjOBJ_SITE, "right_hand");
+      if (tg25 >= 0 && hs25 >= 0) {
+        const double* tc25 = data->geom_xpos + 3 * tg25;
+        double half_depth25 = model->geom_size[3 * tg25 + 0];
+        double face25 = tc25[2] + model->geom_size[3 * tg25 + 2];
+        int cy25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
+        double col_y = (cy25 >= 0)
+            ? model->numeric_data[model->numeric_adr[cy25]] : 0.0;
+        const auto& rtt = current_kf.reach_target_table;
+        double tgt25[3] = {tc25[0] - half_depth25 + rtt[0],
+                           tc25[1] - (rtt[1] + col_y),
+                           face25 + rtt[2]};
+        // ★ 2026-08-23 TIP TARGETING: measure the GRIPPER JAW TIP (55 mm past
+        // the right_hand site), matching the residual-side switch — the
+        // advance and the cost must grade the same point.
+        double tip25[3];
+        const double* h25 = data->site_xpos + 3 * hs25;
+        int gtb25 = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
+        if (gtb25 >= 0) {
+          const double tip_local25[3] = {0.2254, -0.0118, -0.1062};
+          mju_mulMatVec3(tip25, data->xmat + 9 * gtb25, tip_local25);
+          mju_addTo3(tip25, data->xpos + 3 * gtb25);
+          h25 = tip25;
+        }
+        total_distance = mju_dist3(h25, tgt25);
+        // 1 Hz debug: what the ADVANCE actually sees (25_29 advanced with the
+        // hand ~13 cm off per offline FK — print target/hand/dist to find why).
+        static double last_dbg25 = -1.0;
+        if (data->time - last_dbg25 > 1.0) {
+          last_dbg25 = data->time;
+          std::printf("[target-adv] tgt=(%.3f,%.3f,%.3f) tip=(%.3f,%.3f,%.3f) "
+                      "dist=%.3f tol=%.3f\n", tgt25[0], tgt25[1], tgt25[2],
+                      h25[0], h25[1], h25[2], total_distance,
+                      current_kf.target_distance_tolerance);
+        }
+      }
+    } else if (current_kf.weight.count("Reaching Hand Dist") &&
+               current_kf.weight.at("Reaching Hand Dist") > 100.0) {
+      // Field MISSING on a phase that is clearly a hover (RHD>100): loader
+      // dropped reach_target_table -> shout once so this is never silent.
+      static bool warned25 = false;
+      if (!warned25) { warned25 = true;
+        std::printf("[target-adv] WARNING: hover-weight phase WITHOUT "
+                    "reach_target_table — advance falling back to contact "
+                    "distance!\n"); }
+    }
 
     // ★ 2026-08-07 COMMIT ABORT-AND-RETRY. `lean_commit_retry` numeric:
     // 0 = OFF = BYTE-IDENTICAL. >0 = seconds of detected STALL before the

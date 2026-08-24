@@ -273,6 +273,11 @@ class lean : public Task {
     // (22/28: ~9 Nm shoulder both) and is a mission leftover, not a recovery
     // need. Carries B (Brace Roll Level 200) on the same lean rung.
     names[24] = "h12_recovery_noreach";     // strat 23 minus the reach keyframe
+    // ★ 2026-08-22 strat 25: TARGETING bench. Starts as a byte-copy of strat
+    // 24 (the locked recovery config); target-hover phases get inserted
+    // between forearm_brace_lean and forearm_brace_release as the design
+    // lands. Deliberately independent of 22/23.
+    names[25] = "h12_brace_targeting";      // strat 24 + right-arm target hovers
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;
