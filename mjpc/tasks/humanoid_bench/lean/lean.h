@@ -17,6 +17,37 @@
 
 namespace mjpc {
 
+// ★ 2026-08-24 STRAT 27 GRASP GATE — process-global handshake between the lean
+// task's Transition (which decides WHEN to close, from believed tip-to-target
+// distance + dwell on the straddle rung) and the deploy layer (which carries
+// the command to the magpie gripper over DDS rt/grasp_gate and returns the
+// relay's verdict via rt/grasp_ack). Globals, not task members, because the
+// deploy code only sees the abstract Task. Binaries without the deploy plumb
+// (ownsim, twin bench) leave the ack at 0 and the gate falls through on
+// grasp_ack_timeout => close is assumed => byte-identical ladder shape.
+//   g_grasp_gate_cmd: 0 = idle, 1 = CLOSE requested (task sets; deploy clears
+//                     on publish is NOT done -- deploy just mirrors it out).
+//   g_grasp_ack:      0 = none, 1 = closed-on-object (advance), -1 = closed
+//                     EMPTY (aperture check failed -> retry/recover).
+inline std::atomic<int> g_grasp_gate_cmd{0};
+inline std::atomic<int> g_grasp_ack{0};
+
+// ★ 2026-08-24 STRAT 27 OBJECT SERVO BUS. The gripper-cam tag bridge publishes
+// the object's pose IN THE CAMERA OPTICAL FRAME on DDS rt/object_tag; the deploy
+// layer (--object_servo) drops the raw translation here and bumps g_object_seq.
+// The TASK does the geometry (compose with believed wrist FK + the hand-eye
+// extrinsic, convert to a world offset, slew-limit) ONCE PER PLAN in
+// TransitionLocked -- never per-rollout -- exactly like the T1 reference trim.
+// Kept as separate scalars rather than a locked struct: a torn read can only mix
+// components of two consecutive 30 Hz detections of a slowly-moving object
+// (sub-mm), and the slew limiter downstream swallows that anyway.
+// g_object_seq is the FRESHNESS signal: the task watches it change rather than
+// comparing a callback wall-clock against plant time (the two-clock trap).
+inline std::atomic<double> g_object_cam_x{0.0};
+inline std::atomic<double> g_object_cam_y{0.0};
+inline std::atomic<double> g_object_cam_z{0.0};
+inline std::atomic<unsigned long long> g_object_seq{0};
+
 constexpr int kLeanStrategyParameterIndex = 1;
 
 // Manual-phase override. -1 (default) = auto-advance through keyframes
@@ -278,6 +309,14 @@ class lean : public Task {
     // between forearm_brace_lean and forearm_brace_release as the design
     // lands. Deliberately independent of 22/23.
     names[25] = "h12_brace_targeting";      // strat 24 + right-arm target hovers
+    // ★ 2026-08-24 strat 27: BRACED RETRIEVAL (design:
+    // docs/strat27_retrieval_design_2026-08-24.md). Fork of strat 25 with the
+    // grasp phases inserted between forearm_brace_lean and release: acquire
+    // hover -> descend -> pre-grasp -> straddle (node-side close gate fires
+    // here) -> lift -> retract -> tuck -> unchanged recovery. Targets are
+    // reach_target_table rungs, servo-updated live from the gripper-cam
+    // tag30 channel (rt/object_tag); JSON values = nominal placeholders.
+    names[27] = "h12_brace_retrieval";      // strat 25 + grasp/lift/tuck phases
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;

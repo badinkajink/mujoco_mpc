@@ -12,6 +12,29 @@
 
 namespace mjpc {
 
+// ★ 2026-08-24 GRIPPER REFERENCE POINTS (right_magpie_gripper body frame,
+// which IS the right_wrist_yaw_link frame -- the gripper body sits at pos 0
+// with an identity quat). Measured from the model's own jaw geoms, not
+// assumed:
+//   jaw_a centre (0.1795, -0.0038, -0.0801), jaw_b centre (.., .., +0.0801),
+//   half-extents (0.0459, 0.008, 0.0261)  =>  the plates separate along LOCAL
+//   Z with an inner gap of 108.0 mm (independently confirms the magpie
+//   driver's ~110 mm aperture constant; a 50 mm block leaves 29 mm/side).
+//
+// kGripperTipLocal is the 08-23 tip-targeting point and is EXACTLY jaw_a's far
+// corner (jaw_a centre + its half-extents). On a hover that is the gripper's
+// LOWEST point, which is why targeting it eye-verified "dead-on" at B3 -- keep
+// it for hovers. But it lies 106 mm off the gripper centreline along the jaw
+// separation axis, so a GRASP graded there parks the object ~11 cm away from
+// the jaws. kGripperGraspLocal is the grasp centre: midway between the plates,
+// nudged 10.5 mm past their midpoint so a 50 mm object sits fully inside the
+// 92 mm plate span (x 0.165..0.215 within 0.1336..0.2254).
+// Keyframes select between them with the `grasp_center` JSON field; the
+// residual and the phase-advance test BOTH read it, so cost and advance always
+// grade the same point (the 08-23 lesson).
+static constexpr double kGripperTipLocal[3] = {0.2254, -0.0118, -0.1062};
+static constexpr double kGripperGraspLocal[3] = {0.19, -0.0038, 0.0};
+
 // T1 REFERENCE TRIM v2 -- ported from stabilize.cc (commit 1708253) 2026-07-20.
 // Written by TransitionLocked (real state, once per plan) and read by the
 // rollout workers in Residual (benign double read; changes on a seconds
@@ -32,6 +55,18 @@ namespace mjpc {
 // frame, nominal 0, quiet gate. See stand_trim_* in Lean_H12_Magpie.xml.
 // stand_trim_tau = 0 (the shipped default) forces both to 0 => byte-identical.
 static double s_trim_x = 0.0, s_trim_y = 0.0;
+
+// ★ 2026-08-24 STRAT 27 OBJECT SERVO STATE. s_servo_d* is a WORLD-frame offset
+// (metres) added to a servo rung's reach target: "where the camera says the
+// object is" minus "where the JSON assumed it is" (numeric servo_nominal, the
+// table-frame point the rungs were authored around). Written ONCE PER PLAN by
+// TransitionLocked from the REAL state and read by the rollout workers in
+// Residual -- the same discipline as s_trim_* above, because composing camera
+// pose with wrist FK inside a rollout would use the ROLLOUT's imagined wrist.
+// A world offset (rather than a table-frame correction) keeps the sign
+// conventions of reach_target_table out of the servo path entirely.
+static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
+
 
 namespace {
 // Target (post-ramp) reach + brace + posture scales for each named phase. Kept
@@ -595,6 +630,14 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         brace_air_target[0] = tc25[0] - half_depth25 + rtt[0];
         brace_air_target[1] = tc25[1] - (rtt[1] + col_y);
         brace_air_target[2] = face25 + rtt[2];
+        // ★ 2026-08-24 SERVO: on a servo rung, add the world-space correction
+        // TransitionLocked computed from the gripper camera (0 when the servo
+        // is off / no detection, so this is byte-identical then).
+        if (residual_keyframe_.servo) {
+          brace_air_target[0] += s_servo_dx;
+          brace_air_target[1] += s_servo_dy;
+          brace_air_target[2] += s_servo_dz;
+        }
       }
     }
     // ★ 2026-08-17 BODY-ANCHORED REACH CLAMP (`reach_body_clamp` numeric,
@@ -1962,12 +2005,15 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // "past B3" every precision run showed. Local tip point in the
   // right_magpie_gripper body frame measured from right_gripper_jaw_a's far
   // corner at qpos0. No XML/sensor change (the h1_2 model is patch-generated).
+  // ★ 2026-08-24 (strat 27): grasp rungs (`grasp_center: true`) grade the GRASP
+  // CENTRE instead -- see the kGripperTipLocal/kGripperGraspLocal note above.
   double tip_storage[3];
   if (residual_keyframe_.reach_target_table.size() == 3) {
     int gtb = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
     if (gtb >= 0) {
-      const double tip_local[3] = {0.2254, -0.0118, -0.1062};
-      mju_mulMatVec3(tip_storage, data->xmat + 9 * gtb, tip_local);
+      const double* ref_local = residual_keyframe_.grasp_center
+                                    ? kGripperGraspLocal : kGripperTipLocal;
+      mju_mulMatVec3(tip_storage, data->xmat + 9 * gtb, ref_local);
       mju_addTo3(tip_storage, data->xpos + 3 * gtb);
       reaching_hand = tip_storage;
     }
@@ -3312,7 +3358,7 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // arm braces -> left_shoulder_roll, inward = NEGATIVE). Weight = JSON "Brace
   // Arm Inward"; target = numeric brace_inward_target (rad, default -0.15, just
   // outward of the good -0.19 so the good pose is penalty-free). MUST stay the
-  // LAST user cost, lockstep BOTH lean XMLs, or residual counts desync.
+  // lockstep BOTH lean XMLs ("Reach Level" below is now the LAST user cost).
   {
     double inward_res = 0.0;
     if (is_forearm_brace && reach_right) {  // LEFT arm braces
@@ -3326,6 +3372,65 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       }
     }
     residual[counter++] = inward_res;
+  }
+
+  // --- Reach Level (dim 3, 2026-08-24, strat 27) -------------------------------
+  // Approach-axis alignment for the retrieval grasp phases (design:
+  // docs/strat27_retrieval_design_2026-08-24.md). The flat along-the-table
+  // approach needs the jaw axis LEVEL with the table and pointing table-forward
+  // so the block face passes between the fingers; position cost alone leaves
+  // the wrist free to keep the cocked-up clearance pose (07-24 solve) all the
+  // way in, which noses the jaw down at the block. Ported from the Grasp
+  // task's 6-DOF orientation residual, reduced to the 3 DOF that matter here
+  // (a full quat log-map would also pin the last rotational DOF, which is free
+  // for a jaw pair symmetric under 180 deg).
+  //
+  // ★★ ROLL IS NOT FREE (2026-08-24 correction, measured). An earlier version
+  // of this cost had only components (0) and (1), on the premise that "roll is
+  // free for a symmetric jaw". FALSE for this gripper: the jaw plates separate
+  // along the gripper's LOCAL Z (see kGripperGraspLocal above), so roll decides
+  // whether the jaws close LATERALLY (able to straddle a block standing on the
+  // table) or VERTICALLY (one jaw under the tabletop -- physically impossible).
+  // FK over the real 08-23 tip-targeting run p_18 shows jaw-sep . z_world =
+  // 0.77..0.97 through the whole hover: every real run so far has held the jaws
+  // VERTICAL. Component (2) is what turns them.
+  //
+  // Axis = right_wrist_yaw_link body x (== gripper local x, the line the jaw
+  // plates extend along). Residuals: (0) approach vertical component vs
+  // -sin(reach_level_pitch_deg) => level (or a tuned slight nose-down),
+  // (1) approach lateral (world y) component => pointing table-forward (+x
+  // world; the planner world is table-anchored + axis-aligned, same convention
+  // as reach_target_table), (2) jaw-separation axis (gripper local z) vertical
+  // component => JAWS LATERAL. Static IK from the frozen brace keyframe
+  // (grasp_pose_solve.py) says the full pose is reachable out to table depth
+  // ~0.575 with ~17 mm jaw-to-table clearance, and needs essentially NO wrist
+  // roll (+0.5 deg) -- the shoulder/elbow chain supplies the orientation.
+  // Gated to reach_target_table phases + reach_right so
+  // every non-targeting strategy is untouched; XML default weight 0 => the
+  // strat-27 JSON enables it per-phase (level-wrist rungs only -- the cocked
+  // acquire hover keeps it 0). MUST stay the LAST user cost, lockstep BOTH
+  // lean XMLs, or residual counts desync.
+  {
+    double level_res[3] = {0.0, 0.0, 0.0};
+    if (residual_keyframe_.reach_target_table.size() == 3 && reach_right) {
+      int wyb = mj_name2id(model, mjOBJ_BODY, "right_wrist_yaw_link");
+      if (wyb >= 0) {
+        // xmat is row-major: column j of R = (xm[j], xm[3+j], xm[6+j]).
+        const double* xm = data->xmat + 9 * wyb;
+        double axis[3] = {xm[0], xm[3], xm[6]};   // local x = jaw approach axis
+        double sep[3] = {xm[2], xm[5], xm[8]};    // local z = jaw separation
+        int npd = mj_name2id(model, mjOBJ_NUMERIC, "reach_level_pitch_deg");
+        double pitch = (npd >= 0)
+            ? model->numeric_data[model->numeric_adr[npd]] * (M_PI / 180.0)
+            : 0.0;
+        level_res[0] = axis[2] + std::sin(pitch);  // 0 = level (or tuned pitch)
+        level_res[1] = axis[1];                    // 0 = pointing table-forward
+        level_res[2] = sep[2];                     // 0 = JAWS LATERAL
+      }
+    }
+    residual[counter++] = level_res[0];
+    residual[counter++] = level_res[1];
+    residual[counter++] = level_res[2];
   }
 
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
@@ -3442,6 +3547,114 @@ void lean::ResidualFn::ContactResidual(const mjModel *model, const mjData *data,
 // of net body weight on each foot, enough friction to hold against the
 // soft cost gradients without artificial pins).
 void lean::TransitionLocked(mjModel *model, mjData *data) {
+  // ---- ★ 2026-08-24 STRAT 27 OBJECT SERVO (see s_servo_d* above) ---------- //
+  // Turn the gripper camera's tag detection into a world-space correction on
+  // the grasp rungs' reach target. OFF unless `servo_slew` > 0  =>  every
+  // pre-27 strategy is byte-identical.
+  //
+  // CHAIN: rt/object_tag carries the tag translation in the CAMERA OPTICAL
+  // frame (the bridge does the PnP and deliberately publishes nothing else --
+  // it must never see robot state). Here we compose it with the BELIEVED wrist
+  // pose and the hand-eye extrinsic:
+  //     p_world = xpos(wrist_yaw) + R(wrist_yaw) * (cam_pos + R(cam_rpy) * t_cam)
+  // then subtract the nominal object point the JSON rungs were authored around
+  // (numeric `servo_nominal`, table frame) to get a pure correction.
+  //
+  // THREE GUARDS, because a vision loop that can move the arm is a way to get
+  // hurt:
+  //   (1) CLAMP  |delta| per axis to `servo_max_offset` -- a mis-detection (a
+  //       flipped tag pose, a reflection) can then shift the target by at most
+  //       that much instead of flinging the arm across the table;
+  //   (2) SLEW   at `servo_slew` m/s so the sampler sees a drift, never a step
+  //       (the whole reason strat 25 advances targets at 5 cm / 6 s);
+  //   (3) FREEZE when no new detection has arrived for `servo_max_age` s --
+  //       the target holds its last good value instead of chasing a stale one.
+  //       This IS the design's freeze-and-go terminal approach: the tag is
+  //       occluded by the closing jaws in the last centimetres, and the field
+  //       standard is to finish that segment open-loop.
+  {
+    auto num3 = [&](const char* nm, double* out, double d0, double d1,
+                    double d2) {
+      int id = mj_name2id(model, mjOBJ_NUMERIC, nm);
+      if (id >= 0 && model->numeric_size[id] >= 3) {
+        const double* p = model->numeric_data + model->numeric_adr[id];
+        out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
+      } else {
+        out[0] = d0; out[1] = d1; out[2] = d2;
+      }
+    };
+    double slew = GetNumberOrDefault(0.0, model, "servo_slew");
+    if (slew > 0.0) {
+      static unsigned long long last_seq = 0;
+      static double last_fresh_time = -1.0;
+      static double last_call_time = -1.0;
+      unsigned long long seq = mjpc::g_object_seq.load();
+      if (seq != last_seq) {
+        last_seq = seq;
+        last_fresh_time = data->time;
+      }
+      double max_age = GetNumberOrDefault(1.0, model, "servo_max_age");
+      bool fresh = (last_fresh_time >= 0.0) &&
+                   (data->time - last_fresh_time <= max_age);
+      int wyb = mj_name2id(model, mjOBJ_BODY, "right_wrist_yaw_link");
+      int tg = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+      if (fresh && wyb >= 0 && tg >= 0) {
+        double cam_pos[3], cam_rpy[3], nominal[3];
+        num3("grip_cam_pos", cam_pos, 0.0, 0.0, 0.0);
+        num3("grip_cam_rpy_deg", cam_rpy, 0.0, 0.0, 0.0);
+        num3("servo_nominal", nominal, 0.55, 0.16, 0.025);
+        double t_cam[3] = {mjpc::g_object_cam_x.load(),
+                           mjpc::g_object_cam_y.load(),
+                           mjpc::g_object_cam_z.load()};
+        // camera optical frame -> wrist frame
+        double rpy[3] = {cam_rpy[0] * (M_PI / 180.0),
+                         cam_rpy[1] * (M_PI / 180.0),
+                         cam_rpy[2] * (M_PI / 180.0)};
+        double q[4], Rc[9];
+        mju_euler2Quat(q, rpy, "xyz");
+        mju_quat2Mat(Rc, q);
+        double in_wrist[3];
+        mju_mulMatVec3(in_wrist, Rc, t_cam);
+        mju_addTo3(in_wrist, cam_pos);
+        // wrist frame -> world
+        double p_world[3];
+        mju_mulMatVec3(p_world, data->xmat + 9 * wyb, in_wrist);
+        mju_addTo3(p_world, data->xpos + 3 * wyb);
+        // nominal (table frame -> world), same convention as the residual
+        const double* tc = data->geom_xpos + 3 * tg;
+        double half_depth = model->geom_size[3 * tg + 0];
+        double face = tc[2] + model->geom_size[3 * tg + 2];
+        double nom_world[3] = {tc[0] - half_depth + nominal[0],
+                               tc[1] - nominal[1], face + nominal[2]};
+        double want[3];
+        mju_sub3(want, p_world, nom_world);
+        double cap = GetNumberOrDefault(0.15, model, "servo_max_offset");
+        for (int k = 0; k < 3; ++k) want[k] = mju_clip(want[k], -cap, cap);
+        double dt = (last_call_time >= 0.0)
+            ? mju_max(0.0, data->time - last_call_time) : 0.0;
+        double step = slew * dt;
+        double* cur[3] = {&s_servo_dx, &s_servo_dy, &s_servo_dz};
+        for (int k = 0; k < 3; ++k) {
+          double e = want[k] - *cur[k];
+          *cur[k] += mju_clip(e, -step, step);
+        }
+        static double last_note = -1e9;
+        if (data->time - last_note > 2.0) {
+          last_note = data->time;
+          std::printf("[servo] object seen: delta=(%+.3f %+.3f %+.3f) "
+                      "target=(%+.3f %+.3f %+.3f) age=%.2fs\n",
+                      s_servo_dx, s_servo_dy, s_servo_dz,
+                      want[0], want[1], want[2],
+                      data->time - last_fresh_time);
+        }
+      }
+      // stale => hold s_servo_d* exactly where they are (freeze-and-go)
+      last_call_time = data->time;
+    } else {
+      s_servo_dx = s_servo_dy = s_servo_dz = 0.0;
+    }
+  }
+
   // ---- T1 REFERENCE TRIM v2 (ported from stabilize.cc 1708253, 2026-07-20) - //
   // Runs on the REAL state once per plan (never inside a rollout), so the
   // integrator sees measured physics, not the sampler's imagination.
@@ -3887,15 +4100,25 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double tgt25[3] = {tc25[0] - half_depth25 + rtt[0],
                            tc25[1] - (rtt[1] + col_y),
                            face25 + rtt[2]};
+        // ★ 2026-08-24 SERVO: same correction the residual applies, so the
+        // advance test and the cost keep grading the same point.
+        if (current_kf.servo) {
+          tgt25[0] += s_servo_dx;
+          tgt25[1] += s_servo_dy;
+          tgt25[2] += s_servo_dz;
+        }
         // ★ 2026-08-23 TIP TARGETING: measure the GRIPPER JAW TIP (55 mm past
         // the right_hand site), matching the residual-side switch — the
         // advance and the cost must grade the same point.
+        // ★ 2026-08-24: ...and on a grasp rung both switch to the GRASP CENTRE,
+        // via the SAME keyframe flag, so they cannot drift apart.
         double tip25[3];
         const double* h25 = data->site_xpos + 3 * hs25;
         int gtb25 = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
         if (gtb25 >= 0) {
-          const double tip_local25[3] = {0.2254, -0.0118, -0.1062};
-          mju_mulMatVec3(tip25, data->xmat + 9 * gtb25, tip_local25);
+          const double* ref25 = current_kf.grasp_center
+                                    ? kGripperGraspLocal : kGripperTipLocal;
+          mju_mulMatVec3(tip25, data->xmat + 9 * gtb25, ref25);
           mju_addTo3(tip25, data->xpos + 3 * gtb25);
           h25 = tip25;
         }
@@ -4380,6 +4603,90 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                  double pitch_deg = 57.29578 * mju_asin(mju_max(-1.0,
                      mju_min(1.0, 2.0 * (q[3] * q[5] - q[6] * q[4]))));
                  return quiet && mju_abs(pitch_deg) <= udeg;
+               }() &&
+               [&] {
+                 // ★ 2026-08-24 STRAT 27 GRASP CLOSE GATE. Fires on the rung
+                 // whose keyframe carries `grasp_close: true` (a per-keyframe
+                 // flag, NOT a global rung index -- an index would fire on
+                 // whatever unrelated rung shared it in another strategy).
+                 // No flag anywhere = OFF = byte-identical. When that rung's
+                 // normal advance condition is met (point inside tolerance, dwell
+                 // sustained, all gates above green) the block face sits
+                 // between the fingers — the moment to close. Protocol
+                 // (design: docs/strat27_retrieval_design_2026-08-24.md):
+                 //  1. fire g_grasp_gate_cmd=1 (deploy mirrors to DDS
+                 //     rt/grasp_gate; the Python relay closes the magpie and
+                 //     answers on rt/grasp_ack) and HOLD the rung;
+                 //  2. ack=+1 (closed ON object)  -> advance to lift;
+                 //  3. ack=-1 (closed EMPTY)      -> reopen is relay-side;
+                 //     regress ONE rung (pre-grasp) and re-run the approach,
+                 //     at most `grasp_retry_max` (default 2) times; after
+                 //     that advance anyway = recover empty-handed (thermal
+                 //     rule: never brace-hunt indefinitely);
+                 //  4. no ack within `grasp_ack_timeout` s (default 4) ->
+                 //     assume closed blind and advance (twin bench / missing
+                 //     relay: keeps the ladder alive; logged loudly).
+                 // Single-threaded transition context (same statics pattern
+                 // as bc_since above).
+                 if (!current_kf.grasp_close) return true;
+                 int kidx = motion_strategy_.GetCurrentKeyframeIndex();
+                 static double g_cmd_time = -1.0;
+                 static int g_retries = 0;
+                 double ack_to = GetNumberOrDefault(4.0, model,
+                                                    "grasp_ack_timeout");
+                 int rmax = (int)GetNumberOrDefault(2.0, model,
+                                                    "grasp_retry_max");
+                 int ack = mjpc::g_grasp_ack.load();
+                 if (mjpc::g_grasp_gate_cmd.load() == 0) {
+                   mjpc::g_grasp_ack.store(0);
+                   mjpc::g_grasp_gate_cmd.store(1);
+                   g_cmd_time = data->time;
+                   std::printf("[grasp-gate] CLOSE fired (rung %d, retry %d)\n",
+                               kidx, g_retries);
+                   return false;
+                 }
+                 if (ack == 1) {
+                   std::printf("[grasp-gate] GRASPED (ack) -> lift\n");
+                   mjpc::g_grasp_gate_cmd.store(0);
+                   g_cmd_time = -1.0;
+                   return true;
+                 }
+                 if (ack == -1) {
+                   mjpc::g_grasp_gate_cmd.store(0);
+                   mjpc::g_grasp_ack.store(0);
+                   g_cmd_time = -1.0;
+                   if (g_retries < rmax) {
+                     ++g_retries;
+                     std::printf("[grasp-gate] EMPTY -> retry %d/%d "
+                                 "(regress to pre-grasp)\n", g_retries, rmax);
+                     // same snapshot+ramp dance as the manual phase jump
+                     SnapshotEffectiveScales();
+                     SnapshotCurrentWeightsAsPrev();
+                     motion_strategy_.UpdateCurrentKeyframe(kidx - 1);
+                     MarkNewlyAppearedContacts(
+                         residual_.residual_keyframe_,
+                         motion_strategy_.GetCurrentKeyframe());
+                     residual_.residual_keyframe_ =
+                         motion_strategy_.GetCurrentKeyframe();
+                     motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+                     motion_strategy_.SetCurrentKeyframeSuccessStartTime(
+                         data->time);
+                     residual_.keyframe_start_time_ = data->time;
+                     PrepareNextPhaseWeights(residual_.residual_keyframe_);
+                     return false;
+                   }
+                   std::printf("[grasp-gate] EMPTY after %d retries -> "
+                               "recover empty-handed\n", rmax);
+                   return true;
+                 }
+                 if (data->time - g_cmd_time > ack_to) {
+                   std::printf("[grasp-gate] NO ACK in %.1fs -> assume closed "
+                               "(twin/no-relay), advancing\n", ack_to);
+                   mjpc::g_grasp_gate_cmd.store(0);
+                   g_cmd_time = -1.0;
+                   return true;
+                 }
+                 return false;  // waiting for the relay's verdict
                }()) {
       // Normal phase advance — this is the path that fires after stand_up
       // succeeds. Snapshot first so the new ramp starts from the old scales.

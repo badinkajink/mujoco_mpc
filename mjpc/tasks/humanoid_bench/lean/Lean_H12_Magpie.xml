@@ -1098,6 +1098,47 @@
         <numeric name="body_yaw_ref_deg" data="0.0"/> <!-- fixed world heading (deg) the stand-back squares up to; used when body_yaw_feet_ref=0 -->
         <numeric name="body_yaw_feet_ref" data="0.0"/> <!-- 1 = Body Yaw faces the FEET mean heading (placement-invariant); 0 = legacy normalize(reach_target-torso), the world-frame heading lottery stabilize.cc fixed 2026-07-17 -->
         <numeric name="brace_wrist_cock_deg" data="-58.0"/>
+        <!-- reach_level_pitch_deg (2026-08-24, strat 27): target pitch-down [deg]
+             of the RIGHT hand axis for the "Reach Level" cost. 0 = level with
+             the table (the flat along-table approach). -->
+        <numeric name="reach_level_pitch_deg" data="0.0"/>
+        <!-- STRAT 27 grasp gate knobs (2026-08-24). WHICH rung closes is a
+             per-keyframe JSON flag (`grasp_close: true`), NOT a number here --
+             a global rung index would fire on whatever unrelated rung shared it
+             in another strategy. These are the timing knobs only.
+             grasp_ack_timeout [s]: no relay ack -> assume closed, advance (this
+             is the twin/no-relay path). grasp_retry_max: EMPTY retries before
+             recovering empty-handed (thermal rule 08-24: retries only make
+             sense when session entry plan-rate >=30/s -- the RELAY enforces
+             that, answering EMPTY-no-retry below it). -->
+        <!-- STRAT 27 OBJECT SERVO (2026-08-24). servo_slew = 0 => the whole
+             servo path is OFF and every strategy is byte-identical; > 0 = the
+             max rate (m/s) at which a servo rung's reach target may drift
+             toward where the gripper camera says the object is. 0.025 = the
+             2-3 cm/s the design settled on (the sampler must see a drift, not
+             a step). servo_max_age [s]: no fresh detection for this long =>
+             FREEZE the correction and finish open-loop (the tag is occluded by
+             the closing jaws in the last centimetres -- this is the intended
+             freeze-and-go). servo_max_offset [m]: hard cap on the correction,
+             so a flipped/spurious tag pose can shift the target by at most
+             this instead of flinging the arm. servo_nominal: the table-frame
+             object point (depth, right, above-face) the JSON rungs were
+             authored around -- the correction is measured MINUS this.
+             ⚠ grip_cam_pos / grip_cam_rpy_deg are the HAND-EYE extrinsic of
+             the gripper RealSense in the right_wrist_yaw_link frame (optical
+             convention: z forward, x image-right, y image-down). THEY ARE
+             PLACEHOLDER ZEROS -- no wrist camera exists in any model yet, so
+             these MUST be measured (ticket 03) before the servo is trusted;
+             1 cm of extrinsic error is 1 cm of grasp error, exactly as for the
+             head camera in tag_bridge_node. -->
+        <numeric name="servo_slew" data="0.0"/>
+        <numeric name="servo_max_age" data="1.0"/>
+        <numeric name="servo_max_offset" data="0.15"/>
+        <numeric name="servo_nominal" data="0.55 0.16 0.025"/>
+        <numeric name="grip_cam_pos" data="0.0 0.0 0.0"/>
+        <numeric name="grip_cam_rpy_deg" data="0.0 0.0 0.0"/>
+        <numeric name="grasp_ack_timeout" data="4.0"/>
+        <numeric name="grasp_retry_max" data="2"/>
         <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
              ON aims the brace POSITION target at the slab's NEAR EDGE + inset instead of the
              legacy `torso + 0.4*(table-torso)`, which lands SHORT of the edge and, combined
@@ -1346,6 +1387,20 @@
              the good inward brace deterministic instead of a CEM coin-flip. MUST
              stay the LAST user cost, lockstep BOTH lean models. -->
         <user name="Brace Arm Inward" dim="1" user="0 0.0 0.0 500.0"/>
+        <!-- Reach Level (2026-08-24, strat 27): approach-axis alignment for the
+             RETRIEVAL grasp phases -- ported from the Grasp task's 6-DOF
+             orientation idea, reduced to the 2 DOF that matter for a flat
+             along-the-table approach: (0) hand-axis vertical component => 0
+             = jaw level with the table, (1) hand-axis lateral component => 0
+             = pointing table-forward (+x). Axis = right_wrist_yaw_link body
+             x (the right_hand site axis). Gated in code on
+             reach_target_table phases + reach_right. Default weight 0 =>
+             byte-identical for every existing strategy; the strat-27 JSON
+             enables it per-phase (level-wrist rungs only -- the cocked
+             acquire hover keeps it 0). numeric reach_level_pitch_deg tilts
+             the target axis if a slight nose-down approach wins in tuning.
+             MUST stay the LAST user cost, lockstep BOTH lean XMLs. -->
+        <user name="Reach Level" dim="3" user="0 0.0 0.0 300.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>
