@@ -1142,8 +1142,8 @@
         <numeric name="servo_max_age" data="1.0"/>
         <numeric name="servo_max_offset" data="0.15"/>
         <numeric name="servo_nominal" data="0.55 0.16 0.025"/>
-        <numeric name="grip_cam_pos" data="0.0 0.0 0.0"/>
-        <numeric name="grip_cam_rpy_deg" data="0.0 0.0 0.0"/>
+        <numeric name="grip_cam_pos" data="0.06 0.0 0.05"/>
+        <numeric name="grip_cam_rpy_deg" data="-90.0 0.0 -90.0"/>
         <numeric name="grasp_ack_timeout" data="4.0"/>
         <numeric name="grasp_retry_max" data="2"/>
         <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
