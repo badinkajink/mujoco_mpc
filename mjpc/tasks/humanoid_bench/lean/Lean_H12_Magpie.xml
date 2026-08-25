@@ -546,7 +546,14 @@
              runs to select column A / B / C of the 3x3 grid. Absent/0 = col A.
              Ignored entirely unless the active phase carries
              reach_target_table (strat <=24 byte-identical). -->
-        <numeric name="target_col_y" data="0.12"/>
+        <!-- ★ 2026-08-24 set to 0 for STRAT 27: h12_brace_retrieval bakes the full
+             B3 lateral (0.16) into each rung's reach_target_table[1], so col_y
+             must NOT add again (it did: node aimed y=-0.28 vs the block at
+             -0.16, a 12cm miss that stalled every grasp reach). Strat 25
+             (h12_brace_targeting, absorbed/bench-only) used rtt[1]=0.04 + this
+             knob=0.12 to pick grid column B; if that bench is ever rerun, pass
+             target_col_y=0.12 for it. -->
+        <numeric name="target_col_y" data="0.0"/>
         <!-- brace_flat_gate_lo (rad, >0): max allowed NEGATIVE elevation for
              contact to certify. Negative = gripper-first = illegal hand-brace
              and the stall pose. 0.05 rad = -2.9 deg of noise headroom. -->
