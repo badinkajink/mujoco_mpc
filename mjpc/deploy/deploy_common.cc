@@ -46,6 +46,7 @@
 #include "mjpc/agent.h"
 #include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/task.h"
+#include "mjpc/tasks/humanoid_bench/lean/lean.h"  // g_grasp_gate_cmd/_ack (strat 27)
 #include "mjpc/tasks/tasks.h"
 #include "mjpc/threadpool.h"
 #include "mjpc/utilities.h"
@@ -1020,6 +1021,59 @@ int RunDeployNode(const NodeConfig& cfg) {
                          "-aux_odom.position[2] at <=0.1 deg/s (fresh <0.5s only)\n");
   }
 
+  // ---- ★ 2026-08-24 STRAT 27 GRASP GATE DDS MIRROR (--grasp_gate, default
+  // OFF = byte-identical). The lean task's Transition raises
+  // mjpc::g_grasp_gate_cmd when the straddle rung's close condition is met
+  // (see the grasp-gate lambda in lean.cc); this mirror re-publishes that
+  // command on rt/grasp_gate at ~10 Hz (String_ "CLOSE") for the Python
+  // magpie relay (grasp_relay.py -> /right/gripper/close over
+  // custom_ros_messages), and writes the relay's verdict from rt/grasp_ack
+  // ("closed" => +1 advance-to-lift, "empty" => -1 retry/recover) into
+  // mjpc::g_grasp_ack. Estimator/aux paths untouched.
+  ChannelPublisherPtr<std_msgs::msg::dds_::String_> grasp_pub;
+  ChannelSubscriberPtr<std_msgs::msg::dds_::String_> grasp_ack_sub;
+  std::thread grasp_gate_thread;
+  if (cfg.grasp_gate) {
+    grasp_pub.reset(
+        new ChannelPublisher<std_msgs::msg::dds_::String_>("rt/grasp_gate"));
+    grasp_pub->InitChannel();
+    grasp_ack_sub.reset(
+        new ChannelSubscriber<std_msgs::msg::dds_::String_>("rt/grasp_ack"));
+    grasp_ack_sub->InitChannel(
+        [](const void* msg) {
+          const auto* s = static_cast<const std_msgs::msg::dds_::String_*>(msg);
+          if (s->data() == "closed") mjpc::g_grasp_ack.store(1);
+          else if (s->data() == "empty") mjpc::g_grasp_ack.store(-1);
+        },
+        10);
+    std::fprintf(stderr, "[node] grasp_gate ON: rt/grasp_gate <-> rt/grasp_ack "
+                         "(magpie relay handshake, strat 27)\n");
+  }
+
+  // ---- ★ 2026-08-24 STRAT 27 OBJECT SERVO INPUT (--object_servo, default OFF).
+  // The gripper-cam bridge publishes the tag translation in the CAMERA OPTICAL
+  // frame (SportState: position = tvec, velocity = rvec, mode = tag id). This
+  // callback ONLY drops the numbers on the task's servo bus and bumps the
+  // sequence counter -- all geometry (wrist FK, hand-eye, slew, clamp, freeze)
+  // happens once per plan in the task, on the real state. Deliberately does not
+  // touch rt/aux_odom or anything the estimator reads: the gripper camera rides
+  // on the moving arm and must never reach the base estimate.
+  ChannelSubscriberPtr<SportState> obj_sub;
+  if (cfg.object_servo) {
+    obj_sub.reset(new ChannelSubscriber<SportState>("rt/object_tag"));
+    obj_sub->InitChannel(
+        [](const void* msg) {
+          const SportState* s = static_cast<const SportState*>(msg);
+          mjpc::g_object_cam_x.store(s->position().at(0));
+          mjpc::g_object_cam_y.store(s->position().at(1));
+          mjpc::g_object_cam_z.store(s->position().at(2));
+          mjpc::g_object_seq.fetch_add(1);
+        },
+        10);
+    std::fprintf(stderr, "[node] object_servo ON: rt/object_tag -> task servo bus "
+                         "(needs servo_slew>0 + calibrated grip_cam_* numerics)\n");
+  }
+
   ChannelPublisherPtr<LowCmd> cmd_pub(
       new ChannelPublisher<LowCmd>(cfg.lowcmd_topic));
   cmd_pub->InitChannel();
@@ -1165,6 +1219,27 @@ int RunDeployNode(const NodeConfig& cfg) {
                  cfg.plan_pub_topic.compare(0, 3, "rt/") == 0
                      ? cfg.plan_pub_topic.c_str() + 3
                      : cfg.plan_pub_topic.c_str());
+  }
+
+  // grasp-gate mirror thread (10 Hz; trivial load). Started here so it shares
+  // plan_exit's lifetime; joined next to the planner below.
+  if (cfg.grasp_gate) {
+    grasp_gate_thread = std::thread([&] {
+      std_msgs::msg::dds_::String_ gmsg;
+      int last_cmd = 0;
+      while (!plan_exit.load()) {
+        int cmd = mjpc::g_grasp_gate_cmd.load();
+        if (cmd == 1) {
+          gmsg.data() = "CLOSE";
+          grasp_pub->Write(gmsg);
+        } else if (last_cmd == 1 && cmd == 0) {
+          gmsg.data() = "IDLE";           // edge: gate resolved (ack/timeout)
+          grasp_pub->Write(gmsg);
+        }
+        last_cmd = cmd;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    });
   }
 
   mjpc::ThreadPool plan_pool(n_plan_threads);
@@ -2842,6 +2917,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   g_emit_safe_hold = nullptr;   // publisher is about to die; M5 handler must not use it
   plan_exit.store(true);
   if (planner.joinable()) planner.join();
+  if (grasp_gate_thread.joinable()) grasp_gate_thread.join();
   mj_deleteData(gd);
   mj_deleteData(sd);
   mj_deleteData(pdat);

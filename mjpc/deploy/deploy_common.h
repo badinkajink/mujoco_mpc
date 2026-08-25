@@ -135,6 +135,14 @@ struct NodeConfig {
   std::string sportstate_topic;        // truth vs rt/sportmodestate_est (estimator-in-loop)
   double imu_pitch_offset_deg = 0.0;   // real H1-2 mount calib 1.6; twin 0
   double imu_yaw_offset_deg = 0.0;     // WORLD-frame heading correction (deg).
+  bool grasp_gate = false;             // ★ 2026-08-24 strat 27: mirror the lean
+                                       // task's grasp close gate to DDS
+                                       // rt/grasp_gate + accept the relay's
+                                       // verdict on rt/grasp_ack. OFF by
+                                       // default = byte-identical.
+  bool object_servo = false;           // ★ 2026-08-24 strat 27: subscribe
+                                       // rt/object_tag and feed the task's
+                                       // servo bus. OFF = byte-identical.
   bool yaw_fusion = true;              // slew the yaw offset live from the tag
                                        // bridge's aux_odom.position[2] (2026-08-18)
                                        // The IMU yaw is a gyro integration with

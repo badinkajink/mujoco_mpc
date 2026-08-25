@@ -81,6 +81,17 @@ ABSL_FLAG(double, bad_orient_rad, 0.0,
           "validated deployments unchanged). See h12_lower_body_controller for the rationale.");
 ABSL_FLAG(double, imu_roll_offset_deg, 0.0,
           "IMU roll zero-offset calibration (deg), same idea as --imu_pitch_offset_deg (body roll axis).");
+ABSL_FLAG(bool, grasp_gate, false,
+          "STRAT 27 grasp close gate DDS mirror (2026-08-24): publish the lean task's\n"
+          "close command on rt/grasp_gate and accept the magpie relay's verdict on\n"
+          "rt/grasp_ack ('closed'/'empty'). Pair with grasp_relay.py and a strategy\n"
+          "whose close rung carries `grasp_close: true`. Default OFF (byte-identical).");
+ABSL_FLAG(bool, object_servo, false,
+          "STRAT 27 object servo (2026-08-24): subscribe the gripper-cam tag bridge's\n"
+          "rt/object_tag and hand it to the lean task, which composes it with believed\n"
+          "wrist FK + the hand-eye extrinsic and slew-limits a correction onto servo\n"
+          "rungs' reach targets. Needs numeric servo_slew > 0 AND a calibrated\n"
+          "grip_cam_pos/grip_cam_rpy_deg. Default OFF (byte-identical).");
 ABSL_FLAG(bool, yaw_fusion, true,
           "LIVE tag-yaw fusion (2026-08-18): slew the heading correction toward the\n"
           "tag bridge's continuously tracked IMU-vs-table yaw offset (rides in\n"
@@ -363,6 +374,8 @@ int main(int argc, char** argv) {
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.imu_yaw_offset_deg = absl::GetFlag(FLAGS_imu_yaw_offset_deg);
   cfg.yaw_fusion = absl::GetFlag(FLAGS_yaw_fusion);
+  cfg.grasp_gate = absl::GetFlag(FLAGS_grasp_gate);
+  cfg.object_servo = absl::GetFlag(FLAGS_object_servo);
   // YAW PREFLIGHT (2026-08-17): the IMU yaw is gyro-integrated from power-on and
   // walks ~0.1 deg/min; every real Lean session needs the IMU-vs-table offset
   // measured at bring-up (runs tags_13/14 without it: lunge lands sin(24deg)
