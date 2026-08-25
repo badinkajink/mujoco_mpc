@@ -83,6 +83,37 @@ class ContactKeyframe {
   // "hand within tol for T s"). Empty (default) = normal phase, byte-identical.
   std::vector<mjtNum> reach_target_table;
 
+  // ★ 2026-08-24 GRASP RUNG (lean strat 27 "h12_brace_retrieval"). false
+  // (default) = the reach_target_table point is graded at the GRIPPER JAW TIP
+  // (the 08-23 tip-targeting fix: `right_gripper_jaw_a`'s far corner, which is
+  // the gripper's lowest point on a hover and therefore the right thing to
+  // hover with). true = grade it at the GRASP CENTRE instead -- the midpoint
+  // between the two jaw plates, where an object must sit to be closed on.
+  // The two differ by 112 mm (106 mm of it ALONG THE JAW SEPARATION AXIS,
+  // because the tip is one jaw's corner, not the gripper centreline), so a
+  // grasp rung graded at the tip would park the object ~11 cm off the jaws.
+  // Both the residual and the phase-advance test read this, so the cost and
+  // the advance always grade the SAME point (the 08-23 lesson).
+  bool grasp_center;
+
+  // ★ 2026-08-24 CLOSE RUNG (lean strat 27). true on the ONE rung where the
+  // object sits between the jaws, i.e. where the grasp gate should fire the
+  // gripper close and hold the ladder for the relay's verdict. A per-keyframe
+  // flag rather than a model-level rung INDEX on purpose: an index is a global
+  // number that would silently fire on whatever unrelated rung happens to share
+  // it in another strategy (strat 24's index 5 is a standback rung). Absent =
+  // false = no gate = byte-identical.
+  bool grasp_close;
+
+  // ★ 2026-08-24 SERVO RUNG (lean strat 27). true = this rung's reach target
+  // TRACKS the object seen by the gripper camera: the task adds a slew-limited,
+  // clamped world-space correction (measured object minus the nominal the JSON
+  // was authored around) to the target. false (default) = the JSON coordinates
+  // are used verbatim, which is what every pre-27 strategy wants. Set it on the
+  // rungs that APPROACH the object; leave it off for lift/retract/tuck, which
+  // deliberately move AWAY from it and must not chase a stale detection.
+  bool servo;
+
   ContactKeyframe()
       : name(""),
         contact_pairs{},
@@ -90,6 +121,9 @@ class ContactKeyframe {
         weight(),
         brace_force_target(-1.),
         reach_target_table(),
+        grasp_center(false),
+        grasp_close(false),
+        servo(false),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1),

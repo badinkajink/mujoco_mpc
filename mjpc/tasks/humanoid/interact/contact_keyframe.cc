@@ -47,6 +47,9 @@ void ContactKeyframe::Reset() {
   weight.clear();
   brace_force_target = -1.;
   reach_target_table.clear();
+  grasp_center = false;
+  grasp_close = false;
+  servo = false;
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -77,7 +80,10 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"weight", keyframe.weight},
            {"brace_force_target", keyframe.brace_force_target},
            {"target_ramp_sec", keyframe.target_ramp_sec},
-           {"reach_target_table", keyframe.reach_target_table}};
+           {"reach_target_table", keyframe.reach_target_table},
+           {"grasp_center", keyframe.grasp_center},
+           {"grasp_close", keyframe.grasp_close},
+           {"servo", keyframe.servo}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -94,5 +100,9 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   // ★ 2026-08-22 target-phase field (lean strat 25); absent = empty = normal.
   keyframe.reach_target_table =
       j.value("reach_target_table", std::vector<mjtNum>());
+  // ★ 2026-08-24 grasp rung (lean strat 27); absent = false = grade at the tip.
+  keyframe.grasp_center = j.value("grasp_center", false);
+  keyframe.grasp_close = j.value("grasp_close", false);
+  keyframe.servo = j.value("servo", false);
 }
 }  // namespace mjpc::humanoid
