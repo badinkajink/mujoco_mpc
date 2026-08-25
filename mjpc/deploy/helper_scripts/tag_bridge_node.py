@@ -223,6 +223,65 @@ class TagCore:
         return xy, self.yaw_off, err, p_torso_table
 
 
+class ObjectTagCore:
+    """★ 2026-08-24 STRAT 27: single-tag object localizer for the GRIPPER cam.
+
+    FIREWALL (the whole point of this being a separate class + topic): output
+    goes to rt/object_tag ONLY -- it never touches rt/aux_odom, yaw_off, the
+    believed base pose, or the table frame. The gripper cam rides on the moving
+    arm; letting it anywhere near the estimator would inject arm motion into
+    the base estimate. The consumer (h12_control_node grasp phase) composes
+    T_cam<-tag with its OWN believed wrist FK + the fixed hand-eye extrinsic.
+
+    Math: IPPE_SQUARE PnP on the 4 corners of one known-size tag. Quality
+    gates: (1) reprojection error <= max_reproj_px; (2) flip-ambiguity -- IPPE
+    returns both planar solutions; if the runner-up's reprojection error is
+    within ambig_ratio of the winner's, the view is too shallow to trust the
+    orientation and the frame is REJECTED (the 45 deg-approach lesson: shallow
+    tag views have a pose flip ambiguity).
+    step(corners, K, dist) -> (tvec, rvec, err_px) in the CAMERA OPTICAL frame
+    or None."""
+
+    def __init__(self, tag_id, tag_size, max_reproj_px=2.0, ambig_ratio=2.0):
+        self.tag_id = int(tag_id)
+        h = tag_size / 2.0
+        # object points in the TAG frame, aruco order (TL,TR,BR,BL), tag plane
+        # z=0, x right, y up (IPPE_SQUARE convention wants this exact order)
+        self.obj = np.array([[-h,  h, 0.0], [ h,  h, 0.0],
+                             [ h, -h, 0.0], [-h, -h, 0.0]])
+        self.max_reproj = max_reproj_px
+        self.ambig_ratio = ambig_ratio
+        self.n_solved = 0
+        self.n_rejected = 0
+
+    def step(self, corners, K, dist):
+        img = np.asarray(corners, float).reshape(4, 2)
+        try:
+            n, rvecs, tvecs, errs = cv2.solvePnPGeneric(
+                self.obj, img, K, dist, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+        except cv2.error:
+            self.n_rejected += 1
+            return None
+        if n < 1:
+            self.n_rejected += 1
+            return None
+        errs = [float(np.ravel(e)[0]) for e in errs]
+        order = np.argsort(errs)
+        best = int(order[0])
+        if errs[best] > self.max_reproj:
+            self.n_rejected += 1
+            return None
+        # flip-ambiguity gate: a clear winner must beat the alternative by
+        # ambig_ratio in reprojection error, else the pose is untrustworthy
+        if n > 1:
+            second = int(order[1])
+            if errs[second] < self.ambig_ratio * max(errs[best], 1e-6):
+                self.n_rejected += 1
+                return None
+        self.n_solved += 1
+        return (tvecs[best].reshape(3), rvecs[best].reshape(3), errs[best])
+
+
 def _selftest():
     ok = True
     # synthetic bundle = the locked v3 symmetric layout
@@ -307,6 +366,30 @@ def _selftest():
     print(f"[selftest] tag extrinsic   : +1cm cam-pos error -> {bias*100:.1f}cm anchor bias "
           f"(calibrate before trusting) ({'ok' if good else 'FAIL'})")
 
+    # ---- ObjectTagCore (strat 27 gripper cam) ------------------------------
+    # ground truth: 45mm tag 0.25m ahead of the camera, facing it, yawed 10 deg
+    oc = ObjectTagCore(30, 0.045)
+    R_ct_o = _euler_xyz(math.pi, 0.0, math.radians(10.0))  # tag z toward cam
+    t_true = np.array([0.02, -0.01, 0.25])
+    rvec_o, _ = cv2.Rodrigues(R_ct_o)
+    proj_o, _ = cv2.projectPoints(oc.obj, rvec_o, t_true, K, dist)
+    r_o = oc.step(proj_o.reshape(4, 2), K, dist)
+    # sub-mm bar (near-frontal is IPPE's numerically worst regime; 0.36mm
+    # measured on this synthetic view -- far under the jaw capture margin)
+    good = r_o is not None and float(np.linalg.norm(r_o[0] - t_true)) < 1e-3
+    ok &= good
+    print(f"[selftest] obj tag pose    : "
+          f"{'t_err=%.2e m reproj=%.3fpx ok' % (np.linalg.norm(r_o[0]-t_true), r_o[2]) if r_o else 'SOLVE FAILED'} "
+          f"({'ok' if good else 'FAIL'})")
+    # near-frontal views are ambiguity-safe; a corrupted detection must reject
+    r_bad = ObjectTagCore(30, 0.045).step(
+        proj_o.reshape(4, 2) + np.array([12.0, -9.0]) * np.array([[1], [0], [1], [0]]),
+        K, dist)
+    good = r_bad is None
+    ok &= good
+    print(f"[selftest] obj tag gate    : corrupted corners rejected={r_bad is None} "
+          f"({'ok' if good else 'FAIL'})")
+
     print(f"[selftest] {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
@@ -343,6 +426,22 @@ def main():
     ap.add_argument("--iface", default=None)
     ap.add_argument("--no-auto-iface", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    # ★ 2026-08-24 STRAT 27 gripper-cam object channel (opt-in, log-only until
+    # --gripper-publish). See ObjectTagCore docstring for the FIREWALL contract.
+    ap.add_argument("--gripper", action="store_true",
+                    help="enable the gripper-cam tag30 object channel")
+    ap.add_argument("--gripper-image-topic",
+                    default="/realsense/right_hand/color/image_raw/compressed")
+    ap.add_argument("--gripper-info-topic",
+                    default="/realsense/right_hand/color/camera_info")
+    ap.add_argument("--gripper-raw", action="store_true")
+    ap.add_argument("--object-topic", default="rt/object_tag",
+                    help="DDS topic for the object tag pose (CAMERA optical "
+                         "frame; consumer composes with believed wrist FK)")
+    ap.add_argument("--object-tag-id", type=int, default=30)
+    ap.add_argument("--object-tag-size", type=float, default=0.045)
+    ap.add_argument("--gripper-publish", action="store_true",
+                    help="actually publish rt/object_tag (default: LOG ONLY)")
     a = ap.parse_args()
 
     if a.selftest:
@@ -386,6 +485,22 @@ def main():
     from rclpy.qos import QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
+    # ---- gripper-cam object channel (strat 27, opt-in) ---------------------
+    obj_core = None
+    obj_pub = None
+    obj_msg = None
+    obj_state = {"K": None, "dist": None, "n": 0, "t0": time.time(), "last": 0.0}
+    if a.gripper:
+        obj_core = ObjectTagCore(a.object_tag_id, a.object_tag_size)
+        if a.gripper_publish:
+            obj_pub = ChannelPublisher(a.object_topic, SportModeState_)
+            obj_pub.Init()
+            obj_msg = unitree_go_msg_dds__SportModeState_()
+        print(f"[obj] gripper-cam channel ON: tag{a.object_tag_id} "
+              f"({a.object_tag_size*1000:.0f}mm) {a.gripper_image_topic} -> "
+              f"{'DDS ' + a.object_topic if a.gripper_publish else 'LOG ONLY'} "
+              f"(CAMERA-frame pose; FIREWALLED from aux/estimator)")
+
     class Bridge(Node):
         def __init__(self):
             super().__init__("tag_bridge")
@@ -397,6 +512,63 @@ def main():
                 self.create_subscription(CompressedImage, a.image_topic, self.on_jpg, qos)
             self.get_logger().info(f"tag_bridge: {a.image_topic} -> DDS '{a.aux_topic}' "
                                    f"(mode=2 POSITION-ONLY, estimator aux; no pipeline role)")
+            if a.gripper:
+                self.create_subscription(CameraInfo, a.gripper_info_topic,
+                                         self.on_obj_info, qos)
+                if a.gripper_raw:
+                    self.create_subscription(Image, a.gripper_image_topic,
+                                             self.on_obj_raw, qos)
+                else:
+                    self.create_subscription(CompressedImage, a.gripper_image_topic,
+                                             self.on_obj_jpg, qos)
+
+        def on_obj_info(self, msg):
+            obj_state["K"] = np.array(msg.k, float).reshape(3, 3)
+            obj_state["dist"] = np.array(msg.d, float) if len(msg.d) else np.zeros(5)
+
+        def on_obj_raw(self, msg):
+            img = np.frombuffer(msg.data, np.uint8).reshape(msg.height, msg.width, -1)
+            self.process_obj(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                             if img.ndim == 3 else img)
+
+        def on_obj_jpg(self, msg):
+            img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_GRAYSCALE)
+            if img is not None:
+                self.process_obj(img)
+
+        def process_obj(self, gray):
+            if obj_state["K"] is None:
+                return
+            corners, ids, _ = det.detectMarkers(gray)
+            if ids is None:
+                return
+            hit = [c[0] for c, i in zip(corners, ids.flatten())
+                   if int(i) == obj_core.tag_id]
+            if not hit:
+                return
+            r = obj_core.step(hit[0], obj_state["K"], obj_state["dist"])
+            if r is None:
+                return
+            tvec, rvec, err = r
+            if obj_pub is not None:
+                # contract: position = tag centre in CAMERA OPTICAL frame [m],
+                # velocity = Rodrigues rvec (camera<-tag), mode = tag id.
+                # Consumer (h12_control_node) composes with believed wrist FK +
+                # hand-eye extrinsic. NOTHING here enters the estimator.
+                for k in range(3):
+                    obj_msg.position[k] = float(tvec[k])
+                    obj_msg.velocity[k] = float(rvec[k])
+                obj_msg.mode = obj_core.tag_id
+                obj_pub.Write(obj_msg)
+            obj_state["n"] += 1
+            now = time.time()
+            if now - obj_state["last"] > 2.0:
+                obj_state["last"] = now
+                hz = obj_state["n"] / max(now - obj_state["t0"], 1e-6)
+                print(f"[obj] tag{obj_core.tag_id} {obj_state['n']} poses "
+                      f"({hz:.1f}Hz) t=[{tvec[0]:+.3f} {tvec[1]:+.3f} "
+                      f"{tvec[2]:+.3f}]m reproj={err:.2f}px "
+                      f"rej={obj_core.n_rejected}", flush=True)
 
         def on_info(self, msg):
             latest["K"] = np.array(msg.k, float).reshape(3, 3)
