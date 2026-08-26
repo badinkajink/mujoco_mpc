@@ -501,7 +501,10 @@ def main():
         op_rate, op_threads = by_traj[op]
         # is the thread axis actually flat? (spread across threads at the deploy traj)
         col = [med[(t, op)] for t in grid_threads]
-        spread = (max(col) - min(col)) / max(col) if col and max(col) else 0
+        _srt = sorted(col); _median = _srt[len(_srt) // 2] if _srt else 0
+        # max-vs-MEDIAN, robust to the noisy end cells (max-vs-min clears a
+        # threshold by chance on a genuinely flat curve; the median does not)
+        spread = (max(col) - _median) / _median if _median else 0
         rec["grid"] = {"threads": grid_threads, "trajectories": grid_traj,
                        "window_s": args.grid_window, "warmup_s": args.warmup,
                        "repeats": args.repeats, "matrix": matrix,
@@ -514,13 +517,16 @@ def main():
         rec["headline_proxy_rate"] = op_rate
         t_end = temperature_c()
         print("-" * 68)
-        if spread < 0.08:
-            print(f" thread count barely matters at {op} traj (only {spread*100:.0f}% spread "
+        if spread < 0.05:
+            print(f" thread count barely matters at {op} traj ({spread*100:.0f}% above median "
                   f"across {min(grid_threads)}-{max(grid_threads)} threads).")
             print(f"   -> keep the node's AUTO (hw-{THREAD_RESERVE}); no thread tuning to be had here.")
         else:
             print(f" BEST THREADS at {op} trajectories:  {op_threads} threads -> {op_rate} plan/s "
-                  f"({spread*100:.0f}% over the worst).  Validate on the real node before committing.")
+                  f"({spread*100:.0f}% above median).")
+            print(f"   CONFIRM before trusting: re-run with --seed {args.seed + 1} -- a real peak "
+                  f"survives a seed change. Then validate on the live node (plan=NN/s at "
+                  f"{op_threads} vs AUTO).")
         print(f"   (trajectory count is a SEARCH-QUALITY knob, not a speed dial -- keep 20; "
               f"the dive needs the samples. Threads optimised at fixed 20 only.)")
         if t_start is not None and t_end is not None:
@@ -545,14 +551,16 @@ def main():
         rec["sweep"] = {"warmup_s": args.warmup, "repeats": args.repeats, "rows": rows}
         best = max(rows, key=lambda r: r["plan_rate"])
         col = [r["plan_rate"] for r in rows]
-        spread = (max(col) - min(col)) / max(col) if col and max(col) else 0
+        _srt = sorted(col); _median = _srt[len(_srt) // 2] if _srt else 0
+        spread = (max(col) - _median) / _median if _median else 0
         print("-" * 68)
-        if spread < 0.08:
-            print(f" flat: only {spread*100:.0f}% across {min(seq)}-{max(seq)} threads "
-                  f"-- thread count barely matters; keep AUTO (hw-{THREAD_RESERVE}).")
+        if spread < 0.05:
+            print(f" flat: peak only {spread*100:.0f}% above median across {min(seq)}-{max(seq)} "
+                  f"threads -- thread count barely matters; keep AUTO (hw-{THREAD_RESERVE}).")
         else:
             print(f" peak {best['plan_rate']}/s at {best['threads']} threads "
-                  f"({spread*100:.0f}% over worst). Validate on the real node.")
+                  f"({spread*100:.0f}% above median). Re-run with --seed {args.seed + 1} to confirm "
+                  f"it survives, then validate on the live node.")
         rec["headline_proxy_rate"] = best["plan_rate"]
         t_end = temperature_c()
         if t_start is not None and t_end is not None:
