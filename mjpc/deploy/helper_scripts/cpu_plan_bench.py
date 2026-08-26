@@ -186,10 +186,10 @@ def profile():
 
 # ---- rollout harness (native mujoco.rollout, ThreadPool fallback) --------- #
 class Harness:
-    def __init__(self, xml, ntraj, steps, threads, model=None):
+    def __init__(self, xml, ntraj, steps, threads, model=None, keyframe="stand"):
         self.m = model if model is not None else mujoco.MjModel.from_xml_path(xml)
         self.ntraj, self.steps, self.threads = ntraj, steps, threads
-        kid = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_KEY, "stand")
+        kid = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_KEY, keyframe)
         if kid < 0:
             kid = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_KEY, "home")
         self.kid = max(kid, 0)
@@ -295,6 +295,20 @@ def stats(v):
             "min": round(a[0], 2), "max": round(a[-1], 2)}
 
 
+def _settled_contacts(xml, keyframe):
+    try:
+        m = mujoco.MjModel.from_xml_path(xml)
+        kid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, keyframe)
+        d = mujoco.MjData(m)
+        if kid >= 0:
+            mujoco.mj_resetDataKeyframe(m, d, kid)
+        for _ in range(60):
+            mujoco.mj_step(m, d)
+        return d.ncon
+    except Exception:
+        return None
+
+
 # ---- main ----------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
@@ -316,11 +330,19 @@ def main():
     ap.add_argument("--grid-traj", default="8,12,16,20,24,32",
                     help="comma list of trajectory counts (default 8,12,16,20,24,32)")
     ap.add_argument("--grid-window", type=float, default=4, help="seconds per grid cell (default 4)")
+    ap.add_argument("--deploy-traj", type=int, default=DEPLOY_TRAJECTORIES,
+                    help="trajectory count to optimise THREADS at in --grid (default 20; "
+                         "this is a search-quality choice, not tuned for speed)")
     ap.add_argument("--from-node-log", metavar="PATH",
                     help="parse `plan=NN/s` from a node stderr log ('-' = stdin); skips the proxy")
     ap.add_argument("--calibrate", type=float, metavar="REAL_RATE",
                     help="known real deployed rate on THIS machine; prints proxy->real factor")
     ap.add_argument("--xml", help="override model path (auto-found otherwise)")
+    ap.add_argument("--keyframe", default="stand",
+                    help="pose to roll out from: 'stand' (default; ~= sustained brace cost), "
+                         "'forearm_brace_lean' / 'forearm_brace_reach' (braced phase), or "
+                         "'forearm_brace_mid' (busy transient, ~30%% slower = conservative). "
+                         "The header prints the settled contact count so you see the load.")
     ap.add_argument("--tag", default="", help="free-text machine label for the report")
     ap.add_argument("--out", help="JSON output path (default cpu_bench_<host>_<ts>.json in cwd)")
     ap.add_argument("--no-json", action="store_true", help="console only, no JSON file")
@@ -359,9 +381,13 @@ def main():
     if args.grid_threads.strip():
         grid_threads = [t for t in _ints(args.grid_threads) if 1 <= t <= logical]
     else:
-        cand = [2, 4, 6, 8, 12, 16, 20, 24, prof["cores_physical"] or 0,
-                logical - THREAD_RESERVE, logical]
+        cand = [8, 9, 10, 11, 12, 13, 14, 15, 16, 24]
         grid_threads = sorted({t for t in cand if 1 <= t <= logical})
+        # keep a couple of low points on small machines so the curve isn't a dot
+        for t in (2, 4, 6):
+            if t <= logical and t not in grid_threads and len(grid_threads) < 4:
+                grid_threads.append(t)
+        grid_threads = sorted(set(grid_threads))
 
     # hard watchdog so it always auto-kills itself
     if args.grid:
@@ -385,6 +411,9 @@ def main():
           f"maxfreq {prof['max_freq_mhz'] or '?'} MHz   gov {prof['governor'] or 'n/a'}")
     print(f" model {os.path.basename(xml)}   workload {args.trajectories} rollouts "
           f"x {args.horizon_steps} steps")
+    _ncon = _settled_contacts(xml, args.keyframe)
+    print(f" pose {args.keyframe}"
+          + (f"   ({_ncon} contacts active)" if _ncon is not None else ""))
     t_start = temperature_c()
     if t_start is not None:
         print(f" start temp {t_start} C")
@@ -403,29 +432,40 @@ def main():
         # header row: trajectory counts
         print(" thr\\traj " + "".join(f"{n:>7}" for n in grid_traj))
         matrix = []
-        best = {"rate": -1}
+        by_traj = {n: (-1, None) for n in grid_traj}   # n -> (best_rate, best_threads)
         for t in grid_threads:
             row = []
-            for n in grid_traj:
-                h = Harness(xml, n, args.horizon_steps, t, model=shared)
+            for j, n in enumerate(grid_traj):
+                h = Harness(xml, n, args.horizon_steps, t, model=shared, keyframe=args.keyframe)
                 rate, _ = run_window(h, args.grid_window, sample=False)
                 h.close()
                 row.append(round(rate, 1))
-                if rate > best["rate"]:
-                    best = {"rate": round(rate, 1), "threads": t, "trajectories": n,
-                            "mj_step_per_s": round(rate * n * args.horizon_steps)}
+                if rate > by_traj[n][0]:
+                    by_traj[n] = (round(rate, 1), t)
             matrix.append({"threads": t, "rates": row})
             print(f" {t:>4}    " + "".join(f"{v:>7.1f}" for v in row))
+        # the recommendation optimises THREADS at the deploy trajectory count only.
+        # (trajectory count is a SEARCH-QUALITY knob -- fewer always reads faster
+        # but plans worse; the script cannot see quality, so it never picks it.)
+        op = args.deploy_traj if args.deploy_traj in grid_traj else \
+            min(grid_traj, key=lambda x: abs(x - args.deploy_traj))
+        op_rate, op_threads = by_traj[op]
         rec["grid"] = {"threads": grid_threads, "trajectories": grid_traj,
-                       "window_s": args.grid_window, "matrix": matrix}
-        rec["best"] = best
-        rec["headline_proxy_rate"] = best["rate"]
+                       "window_s": args.grid_window, "matrix": matrix,
+                       "best_threads_by_traj": {n: {"rate": r, "threads": th}
+                                                for n, (r, th) in by_traj.items()}}
+        rec["best"] = {"trajectories": op, "threads": op_threads, "rate": op_rate,
+                       "note": "threads optimised at the deploy trajectory count; "
+                               "trajectory count is fixed by search quality, not speed"}
+        rec["headline_proxy_rate"] = op_rate
         t_end = temperature_c()
         print("-" * 68)
-        print(f" BEST config on this machine:  {best['threads']} threads x "
-              f"{best['trajectories']} trajectories  ->  {best['rate']} plan/s")
-        print(f"   (fewer trajectories = higher rate but coarser search; pick the knee, "
-              f"not just the peak)")
+        print(f" BEST THREADS at {op} trajectories (your deploy quality point):  "
+              f"{op_threads} threads  ->  {op_rate} plan/s")
+        print(f"   trajectory count is a SEARCH-QUALITY knob, NOT a speed dial:")
+        print(f"   fewer trajectories read faster here only because they search less "
+              f"-- keep 20; the dive needs the samples. This script cannot see plan")
+        print(f"   quality, so it optimises threads ONLY, at your chosen trajectory count.")
         if t_start is not None and t_end is not None:
             print(f" temp {t_start} -> {t_end} C")
             if t_end - t_start > 20:
@@ -442,7 +482,7 @@ def main():
         print(f" {'thr':>4} {'plan/s':>8} {'mj_step/s':>12} {'cpu%':>6} {'temp':>6}")
         rows = []
         for t in seq:
-            h = Harness(xml, args.trajectories, args.horizon_steps, t)
+            h = Harness(xml, args.trajectories, args.horizon_steps, t, keyframe=args.keyframe)
             rate, samp = run_window(h, args.sweep_window, sample=False)
             h.close()
             cpu = psutil.cpu_percent(None) if psutil else None
@@ -458,7 +498,7 @@ def main():
         print(f" peak proxy rate {best['plan_rate']}/s at {best['threads']} threads")
         rec["headline_proxy_rate"] = best["plan_rate"]
     else:
-        h = Harness(xml, args.trajectories, args.horizon_steps, threads)
+        h = Harness(xml, args.trajectories, args.horizon_steps, threads, keyframe=args.keyframe)
         print(f" threads {threads}   harness {h.mode}   running {args.duration:.0f}s ...")
         rate, samples = run_window(h, args.duration)
         h.close()
