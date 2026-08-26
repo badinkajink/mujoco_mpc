@@ -4312,9 +4312,18 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       }
     }
 
+    // ★ 2026-08-26 STRAT 27 grasp-gate drift fix: once CLOSE has fired, the
+    // ack/timeout must resolve REGARDLESS of position. A post-close drift out of
+    // tolerance otherwise short-circuits this advance chain before the grasp-gate
+    // timeout is ever evaluated, stranding the ladder at the grasp rung until the
+    // forearm pad lifts and the commit-stall aborts to stand (the strat-27 "grasp
+    // then collapse" bug). Bypass the position gate while a close is pending.
+    double eff_tol = (current_kf.grasp_close &&
+                      mjpc::g_grasp_gate_cmd.load() != 0)
+                         ? 1.0e9 : current_kf.target_distance_tolerance;
     if (data->time - motion_strategy_.GetCurrentKeyframeStartTime() >
             current_kf.time_limit &&
-        total_distance > current_kf.target_distance_tolerance) {
+        total_distance > eff_tol) {
       // Time-limit reset (strategy restarts from keyframe 0). Save the
       // scales that were just in effect so the next ramp blends from them.
       SnapshotEffectiveScales();
@@ -4327,7 +4336,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance <= current_kf.target_distance_tolerance &&
+    } else if (total_distance <= eff_tol &&
                data->time -
                        motion_strategy_.GetCurrentKeyframeSuccessStartTime() >
                    current_kf.success_sustain_time &&
@@ -4779,7 +4788,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance > current_kf.target_distance_tolerance) {
+    } else if (total_distance > eff_tol) {
       // Re-arm the success clock: outside tolerance -- sustain must be
       // CONSECUTIVE.
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
