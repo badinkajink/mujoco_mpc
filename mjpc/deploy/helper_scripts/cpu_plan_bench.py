@@ -356,6 +356,10 @@ def main():
     ap.add_argument("--sweep-window", type=float, default=6, help="seconds per sweep point")
     ap.add_argument("--grid", action="store_true",
                     help="2-D sweep over threads x trajectories -> best config for this machine")
+    ap.add_argument("--traj-sweep", action="store_true",
+                    help="sweep TRAJECTORY count at fixed threads -- shows the rate COST of "
+                         "trajectories per machine. Informational only: 20 is fixed by the dive's "
+                         "search quality and is never reduced for speed, so this reports no 'best'.")
     ap.add_argument("--grid-threads", default="",
                     help="comma list of thread counts (default: a spread up to logical cores)")
     ap.add_argument("--grid-traj", default="8,12,16,20,24,32",
@@ -434,6 +438,8 @@ def main():
         budget = args.warmup + args.grid_window * len(grid_threads) * len(grid_traj) * reps + 60
     elif args.sweep:
         budget = args.warmup + args.sweep_window * len(grid_threads) * reps + 30
+    elif args.traj_sweep:
+        budget = args.warmup + args.sweep_window * len(grid_traj) * reps + 30
     else:
         budget = args.duration + 30
     try:
@@ -548,6 +554,39 @@ def main():
             print(f" peak {best['plan_rate']}/s at {best['threads']} threads "
                   f"({spread*100:.0f}% over worst). Validate on the real node.")
         rec["headline_proxy_rate"] = best["plan_rate"]
+        t_end = temperature_c()
+        if t_start is not None and t_end is not None:
+            print(f" temp {t_start} -> {t_end} C")
+    elif args.traj_sweep:
+        shared = mujoco.MjModel.from_xml_path(xml)
+        thr = args.threads if args.threads > 0 else max(1, logical - THREAD_RESERVE)
+        print(f" TRAJECTORY SWEEP {grid_traj} at {thr} threads  "
+              f"({args.sweep_window:.0f}s/cell; {steady})")
+        print(f" rate COST of trajectory count -- NOT a recommendation. Deploy uses 20;")
+        print(f" fewer reads faster only because it searches less (the dive needs the samples).\n")
+        if args.warmup > 0:
+            warmup_load(xml, shared, args.warmup, thr, args.keyframe)
+        med = measure_cells(xml, shared, [(thr, n) for n in grid_traj],
+                            args.horizon_steps, args.keyframe, args.sweep_window,
+                            args.repeats, args.seed)
+        print(f" {'traj':>5} {'plan/s':>8} {'mj_step/s':>12}")
+        rows = []
+        for n in grid_traj:
+            rate = med[(thr, n)]
+            mjs = rate * n * args.horizon_steps
+            rows.append({"trajectories": n, "plan_rate": round(rate, 2),
+                         "mj_step_per_s": round(mjs)})
+            mark = "  <- deploy" if n == args.deploy_traj else ""
+            print(f" {n:>5} {rate:>8.1f} {mjs:>12,.0f}{mark}")
+        rec["traj_sweep"] = {"threads": thr, "warmup_s": args.warmup,
+                             "repeats": args.repeats, "rows": rows}
+        dep = next((r for r in rows if r["trajectories"] == args.deploy_traj), None)
+        if dep:
+            rec["headline_proxy_rate"] = dep["plan_rate"]
+        print("-" * 68)
+        print(f" mj_step/s is ~flat across trajectory counts (throughput is thread-bound, "
+              f"not traj-bound);")
+        print(f" plan/s falls ~1/traj because each iteration does more rollouts. Keep 20.")
         t_end = temperature_c()
         if t_start is not None and t_end is not None:
             print(f" temp {t_start} -> {t_end} C")
