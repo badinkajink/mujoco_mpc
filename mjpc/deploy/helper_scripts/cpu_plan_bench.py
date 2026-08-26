@@ -295,6 +295,37 @@ def stats(v):
             "min": round(a[0], 2), "max": round(a[-1], 2)}
 
 
+def warmup_load(xml, model, seconds, threads, keyframe):
+    """Run sustained max-load rollouts so the CPU settles to steady-state clocks
+    (exhausts the short turbo-boost budget) before any cell is measured."""
+    if seconds <= 0:
+        return
+    h = Harness(xml, DEPLOY_TRAJECTORIES, DEPLOY_HORIZON_STEPS, threads, model=model,
+                keyframe=keyframe)
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < seconds:
+        h.plan_iteration()
+    h.close()
+
+
+def measure_cells(xml, model, cells, steps, keyframe, window, repeats, seed):
+    """Measure each (threads, ntraj) cell `repeats` times in RANDOMIZED order and
+    return the median rate per cell. Randomizing + median removes the position
+    bias where whichever cell runs first wins the turbo budget."""
+    import random as _rnd
+    rng = _rnd.Random(seed)
+    acc = {c: [] for c in cells}
+    for _r in range(max(1, repeats)):
+        order = list(cells)
+        rng.shuffle(order)
+        for (t, n) in order:
+            h = Harness(xml, n, steps, t, model=model, keyframe=keyframe)
+            rate, _ = run_window(h, window, sample=False)
+            h.close()
+            acc[(t, n)].append(rate)
+    return {c: sorted(v)[len(v) // 2] for c, v in acc.items()}
+
+
 def _settled_contacts(xml, keyframe):
     try:
         m = mujoco.MjModel.from_xml_path(xml)
@@ -333,6 +364,14 @@ def main():
     ap.add_argument("--deploy-traj", type=int, default=DEPLOY_TRAJECTORIES,
                     help="trajectory count to optimise THREADS at in --grid (default 20; "
                          "this is a search-quality choice, not tuned for speed)")
+    ap.add_argument("--warmup", type=float, default=25,
+                    help="seconds of sustained max-load warmup BEFORE measuring, so the "
+                         "package is at steady-state clocks (kills the turbo-boost cell-order "
+                         "bias that faked a thread optimum). 0 disables.")
+    ap.add_argument("--repeats", type=int, default=1,
+                    help="measure each cell this many times in randomized-interleaved rounds "
+                         "and take the median. Use 3+ for a trustworthy thread comparison.")
+    ap.add_argument("--seed", type=int, default=12345, help="deterministic cell-shuffle seed")
     ap.add_argument("--from-node-log", metavar="PATH",
                     help="parse `plan=NN/s` from a node stderr log ('-' = stdin); skips the proxy")
     ap.add_argument("--calibrate", type=float, metavar="REAL_RATE",
@@ -390,10 +429,11 @@ def main():
         grid_threads = sorted(set(grid_threads))
 
     # hard watchdog so it always auto-kills itself
+    reps = max(1, args.repeats)
     if args.grid:
-        budget = args.grid_window * len(grid_threads) * len(grid_traj) + 60
+        budget = args.warmup + args.grid_window * len(grid_threads) * len(grid_traj) * reps + 60
     elif args.sweep:
-        budget = args.sweep_window * 10 + 30
+        budget = args.warmup + args.sweep_window * len(grid_threads) * reps + 30
     else:
         budget = args.duration + 30
     try:
@@ -423,25 +463,28 @@ def main():
            "trajectories": args.trajectories, "horizon_steps": args.horizon_steps,
            "utc": datetime.now(timezone.utc).isoformat()}
 
+    steady = (f"warmup {int(args.warmup)}s, randomized order"
+              + (f", {args.repeats}-repeat median" if args.repeats > 1 else ""))
+
     if args.grid:
         shared = mujoco.MjModel.from_xml_path(xml)  # load once, reuse per cell
         print(f" GRID  threads {grid_threads}  x  trajectories {grid_traj}"
-              f"   ({args.grid_window:.0f}s/cell)")
+              f"   ({args.grid_window:.0f}s/cell; {steady})")
         print(f" cells report plan-iterations/s (one iteration = N rollouts x "
               f"{args.horizon_steps} steps, barriered)\n")
-        # header row: trajectory counts
+        if args.warmup > 0:
+            warmup_load(xml, shared, args.warmup, max(grid_threads), args.keyframe)
+        cells = [(t, n) for t in grid_threads for n in grid_traj]
+        med = measure_cells(xml, shared, cells, args.horizon_steps, args.keyframe,
+                            args.grid_window, args.repeats, args.seed)
         print(" thr\\traj " + "".join(f"{n:>7}" for n in grid_traj))
         matrix = []
         by_traj = {n: (-1, None) for n in grid_traj}   # n -> (best_rate, best_threads)
         for t in grid_threads:
-            row = []
-            for j, n in enumerate(grid_traj):
-                h = Harness(xml, n, args.horizon_steps, t, model=shared, keyframe=args.keyframe)
-                rate, _ = run_window(h, args.grid_window, sample=False)
-                h.close()
-                row.append(round(rate, 1))
-                if rate > by_traj[n][0]:
-                    by_traj[n] = (round(rate, 1), t)
+            row = [round(med[(t, n)], 1) for n in grid_traj]
+            for n in grid_traj:
+                if med[(t, n)] > by_traj[n][0]:
+                    by_traj[n] = (round(med[(t, n)], 1), t)
             matrix.append({"threads": t, "rates": row})
             print(f" {t:>4}    " + "".join(f"{v:>7.1f}" for v in row))
         # the recommendation optimises THREADS at the deploy trajectory count only.
@@ -450,53 +493,64 @@ def main():
         op = args.deploy_traj if args.deploy_traj in grid_traj else \
             min(grid_traj, key=lambda x: abs(x - args.deploy_traj))
         op_rate, op_threads = by_traj[op]
+        # is the thread axis actually flat? (spread across threads at the deploy traj)
+        col = [med[(t, op)] for t in grid_threads]
+        spread = (max(col) - min(col)) / max(col) if col and max(col) else 0
         rec["grid"] = {"threads": grid_threads, "trajectories": grid_traj,
-                       "window_s": args.grid_window, "matrix": matrix,
+                       "window_s": args.grid_window, "warmup_s": args.warmup,
+                       "repeats": args.repeats, "matrix": matrix,
                        "best_threads_by_traj": {n: {"rate": r, "threads": th}
                                                 for n, (r, th) in by_traj.items()}}
         rec["best"] = {"trajectories": op, "threads": op_threads, "rate": op_rate,
+                       "thread_spread_pct": round(spread * 100, 1),
                        "note": "threads optimised at the deploy trajectory count; "
                                "trajectory count is fixed by search quality, not speed"}
         rec["headline_proxy_rate"] = op_rate
         t_end = temperature_c()
         print("-" * 68)
-        print(f" BEST THREADS at {op} trajectories (your deploy quality point):  "
-              f"{op_threads} threads  ->  {op_rate} plan/s")
-        print(f"   trajectory count is a SEARCH-QUALITY knob, NOT a speed dial:")
-        print(f"   fewer trajectories read faster here only because they search less "
-              f"-- keep 20; the dive needs the samples. This script cannot see plan")
-        print(f"   quality, so it optimises threads ONLY, at your chosen trajectory count.")
+        if spread < 0.08:
+            print(f" thread count barely matters at {op} traj (only {spread*100:.0f}% spread "
+                  f"across {min(grid_threads)}-{max(grid_threads)} threads).")
+            print(f"   -> keep the node's AUTO (hw-{THREAD_RESERVE}); no thread tuning to be had here.")
+        else:
+            print(f" BEST THREADS at {op} trajectories:  {op_threads} threads -> {op_rate} plan/s "
+                  f"({spread*100:.0f}% over the worst).  Validate on the real node before committing.")
+        print(f"   (trajectory count is a SEARCH-QUALITY knob, not a speed dial -- keep 20; "
+              f"the dive needs the samples. Threads optimised at fixed 20 only.)")
         if t_start is not None and t_end is not None:
             print(f" temp {t_start} -> {t_end} C")
-            if t_end - t_start > 20:
-                print(f"   note: package warmed {t_end - t_start:.0f} C across the grid; "
-                      f"later cells may read low from heat-soak. Re-run cool to confirm the peak.")
     elif args.sweep:
-        seq, seen = [], set()
-        for t in [1, 2, 4, 8, 12, 16, prof["cores_physical"] or 0,
-                  logical - THREAD_RESERVE, logical]:
-            if t and 1 <= t <= logical and t not in seen:
-                seen.add(t); seq.append(t)
-        seq.sort()
-        print(f" thread sweep {seq}  ({args.sweep_window:.0f}s each)")
-        print(f" {'thr':>4} {'plan/s':>8} {'mj_step/s':>12} {'cpu%':>6} {'temp':>6}")
+        shared = mujoco.MjModel.from_xml_path(xml)
+        seq = grid_threads
+        print(f" THREAD SWEEP {seq} at {args.trajectories} traj  "
+              f"({args.sweep_window:.0f}s/cell; {steady})")
+        if args.warmup > 0:
+            warmup_load(xml, shared, args.warmup, max(seq), args.keyframe)
+        med = measure_cells(xml, shared, [(t, args.trajectories) for t in seq],
+                            args.horizon_steps, args.keyframe, args.sweep_window,
+                            args.repeats, args.seed)
+        print(f" {'thr':>4} {'plan/s':>8} {'mj_step/s':>12}")
         rows = []
         for t in seq:
-            h = Harness(xml, args.trajectories, args.horizon_steps, t, keyframe=args.keyframe)
-            rate, samp = run_window(h, args.sweep_window, sample=False)
-            h.close()
-            cpu = psutil.cpu_percent(None) if psutil else None
-            temp = temperature_c()
+            rate = med[(t, args.trajectories)]
             mjs = rate * args.trajectories * args.horizon_steps
-            rows.append({"threads": t, "plan_rate": round(rate, 2),
-                         "mj_step_per_s": round(mjs), "cpu_pct": cpu, "temp_c": temp})
-            print(f" {t:>4} {rate:>8.1f} {mjs:>12,.0f} "
-                  f"{(cpu if cpu is not None else 0):>6.0f} {(temp if temp else 0):>6.1f}")
-        rec["sweep"] = rows
+            rows.append({"threads": t, "plan_rate": round(rate, 2), "mj_step_per_s": round(mjs)})
+            print(f" {t:>4} {rate:>8.1f} {mjs:>12,.0f}")
+        rec["sweep"] = {"warmup_s": args.warmup, "repeats": args.repeats, "rows": rows}
         best = max(rows, key=lambda r: r["plan_rate"])
+        col = [r["plan_rate"] for r in rows]
+        spread = (max(col) - min(col)) / max(col) if col and max(col) else 0
         print("-" * 68)
-        print(f" peak proxy rate {best['plan_rate']}/s at {best['threads']} threads")
+        if spread < 0.08:
+            print(f" flat: only {spread*100:.0f}% across {min(seq)}-{max(seq)} threads "
+                  f"-- thread count barely matters; keep AUTO (hw-{THREAD_RESERVE}).")
+        else:
+            print(f" peak {best['plan_rate']}/s at {best['threads']} threads "
+                  f"({spread*100:.0f}% over worst). Validate on the real node.")
         rec["headline_proxy_rate"] = best["plan_rate"]
+        t_end = temperature_c()
+        if t_start is not None and t_end is not None:
+            print(f" temp {t_start} -> {t_end} C")
     else:
         h = Harness(xml, args.trajectories, args.horizon_steps, threads, keyframe=args.keyframe)
         print(f" threads {threads}   harness {h.mode}   running {args.duration:.0f}s ...")
