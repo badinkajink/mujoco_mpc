@@ -1146,6 +1146,28 @@
         <numeric name="grip_cam_rpy_deg" data="-180.0 90.0 90.0"/>
         <numeric name="grasp_ack_timeout" data="1.5"/>
         <numeric name="grasp_retry_max" data="2"/>
+        <!-- ★★★ reach_arm_posture (2026-08-26, strat 27 BASIN LOCK): 0 = OFF = BYTE-IDENTICAL.
+             The Reach Level residual pins only the 3-DOF grasp-centre POSITION; the right arm
+             has 7 DOF so 4 are redundant. iCEM's colored noise then picks between a DEEP-reach
+             basin (grasp centre descends onto the block) and a SHALLOW basin (hand hovers
+             3-6 cm high + drifts right) -- the ~1/6 grasp rate was this coin-flip, NOT thermal
+             noise. Measured: successes share sh_yaw>0, elbow~0.9, wr_roll~-0.95; failures share
+             sh_yaw<0, elbow~0.6, wr_roll~-0.35. Fix: on the grasp-DESCENT rungs (reach_target_
+             table height < reach_arm_hgate) overwrite ONLY the right-arm entries of the Posture
+             target (qpos idx 27..33) with the proven deep config below, so Posture AGREES with
+             Reach and the basin is deterministic. Touches nothing else (legs/torso/left-arm/
+             brace/name-gating untouched); OFF => byte-identical. Config = tune13 (the one run
+             that grasped): sh_pitch sh_roll sh_yaw elbow wr_roll wr_pitch wr_yaw. -->
+        <numeric name="reach_arm_posture" data="1.0"/>
+        <numeric name="reach_arm_q" data="-1.573 -0.263 0.542 0.926 -0.926 0.302 -0.183"/>
+        <numeric name="reach_arm_hgate" data="0.16"/>
+        <!-- reach_arm_gain (2026-08-26): amplify the right-arm posture residual
+             (idx 20..26) on basin-lock rungs so the deep-config target actually
+             pulls the arm out of the shallow local min, DECOUPLED from global
+             Posture (which also stiffens legs -> left-foot lift). 1.0 = mask-
+             equivalent-ish; sweep up for a harder basin lock, down if it over-
+             stiffens the arm against Reach fine-tuning. -->
+        <numeric name="reach_arm_gain" data="3.0"/>
         <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
              ON aims the brace POSITION target at the slab's NEAR EDGE + inset instead of the
              legacy `torso + 0.4*(table-torso)`, which lands SHORT of the edge and, combined

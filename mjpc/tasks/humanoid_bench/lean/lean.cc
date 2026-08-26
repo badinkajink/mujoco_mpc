@@ -420,6 +420,41 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     }
   }
 
+  // ---- REACH-ARM POSTURE BASIN LOCK (reach_arm_posture, 0 = OFF) ---------- //
+  // ★★ 2026-08-26: THE ~1/6 GRASP RATE WAS A REDUNDANCY COIN-FLIP, NOT NOISE.
+  // Reach Level pins only the 3-DOF grasp-centre POSITION; the right arm has 7 DOF
+  // so 4 are redundant, and iCEM's colored noise picks between a DEEP-reach basin
+  // (hand descends onto the block) and a SHALLOW one (hand hovers 3-6 cm high +
+  // drifts right). Measured across runs: successes share sh_yaw>0 / elbow~0.9 /
+  // wr_roll~-0.95; failures share sh_yaw<0 / elbow~0.6 / wr_roll~-0.35 -- a
+  // COHERENT config split, not jitter. Posture (idx 27..33 = right arm) is tracking
+  // the brace-UP keyframe here, so it actively fights Reach DOWN. Overwrite ONLY the
+  // right-arm posture entries with the proven deep config on the grasp-DESCENT rungs
+  // (reach_target_table present, height < reach_arm_hgate) so Posture AGREES with
+  // Reach and the basin is deterministic. Legs/torso/left-arm/brace/base-xy (the
+  // yaw pivot at [0],[1]) are all untouched; reach_arm_posture=0 => byte-identical.
+  {
+    int rap_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_posture");
+    double rap = (rap_id >= 0)
+        ? model->numeric_data[model->numeric_adr[rap_id]] : 0.0;
+    const auto& rtt_ov = residual_keyframe_.reach_target_table;
+    int hg_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_hgate");
+    double hgate = (hg_id >= 0)
+        ? model->numeric_data[model->numeric_adr[hg_id]] : 0.10;
+    if (rap > 0.5 && rtt_ov.size() == 3 && rtt_ov[2] < hgate &&
+        model->nq <= 64) {
+      int rq_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_q");
+      if (rq_id >= 0) {
+        const mjtNum *rq = model->numeric_data + model->numeric_adr[rq_id];
+        if (posture_target != posture_level_buf) {   // not already our buffer
+          mju_copy(posture_level_buf, posture_target, model->nq);
+          posture_target = posture_level_buf;
+        }
+        for (int i = 0; i < 7; i++) posture_level_buf[27 + i] = rq[i];
+      }
+    }
+  }
+
 
   // ----- object position ----- //
   double const *object_pos = SensorByName(model, data, "object_pos");
@@ -1600,7 +1635,51 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // (real 25_18, tips-up all run). Wrists stay under Posture so the gripper
   // holds the keyframe orientation and the site rides at the jaw as intended.
   if (residual_keyframe_.reach_target_table.size() == 3) {
-    for (int ai = 20; ai <= 23; ai++) residual[counter + ai] = 0.0;
+    // ★ 2026-08-26 BASIN-LOCK OVERRIDE of the mask. On the grasp-DESCENT rungs
+    // (reach_arm_posture on, rtt height < reach_arm_hgate) the posture_target's
+    // right-arm entries were rewritten to the proven DEEP-reach config above, so
+    // Posture now AGREES with Reach instead of pulling back to the bring-up pose.
+    // The original mask (zero shoulder+elbow) existed only because Posture tracked
+    // the WRONG (bring-up) pose; with the deep target we instead AMPLIFY the whole
+    // right arm (idx 20..26 = qpos 27..33) by reach_arm_gain so the arm is pulled
+    // out of the shallow local minimum into the deep basin -- DECOUPLED from global
+    // Posture (legs stay at base weight; raising global Posture lifted the left
+    // foot, post250). Other rtt phases (hover/retract) keep the original mask.
+    int rap2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_posture");
+    double rap2v = (rap2 >= 0) ? model->numeric_data[model->numeric_adr[rap2]] : 0.0;
+    int hg2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_hgate");
+    double hgate2 = (hg2 >= 0) ? model->numeric_data[model->numeric_adr[hg2]] : 0.10;
+    bool basin_lock = rap2v > 0.5 &&
+        residual_keyframe_.reach_target_table[2] < hgate2;
+    if (basin_lock) {
+      // KEEP the shoulder+elbow mask (20..23 free for Reach to drive) -- post250
+      // proved the DEEP/shallow basin is selected by the WRIST posture (gripper
+      // orientation, wr_roll etc.), and amplifying shoulder+elbow instead TRAPPED
+      // the arm in an intermediate shallow config (armgain1). Zero shoulder+elbow
+      // as the original mask does, and amplify ONLY the wrists (24..26 = qpos
+      // 31..33) toward the deep-config wrist angles set above. Reproduces post250's
+      // wrist authority (~250) from global Posture 60 * gain, DECOUPLED from legs.
+      // GENTLE basin bias (not a rigid lock). tune13 grasped (0.032) with a FREE
+      // arm that naturally extended to the target AND leaned the body forward; the
+      // only thing it lacked was RELIABILITY (the deep basin came up ~1/6). So bias
+      // ONLY the basin/orientation joints -- sh_yaw (22) picks deep vs shallow,
+      // wrists (24..26) point the gripper at the block -- at a MODERATE gain, and
+      // leave sh_pitch (20) / sh_roll (21) / elbow (23) fully free so Reach reaches
+      // like tune13. A rigid full-arm lock froze the arm high (lock7/lean1) and
+      // forcing it down with a bow unloaded the brace (bow1 collapse) -- both were
+      // solving a non-problem. Keep the reach natural; only make the basin reliable.
+      double rag = GetNumberOrDefault(3.0, model, "reach_arm_gain");
+      residual[counter + 20] = 0.0;   // sh_pitch -> FREE (Reach: elevation/z)
+      residual[counter + 23] = 0.0;   // elbow    -> FREE (Reach: extend/flex/z)
+      residual[counter + 21] *= rag;  // sh_roll  -> bias deep (cuts y-wander, the
+                                       //            main reliability killer ±8cm)
+      residual[counter + 22] *= rag;  // sh_yaw   -> bias deep (basin)
+      residual[counter + 24] *= rag;  // wr_roll  -> bias deep (gripper orient)
+      residual[counter + 25] *= rag;  // wr_pitch -> bias deep
+      residual[counter + 26] *= rag;  // wr_yaw   -> bias deep
+    } else {
+      for (int ai = 20; ai <= 23; ai++) residual[counter + ai] = 0.0;
+    }
   }
   // PIN THE NON-REACHING ARM (strat 21, 2026-06-23). The reach keeps GLOBAL
   // Posture LOW (12) on purpose so the REACHING arm is free to extend (line ~75,
