@@ -1138,13 +1138,13 @@
              these MUST be measured (ticket 03) before the servo is trusted;
              1 cm of extrinsic error is 1 cm of grasp error, exactly as for the
              head camera in tag_bridge_node. -->
-        <numeric name="servo_slew" data="0.0"/>
+        <numeric name="servo_slew" data="0.5"/>
         <numeric name="servo_max_age" data="1.0"/>
         <numeric name="servo_max_offset" data="0.15"/>
         <numeric name="servo_nominal" data="0.55 0.16 0.025"/>
-        <numeric name="grip_cam_pos" data="0.06 0.0 0.05"/>
-        <numeric name="grip_cam_rpy_deg" data="-90.0 0.0 -90.0"/>
-        <numeric name="grasp_ack_timeout" data="4.0"/>
+        <numeric name="grip_cam_pos" data="0.108 0.0 0.0"/>
+        <numeric name="grip_cam_rpy_deg" data="-180.0 90.0 90.0"/>
+        <numeric name="grasp_ack_timeout" data="1.5"/>
         <numeric name="grasp_retry_max" data="2"/>
         <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
              ON aims the brace POSITION target at the slab's NEAR EDGE + inset instead of the
