@@ -22,20 +22,26 @@ PREREQ  this repo git-pulled (for the model XML + meshes) and `pip install mujoc
         (falls back to /proc + sysctl when absent).
 
 TYPICAL
-  # 90 s steady benchmark at the deploy operating point, auto-exits, writes JSON:
-  python3 cpu_plan_bench.py --tag lab-i7-14700F
+  # ** THE ONE ** best thread x trajectory config for THIS machine (standalone,
+  # no robot), auto-exits, writes JSON. Run this on every machine and compare:
+  python3 cpu_plan_bench.py --grid --tag lab-i7-14700F
 
-  # thread scaling sweep (safe -- never oversubscribes; shows where the CPU plateaus):
-  python3 cpu_plan_bench.py --sweep --tag macbook-m3
+  # 90 s steady benchmark at the deploy operating point (20 traj, hw-6 threads):
+  python3 cpu_plan_bench.py --tag macbook-m3
+
+  # 1-D thread sweep only (fixed 20 trajectories):
+  python3 cpu_plan_bench.py --sweep --tag ryzen-hx370
 
   # literal deployed rate from a normal node run you tee'd to a file:
   #   ./h12_control_node ... 2> node.err
   python3 cpu_plan_bench.py --from-node-log node.err
 
   # calibrate proxy -> real using a known real rate measured on THIS machine:
-  python3 cpu_plan_bench.py --calibrate 34     # e.g. Ryzen deployed 34/s
+  python3 cpu_plan_bench.py --grid --calibrate 34   # Ryzen deployed ~34/s
 
 Collect the JSON from every machine and hand them over -- ranking is then trivial.
+The grid's plan-iters/s is a faithful RELATIVE index (same CPU-bound workload as
+the real CEM planner); multiply by the --calibrate factor to predict real /s.
 """
 import argparse, json, os, platform, re, signal, subprocess, sys, time
 from datetime import datetime, timezone
@@ -180,8 +186,8 @@ def profile():
 
 # ---- rollout harness (native mujoco.rollout, ThreadPool fallback) --------- #
 class Harness:
-    def __init__(self, xml, ntraj, steps, threads):
-        self.m = mujoco.MjModel.from_xml_path(xml)
+    def __init__(self, xml, ntraj, steps, threads, model=None):
+        self.m = model if model is not None else mujoco.MjModel.from_xml_path(xml)
         self.ntraj, self.steps, self.threads = ntraj, steps, threads
         kid = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_KEY, "stand")
         if kid < 0:
@@ -301,8 +307,15 @@ def main():
     ap.add_argument("--threads", type=int, default=0,
                     help="worker threads; 0 = hw_logical - 6 (deploy default)")
     ap.add_argument("--sweep", action="store_true",
-                    help="thread scaling sweep instead of a single steady run")
+                    help="1-D thread scaling sweep instead of a single steady run")
     ap.add_argument("--sweep-window", type=float, default=6, help="seconds per sweep point")
+    ap.add_argument("--grid", action="store_true",
+                    help="2-D sweep over threads x trajectories -> best config for this machine")
+    ap.add_argument("--grid-threads", default="",
+                    help="comma list of thread counts (default: a spread up to logical cores)")
+    ap.add_argument("--grid-traj", default="8,12,16,20,24,32",
+                    help="comma list of trajectory counts (default 8,12,16,20,24,32)")
+    ap.add_argument("--grid-window", type=float, default=4, help="seconds per grid cell (default 4)")
     ap.add_argument("--from-node-log", metavar="PATH",
                     help="parse `plan=NN/s` from a node stderr log ('-' = stdin); skips the proxy")
     ap.add_argument("--calibrate", type=float, metavar="REAL_RATE",
@@ -339,8 +352,24 @@ def main():
               "Pass --xml PATH.", file=sys.stderr)
         sys.exit(2)
 
+    # thread/trajectory lists for grid mode
+    def _ints(s):
+        return [int(x) for x in s.replace(",", " ").split() if x.strip()]
+    grid_traj = _ints(args.grid_traj) or [DEPLOY_TRAJECTORIES]
+    if args.grid_threads.strip():
+        grid_threads = [t for t in _ints(args.grid_threads) if 1 <= t <= logical]
+    else:
+        cand = [2, 4, 6, 8, 12, 16, 20, 24, prof["cores_physical"] or 0,
+                logical - THREAD_RESERVE, logical]
+        grid_threads = sorted({t for t in cand if 1 <= t <= logical})
+
     # hard watchdog so it always auto-kills itself
-    budget = (args.sweep_window * 10 if args.sweep else args.duration) + 30
+    if args.grid:
+        budget = args.grid_window * len(grid_threads) * len(grid_traj) + 60
+    elif args.sweep:
+        budget = args.sweep_window * 10 + 30
+    else:
+        budget = args.duration + 30
     try:
         signal.signal(signal.SIGALRM, lambda *_: os._exit(3))
         signal.alarm(int(budget))
@@ -365,7 +394,44 @@ def main():
            "trajectories": args.trajectories, "horizon_steps": args.horizon_steps,
            "utc": datetime.now(timezone.utc).isoformat()}
 
-    if args.sweep:
+    if args.grid:
+        shared = mujoco.MjModel.from_xml_path(xml)  # load once, reuse per cell
+        print(f" GRID  threads {grid_threads}  x  trajectories {grid_traj}"
+              f"   ({args.grid_window:.0f}s/cell)")
+        print(f" cells report plan-iterations/s (one iteration = N rollouts x "
+              f"{args.horizon_steps} steps, barriered)\n")
+        # header row: trajectory counts
+        print(" thr\\traj " + "".join(f"{n:>7}" for n in grid_traj))
+        matrix = []
+        best = {"rate": -1}
+        for t in grid_threads:
+            row = []
+            for n in grid_traj:
+                h = Harness(xml, n, args.horizon_steps, t, model=shared)
+                rate, _ = run_window(h, args.grid_window, sample=False)
+                h.close()
+                row.append(round(rate, 1))
+                if rate > best["rate"]:
+                    best = {"rate": round(rate, 1), "threads": t, "trajectories": n,
+                            "mj_step_per_s": round(rate * n * args.horizon_steps)}
+            matrix.append({"threads": t, "rates": row})
+            print(f" {t:>4}    " + "".join(f"{v:>7.1f}" for v in row))
+        rec["grid"] = {"threads": grid_threads, "trajectories": grid_traj,
+                       "window_s": args.grid_window, "matrix": matrix}
+        rec["best"] = best
+        rec["headline_proxy_rate"] = best["rate"]
+        t_end = temperature_c()
+        print("-" * 68)
+        print(f" BEST config on this machine:  {best['threads']} threads x "
+              f"{best['trajectories']} trajectories  ->  {best['rate']} plan/s")
+        print(f"   (fewer trajectories = higher rate but coarser search; pick the knee, "
+              f"not just the peak)")
+        if t_start is not None and t_end is not None:
+            print(f" temp {t_start} -> {t_end} C")
+            if t_end - t_start > 20:
+                print(f"   note: package warmed {t_end - t_start:.0f} C across the grid; "
+                      f"later cells may read low from heat-soak. Re-run cool to confirm the peak.")
+    elif args.sweep:
         seq, seen = [], set()
         for t in [1, 2, 4, 8, 12, 16, prof["cores_physical"] or 0,
                   logical - THREAD_RESERVE, logical]:
