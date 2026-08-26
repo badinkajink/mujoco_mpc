@@ -371,14 +371,14 @@
              turns it ON for the STEPPING strategies only (trot 23 / drive 24), so nothing
              real-validated (stand/crouch/reach/lean/stumble) changes. CLI kill: --frc_parity=0. -->
         <numeric name="deploy_frc_parity" data="0"/>
-        <numeric name="agent_planner" data="5"/>
+        <numeric name="agent_planner" data="7"/>
         <!-- horizon restored to 1.0s (was 0.6) because the real-hardware-spec PD
              gains (ankle kp=20, knee kp=200 — IsaacLab H1_CFG / Opt2Skill) are
              too weak for MPC to recover balance within 0.6s of lookahead. 1.0s
              lets the planner anticipate small drifts and apply the gradual
              position offsets that turn into stabilising torques given the soft
              PD. Sampling cost rises ~40% but balance is non-negotiable. -->
-        <numeric name="agent_horizon" data="1.0"/>
+        <numeric name="agent_horizon" data="0.9"/>
         <!-- agent_timestep 0.015 -> 0.010 (2026-06-07): THE sim2sim fix for the live
              twin crouch-and-fall. agent.cc:288 sets model.opt.timestep = agent_timestep,
              so the planner ROLLS OUT (predicts) at this dt. At 0.015 (15ms) the planner
