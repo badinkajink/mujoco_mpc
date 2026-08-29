@@ -534,11 +534,30 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // (is_forearm_brace defined at the top of Residual for the any_arm_contact gate.)
   double forearm_site_pos[3];
   if (is_forearm_brace) {
-    int fs = mj_name2id(model, mjOBJ_SITE,
-                        reach_right ? "left_forearm_brace" : "right_forearm_brace");
-    if (fs >= 0) {
-      mju_copy3(forearm_site_pos, data->site_xpos + 3 * fs);
-      bracing_hand = forearm_site_pos;
+    // ★ 2026-08-28 (battery scene): brace_wrist numeric (default 0 = byte-identical)
+    // repoints the brace POSITION to the WRIST brace site instead of the forearm.
+    // The ARPA battery pack has no flat span for a forearm brace -- only the thin
+    // rail edge -- so the brace end is the left WRIST pad (see the battery scene +
+    // Lean_H12_Magpie_battery.xml). Non-battery models leave brace_wrist unset -> forearm.
+    int bw = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    bool use_wrist = (bw >= 0) &&
+                     model->numeric_data[model->numeric_adr[bw]] > 0.5;
+    if (use_wrist) {
+      // WRIST brace: target the wrist PAD GEOM centre (the pad exists in every
+      // robot model; no extra site needed in the planner). reach_right => LEFT arm braces.
+      int wg = mj_name2id(model, mjOBJ_GEOM,
+                          reach_right ? "left_wrist_pad" : "right_wrist_pad");
+      if (wg >= 0) {
+        mju_copy3(forearm_site_pos, data->geom_xpos + 3 * wg);
+        bracing_hand = forearm_site_pos;
+      }
+    } else {
+      int fs = mj_name2id(model, mjOBJ_SITE,
+                          reach_right ? "left_forearm_brace" : "right_forearm_brace");
+      if (fs >= 0) {
+        mju_copy3(forearm_site_pos, data->site_xpos + 3 * fs);
+        bracing_hand = forearm_site_pos;
+      }
     }
   }
 

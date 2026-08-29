@@ -1,0 +1,68 @@
+<mujocoinclude>
+    <!-- ★ 2026-08-28 BATTERY planner environment (session "battery"). Drop-in
+         replacement for lean.xml, included by Lean_H12_Magpie_battery.xml. The
+         REAL ARPA battery workcell: a low pack (top 0.870) with a mounting RAIL on
+         the near long side that the robot braces its LEFT WRIST on (the pack top
+         has no flat span for a forearm brace).
+
+         PARITY with the twin scene_handless_magpie_battery_real.xml:
+           rail top   z 0.8065  (2.5in below pack top), centre x 0.420
+           pack top   z 0.870,  near edge x 0.4775, centre x 1.09
+           module     world (0.61, -0.04, 0.895) on the pack top
+
+         KEY NAMING: the RAIL carries the names lean.cc drives the brace from --
+         body "table", geoms "table_top"/"table_top_collision", so the near-edge,
+         table_surface_pos framepos, brace pad pairs (left_wrist_brace_pair) and the
+         body_table_force allow-list all operate on the RAIL. The pack top is a
+         SEPARATE body "battery_slab" (not "table") so it carries the module and
+         stops the reach hand without being confused for the brace surface. -->
+    <asset>
+        <material name="wooden_cover" texuniform="false" texture="wooden_cover"/>
+        <texture type="2d" name="wooden_cover" file="../assets/kitchen-wood.png"/>
+        <material name="dark_wooden_cover" texuniform="false" texture="dark_wooden_cover"/>
+        <texture type="2d" name="dark_wooden_cover" file="../assets/dark-wood.png"/>
+        <material name="battery_black" rgba="0.12 0.13 0.16 1" specular="0.35" shininess="0.6"/>
+        <material name="rail_steel" rgba="0.55 0.57 0.62 1" specular="0.7" shininess="0.5"/>
+    </asset>
+    <worldbody>
+        <!-- NEAR BRACE RAIL == "table" for lean.cc. Body origin at the rail so
+             table_top geom sits at local 0. Top face z = 0.7938 + 0.0127 = 0.8065.
+             Half-x 0.05715 -> near edge x = 0.420 - 0.05715 = 0.3629. -->
+        <body name="table" pos="0.420 0 0.7938">
+            <geom name="table_top" type="box" pos="0 0 0" size="0.05715 1.06 0.0127" class="visual" material="rail_steel"/>
+            <geom name="table_top_collision" type="box" pos="0 0 0" size="0.05715 1.06 0.0127" class="collision"
+                  priority="1" solref="0.08 1" solimp="0.85 0.95 0.001 0.5 2"/>
+            <!-- rail support legs to the floor (cosmetic) -->
+            <geom name="table_leg_1" type="box" pos="0 0.95 -0.3906" size="0.03 0.03 0.3906" class="visual" material="dark_wooden_cover"/>
+            <geom name="table_leg_2" type="box" pos="0 -0.95 -0.3906" size="0.03 0.03 0.3906" class="visual" material="dark_wooden_cover"/>
+        </body>
+
+        <!-- BATTERY PACK top surface (separate from the brace rail). Top z 0.870.
+             Half 0.6125 x 1.06 x 0.055, centre z 0.815, near edge x 0.4775. -->
+        <body name="battery_slab" pos="1.09 0 0.815">
+            <geom name="battery_slab_visual" type="box" pos="0 0 0" size="0.6125 1.06 0.055" class="visual" material="battery_black"/>
+            <geom name="battery_slab_collision" type="box" pos="0 0 0" size="0.6125 1.06 0.055" class="collision"
+                  priority="1" solref="0.08 1" solimp="0.85 0.95 0.001 0.5 2"/>
+            <geom name="battery_leg_1" type="box" pos="0.50 0.90 -0.435" size="0.03 0.03 0.38" class="visual" material="dark_wooden_cover"/>
+            <geom name="battery_leg_2" type="box" pos="0.50 -0.90 -0.435" size="0.03 0.03 0.38" class="visual" material="dark_wooden_cover"/>
+            <geom name="battery_leg_3" type="box" pos="-0.30 0.90 -0.435" size="0.03 0.03 0.38" class="visual" material="dark_wooden_cover"/>
+            <geom name="battery_leg_4" type="box" pos="-0.30 -0.90 -0.435" size="0.03 0.03 0.38" class="visual" material="dark_wooden_cover"/>
+        </body>
+
+        <!-- Graspable MODULE == "object" (the reach/grasp target). 5cm cube on the
+             pack top, world (0.61,-0.04,0.895). Matches the twin module. -->
+        <body name="object_anchor" pos="0.61 -0.04 0.895">
+            <joint name="object_anchor_joint" type="free" limited="false"/>
+            <body name="object" pos="0 0 0">
+                <inertial pos="0 0 0" mass="0.1" diaginertia="0.0001 0.0001 0.0001"/>
+                <geom name="object" type="box" size="0.025 0.025 0.025" rgba="0.20 0.55 0.85 1"
+                    class="visual" contype="1" conaffinity="1"/>
+                <geom name="object_collision" type="box" size="0.025 0.025 0.025"
+                    class="collision" contype="1" conaffinity="1"/>
+            </body>
+        </body>
+        <body name="target" mocap="true" pos="0.61 -0.04 0.895">
+            <geom type="sphere" size="0.03" contype="0" conaffinity="0" rgba="0 1 0 .5"/>
+        </body>
+    </worldbody>
+</mujocoinclude>

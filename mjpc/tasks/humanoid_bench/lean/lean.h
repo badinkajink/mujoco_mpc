@@ -441,6 +441,21 @@ class Lean_H12_Magpie : public lean {
   }
 };
 
+// ★ 2026-08-28 BATTERY variant (session "battery"). Same robot + costs as
+// Lean_H12_Magpie, but the environment is the REAL ARPA battery workcell
+// (lean_battery.xml: low pack top 0.870 + a near-side brace RAIL at 0.8065) and
+// the brace is the LEFT WRIST on the rail (brace_wrist=1) rather than the forearm
+// on a table -- the pack has no flat span for a forearm brace. Drive with
+// --task "Lean H12 Battery" + strategy 31 (h12_brace_battery_rail).
+class Lean_H12_Battery : public lean {
+ public:
+  std::string Name() const override { return "Lean H12 Battery"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/lean/Lean_H12_Magpie_battery.xml");
+  }
+};
+
 }  // namespace mjpc
 
 #endif  // MJPC_TASKS_HUMANOID_BENCH_LEAN_LEAN_H_
