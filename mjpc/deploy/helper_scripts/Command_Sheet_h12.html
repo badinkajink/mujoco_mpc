@@ -759,6 +759,53 @@ cd ~/Desktop/h12/h1_mujoco
 .venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py --tag real_v4a_lean_&lt;run&gt;</pre>
       </div>
 
+      <div class="lbl mt-4">Strat 29 — side-grasp retrieval · <span class="text-amber-300">leaner safety</span></div>
+      <p class="text-xs text-slate-400 leading-relaxed">
+        Same brace body as strat 22, plus the vision grasp: head-cam locks tag30 → reach → side-grasp
+        (lateral jaws on the block ±Y faces) → wide-arc retract (arm home + low, clears the table) → release → stand.
+        <strong class="text-amber-200">4 processes</strong>: 2 on the ROBOT PC (perception + actuation, both local there),
+        2 on the LAPTOP (estimator + node). <span class="text-rose-300">No separate safety/estop launch</span> —
+        <code class="text-xs">h1_safety_grippers</code> bundles estop + safety(leaner) + both grippers.
+      </p>
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#f87171"></span>
+          <span class="term-dot" style="background:#fbbf24"></span>
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">ROBOT PC — 2 launches (ssh in; cams + DDS are local)</span>
+        </div>
+<pre class="cmd"><span class="c"># R1  cameras (head + D405 hand) + D405 exposure fix + tag bridge (head→rt/aux_odom, D405→rt/object_tag)</span>
+~/lean_deploy/lean_bringup.sh                <span class="c"># --log-only to not publish the gripper channel</span>
+
+<span class="c"># R2  estop + safety(LEANER) + BOTH grippers — one launch, no separate estop/safety needed</span>
+ros2 launch h1_bringup h1_safety_grippers.launch.py safety_config:=<span class="hl">leaner_safety_full.yaml</span></pre>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="term-dot" style="background:#f87171"></span>
+          <span class="term-dot" style="background:#fbbf24"></span>
+          <span class="term-dot" style="background:#34d399"></span>
+          <span class="lbl ml-2">LAPTOP — 2 processes (robot on DDS)</span>
+        </div>
+<pre class="cmd"><span class="c"># L1  estimator — v4 PLAIN, NOT april: the robot's lean_bringup already publishes the</span>
+<span class="c">#     aux_odom/object_tag anchors, so the laptop must NOT start its own cams/tag bridge</span>
+cd ~/Desktop/h12/mujoco_mpc/mujoco_mpc/mjpc/deploy/helper_scripts
+./est_bringup.sh <span class="hl">v4</span>
+
+<span class="c"># L2  node — strat 29 side-grasp: object servo + grasp gate (servo_slew=0.5 already in XML)</span>
+<span class="c">#   --twin_dt 0.001 is REQUIRED on the real robot: sets the 1kHz clock AND enables</span>
+<span class="c">#   the auto yaw preflight (real_clock=twin_dt<=0.0011). WITHOUT it the preflight is</span>
+<span class="c">#   SILENTLY SKIPPED -> node flies on raw IMU yaw -> brace aims off (29_2/3/4 bug).</span>
+<span class="c">#   Watch for "[node] YAW PREFLIGHT APPLIED: --imu_yaw_offset_deg X.XX" at startup.</span>
+~/Desktop/h12/mujoco_mpc/mujoco_mpc/build/bin/<span class="k">h12_control_node</span> \
+  --task <span class="hl">"Lean H12 Magpie"</span> --strategy <span class="hl">29</span> --object_servo --grasp_gate \
+  --gravity_ff 0.85 <span class="hl">--twin_dt 0.001</span>
+
+<span class="c"># (opt) recorder on the laptop</span>
+cd ~/Desktop/h12/h1_mujoco
+.venv/bin/python ~/Desktop/h12/dds_tools/dds_live_recorder.py --tag real_v4a_s29grasp_&lt;run&gt;</pre>
+      </div>
+
       <div class="rounded-lg border border-rose-900/70 bg-rose-950/30 p-3.5 text-xs text-rose-100/90 leading-relaxed">
         <strong class="text-rose-200">Estop rules (measured, 08-14).</strong>
         Seats at ~30° then pitch <strong>creeps past ~45°</strong> with the pelvis sinking →
