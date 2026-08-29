@@ -114,6 +114,24 @@ class ContactKeyframe {
   // deliberately move AWAY from it and must not chase a stale detection.
   bool servo;
 
+  // ★ 2026-08-26 TILTED APPROACH (lean strat 28 "h12_brace_vision_retrieval").
+  // Per-keyframe pitch-down [deg] of the gripper approach axis for the
+  // "Reach Level" cost. 0 (default) = use the model numeric
+  // reach_level_pitch_deg (which ships 0 = level), so every existing strategy
+  // is byte-identical. Set ~40 on the vision grasp rungs: tilting the approach
+  // drops the grasp centre ~0.19*sin(pitch) below the wrist, which is what
+  // lets the braced arm reach a table-height block WITHOUT the squat.
+  mjtNum reach_pitch_deg;
+
+  // ★ 2026-08-26 FAIL-SOFT TIMEOUT (lean strat 28). false (default) = a
+  // time-limit expiry RESETS the ladder to keyframe 0 (the historical
+  // behaviour -- right for bring-up phases, catastrophic from a deep braced
+  // lean: v2/v3 collapsed to base_z ~0.5 regressing to stand mid-lean). true =
+  // expiry ADVANCES to the NEXT keyframe instead: a stuck vision/grasp rung
+  // aborts its attempt and flows forward into retract -> release -> the proven
+  // standback recovery, empty-handed but upright.
+  bool timeout_advance;
+
   ContactKeyframe()
       : name(""),
         contact_pairs{},
@@ -124,6 +142,8 @@ class ContactKeyframe {
         grasp_center(false),
         grasp_close(false),
         servo(false),
+        reach_pitch_deg(0.),
+        timeout_advance(false),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1),

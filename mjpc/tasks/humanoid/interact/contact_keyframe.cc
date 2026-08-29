@@ -50,6 +50,8 @@ void ContactKeyframe::Reset() {
   grasp_center = false;
   grasp_close = false;
   servo = false;
+  reach_pitch_deg = 0.;
+  timeout_advance = false;
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -83,7 +85,9 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"reach_target_table", keyframe.reach_target_table},
            {"grasp_center", keyframe.grasp_center},
            {"grasp_close", keyframe.grasp_close},
-           {"servo", keyframe.servo}};
+           {"servo", keyframe.servo},
+           {"reach_pitch_deg", keyframe.reach_pitch_deg},
+           {"timeout_advance", keyframe.timeout_advance}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -104,5 +108,9 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   keyframe.grasp_center = j.value("grasp_center", false);
   keyframe.grasp_close = j.value("grasp_close", false);
   keyframe.servo = j.value("servo", false);
+  // ★ 2026-08-26 tilted approach (lean strat 28); absent = 0 = level/global.
+  keyframe.reach_pitch_deg = j.value("reach_pitch_deg", 0.);
+  // ★ 2026-08-26 fail-soft timeout (lean strat 28); absent = false = reset.
+  keyframe.timeout_advance = j.value("timeout_advance", false);
 }
 }  // namespace mjpc::humanoid
