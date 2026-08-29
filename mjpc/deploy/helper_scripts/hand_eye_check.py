@@ -99,6 +99,9 @@ def main():
                     help="grip_cam_rpy_deg candidate (default = current model numeric)")
     ap.add_argument("--true-pos", type=float, nargs=3, default=None,
                     help="surveyed tag world position; prints error + suggested fix")
+    ap.add_argument("--yaw-offset-deg", type=float, default=0.0,
+                    help="rotate base into the table frame (the deploy's "
+                         "--imu_yaw_offset_deg from yaw_preflight); 0 = raw IMU yaw")
     ap.add_argument("--object-topic", default="rt/object_tag")
     ap.add_argument("--tag-id", type=int, default=30)
     ap.add_argument("--domain", type=int, default=0)
@@ -146,7 +149,21 @@ def main():
         t_cam = np.array([obj.position[0], obj.position[1], obj.position[2]])
         quat = np.array(list(ls.imu_state.quaternion))
         Rb = np.zeros(9); mujoco.mju_quat2Mat(Rb, quat); Rb = Rb.reshape(3, 3)
-        d.qpos[0:3] = np.array(list(ss.position)) - Rb @ IMU_OFFSET
+        base_pos = np.array(list(ss.position)) - Rb @ IMU_OFFSET
+        # ★ 2026-08-26 YAW ALIGN: this bare tool reads the raw IMU yaw, but the
+        # deploy control node runs --imu_yaw_offset_deg (from yaw_preflight) to
+        # rotate the base into the TABLE frame. Apply the same Rz(offset) here so
+        # the believed tag world is in the table frame (else it's rotated by the
+        # ~79 deg IMU-vs-table offset and the residual is meaningless). 0 = off.
+        if a.yaw_offset_deg != 0.0:
+            th = np.radians(a.yaw_offset_deg)
+            c, s = np.cos(th), np.sin(th)
+            Rz = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            Rb = Rz @ Rb
+            base_pos = Rz @ base_pos
+            qz = np.zeros(4); mujoco.mju_mat2Quat(qz, Rb.reshape(9))
+            quat = qz
+        d.qpos[0:3] = base_pos
         d.qpos[3:7] = quat
         for i in range(27):
             d.qpos[7 + i] = ls.motor_state[i].q

@@ -105,7 +105,11 @@ def main():
             self.create_subscription(GripperState, f"{ns}/state",
                                      lambda m: state.__setitem__("aperture",
                                                                  m.position), 10)
-            self.create_timer(0.1, self.tick)
+            # 2026-08-29: tick() is driven from the MAIN loop (see below), not a
+            # ROS timer -- call() spins the executor to wait for the service
+            # future, and spinning from inside a timer callback wedges the
+            # single-threaded executor: the relay answered ONE command and then
+            # went deaf for the rest of the session (real 29_33->34, 29_35->41).
             self.get_logger().info(
                 f"grasp_relay: {a.gate_topic} -> {ns}/close -> aperture judge "
                 f"(>= {a.object_min_mm}mm = object) -> {a.ack_topic}"
@@ -116,20 +120,38 @@ def main():
                 self.get_logger().error(f"{name} service unavailable")
                 return False
             fut = cli.call_async(Trigger.Request())
-            rclpy.spin_until_future_complete(self, fut, timeout_sec=4.0)
+            rclpy.spin_until_future_complete(self, fut, timeout_sec=2.5)
             return fut.done() and fut.result() is not None and fut.result().success
 
         def tick(self):
+            # 2026-08-29 OPEN-on-stand: the node publishes "OPEN" for ~1 s on
+            # every stand_up entry; open the jaws once per burst.
+            if state["cmd"] == "OPEN" and not state["busy"]:
+                state["cmd"] = None
+                if time.time() - state.get("last_open", 0.0) < 3.0:
+                    return                      # same 1 s burst: already opened
+                state["busy"] = True
+                try:
+                    self.get_logger().info("OPEN received -> opening gripper")
+                    self.call(self.cli_open, "open")
+                    state["last_open"] = time.time()
+                finally:
+                    state["busy"] = False
+                return
             if state["cmd"] != "CLOSE" or state["busy"]:
                 return
             state["busy"] = True
             try:
                 self.get_logger().info("CLOSE received -> closing gripper")
-                if not self.call(self.cli_close, "close"):
-                    # actuation failed: answer closed so the ladder advances to
-                    # recovery instead of hanging on the ack (fail-safe forward)
-                    self.answer("closed", "close call FAILED -- advancing")
-                    return
+                ok = self.call(self.cli_close, "close")
+                # 2026-08-29: the magpie close service blocks for the whole
+                # motion and often outlives the future wait (real 29_33/29_42:
+                # 'FAILED' while the jaws had closed on the block, aperture
+                # 51 mm). Do NOT answer blind on a timed-out call -- fall
+                # through and let the APERTURE decide, same as a clean call.
+                if not ok:
+                    self.get_logger().warn("close call did not return in time "
+                                           "-- judging by aperture anyway")
                 time.sleep(a.settle_sec)
                 aper = state["aperture"]
                 if aper is None:
@@ -157,8 +179,13 @@ def main():
 
     rclpy.init()
     node = Relay()
+    # 2026-08-29: start from a known state -- jaws OPEN.
+    node.get_logger().info("startup -> opening gripper")
+    node.call(node.cli_open, "open")
     try:
-        rclpy.spin(node)
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.05)   # subscriptions/timers
+            node.tick()                               # main thread: safe to spin inside call()
     except KeyboardInterrupt:
         pass
     finally:

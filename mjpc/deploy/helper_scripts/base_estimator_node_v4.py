@@ -189,8 +189,31 @@ class V4Core(V3Core):
                             tau_xy = getattr(a, "aux_xy_tau_soft", 30.0)
                         alpha = step_dt / (tau_xy + step_dt)
                         self.pos_xy += alpha * (target - self.pos_xy)
-            out["v"] = self.v.copy()
-            out["xy"] = self.pos_xy.copy()
+                        # ★ 2026-08-28 CONTINUOUS GLIDE: remember the accepted
+                        # target so the pull keeps acting EVERY step below.
+                        self._aux_glide_target = target.copy()
+                        self._aux_glide_tau = tau_xy
+                        self._aux_glide_t = (time.monotonic() if now is None else now)
+        # ★ 2026-08-28 CONTINUOUS ANCHOR GLIDE (abs-mode real-robot fix). The
+        # pull above fires ONCE PER ANCHOR MESSAGE (~6 Hz on the real head-cam
+        # bridge) with a per-200Hz-step alpha, so `--aux-xy-tau 2.0` behaved
+        # like ~60 s (standing leg-odometry creep won, base walked 14 cm off
+        # the anchor), and forcing tau 0.1 made the base JUMP ~1 cm per
+        # message -> the node's finite-diff base velocity saw phantom spikes
+        # -> planner stood stiff-legged and refused to dive (29_26/29_27).
+        # Fix: glide toward the last accepted target on every step with the
+        # configured tau (true 2 s time constant, no steps). Stops when the
+        # anchor goes stale (5x aux_age_max) or is not engaged.
+        tgt = getattr(self, "_aux_glide_target", None)
+        if tgt is not None and self.aux_engaged and a.aux_xy_tau > 0.0:
+            now_t = (time.monotonic() if now is None else now)
+            if now_t - self._aux_glide_t <= 5.0 * a.aux_age_max:
+                alpha_g = step_dt / (self._aux_glide_tau + step_dt)
+                self.pos_xy += alpha_g * (tgt - self.pos_xy)
+            else:
+                self._aux_glide_target = None
+        out["v"] = self.v.copy()
+        out["xy"] = self.pos_xy.copy()
         return out
 
     def telemetry(self):
@@ -203,6 +226,13 @@ class V4Core(V3Core):
             line += (f" aux={state}"
                      f"(used {self.aux_used}, deferred {self.aux_deferred}, "
                      f"gated {self.aux_gated}, stale {self.aux_stale})")
+            # ★ 2026-08-29 operator readout: distance est pelvis <-> last
+            # accepted anchor. SETTLED = ready to launch the node.
+            tgt = getattr(self, "_aux_glide_target", None)
+            if tgt is not None:
+                gap = float(np.linalg.norm(tgt - self.pos_xy))
+                line += (f" anchor_gap={gap * 100:.1f}cm "
+                         + ("SETTLED" if gap < 0.03 else "settling..."))
         return line
 
 
