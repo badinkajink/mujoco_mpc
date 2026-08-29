@@ -3492,7 +3492,12 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   {
     double level_res[3] = {0.0, 0.0, 0.0};
     if (residual_keyframe_.reach_target_table.size() == 3 && reach_right) {
-      int wyb = mj_name2id(model, mjOBJ_BODY, "right_wrist_yaw_link");
+      // 2026-08-28 90-DEG GRIPPER FRAME FIX: the sim gripper was mounted 90 deg
+      // rolled from the real hardware (sim jaws VERTICAL at wrist_roll=0, real
+      // jaws HORIZONTAL). Added a 90-deg body quat to *_magpie_gripper so sim
+      // matches real; the jaw-separation axis now lives in the GRIPPER body
+      // frame, so read that (not wrist_yaw_link, which stayed un-rotated).
+      int wyb = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
       if (wyb >= 0) {
         // xmat is row-major: column j of R = (xm[j], xm[3+j], xm[6+j]).
         const double* xm = data->xmat + 9 * wyb;

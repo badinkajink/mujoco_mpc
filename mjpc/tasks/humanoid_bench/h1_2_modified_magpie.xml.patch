@@ -166,7 +166,7 @@
 +                           Placement (pos 0.054, 90° quat) copied from h1_2_magpie.xml's own visual
 +                           geom. Opened/closed OFF-BUS by the magpie_msgs controller, not MJPC.
 +                           Zero extra DOF -> keeps nu=27 / nq=41 (sysid loaders unchanged). -->
-+                      <body name="right_magpie_gripper">
++                      <body name="right_magpie_gripper" quat="0.7071068 0.7071068 0 0">
 +                        <geom type="mesh" mesh="h12_mount" pos="0.054 0 0" quat="0.7071068 0 0.70710685 0" mass="0.506" contype="0" conaffinity="0" group="1" rgba="0.1 0.1 0.1 1"/>
 +                                                <!-- real jaw geometry, mirror of the left side -->
 +                        <geom name="right_gripper_collision" class="collision" type="box" size="0.0425 0.0315 0.0667"
