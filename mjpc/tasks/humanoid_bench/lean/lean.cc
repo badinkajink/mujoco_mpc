@@ -66,6 +66,17 @@ static double s_trim_x = 0.0, s_trim_y = 0.0;
 // A world offset (rather than a table-frame correction) keeps the sign
 // conventions of reach_target_table out of the servo path entirely.
 static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
+// ★ 2026-08-29 time the grasp CLOSE was fired (-1 = none pending). Lets the
+// fail-soft timeout see a close that the ack machinery could not consume
+// (real 29_33: pad-contact gate HOLD sat in front of the grasp-gate lambda,
+// the relay's ack was never read, close stayed 'pending' -> rung 4 hung 60 s
+// leaning until the operator killed it).
+static double s_grasp_cmd_time = -1.0;
+// ★ 2026-08-29 last tip<->target distance from the advance gate (m); the
+// servo freezes its correction once this is inside `servo_freeze_dist` so the
+// final approach is open-loop on the latched value (real 29_38: continuous
+// updates at close range walked the target 15 cm left/up -> pad lifted -> stall).
+static double s_adv_dist = 1e9;
 
 
 namespace {
@@ -3698,6 +3709,22 @@ void lean::ResidualFn::ContactResidual(const mjModel *model, const mjData *data,
 // of net body weight on each foot, enough friction to hold against the
 // soft cost gradients without artificial pins).
 void lean::TransitionLocked(mjModel *model, mjData *data) {
+  // ★ 2026-08-29 JAWS OPEN ON STAND (user request): every entry into keyframe
+  // 0 (stand_up -- node start, ladder reset, retry-to-stand) raises
+  // g_grasp_gate_cmd=2. The deploy mirror publishes "OPEN" on rt/grasp_gate
+  // for ~1 s and clears it; grasp_relay.py calls /right/gripper/open. A jaw
+  // left shut by a previous run (29_33 -> 29_34) can then never hide tag 30
+  // or shove the block. Twin / no relay: harmless (nobody listens).
+  {
+    static int s_last_kidx_open = -1;
+    int kidx0 = motion_strategy_.GetCurrentKeyframeIndex();
+    if (kidx0 == 0 && s_last_kidx_open != 0 &&
+        mjpc::g_grasp_gate_cmd.load() == 0) {
+      mjpc::g_grasp_gate_cmd.store(2);
+      std::printf("[grasp-gate] stand_up entry -> OPEN jaws\n");
+    }
+    s_last_kidx_open = kidx0;
+  }
   // ---- ★ 2026-08-24 STRAT 27 OBJECT SERVO (see s_servo_d* above) ---------- //
   // Turn the gripper camera's tag detection into a world-space correction on
   // the grasp rungs' reach target. OFF unless `servo_slew` > 0  =>  every
@@ -3749,7 +3776,42 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                    (data->time - last_fresh_time <= max_age);
       int wyb = mj_name2id(model, mjOBJ_BODY, "right_wrist_yaw_link");
       int tg = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
-      if (fresh && wyb >= 0 && tg >= 0) {
+      // ★ 2026-08-29 WRIST-QUIET GATE (real 29_32): t_cam is composed with the
+      // wrist pose NOW, but the detection is up to ~0.3-1.0 s old (bridge +
+      // 6 Hz). While the arm sweeps kf2->kf3 at ~0.3 m/s that latency put the
+      // block ~9 cm DEEPER than it is (target x 1.095 vs 0.99 seen at rest) ->
+      // the arm chased a phantom to its reach limit and the grasp timed out.
+      // Only accept a detection while the wrist is (near) still; hold
+      // otherwise. `servo_wrist_vmax` numeric (m/s), default 0.08.
+      bool wrist_quiet = true;
+      if (wyb >= 0) {
+        static double last_wp[3] = {0.0, 0.0, 0.0};
+        static double last_wp_t = -1.0;
+        const double* wp_now = data->xpos + 3 * wyb;
+        if (last_wp_t >= 0.0 && data->time > last_wp_t) {
+          double v = mju_dist3(wp_now, last_wp) / (data->time - last_wp_t);
+          double vmax = GetNumberOrDefault(0.08, model, "servo_wrist_vmax");
+          wrist_quiet = (v <= vmax);
+        }
+        mju_copy3(last_wp, wp_now);
+        last_wp_t = data->time;
+      }
+      // ★ 2026-08-29 FREEZE-NEAR-TARGET: once the grasp centre is within
+      // `servo_freeze_dist` (m, default 0.08) of its target, stop taking new
+      // detections -- the D405 pose still has a few cm of wrist-pose-dependent
+      // error, and chasing it at close range is a feedback loop (29_38).
+      double fdist = GetNumberOrDefault(0.08, model, "servo_freeze_dist");
+      bool far_enough = (s_adv_dist > fdist);
+      double max_depth = GetNumberOrDefault(0.30, model, "servo_max_depth");
+      bool near_range = (mjpc::g_object_cam_z.load() <= max_depth);
+      // ★ 2026-08-29 NO UPDATES ON THE GRASP RUNG: the slide-in runs on the
+      // correction latched at the pre-grasp. A detection taken as the jaws
+      // move in (real 29_46: +4.6 cm x at the rung entry) is the least
+      // reliable one (tag near the lens, wrist tilting) and it pushed the
+      // block 10 cm along the table before the close.
+      bool not_grasp_rung = !residual_.residual_keyframe_.grasp_close;
+      if (fresh && wrist_quiet && far_enough && near_range && not_grasp_rung &&
+          wyb >= 0 && tg >= 0) {
         double cam_pos[3], cam_rpy[3], nominal[3];
         num3("grip_cam_pos", cam_pos, 0.0, 0.0, 0.0);
         num3("grip_cam_rpy_deg", cam_rpy, 0.0, 0.0, 0.0);
@@ -3757,6 +3819,13 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double t_cam[3] = {mjpc::g_object_cam_x.load(),
                            mjpc::g_object_cam_y.load(),
                            mjpc::g_object_cam_z.load()};
+        // ★ 2026-08-29 NEAR-RANGE ONLY: the hand-eye's residual error grows
+        // with tag depth (real 29_31..39: +2 cm z at 0.5 m vs +6 cm at 0.2 m
+        // for the same block). A correction latched from far away and then
+        // frozen (29_39: dz +0.02 taken at ~0.45 m) put the slide-in target
+        // ~4 cm under the block -> tip jammed on the slab, body rolled left.
+        // Accept a detection only when the tag is within `servo_max_depth`
+        // (m, default 0.30); the 10 cm approach tolerance covers open-loop.
         // camera optical frame -> wrist frame
         double rpy[3] = {cam_rpy[0] * (M_PI / 180.0),
                          cam_rpy[1] * (M_PI / 180.0),
@@ -4274,6 +4343,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           h25 = tip25;
         }
         total_distance = mju_dist3(h25, tgt25);
+        s_adv_dist = total_distance;
         // 1 Hz debug: what the ADVANCE actually sees (25_29 advanced with the
         // hand ~13 cm off per offline FK — print target/hand/dist to find why).
         static double last_dbg25 = -1.0;
@@ -4327,6 +4397,15 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       const std::string& kf_name = current_kf.name;
       bool commit_phase = (kf_name == "forearm_brace_lean" ||
                            kf_name == "forearm_brace_mid");
+      // ★ 2026-08-29 DIVE-ONLY: the abort-and-retry exists for the dive
+      // (rung 1: pad never lands). On the REACH rungs (2-5, same keyframe
+      // name in strat 29) a pad lift is a reach problem, and a reset-to-stand
+      // from a 25 deg braced lean is the collapse itself (real 29_38: three
+      // regressions, each one a hard left lean + feet yawing left, operator
+      // holding the robot). Those rungs already carry timeout_advance -> they
+      // fail-soft into retract/release/recover instead.
+      commit_phase = commit_phase &&
+                     motion_strategy_.GetCurrentKeyframeIndex() <= 1;
       if (retry_sec > 0.0 && commit_phase && retries_used < 3) {
         // torso tilt from the base quaternion
         const double* q = data->qpos + 3;
@@ -4477,6 +4556,15 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                      ? model->numeric_data[model->numeric_adr[bcv]] : 0.0;
                  const std::string& kfn =
                      motion_strategy_.GetCurrentKeyframe().name;
+                 // ★ 2026-08-29 GRASP RUNG EXEMPT: the pad-flat/contact HOLD
+                 // exists to stop a reach launching off an unseated brace. On
+                 // the grasp rung the jaws are already at the block; holding
+                 // the CLOSE because the pad reads INCLINED (real 29_44: tip
+                 // at 2.0-3.6 cm for 4 s, gate HOLD, tip drifted past, no
+                 // close) throws the grasp away for nothing. Close, then let
+                 // retract/release deal with the brace.
+                 if (motion_strategy_.GetCurrentKeyframe().grasp_close)
+                   return true;
                  // ★ 2026-08-17 YAW-SANE ADVANCE (`reach_yaw_gate` numeric,
                  // rad; 0/absent = OFF = byte-identical). Real tags_12/15:
                  // the brace yaw-walked 10-20 deg on the slick pad zone and
@@ -4902,10 +4990,14 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                  int rmax = (int)GetNumberOrDefault(2.0, model,
                                                     "grasp_retry_max");
                  int ack = mjpc::g_grasp_ack.load();
-                 if (mjpc::g_grasp_gate_cmd.load() == 0) {
+                 // (cmd==2 = a stale OPEN burst that no mirror cleared: treat
+                 // as idle so the CLOSE can never be blocked by it.)
+                 if (mjpc::g_grasp_gate_cmd.load() == 0 ||
+                     mjpc::g_grasp_gate_cmd.load() == 2) {
                    mjpc::g_grasp_ack.store(0);
                    mjpc::g_grasp_gate_cmd.store(1);
                    g_cmd_time = data->time;
+                   s_grasp_cmd_time = data->time;
                    std::printf("[grasp-gate] CLOSE fired (rung %d, retry %d)\n",
                                kidx, g_retries);
                    return false;
