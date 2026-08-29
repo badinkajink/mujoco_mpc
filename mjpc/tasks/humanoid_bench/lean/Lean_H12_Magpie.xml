@@ -371,6 +371,15 @@
              turns it ON for the STEPPING strategies only (trot 23 / drive 24), so nothing
              real-validated (stand/crouch/reach/lean/stumble) changes. CLI kill: --frc_parity=0. -->
         <numeric name="deploy_frc_parity" data="0"/>
+        <!-- 2026-08-28 ESTOP-ENVELOPE MARGIN (deploy_common.cc PatchActuators, needs
+             frc_parity ON): the planner's joint ranges == the safety layer's estop
+             boundaries, so it planned right TO them and ~1e-3 overshoots fired the
+             estop mid-recovery (hip yaw / ankle roll / wrist pitch q, shoulder dq,
+             elbow tau) — the strat-29 "knee buckle" was the robot going LIMP.
+             margin = rad shaved off every actuated joint range + ctrlrange;
+             torque_ratio scales the H2 budget. 0 / 1.0 = byte-identical (OFF). -->
+        <numeric name="deploy_estop_margin" data="0.03"/>
+        <numeric name="deploy_torque_ratio" data="0.85"/>
         <numeric name="agent_planner" data="7"/>
         <!-- horizon restored to 1.0s (was 0.6) because the real-hardware-spec PD
              gains (ankle kp=20, knee kp=200 — IsaacLab H1_CFG / Opt2Skill) are

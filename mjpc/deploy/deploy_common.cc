@@ -216,6 +216,54 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
                    cfg.joint_names ? cfg.joint_names[i] : "?", had, budget,
                    budget > 0.0 ? had / budget : 0.0);
   }
+
+  // ★ 2026-08-28 ESTOP-ENVELOPE MARGIN (strat 29 recovery). The planner-model joint
+  // ranges EQUAL the safety layer's estop position boundaries (e.g. ankle roll
+  // +-0.2618 in both; safety position_offset 0.0001), and the H2 clamp budget sits
+  // just under the estop torque trip. So the sampler plans right TO every boundary
+  // and a ~1e-3 measured overshoot (soft limits, PD dynamics) fires the estop --
+  // seen as whack-a-mole trips on hip yaw / ankle roll / wrist pitch (q), shoulder
+  // (dq) and elbow (tau) during the arm-counterweight stand-back, zeroing every
+  // actuator mid-recovery ("knee buckle" = the robot going limp). Same estop
+  // section runs on the REAL robot. Fix = plan INSIDE the envelope: shrink every
+  // actuated joint's range + position ctrlrange by `deploy_estop_margin` (rad) and
+  // scale the torque budget by `deploy_torque_ratio`. Only ever TIGHTENS. Both
+  // numerics absent / 0 / 1.0 => byte-identical to the parity behaviour above.
+  {
+    int mid = mj_name2id(m, mjOBJ_NUMERIC, "deploy_estop_margin");
+    double margin = (mid >= 0) ? m->numeric_data[m->numeric_adr[mid]] : 0.0;
+    int rid = mj_name2id(m, mjOBJ_NUMERIC, "deploy_torque_ratio");
+    double tratio = (rid >= 0) ? m->numeric_data[m->numeric_adr[rid]] : 1.0;
+    if (margin > 0.0 || (tratio > 0.0 && tratio < 1.0)) {
+      if (say)
+        std::fprintf(stderr,
+                     "[node] estop-envelope margin ON: joint range/ctrlrange -%.3f rad, "
+                     "torque budget x%.2f (planner stays inside the safety estop)\n",
+                     margin, tratio);
+      for (int i = 0; i < cfg.nu && i < m->nu; i++) {
+        int j = m->actuator_trnid[i * 2];
+        if (margin > 0.0 && j >= 0 && m->jnt_limited[j]) {
+          double lo = m->jnt_range[j * 2 + 0], hi = m->jnt_range[j * 2 + 1];
+          if (hi - lo > 2.0 * margin + 1e-6) {   // keep a usable band
+            m->jnt_range[j * 2 + 0] = lo + margin;
+            m->jnt_range[j * 2 + 1] = hi - margin;
+          }
+          if (m->actuator_ctrllimited[i]) {
+            double clo = m->actuator_ctrlrange[i * 2 + 0];
+            double chi = m->actuator_ctrlrange[i * 2 + 1];
+            if (chi - clo > 2.0 * margin + 1e-6) {
+              m->actuator_ctrlrange[i * 2 + 0] = clo + margin;
+              m->actuator_ctrlrange[i * 2 + 1] = chi - margin;
+            }
+          }
+        }
+        if (tratio > 0.0 && tratio < 1.0 && m->actuator_forcelimited[i]) {
+          m->actuator_forcerange[i * 2 + 0] *= tratio;
+          m->actuator_forcerange[i * 2 + 1] *= tratio;
+        }
+      }
+    }
+  }
 }
 
 // Plain, copyable snapshot of the latest robot state.
@@ -1232,6 +1280,16 @@ int RunDeployNode(const NodeConfig& cfg) {
         if (cmd == 1) {
           gmsg.data() = "CLOSE";
           grasp_pub->Write(gmsg);
+        } else if (cmd == 2) {
+          // ★ 2026-08-29 OPEN-on-stand: publish for ~1 s, then release the
+          // gate so a later CLOSE can fire (lean.cc only raises 2 when idle).
+          static int open_ticks = 0;
+          gmsg.data() = "OPEN";
+          grasp_pub->Write(gmsg);
+          if (++open_ticks >= 10) {
+            open_ticks = 0;
+            mjpc::g_grasp_gate_cmd.compare_exchange_strong(cmd, 0);
+          }
         } else if (last_cmd == 1 && cmd == 0) {
           gmsg.data() = "IDLE";           // edge: gate resolved (ack/timeout)
           grasp_pub->Write(gmsg);
