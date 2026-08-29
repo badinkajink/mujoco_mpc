@@ -3517,6 +3517,31 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     residual[counter++] = level_res[2];
   }
 
+  // --- Brace Elbow Ext (dim 1, 2026-08-29) ------------------------------------
+  // One-sided guard on the BRACING (left) elbow going past straight. Real
+  // 29_27/29/37/42/43: on the reach/grasp rungs the planner commands the left
+  // elbow to -0.4..-0.8 rad (hyperextension), the forearm pad tips onto the
+  // elbow bone and the arm folds ("elbow collapse"); strat 25 kept it at
+  // 0..+0.15. Penalise max(0, -(q_elbow) - slack); slack = numeric
+  // `brace_elbow_ext_slack` (rad, default 0.05). Gated to forearm-brace phases
+  // with the LEFT arm bracing; XML default weight 0 => byte-identical unless a
+  // JSON rung sets "Brace Elbow Ext". MUST stay the LAST user cost, lockstep
+  // all three lean XMLs.
+  {
+    double ext_res = 0.0;
+    if (is_forearm_brace && reach_right) {
+      int jid = mj_name2id(model, mjOBJ_JOINT, "left_elbow_joint");
+      if (jid >= 0) {
+        double qe = data->qpos[model->jnt_qposadr[jid]];
+        int nsl = mj_name2id(model, mjOBJ_NUMERIC, "brace_elbow_ext_slack");
+        double slack = (nsl >= 0) ? model->numeric_data[model->numeric_adr[nsl]]
+                                  : 0.05;
+        ext_res = mju_max(0.0, -qe - slack);
+      }
+    }
+    residual[counter++] = ext_res;
+  }
+
   // // ========== FOREARM BRACING (H12_Hands only - OPTIONAL) ========== //
   // // Check if we have elbow sensors (indicates H12_Hands model)
   // bool has_elbow_sensors = false;

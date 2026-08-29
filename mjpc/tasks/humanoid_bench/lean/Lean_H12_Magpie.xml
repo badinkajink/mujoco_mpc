@@ -1439,6 +1439,7 @@
              the target axis if a slight nose-down approach wins in tuning.
              MUST stay the LAST user cost, lockstep BOTH lean XMLs. -->
         <user name="Reach Level" dim="3" user="0 0.0 0.0 300.0"/>
+        <user name="Brace Elbow Ext" dim="1" user="0 0.0 0.0 500.0"/>
 
         <!--        traces-->
         <framepos name="trace0" objtype="body" objname="torso_link"/>
