@@ -189,6 +189,10 @@
         <key name="forearm_brace_reach" qpos="0.212485 0 0.964242 0.974587 0 0.224009 0 0 -0.936662 0.12 0.665198 -0.181326 0 0 -0.936662 -0.12 0.665198 -0.181326 0 -0.0593057 -0.7682 -0.112756 0.444694 0.2490 0.225548 -0.461708 -0.740967 -1.57 -0.384143 -0.039751 0.841166 -0.000255 0.048759 1e-06 1.5 0 1.035 1 0 0 0"/>
         <key name="forearm_brace_release" qpos="0.212485 0 0.964242 0.974587 0 0.224009 0 0 -0.936662 0.12 0.665198 -0.181326 0 0 -0.936662 -0.12 0.665198 -0.181326 0 -0.0593057 -0.907571 -0.139626 0.767945 0.10472 0.261799 -0.471239 -1.01229 0.35 -0.15 0 0.3 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <key name="standback_r1" qpos="0.256109 0.000000 0.968080 0.990865 0.000000 0.134859 0.000000 0.000000 -0.734203 0.120000 0.813789 -0.350127 0.000000 0.000000 -0.734203 -0.120000 0.813789 -0.350127 0.000000 0.000000 -0.544543 -0.083776 0.460767 0.062832 0.157079 -0.282743 -0.607374 0.210000 -0.090000 0.000000 0.180000 0.000000 0.000000 0.000000 1.500000 0.000000 1.035000 1.000000 0.000000 0.000000 0.000000"/>
+        <!-- 2026-08-28 SQUAT-CATCH: CoM-retracting deep squat inserted between release
+             and standback_r1. From the +43 deg grasp-lean the robot SITS BACK into this
+             (knees 1.3, torso upright, CoM over feet Δ=-0.01) instead of lunging fwd. -->
+        <key name="standback_squat" qpos="0.19 0 0.868893 1 0 0 0 0 -0.75 0.12 1.3 -0.55 0 0 -0.75 -0.12 1.3 -0.55 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.9 0 0 0 1.5 0 1.035 1 0 0 0"/>
         <key name="standback_r2" qpos="0.231869 0.000000 0.985412 0.996332 0.000000 0.085567 0.000000 0.000000 -0.596995 0.120000 0.717066 -0.291414 0.000000 0.000000 -0.596995 -0.120000 0.717066 -0.291414 0.000000 0.000000 -0.344877 -0.053058 0.291819 0.039794 0.099484 -0.179071 -0.384670 0.133000 -0.057000 0.000000 0.114000 0.000000 0.000000 0.000000 1.500000 0.000000 1.035000 1.000000 0.000000 0.000000 0.000000"/>
         <key name="standback_r3" qpos="0.209833 0.000000 0.998210 0.999177 0.000000 0.040570 0.000000 0.000000 -0.472261 0.120000 0.629137 -0.238038 0.000000 0.000000 -0.472261 -0.120000 0.629137 -0.238038 0.000000 0.000000 -0.163363 -0.025133 0.138230 0.018850 0.047124 -0.084823 -0.182212 0.063000 -0.027000 0.000000 0.054000 0.000000 0.000000 0.000000 1.500000 0.000000 1.035000 1.000000 0.000000 0.000000 0.000000"/>
         <!-- ^ 2026-07-31 HIP-HINGE BRACE for the 0.955 adjustable table -- the first
@@ -463,6 +467,13 @@
         <numeric name="standback_pitch_release" data="0.50"/>
         <numeric name="standback_pitch_r1" data="0.30"/>
         <numeric name="standback_pitch_r2" data="0.21"/>
+        <!-- ★ 2026-08-26 strat 28 CoM RELEASE GATE (lean.cc, HARD-GATED to
+             strategy 28 -- inert for strat 24/25 despite living here). Hold
+             release/r1/r2 advance until believed CoM is within this (m) of
+             the midfoot: v4 released at +2mm and stood, v11 advanced at +90mm
+             and the un-bow catapulted it backward. Escape after _wait s. -->
+        <numeric name="standback_com_gate" data="0.08"/>
+        <numeric name="standback_com_wait" data="20.0"/>
         <!-- ★★ standback stall relaxation (2026-08-14). sec<=0 = OFF.
              12 s of no pitch improvement (>0.01 rad) in a release-side rung
              relaxes that rung's gate to just past the best pitch achieved,
@@ -484,7 +495,7 @@
         <numeric name="stance_width_min" data="0.30"/>
         <numeric name="stance_width_gain" data="2.0"/>
         <numeric name="brace_flat_tol" data="0.05"/>
-        <numeric name="brace_flat_gate" data="0.17"/>
+        <numeric name="brace_flat_gate" data="0.28"/>
         <numeric name="brace_flat_gain" data="4.0"/>
         <!-- brace_flat_engage (2026-08-20, m above slab where the flatness ramp
              starts; absent/<=0 => 0.25 = BYTE-IDENTICAL). Raise to flatten the
@@ -1167,8 +1178,13 @@
              Reach and the basin is deterministic. Touches nothing else (legs/torso/left-arm/
              brace/name-gating untouched); OFF => byte-identical. Config = tune13 (the one run
              that grasped): sh_pitch sh_roll sh_yaw elbow wr_roll wr_pitch wr_yaw. -->
-        <numeric name="reach_arm_posture" data="1.0"/>
-        <numeric name="reach_arm_q" data="-1.573 -0.263 0.542 0.926 -0.926 0.302 -0.183"/>
+        <numeric name="reach_arm_posture" data="0.0"/>
+        <!-- 2026-08-28 strat29: retuned to the TWIN's actual level-grasp config
+             (logs/strat28_s29arc kf4 t=43, jaws-LATERAL). The old vector was
+             strat27/28's deeper grasp (wr_yaw -0.183 pulled wrist the WRONG way,
+             elbow/shoulder over-raised) and drove the real arm into the flat-
+             VERTICAL basin. Order: sh_p sh_r sh_y elb wr_r wr_p wr_y. -->
+        <numeric name="reach_arm_q" data="-1.227 -0.290 0.247 0.594 -0.548 -0.083 0.210"/>
         <numeric name="reach_arm_hgate" data="0.16"/>
         <!-- reach_arm_gain (2026-08-26): amplify the right-arm posture residual
              (idx 20..26) on basin-lock rungs so the deep-config target actually
@@ -1176,7 +1192,7 @@
              Posture (which also stiffens legs -> left-foot lift). 1.0 = mask-
              equivalent-ish; sweep up for a harder basin lock, down if it over-
              stiffens the arm against Reach fine-tuning. -->
-        <numeric name="reach_arm_gain" data="3.0"/>
+        <numeric name="reach_arm_gain" data="6.0"/>
         <!-- brace_target_slab / brace_target_inset (2026-07-29): 0 = OFF = BYTE-IDENTICAL.
              ON aims the brace POSITION target at the slab's NEAR EDGE + inset instead of the
              legacy `torso + 0.4*(table-torso)`, which lands SHORT of the edge and, combined

@@ -441,8 +441,11 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int hg_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_hgate");
     double hgate = (hg_id >= 0)
         ? model->numeric_data[model->numeric_adr[hg_id]] : 0.10;
+    // ★ 2026-08-26 strat 28: SERVO rungs skip the basin lock — the tilted
+    // approach pins the wrist orientation via Reach Level, and the tune13
+    // (level, deep-reach) posture bias would fight it at the wrist.
     if (rap > 0.5 && rtt_ov.size() == 3 && rtt_ov[2] < hgate &&
-        model->nq <= 64) {
+        !residual_keyframe_.servo && model->nq <= 64) {
       int rq_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_q");
       if (rq_id >= 0) {
         const mjtNum *rq = model->numeric_data + model->numeric_adr[rq_id];
@@ -1650,7 +1653,8 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int hg2 = mj_name2id(model, mjOBJ_NUMERIC, "reach_arm_hgate");
     double hgate2 = (hg2 >= 0) ? model->numeric_data[model->numeric_adr[hg2]] : 0.10;
     bool basin_lock = rap2v > 0.5 &&
-        residual_keyframe_.reach_target_table[2] < hgate2;
+        residual_keyframe_.reach_target_table[2] < hgate2 &&
+        !residual_keyframe_.servo;  // strat 28: servo rungs use the plain mask
     if (basin_lock) {
       // KEEP the shoulder+elbow mask (20..23 free for Reach to drive) -- post250
       // proved the DEEP/shallow basin is selected by the WRIST posture (gripper
@@ -2700,7 +2704,21 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         bool reach_exempt = false;
         for (const char* rn : kReachExempt)
           if (std::strcmp(bn, rn) == 0) { reach_exempt = true; break; }
-        if (reach_exempt) continue;
+        // ★ 2026-08-27 strat 29: PHASE-GATE the reach-arm exemption. Non-29 keeps
+        // the unconditional exemption (byte-identical). For strat 29 the distal
+        // right links are exempt ONLY while actively descending to grasp (active
+        // rung's reach_target_table height below the grasp band); on retract /
+        // standback rungs they are GUARDED so the forearm + carried block keep
+        // >= table_clear_margin clearance on the way back (user: >=10 cm).
+        // A/B toggle (2026-08-28): H12_S29_GUARD=1 enables the strat-29 phase-gate
+        // (guard distal right links off the low-reach rungs); unset/0 = exempt
+        // unconditionally like strat 28 (isolate whether the guard slows the reach).
+        static const bool s29_guard =
+            std::getenv("H12_S29_GUARD") && std::atoi(std::getenv("H12_S29_GUARD"));
+        bool low_reach = !s29_guard ||
+            (residual_keyframe_.reach_target_table.size() == 3 &&
+             residual_keyframe_.reach_target_table[2] < 0.12);
+        if (reach_exempt && low_reach) continue;
         guard_g[n_guard++] = g;
       }
       if (n_guard >= kMaxGuard) {
@@ -3507,6 +3525,11 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         double pitch = (npd >= 0)
             ? model->numeric_data[model->numeric_adr[npd]] * (M_PI / 180.0)
             : 0.0;
+        // ★ 2026-08-26 strat 28 TILTED APPROACH: a keyframe's reach_pitch_deg
+        // overrides the global numeric so the tilt lives in ONE strategy's
+        // JSON. 0 (every pre-28 strategy) = global numeric = byte-identical.
+        if (residual_keyframe_.reach_pitch_deg != 0.0)
+          pitch = residual_keyframe_.reach_pitch_deg * (M_PI / 180.0);
         level_res[0] = axis[2] + std::sin(pitch);  // 0 = level (or tuned pitch)
         level_res[1] = axis[1];                    // 0 = pointing table-forward
         level_res[2] = sep[2];                     // 0 = JAWS LATERAL
@@ -4351,9 +4374,57 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
     double eff_tol = (current_kf.grasp_close &&
                       mjpc::g_grasp_gate_cmd.load() != 0)
                          ? 1.0e9 : current_kf.target_distance_tolerance;
-    if (data->time - motion_strategy_.GetCurrentKeyframeStartTime() >
-            current_kf.time_limit &&
-        total_distance > eff_tol) {
+    // ★ 2026-08-26 strat 28 FAIL-SOFT TIMEOUT (`timeout_advance` keyframe
+    // flag): a stuck vision/grasp rung ADVANCES into the retract/recovery
+    // chain instead of resetting to keyframe 0 -- from a deep braced lean
+    // the reset-to-stand IS the collapse (v2/v3: base_z sank to ~0.5 the
+    // moment the ladder regressed mid-lean). Same snapshot+ramp dance as
+    // the grasp-retry jump. Absent flag = historical reset, byte-identical.
+    // ★ v10 fix: fire on EXPIRY ALONE, not `distance > tol` -- a rung that is
+    // converged on distance but held by an advance gate (pad-contact verify
+    // on a lifted brace, upright gate...) otherwise hangs FOREVER: neither
+    // timeout nor advance (v10: 150 s sagging inside tuck). Only a pending
+    // grasp close defers to the ack machinery.
+    bool expired28 =
+        data->time - motion_strategy_.GetCurrentKeyframeStartTime() >
+        current_kf.time_limit;
+    // ★ 2026-08-29: a pending close only defers the fail-soft timeout for
+    // grasp_ack_timeout + 2 s after CLOSE fired; past that the rung advances
+    // (jaws are closed either way) instead of hanging in the lean forever.
+    double ack_to28 = GetNumberOrDefault(4.0, model, "grasp_ack_timeout");
+    bool close_pending28 =
+        current_kf.grasp_close && mjpc::g_grasp_gate_cmd.load() != 0 &&
+        (s_grasp_cmd_time < 0.0 ||
+         data->time - s_grasp_cmd_time < ack_to28 + 2.0);
+    if (expired28 && current_kf.grasp_close &&
+        mjpc::g_grasp_gate_cmd.load() != 0 && !close_pending28) {
+      std::printf("[grasp-gate] close pending past ack timeout (%.1fs) with the "
+                  "rung expired -> clearing gate, fail-soft advance\n",
+                  data->time - s_grasp_cmd_time);
+      mjpc::g_grasp_gate_cmd.store(0);
+      s_grasp_cmd_time = -1.0;
+    }
+    if (expired28 && current_kf.timeout_advance && !close_pending28 &&
+        motion_strategy_.GetCurrentKeyframeIndex() + 1 <
+            motion_strategy_.GetKeyframesCount()) {
+      int kidx_to = motion_strategy_.GetCurrentKeyframeIndex();
+      std::printf("[lean-gate] TIMEOUT on rung %d (dist %.3f, tol %.3f) -> "
+                  "fail-soft ADVANCE to rung %d\n",
+                  kidx_to, total_distance,
+                  current_kf.target_distance_tolerance, kidx_to + 1);
+      SnapshotEffectiveScales();
+      SnapshotCurrentWeightsAsPrev();
+      motion_strategy_.UpdateCurrentKeyframe(kidx_to + 1);
+      MarkNewlyAppearedContacts(residual_.residual_keyframe_,
+                                motion_strategy_.GetCurrentKeyframe());
+      residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
+      motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+      motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
+      residual_.keyframe_start_time_ = data->time;
+      PrepareNextPhaseWeights(residual_.residual_keyframe_);
+      return;
+    }
+    if (expired28 && total_distance > eff_tol) {
       // Time-limit reset (strategy restarts from keyframe 0). Save the
       // scales that were just in effect so the next ramp blends from them.
       SnapshotEffectiveScales();
@@ -4656,6 +4727,63 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                                "— keep pressing\n",
                                kfn.c_str(), bpitch, plim);
                          return false;
+                       }
+                     }
+                     // ★ 2026-08-26 strat 28 CoM RELEASE GATE
+                     // (`standback_com_gate`, m; <=0/absent = OFF). v4-v12
+                     // forensics: the standback outcome is decided by WHERE THE
+                     // CoM IS when the brace lets go, not by the bow pitch --
+                     // v4 released at CoM +2 mm over the feet and stood (both
+                     // released from the same ~37-40 deg bow); v11's ladder
+                     // advanced to r3 with CoM +90 mm ahead and the un-bow
+                     // catapulted it backward (base_x -0.8 in 3 s). Hold the
+                     // SAME rungs the pitch gates guard until the believed CoM
+                     // is within the gate of the midfoot -- the press keeps
+                     // walking it back (~10 mm/s in v11) so the hold converges.
+                     // Escape hatch `standback_com_wait` s (default 25) past
+                     // rung entry, so a plateaued press cannot hang the ladder.
+                     {
+                       int cg = mj_name2id(model, mjOBJ_NUMERIC,
+                                           "standback_com_gate");
+                       double cgate = cg >= 0
+                           ? model->numeric_data[model->numeric_adr[cg]] : 0.0;
+                       // HARD-GATED to strategy 28: the numeric lives in the
+                       // SHARED XML and these rungs exist in strat 24/25 too --
+                       // their (real-tested) recovery must stay byte-identical.
+                       // ★ r14-r17: NOT on release -- release has already
+                       // ramped Brace Pos 700->60, so holding there = sagging
+                       // on a weak brace at full bow (all 4 battery runs fell
+                       // ~15-18 s into the hold). The press that actually
+                       // walks the CoM back is r1/r2 (PF 300, Balance 40:
+                       // v11 pressed +246->+90 mm there); the fatal advance
+                       // was r2->r3 at +90. Gate r1/r2 only.
+                       if (cgate > 0.0 &&
+                           (current_strategy_ == 28 || current_strategy_ == 29) &&
+                           kfn != "forearm_brace_release") {
+                         int pid_cg = mj_name2id(model, mjOBJ_BODY, "pelvis");
+                         double* fR = SensorByName(model, data,
+                                                   "foot_right_pos");
+                         double* fL = SensorByName(model, data,
+                                                   "foot_left_pos");
+                         if (pid_cg >= 0 && fR && fL) {
+                           double com_ahead_cg =
+                               data->subtree_com[3 * pid_cg + 0] -
+                               0.5 * (fR[0] + fL[0]);
+                           double wait_cg = GetNumberOrDefault(
+                               25.0, model, "standback_com_wait");
+                           double in_rung = data->time -
+                               motion_strategy_.GetCurrentKeyframeStartTime();
+                           if (com_ahead_cg > cgate && in_rung < wait_cg) {
+                             static int cg_note = 0;
+                             if (++cg_note % 100 == 1)
+                               std::printf(
+                                   "[lean-gate] HOLD %s: CoM %+.0f mm ahead "
+                                   "of feet > %.0f mm — keep pressing back\n",
+                                   kfn.c_str(), 1000.0 * com_ahead_cg,
+                                   1000.0 * cgate);
+                             return false;
+                           }
+                         }
                        }
                      }
                    }

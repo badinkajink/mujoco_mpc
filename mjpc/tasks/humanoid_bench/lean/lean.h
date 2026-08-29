@@ -317,6 +317,44 @@ class lean : public Task {
     // reach_target_table rungs, servo-updated live from the gripper-cam
     // tag30 channel (rt/object_tag); JSON values = nominal placeholders.
     names[27] = "h12_brace_retrieval";      // strat 25 + grasp/lift/tuck phases
+    // ★ 2026-08-26 strat 28: VISION RETRIEVAL. Strat 25's ramp/sustain numbers
+    // on the shared phases (stand/dive/release/standback); the middle is the
+    // user's vision architecture: arm FORWARD ~45cm to an easy acquire pose
+    // (wrist cam sees tag30) -> visual-SERVO rungs ("servo": true, corrections
+    // from rt/object_tag) with a TILTED approach ("reach_pitch_deg": ~40 --
+    // the tilt drops the grasp centre below the wrist, reaching the
+    // table-height block at TRUE B3 with NO squat) -> grasp gate -> retract ->
+    // strat 25 recovery. Servo rungs skip the basin lock (lean.cc).
+    names[28] = "h12_brace_vision_retrieval";
+    // ★ 2026-08-27 strat 29: SIDE GRASP (design:
+    // project_strat29_side_grasp_design). Fork of 28 corrected for a SIDEWAYS
+    // grasp — jaws close on the block's ±Y faces (lateral), not top/bottom.
+    // Body = strat 25's GENTLE reach (Reaching Hand Dist ~300-500, not 28's
+    // 800-1800 that over-drove the body forward); grasp = 28's tilt/gate but
+    // the reach ABOVE the block then a ~30deg pitch-down diagonal descent onto
+    // the sides. Targeting = head-cam TRACK-then-FREEZE (real robot); servo
+    // REFINE only at the hover (kf2), descent rungs open-loop. com_gate +
+    // reach-arm table-clearance guard extended to this slot. Twin targets true
+    // B3; closure is real-only (blob can't close in sim).
+    names[29] = "h12_brace_side_grasp";
+    // ★ 2026-08-28 strat 30: BATTERY GRASP (session "battery"). Byte-fork of
+    // strat 29 (same fixed-frame side grasp, kf0-4 identical) EXCEPT the retract:
+    // where 29 arcs the block wide-right off the slab, 30 lifts the battery
+    // STRAIGHT UP out of its bay to a standup pose directly above it (kf5-7 hold
+    // the grasp column x0.55/y0.16 and raise z 0.13->0.26->0.32, pitch 0). Run
+    // WITHOUT H12_S29_GUARD (=0) so the reach-arm exemption stays unconditional
+    // and the arm may lift straight up over the slab -- the guard is the ARC
+    // enforcer and is wrong for a vertical lift. Twin scene:
+    // scene_handless_magpie_table_battery.xml. Recovery rungs (release/standback)
+    // inherited from 29 unchanged (shared open wall, owned by session "retrieve").
+    names[30] = "h12_brace_battery_grasp";  // strat 29 + straight-up lift (no arc)
+    // ★ 2026-08-28 strat 31: REAL BATTERY RAIL brace + grasp (session "battery").
+    // Runs on --task "Lean H12 Battery" (Lean_H12_Magpie_battery.xml): LEFT WRIST
+    // braces the near rail (0.8065), RIGHT arm reaches the module on the pack top
+    // (0.870), lifts it STRAIGHT UP. reach_target_table in RAIL frame (depth from
+    // rail near edge 0.3629, lateral, height above rail face). Seed brace keyframe
+    // = forearm_brace_lean (wrist-on-rail pose). brace_wrist=1 in the model.
+    names[31] = "h12_brace_battery_rail";
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;
