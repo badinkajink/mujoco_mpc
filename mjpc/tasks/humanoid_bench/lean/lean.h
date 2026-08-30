@@ -355,6 +355,9 @@ class lean : public Task {
     // rail near edge 0.3629, lateral, height above rail face). Seed brace keyframe
     // = forearm_brace_lean (wrist-on-rail pose). brace_wrist=1 in the model.
     names[31] = "h12_brace_battery_rail";
+    // ★ 2026-08-29 strat 32: SPAWN-BRACED test -- kf0 IS the wrist-on-rail lean
+    // (twin --spawn-key), isolating HOLD+REACH from the descent the planner can't do.
+    names[32] = "h12_brace_battery_hold";
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
     return names;
