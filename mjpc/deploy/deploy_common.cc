@@ -229,6 +229,67 @@ void PatchActuators(mjModel* m, const NodeConfig& cfg) {
   // actuated joint's range + position ctrlrange by `deploy_estop_margin` (rad) and
   // scale the torque budget by `deploy_torque_ratio`. Only ever TIGHTENS. Both
   // numerics absent / 0 / 1.0 => byte-identical to the parity behaviour above.
+  // ★ 2026-08-29 HARDWARE ARM RANGES (found by the battery session, confirmed
+  // against h1_2_magpie.urdf + the twin plant): the planner model's RIGHT
+  // shoulder pitch/yaw and BOTH elbows carry mirrored limits
+  // (elbow [-2.53,+1.60] / [-1.60,+2.53] vs URDF [-0.95,+3.18]; right shoulder
+  // pitch [-1.57,+3.14] vs URDF [-3.14,+1.57]). Consequences seen on real all
+  // night: the planner freely commands the bracing elbow to -0.8 (past the
+  // real -0.95 stop = the "elbow collapse"), and the reaching shoulder ran into
+  // a false -1.57 stop (real -3.14) during the grasp reach. Force every arm
+  // joint range + position ctrlrange to the URDF values here, before the estop
+  // margin below shrinks them. The strat-29 keyframes were checked legal under
+  // these ranges (only the jab_* keyframes and a -0.471 wrist pitch are not).
+  // ★ 2026-08-30 OPT-OUT PER TASK: numeric `arm_range_urdf` = 0 in the task
+  // XML skips this block (absent = ON, battery scene unchanged). Strat 29 real
+  // 29_53..56: with the URDF ranges the planner latches the servo with the
+  // right elbow at 1.17-1.25 rad (vs 0.77-0.88 on every successful run
+  // 29_42..52, all made under the mirrored ranges); the D405 hand-eye is
+  // posture-dependent and the block was seen ~3 cm right of nominal instead of
+  // 2-5 cm left -> jaws closed left of the block four runs running. Back to
+  // the tested posture for strat 29 until the hand-eye is refit on it.
+  int arf_id = mj_name2id(m, mjOBJ_NUMERIC, "arm_range_urdf");
+  if (arf_id >= 0 && m->numeric_data[m->numeric_adr[arf_id]] < 0.5) {
+    std::fprintf(stderr, "[node] arm range fix SKIPPED (arm_range_urdf=0 in task XML)\n");
+  } else {
+    struct ArmRange { const char* joint; double lo, hi; };
+    static const ArmRange kUrdf[] = {
+        {"left_shoulder_pitch_joint", -3.14, 1.57},
+        {"left_shoulder_roll_joint", -0.38, 3.40},
+        {"left_shoulder_yaw_joint", -2.66, 3.01},
+        {"left_elbow_joint", -0.95, 3.18},
+        {"left_wrist_roll_joint", -3.01, 2.75},
+        {"left_wrist_pitch_joint", -0.4625, 0.4625},
+        {"left_wrist_yaw_joint", -1.27, 1.27},
+        {"right_shoulder_pitch_joint", -3.14, 1.57},
+        {"right_shoulder_roll_joint", -3.40, 0.19},
+        {"right_shoulder_yaw_joint", -3.01, 2.66},
+        {"right_elbow_joint", -0.95, 3.18},
+        {"right_wrist_roll_joint", -2.75, 3.01},
+        {"right_wrist_pitch_joint", -0.4625, 0.4625},
+        {"right_wrist_yaw_joint", -1.27, 1.27},
+    };
+    int fixed = 0;
+    for (const auto& r : kUrdf) {
+      int j = mj_name2id(m, mjOBJ_JOINT, r.joint);
+      if (j < 0) continue;
+      double* jr = m->jnt_range + 2 * j;
+      bool changed = std::fabs(jr[0] - r.lo) > 1e-3 || std::fabs(jr[1] - r.hi) > 1e-3;
+      if (changed) {
+        std::fprintf(stderr, "[node] arm range fix %-28s [%+.2f,%+.2f] -> [%+.2f,%+.2f]\n",
+                     r.joint, jr[0], jr[1], r.lo, r.hi);
+        jr[0] = r.lo; jr[1] = r.hi; m->jnt_limited[j] = 1; fixed++;
+      }
+      for (int a = 0; a < m->nu; a++) {
+        if (m->actuator_trnid[2 * a] == j) {
+          m->actuator_ctrlrange[2 * a] = r.lo;
+          m->actuator_ctrlrange[2 * a + 1] = r.hi;
+          m->actuator_ctrllimited[a] = 1;
+        }
+      }
+    }
+    if (fixed) std::fprintf(stderr, "[node] arm ranges forced to URDF on %d joints (ctrlrange follows)\n", fixed);
+  }
   {
     int mid = mj_name2id(m, mjOBJ_NUMERIC, "deploy_estop_margin");
     double margin = (mid >= 0) ? m->numeric_data[m->numeric_adr[mid]] : 0.0;
@@ -2605,6 +2666,29 @@ int RunDeployNode(const NodeConfig& cfg) {
     // impossible" guarantee was false. The PD headroom is reduced by |tau_ff| and KV*|dq|
     // before converting to a position delta. Applied to the FINAL target (ramp + policy
     // uniformly).
+    // ★ 2026-08-29 PER-TICK TARGET SLEW (battery br16/br18): the H2 clamp below bounds the
+    // PD step against cur.q -- the CURRENT state. When lowstate goes stale (54 ms > 50)
+    // cur.q is old, the headroom is computed against a joint that has already moved,
+    // and the real joint takes the full kick: br18 right_shoulder_yaw went +5 -> +156
+    // deg/s and +2 -> -34 Nm in ONE 5 ms tick, the safety layer tripped on that single
+    // sample (0.75x18 = 13.5 Nm), the robot went limp and fell. Only the free-swinging,
+    // unloaded reach arm is exposed. Bound the target's per-tick change to what the
+    // budget could ever justify (budget/kp) so a stale state cannot manufacture a step.
+    // Zero-cost when steps are small (the normal case) = byte-identical behaviour.
+    {
+      static std::vector<double> tgt_prev; static bool tgt_prev_ok = false;
+      if (!tgt_prev_ok || (int)tgt_prev.size() != cfg.nu) {
+        tgt_prev.assign(tgt_q, tgt_q + cfg.nu); tgt_prev_ok = true;
+      }
+      for (int i = 0; i < cfg.nu; i++) {
+        const double kp = cfg.kp[i] > 1e-6 ? cfg.kp[i] : 1e-6;
+        const double dmax_tick = kClampRatio * cfg.tau_estop[i] / kp;   // rad, per tick
+        const double lo = tgt_prev[i] - dmax_tick, hi = tgt_prev[i] + dmax_tick;
+        if (tgt_q[i] < lo) tgt_q[i] = lo; else if (tgt_q[i] > hi) tgt_q[i] = hi;
+        tgt_prev[i] = tgt_q[i];
+      }
+    }
+
     for (int i = 0; i < cfg.nu; i++) {
       const double budget = kClampRatio * cfg.tau_estop[i];
       const double pd_headroom = budget - std::fabs(tau[i]) - cfg.kv[i] * std::fabs(cur.dq[i]);

@@ -283,6 +283,14 @@ const double KV[kNU] = {5, 5, 5, 5, 4, 4,  5, 5, 5, 5, 4, 4,  5,
 // default_safety_full.yaml + h12_safety_layer/core/joint_limits.py). Basis of the
 // H2 torque-budget clamp: |tau_ff + KP*(tgt-q) + KV*dq| is capped at 0.9x these,
 // so a commanded position can never demand estop-level torque.
+// 2026-08-30: ANKLE PITCH estop raised 54 -> 60 (yaml estop torque_ratio 0.90 -> 1.00 on
+// left/right_ankle_pitch in leaner_safety_full.yaml, = the 60 Nm URDF limit). Real strat-25
+// again_35-49 AND strat-29 42-58 all pin an ankle at the old 48.6 Nm budget through the brace
+// (heels lift). Budget is now 0.9 x 60 = 54 Nm. Keep in sync with the yaml.
+// 2026-08-30 REVERTED same night (real 29_59): with the 54 Nm budget the ankles just pushed
+// harder into the toe (peak 54.4 both) and the heel lifted MORE at the dive (ankle site +3.5 cm
+// vs +1.6 cm in 29_58). Heel lift = CoP already past the toe; more plantarflexion torque cannot
+// pull it back. Back to 54 (yaml estop torque_ratio 0.90). The lever is load sharing (brace).
 const double TAU_ESTOP[kNU] = {60, 130, 200, 300, 54, 36,  60, 130, 200, 300, 54, 36,  40,
                                32, 32, 14.4, 14.4, 9.5, 9.5, 9.5,
                                32, 32, 14.4, 14.4, 9.5, 9.5, 9.5};
