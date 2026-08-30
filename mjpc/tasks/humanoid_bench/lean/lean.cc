@@ -995,8 +995,68 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // generalized reach targets.
 
   double penalty_hand = hand_dist_penalty * hand_dist;
+  // ★ 2026-08-29 (battery, brace_wrist=1): STAND-AND-LOWER. reward_brace is a
+  // bounded exp -- at 10 cm its gradient is ~0.8/m, nothing against Posture/Base
+  // Height, so the wrist hovered 8-12 cm over the rail in 23/23 runs. Two fixes:
+  // (1) the brace target z DESCENDS smoothly over the rung's target ramp from a
+  //     hover (face + brace_hover, default 0.12) down to the press depth -- so the
+  //     descent is continuous inside ONE rung, never a keyframe cliff (br15/22/23
+  //     all collapsed at rung switches); (2) a LINEAR distance term is added so
+  //     there is a real pull at any distance. Non-wrist models: byte-identical.
+  {
+    int bwn2 = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    // ★ 2026-08-29 br34: the arm-out rung (forearm_brace_mid) carried NO brace
+    // target, so the wrist hovered at a run-dependent lateral offset (y 0.28-
+    // 0.37 vs the rail target 0.10) and the lean fire yanked it 16-28 cm
+    // sideways in one go -> reach-arm flail -> shoulder-yaw estop (br29/30/34).
+    // The mid rung now holds the SAME target at hover height (a = 0), so the
+    // lean rung changes z only. JSON gives the mid rung a Brace Pos weight.
+    const bool is_mid_hover = (residual_keyframe_.name == "forearm_brace_mid");
+    if (bwn2 >= 0 && model->numeric_data[model->numeric_adr[bwn2]] > 0.5 &&
+        (is_forearm_brace || is_mid_hover)) {
+      double hover = GetNumberOrDefault(0.12, model, "brace_hover");
+      // ★ br43: the targets are for the wrist pad CAPSULE CENTRE, which sits
+      // one pad radius above the surface when touching -- the legacy offsets
+      // were for a forearm pad SITE on the surface. Without the radius the
+      // "hover" target sat 4.5 cm below the keyframe's wrist and pulled the
+      // hanging arm down through the stand->mid squat until it clipped the
+      // rail (22 N, roll-over). Add the radius to both ends.
+      double pad_r = 0.0;
+      {
+        int wg2 = mj_name2id(model, mjOBJ_GEOM,
+                             reach_right ? "left_wrist_pad" : "right_wrist_pad");
+        if (wg2 >= 0) pad_r = model->geom_size[3 * wg2];
+      }
+      double z_hi = table_face_z + pad_r + hover;         // start of the rung
+      double z_lo = ideal_brace[2] + pad_r;               // press target (centre)
+      double a = is_forearm_brace ? alpha_lin : 0.0;      // 0..1 over target_ramp_sec
+      ideal_brace[2] = z_hi + a * (z_lo - z_hi);
+      // ★ br49: hover BEHIND the rail (brace_hover_back, m) so a lagging arm
+      // sweeping down through the squat cannot catch the rail's near edge
+      // (pad tip x = centre + 0.087); the lean ramp brings x forward onto
+      // the rail together with z.
+      double hb = GetNumberOrDefault(0.0, model, "brace_hover_back");
+      if (hb != 0.0) {   // >0 hover behind the press point, <0 ahead of it
+        double x_lo = ideal_brace[0], x_hi = ideal_brace[0] - hb;
+        ideal_brace[0] = x_hi + a * (x_lo - x_hi);
+      }
+      // NEVER PULL UP (br46): if the pad is already lower than the ramped
+      // target (early contact during the squat), the target follows the pad
+      // down instead of lifting it off the rail at the rung fire.
+      if (bracing_hand[2] < ideal_brace[2]) ideal_brace[2] = bracing_hand[2];
+    }
+  }
   double brace_dist = mju_dist3(bracing_hand, ideal_brace);
   double reward_brace = brace_reward * mju_exp(-2.0 * brace_dist);
+  {
+    int bwn3 = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    if (bwn3 >= 0 && model->numeric_data[model->numeric_adr[bwn3]] > 0.5 &&
+        (is_forearm_brace ||
+         residual_keyframe_.name == "forearm_brace_mid")) {
+      double klin = GetNumberOrDefault(4.0, model, "brace_linear_gain");
+      reward_brace -= klin * brace_dist;                  // linear pull, real gradient
+    }
+  }
   double reward_success = (hand_dist < kHandDistThreshold && reach_contact_force > kContactForceThreshold) ? success : 0;
   
   reward = -penalty_hand + reward_brace + reward_success;
@@ -1078,6 +1138,15 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int com_off_id = mj_name2id(model, mjOBJ_NUMERIC, "com_x_offset");
     double com_fwd_bias =
         (com_off_id >= 0) ? model->numeric_data[model->numeric_adr[com_off_id]] : 0.0;
+    // ★ 2026-08-29 br55 (battery wrist brace): the braced squat-lean parks the
+    // CoM 8.5 cm BEHIND midfoot = 2 cm from the HEEL edge (br54/55/56 BIO),
+    // and br55 drifted 3 cm further back and sat down backward. Balance is
+    // silent while the capture point is inside the feet, so nothing pulls the
+    // CoM forward. `brace_com_x_offset` (m, brace phases only; NEGATIVE = the
+    // planner believes the capture point is that much further BACK and holds
+    // the real CoM forward by the same amount). 0/absent = byte-identical.
+    if (any_arm_contact)
+      com_fwd_bias += GetNumberOrDefault(0.0, model, "brace_com_x_offset");
     if (com_fwd_bias != 0.0) {
       double fwd[2] = {1.0, 0.0};
       double const *flf = SensorByName(model, data, "foot_left_forward");
@@ -1258,8 +1327,64 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     double midfoot_x = 0.25 * (fvx[0] + fvx[1] + fvx[2] + fvx[3]);
     double midfoot_y = 0.25 * (fvy[0] + fvy[1] + fvy[2] + fvy[3]);
     double hand_load_frac = mju_min(0.9, brace_contact_force / 140.0);
+    // ★ br52 (wrist brace): cap the measured credit too (brace_credit_max,
+    // 0/absent = OFF) -- a light brace must never license the CoM out to the
+    // wrist; credit -> more lean -> more force -> more credit ended in a drape.
+    {
+      double cmax = GetNumberOrDefault(0.0, model, "brace_credit_max");
+      if (cmax > 0.0 && hand_load_frac > cmax) hand_load_frac = cmax;
+    }
     double hand_vert_x = midfoot_x + hand_load_frac * (bracing_hand[0] - midfoot_x);
     double hand_vert_y = midfoot_y + hand_load_frac * (bracing_hand[1] - midfoot_y);
+    // ★ 2026-08-29 (battery, brace_wrist=1): PRE-CONTACT SUPPORT CREDIT.
+    // Chicken-and-egg measured in 27/27 stand-and-lower runs: the hand vertex
+    // above is ZERO until the wrist PRESSES, so before contact the polygon is
+    // the bare feet and Balance (x10 edge amplifier) refuses to let the CoM
+    // advance far enough for a 40-deg elbow to put the wrist on the rail
+    // (elbow reached 24 deg, wrist parked 10.6 cm above the rail, every run;
+    // asking for more elbow flexion instead slams the elbow at the rung switch
+    // -> estop). A light wrist brace (20-40 N) is also far too small to open the
+    // polygon by the /140 N rule AFTER contact.
+    // Fix: credit a fraction of the INTENDED brace point (ideal_brace x,y --
+    // the planner's own rail target, not the floating wrist) as a support
+    // vertex, but only when (a) the wrist is horizontally OVER that target
+    // (within brace_precontact_xy, so leaning onto it just lands the wrist on
+    // the rail -- no credit for support the arm is not lined up to provide),
+    // and (b) in the lean rung, scaled by the descent ramp (alpha_lin) so the
+    // credit opens as the target descends. Measured force still counts: the
+    // vertex is the MAX of the two credits. Default 0 => byte-identical.
+    {
+      int bwp = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+      double pre = GetNumberOrDefault(0.0, model, "brace_precontact_frac");
+      if (bwp >= 0 && model->numeric_data[model->numeric_adr[bwp]] > 0.5 &&
+          pre > 0.0) {
+        double xy_band = GetNumberOrDefault(0.10, model, "brace_precontact_xy");
+        double dxy = mju_sqrt((bracing_hand[0] - ideal_brace[0]) *
+                                  (bracing_hand[0] - ideal_brace[0]) +
+                              (bracing_hand[1] - ideal_brace[1]) *
+                                  (bracing_hand[1] - ideal_brace[1]));
+        double g_xy = mju_max(0.0, mju_min(1.0, 1.0 - dxy / xy_band));
+        // Height gate: credit grows as the wrist pad closes on the rail face
+        // (1 at the face, 0 at brace_precontact_h above it). STATE-BASED ONLY --
+        // br29/br30 (2026-08-29) used a phase-time factor (alpha_lin) and the
+        // credit SNAPPED to ~0 at the mid->lean rung switch, the CoM lurched
+        // back and the reach arm flailed into a shoulder-yaw estop both runs.
+        // Every factor here is continuous in the robot state, so no rung
+        // switch can move the polygon.
+        double h_band = GetNumberOrDefault(0.20, model, "brace_precontact_h");
+        double wrist_h = bracing_hand[2] - table_face_z;
+        double g_h = mju_max(0.0, mju_min(1.0, 1.0 - wrist_h / h_band));
+        double pre_frac = mju_min(0.9, pre * g_xy * g_h);
+        double pre_x = midfoot_x + pre_frac * (ideal_brace[0] - midfoot_x);
+        double pre_y = midfoot_y + pre_frac * (ideal_brace[1] - midfoot_y);
+        // MAX of the two credits = the one that reaches further from midfoot.
+        double d_meas = (hand_vert_x - midfoot_x) * (hand_vert_x - midfoot_x) +
+                        (hand_vert_y - midfoot_y) * (hand_vert_y - midfoot_y);
+        double d_pre = (pre_x - midfoot_x) * (pre_x - midfoot_x) +
+                       (pre_y - midfoot_y) * (pre_y - midfoot_y);
+        if (d_pre > d_meas) { hand_vert_x = pre_x; hand_vert_y = pre_y; }
+      }
+    }
     // ⚠ MUST BE A REAL CONVEX HULL, NOT AN ANGLE SORT. The brace vertex STARTS
     // AT THE FOOT CENTROID (hand_load_frac = 0 before the arm presses) and stays
     // inside the foot quad until the force is large enough to push it past the
@@ -2005,8 +2130,20 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double brace_shortfall =
       brace_force_prox_gate *
       mju_max(0.0, desired_brace_force - brace_contact_force);
+  // ★ 2026-08-29 br52 (wrist brace): the shortfall is ONE-SIDED, so once the
+  // pad was loaded nothing stopped the planner leaning ever harder onto the
+  // wrist (36 -> 74 N) until the torso rested on the rail/pack (a drape onto
+  // the OPEN pack top). `brace_force_max` (N, 0/absent = OFF = byte-identical)
+  // charges the EXCESS above a ceiling so a light wrist brace stays light.
+  double brace_excess = 0.0;
+  {
+    double fmax = GetNumberOrDefault(0.0, model, "brace_force_max");
+    double kex = GetNumberOrDefault(0.05, model, "brace_excess_gain");
+    if (fmax > 0.0 && brace_contact_force > fmax)
+      brace_excess = kex * (mju_min(brace_contact_force, 4.0 * fmax) - fmax);
+  }
   residual[counter++] =
-      lean_recover_gate * (brace_far_cost + brace_shortfall);
+      lean_recover_gate * (brace_far_cost + brace_shortfall + brace_excess);
 
   // ------ object distance (reaching hand) ------ //
   // Phase-gated: zero during stand_up so the planner doesn't lunge.
@@ -2702,9 +2839,41 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         // illegal part in mx_22_c (375.6 N). Guard them too -- the rule is written by
         // EXCLUSION, so any arm link that can reach the slab belongs here.
         "left_shoulder_pitch_link", "right_shoulder_pitch_link"};
+    // ★ 2026-08-29 (battery, brace_wrist=1): the WRIST IS THE BRACE END. Its
+    // link geoms (roll/yaw) sit around the wrist pad, so guarding them with the
+    // 8 cm proximity barrier (w300, x100) parked the arm where the lowest wrist
+    // geom was ~8 cm above the rail = the 10-14 cm hover floor measured in
+    // 31/31 stand-and-lower runs (not Balance, not the elbow, not Brace Pos).
+    // Exempt the bracing wrist links from the PROXIMITY barrier only when the
+    // model declares a wrist brace; they are also allowed in the contact charge
+    // below. Non-wrist models: byte-identical.
+    int bw_guard = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    bool wrist_brace_guard = (bw_guard >= 0) &&
+        model->numeric_data[model->numeric_adr[bw_guard]] > 0.5;
     for (const char* bn : kGuardBodies) {
       int bid = mj_name2id(model, mjOBJ_BODY, bn);
       if (bid < 0) continue;
+      // The LEFT GRIPPER is REMOVED on the real robot for the wrist brace (user
+      // spec); it stays in the model for mass only. Its jaw geoms hang 2-4 cm
+      // BELOW the wrist pad, so guarding them charged r~10 (c~3000, 25x every
+      // other term, br35 cost dump) the moment the wrist descended -> the
+      // planner threw the body to escape it. Exempt it too.
+      if (wrist_brace_guard &&
+          (std::strcmp(bn, "left_wrist_roll_link") == 0 ||
+           std::strcmp(bn, "left_wrist_yaw_link") == 0 ||
+           std::strcmp(bn, "left_magpie_gripper") == 0)) continue;
+      // ★ 2026-08-29 HIP PRESS (brace_hip=1): the pelvis and hip links are MEANT
+      // to press the slab edge (toes under the slab). Exempt them from the
+      // proximity barrier; their contact force is bounded below (hip_force_max).
+      {
+        int bh = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
+        if (bh >= 0 && model->numeric_data[model->numeric_adr[bh]] > 0.5 &&
+            (std::strcmp(bn, "pelvis") == 0 ||
+             std::strcmp(bn, "left_hip_pitch_link") == 0 ||
+             std::strcmp(bn, "right_hip_pitch_link") == 0 ||
+             std::strcmp(bn, "left_hip_roll_link") == 0 ||
+             std::strcmp(bn, "right_hip_roll_link") == 0)) continue;
+      }
       for (int g = 0; g < model->ngeom && n_guard < kMaxGuard; g++) {
         if (model->geom_bodyid[g] != bid) continue;
         const char* gn = mj_id2name(model, mjOBJ_GEOM, g);
@@ -2805,6 +2974,18 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // elbow housing, which is part of the forearm contact patch, not the upper arm.
     int allow_b1 = mj_name2id(model, mjOBJ_BODY, "left_elbow_link");
     int allow_b2 = mj_name2id(model, mjOBJ_BODY, "left_shoulder_yaw_link");
+    // ★ 2026-08-29 (battery, brace_wrist=1): the wrist links ARE the brace end;
+    // their shells touching the rail beside the pad is the intended contact.
+    int allow_w1 = -1, allow_w2 = -1, allow_w3 = -1, allow_w4 = -1;
+    {
+      int bwf = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+      if (bwf >= 0 && model->numeric_data[model->numeric_adr[bwf]] > 0.5) {
+        allow_w1 = mj_name2id(model, mjOBJ_BODY, "left_wrist_roll_link");
+        allow_w2 = mj_name2id(model, mjOBJ_BODY, "left_wrist_pitch_link");
+        allow_w3 = mj_name2id(model, mjOBJ_BODY, "left_wrist_yaw_link");
+        allow_w4 = mj_name2id(model, mjOBJ_BODY, "left_magpie_gripper");  // removed on the real robot
+      }
+    }
     for (int ci = 0; ci < data->ncon; ci++) {
       const mjContact* con = &data->contact[ci];
       int b1 = model->geom_bodyid[con->geom1];
@@ -2821,10 +3002,51 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       int rb = model->geom_bodyid[rg];
       if ((allow_b1 >= 0 && rb == allow_b1) || (allow_b2 >= 0 && rb == allow_b2))
         allowed = true;                                 // the forearm's real shell
+      if ((allow_w1 >= 0 && rb == allow_w1) || (allow_w2 >= 0 && rb == allow_w2) ||
+          (allow_w3 >= 0 && rb == allow_w3) || (allow_w4 >= 0 && rb == allow_w4))
+        allowed = true;                                 // wrist-brace shells
       if (allowed) continue;
       mjtNum f6[6];
       mj_contactForce(model, data, ci, f6);
+      // ★ HIP PRESS: pelvis/hip links on the slab are allowed up to hip_force_max;
+      // only the EXCESS is charged (bounded push, never a drape).
+      {
+        int bh2 = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
+        const char* rbn2 = mj_id2name(model, mjOBJ_BODY, rb);
+        if (bh2 >= 0 && model->numeric_data[model->numeric_adr[bh2]] > 0.5 && rbn2 &&
+            (std::strcmp(rbn2, "pelvis") == 0 || std::strstr(rbn2, "_hip_pitch_link") ||
+             std::strstr(rbn2, "_hip_roll_link"))) {
+          double hmax = GetNumberOrDefault(150.0, model, "hip_force_max");
+          body_table_force += mju_max(0.0, mju_abs(f6[0]) - hmax);
+          continue;
+        }
+      }
       body_table_force += mju_abs(f6[0]);             // normal-force magnitude (N)
+    }
+    // ★ 2026-08-29 (battery scene): the battery PACK is a HARD KEEP-OFF. On the real
+    // cell the pack top is OPEN (battery interior exposed), so NO robot body may bear
+    // on it -- not the bracing wrist (it must stop on the RAIL, body "table"), not the
+    // reaching hand. Body "battery_slab" exists only in Lean_H12_Magpie_battery.xml;
+    // other models skip this block (bid < 0) = byte-identical. Every robot<->pack
+    // contact is charged in full (no allow-list). Run br5: with the pack excluded from
+    // the left arm, the wrist slid 40 cm past the rail onto the pack = inside the cell.
+    int pack_bid = mj_name2id(model, mjOBJ_BODY, "battery_slab");
+    if (pack_bid >= 0) {
+      for (int ci = 0; ci < data->ncon; ci++) {
+        const mjContact* con = &data->contact[ci];
+        int b1 = model->geom_bodyid[con->geom1];
+        int b2 = model->geom_bodyid[con->geom2];
+        bool p1 = (b1 == pack_bid), p2 = (b2 == pack_bid);
+        if (p1 == p2) continue;                       // not a robot<->pack contact
+        int rb = p1 ? b2 : b1;
+        // the free MODULE resting on the pack is not the robot -- skip it
+        const char* rbn = mj_id2name(model, mjOBJ_BODY, rb);
+        if (rbn && std::strcmp(rbn, "object") == 0) continue;
+        if (allow_w4 >= 0 && rb == allow_w4) continue;   // ghost left gripper (wrist brace)
+        mjtNum f6[6];
+        mj_contactForce(model, data, ci, f6);
+        body_table_force += mju_abs(f6[0]);
+      }
     }
   } else if (!any_arm_contact || is_forearm_brace) {
     int pelvis_bid = mj_name2id(model, mjOBJ_BODY, "pelvis");
@@ -2846,6 +3068,16 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   }
   // prox term is in METRES; scale it into the same newton-ish range as the force
   // term so one weight governs both (100 N per metre of incursion).
+  // ★ 2026-08-29 br44: the force charge is a RAW newton sum -- a transient
+  // shell/pack penetration read 5095 N (c = 1.5e6, 1600x every other term)
+  // the instant the wrist pad landed on the rail, and the planner threw the
+  // body sideways to escape it. Cap it (numeric, N; 0/absent = OFF =
+  // byte-identical): past the cap there is nothing more to learn from the
+  // magnitude, and a bounded cost cannot command a violent reaction.
+  {
+    double fcap = GetNumberOrDefault(0.0, model, "table_force_cap");
+    if (fcap > 0.0 && body_table_force > fcap) body_table_force = fcap;
+  }
   residual[counter++] = body_table_force + 100.0 * body_table_prox;
 
   // ----- Knees straight (retired) --------------------------------------- //
@@ -3496,6 +3728,16 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         double itgt = (nit >= 0) ? model->numeric_data[model->numeric_adr[nit]]
                                  : -0.15;  // rad; free at/inward of this
         inward_res = mju_max(0.0, roll - itgt);  // penalise OUTWARD (roll > tgt)
+        // ★ 2026-08-29 (battery, brace_wrist=1): this residual is lean-rung-only,
+        // so at the rung fire it STEPS from 0 to the full outward error (0.26 rad
+        // from the arm-out hover pose, w500 -> the top cost term 1 s after the
+        // switch in br32) and the planner yanks the shoulder roll; the body
+        // reacted backward and fell in br29/br30/br32. Ease it in with the
+        // phase ramp (smoothstep over the rung's target_ramp_sec). Non-wrist
+        // models: byte-identical.
+        int bwi = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+        if (bwi >= 0 && model->numeric_data[model->numeric_adr[bwi]] > 0.5)
+          inward_res *= alpha;
       }
     }
     residual[counter++] = inward_res;
@@ -4410,8 +4652,15 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         // torso tilt from the base quaternion
         const double* q = data->qpos + 3;
         double tilt = 2.0 * mju_acos(mju_min(mju_abs(q[0]), 1.0));
-        // pad↔table contact scan
-        int pad_gid = mj_name2id(model, mjOBJ_GEOM, "left_forearm_pad");
+        // pad↔table contact scan. ★ 2026-08-29 (battery): with brace_wrist=1 the brace
+        // end is the WRIST pad -- the forearm pad never loads in a wrist brace, so a
+        // forearm-pad scan would see "pad off" through a perfectly good hover and
+        // regress a stable 27 deg lean to stand (br16: that regression swung the reach
+        // arm and tripped the shoulder-yaw estop). Scan the pad that actually braces.
+        int bwn = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+        bool bw_on = bwn >= 0 && model->numeric_data[model->numeric_adr[bwn]] > 0.5;
+        int pad_gid = mj_name2id(model, mjOBJ_GEOM,
+                                 bw_on ? "left_wrist_pad" : "left_forearm_pad");
         bool pad_on = false;
         for (int ci = 0; ci < data->ncon; ci++) {
           const mjContact& con = data->contact[ci];
