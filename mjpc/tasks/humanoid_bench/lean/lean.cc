@@ -4069,9 +4069,33 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       // move in (real 29_46: +4.6 cm x at the rung entry) is the least
       // reliable one (tag near the lens, wrist tilting) and it pushed the
       // block 10 cm along the table before the close.
-      bool not_grasp_rung = !residual_.residual_keyframe_.grasp_close;
-      if (fresh && wrist_quiet && far_enough && near_range && not_grasp_rung &&
-          wyb >= 0 && tg >= 0) {
+      // ★ 2026-08-30 LATERAL STAYS LIVE ON THE GRASP RUNG (real 29_54: jaws
+      // closed ~6 cm beside the block). The slide-in is 10-15 s of dead
+      // reckoning on the estimator, and the estimator's LATERAL solution moves
+      // 10-15 cm during the push (head-cam anchor blind past ~25 deg lean, IMU
+      // yaw warm-drifting): the y correction latched at the pre-grasp is stale
+      // by the time the jaws close. Depth (x) stays frozen on the grasp rung
+      // (the 29_46 nudge lesson above); y and z keep following the camera
+      // while the wrist is quiet and the tip is still > servo_freeze_dist away.
+      bool grasp_rung = residual_.residual_keyframe_.grasp_close;
+      // 2026-08-30 04:00: back to the 29_52 behaviour -- NO updates on the
+      // grasp rung (the lateral-live variant never produced a success).
+      // 2026-08-30 (real 29_67): a sample taken DURING THE DIVE (rung 1, torso
+      // tilting through 15 deg, hand sweeping) latched the block 17.5 cm deeper
+      // than it is; the pre-grasp then drove the jaws through the block and
+      // swept it along the slab. Every success latched from rung 2+ with the
+      // brace seated. No servo samples on rungs 0-1.
+      bool brace_seated = motion_strategy_.GetCurrentKeyframeIndex() >= 2;
+      // 2026-08-30 (real 29_68): with sampling limited to rungs 2-3, the
+      // freeze radius (8 cm) blocked the whole pre-grasp hover (the tip parks
+      // 5-9 cm from its target there) and the approach rung is too fast for
+      // wrist-quiet -> ONE stale sample, no correction, first close empty.
+      // The pre-grasp hover IS the calibrated latch point (tag 15-20 cm from
+      // the lens, wrist still): sample there regardless of distance. The
+      // grasp rung still takes none.
+      (void)far_enough;
+      if (fresh && wrist_quiet && near_range && !grasp_rung &&
+          brace_seated && wyb >= 0 && tg >= 0) {
         double cam_pos[3], cam_rpy[3], nominal[3];
         num3("grip_cam_pos", cam_pos, 0.0, 0.0, 0.0);
         num3("grip_cam_rpy_deg", cam_rpy, 0.0, 0.0, 0.0);
@@ -4110,11 +4134,78 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         mju_sub3(want, p_world, nom_world);
         double cap = GetNumberOrDefault(0.15, model, "servo_max_offset");
         for (int k = 0; k < 3; ++k) want[k] = mju_clip(want[k], -cap, cap);
+        // ★ 2026-08-30 LATERAL CAP (real 29_61): the D405 y estimate scatters
+        // +-5 cm run to run for a block that has not moved; every success
+        // latched y within +1.6..+4.6 cm of nominal, every miss was outside
+        // (+7.9 cm: the arm reached across, the body twisted 20 deg and the
+        // feet slid; -3.6 cm: jaws left of the block). Cap |dy| at
+        // `servo_max_offset_y` (m, default 0.04) -- the block is placed at B3
+        // by hand, so a larger lateral correction is more likely camera than
+        // block.
+        double cap_y = GetNumberOrDefault(0.04, model, "servo_max_offset_y");
+        want[1] = mju_clip(want[1], -cap_y, cap_y);
+        // ★ 2026-08-30 OUTLIER GUARD (real 29_57): two accepted detections
+        // 4 s apart put the block at y +0.046 and then y +0.164 (12 cm apart,
+        // wrist quiet both times) -- a D405/AprilTag pose glitch. The arm
+        // swung 16 cm left chasing it, three arm joints hit the torque budget
+        // and the brace collapsed. Once a near-range detection has been
+        // accepted, a new one that moves the wanted correction by more than
+        // `servo_jump_max` (m, default 0.06) in one step is rejected; two
+        // consecutive agreeing outliers (within the jump limit of each
+        // other) are accepted as a real move.
+        static double s_last_want[3] = {0.0, 0.0, 0.0};
+        static double s_pend_want[3] = {0.0, 0.0, 0.0};
+        static bool s_have_want = false, s_have_pend = false;
+        if (s_servo_reset_outlier) { s_have_want = s_have_pend = false;
+                                     s_servo_reset_outlier = false; }
+        double jump_max = GetNumberOrDefault(0.06, model, "servo_jump_max");
+        bool accept = true;
+        // ★ 2026-08-30 (real 29_59): a slow WALK passes a step guard -- the y
+        // correction crept -0.025 -> -0.105 -> -0.118 in sub-6 cm steps and the
+        // grasp went 12 cm right of the block. Also cap the total drift from the
+        // first accepted near-range latch at `servo_drift_max` (m, default 0.08).
+        static double s_anchor_want[3] = {0.0, 0.0, 0.0};
+        static bool s_have_anchor = false;
+        if (!s_have_want) s_have_anchor = false;
+        double drift_max = GetNumberOrDefault(0.08, model, "servo_drift_max");
+        if (s_have_anchor && mju_dist3(want, s_anchor_want) > drift_max) {
+          accept = false;
+          static double last_drift_note = -1e9;
+          if (data->time - last_drift_note > 1.0) {
+            last_drift_note = data->time;
+            std::printf("[servo] REJECT drift: want=(%+.3f %+.3f %+.3f) is %.3f "
+                        "from first latch (%+.3f %+.3f %+.3f) > %.3f\n",
+                        want[0], want[1], want[2], mju_dist3(want, s_anchor_want),
+                        s_anchor_want[0], s_anchor_want[1], s_anchor_want[2],
+                        drift_max);
+          }
+        } else if (s_have_want && mju_dist3(want, s_last_want) > jump_max) {
+          if (s_have_pend && mju_dist3(want, s_pend_want) <= jump_max) {
+            accept = true;                    // second sample agrees: real
+          } else {
+            accept = false;
+            mju_copy3(s_pend_want, want); s_have_pend = true;
+            static double last_rej = -1e9;
+            if (data->time - last_rej > 1.0) {
+              last_rej = data->time;
+              std::printf("[servo] REJECT outlier: want=(%+.3f %+.3f %+.3f) "
+                          "vs last=(%+.3f %+.3f %+.3f) jump %.3f > %.3f\n",
+                          want[0], want[1], want[2], s_last_want[0],
+                          s_last_want[1], s_last_want[2],
+                          mju_dist3(want, s_last_want), jump_max);
+            }
+          }
+        }
+        if (accept) {
+          if (!s_have_anchor) { mju_copy3(s_anchor_want, want); s_have_anchor = true; }
+          mju_copy3(s_last_want, want); s_have_want = true; s_have_pend = false;
+        }
         double dt = (last_call_time >= 0.0)
             ? mju_max(0.0, data->time - last_call_time) : 0.0;
         double step = slew * dt;
         double* cur[3] = {&s_servo_dx, &s_servo_dy, &s_servo_dz};
-        for (int k = 0; k < 3; ++k) {
+        for (int k = 0; k < 3 && accept; ++k) {
+          if (grasp_rung && k == 0) continue;   // depth frozen on the slide-in
           double e = want[k] - *cur[k];
           *cur[k] += mju_clip(e, -step, step);
         }
@@ -4132,6 +4223,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       last_call_time = data->time;
     } else {
       s_servo_dx = s_servo_dy = s_servo_dz = 0.0;
+      s_servo_reset_outlier = true;
     }
   }
 
@@ -4604,6 +4696,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         }
         total_distance = mju_dist3(h25, tgt25);
         s_adv_dist = total_distance;
+        s_adv_err_y = h25[1] - tgt25[1];
         // 1 Hz debug: what the ADVANCE actually sees (25_29 advanced with the
         // hand ~13 cm off per offline FK — print target/hand/dist to find why).
         static double last_dbg25 = -1.0;
@@ -5278,8 +5371,32 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                  // as bc_since above).
                  if (!current_kf.grasp_close) return true;
                  int kidx = motion_strategy_.GetCurrentKeyframeIndex();
+                 // ★ 2026-08-30 LATERAL CLOSE GATE (real 29_52..55): the tip
+                 // parks 2.5-4.5 cm to the LEFT of its target on every run
+                 // (lateral-centre / hip-roll costs pull against the far-right
+                 // reach), and the 3D tolerance (5 cm) lets the CLOSE fire
+                 // with that whole error in y. The jaws (96 mm) on a 50 mm
+                 // block leave +-2.3 cm: a 4 cm left park is a miss to the
+                 // left (user-confirmed 29_54, 29_55). Hold the CLOSE until
+                 // |y error| <= grasp_y_tol (m, default 0.02); the rung's
+                 // fail-soft timeout still bounds the hold.
+                 if (mjpc::g_grasp_gate_cmd.load() == 0 ||
+                     mjpc::g_grasp_gate_cmd.load() == 2) {
+                   double ytol = GetNumberOrDefault(0.02, model, "grasp_y_tol");
+                   if (std::fabs(s_adv_err_y) > ytol) {
+                     static double last_ynote = -1e9;
+                     if (data->time - last_ynote > 1.0) {
+                       last_ynote = data->time;
+                       std::printf("[grasp-gate] HOLD close: lateral err %+.3f "
+                                   "(tol %.3f) -- tip %s of target\n",
+                                   s_adv_err_y, ytol,
+                                   s_adv_err_y > 0 ? "LEFT" : "RIGHT");
+                     }
+                     return false;
+                   }
+                 }
                  static double g_cmd_time = -1.0;
-                 static int g_retries = 0;
+                 int& g_retries = s_grasp_retries;
                  double ack_to = GetNumberOrDefault(4.0, model,
                                                     "grasp_ack_timeout");
                  int rmax = (int)GetNumberOrDefault(2.0, model,

@@ -230,7 +230,7 @@
       "Symmetry": 200.0,
       "Angular Momentum": 5.0,
       "Lateral Center": 0.0,
-      "CoM Vel.": 50.0,
+      "CoM Vel.": 120.0,
       "Velocity": 0.625,
       "Joint Vel.": 0.01,
       "Joint Vel. Limit": 5.0,
@@ -250,7 +250,7 @@
       "Torso Forward Tilt": 20.0,
       "Reaching Hand Dist": 0.0,
       "Object Dist": 0.0,
-      "Pelvis Forward": 100.0,
+      "Pelvis Forward": 60.0,
       "Brace Pos": 700.0,
       "Brace Force": 40.0,
       "Contact": 30.0,
@@ -691,7 +691,7 @@
       "Body Yaw": 300.0
     },
     "reach_target_table": [
-      0.575,
+      0.55,
       0.16,
       0.045
     ],
@@ -788,8 +788,8 @@
     "name": "forearm_brace_lean",
     "success_sustain_time": 99.0,
     "target_ramp_sec": 3.0,
-    "target_distance_tolerance": 0.07,
-    "time_limit": 8.0,
+    "target_distance_tolerance": 0.08,
+    "time_limit": 4.0,
     "brace_force_target": 45.0,
     "weight": {
       "Posture": 60.0,
@@ -815,9 +815,9 @@
       "Knees Straight": 5.0,
       "Pelvis Tilt": 50.0,
       "Torso Forward Tilt": 20.0,
-      "Reaching Hand Dist": 1500.0,
+      "Reaching Hand Dist": 1000.0,
       "Object Dist": 0.0,
-      "Pelvis Forward": 100.0,
+      "Pelvis Forward": 300.0,
       "Brace Pos": 700.0,
       "Brace Force": 40.0,
       "Contact": 30.0,
@@ -828,7 +828,7 @@
       "Left Leg Anchor": 400.0,
       "Brace Arm Plane": 300.0,
       "Brace Roll Level": 300.0,
-      "Brace Erect": 220.0,
+      "Brace Erect": 0.0,
       "Brace Reach Lead": 0.0,
       "Brace Arm Inward": 500.0,
       "Reach Level": 300.0,
@@ -838,9 +838,9 @@
     "servo": false,
     "timeout_advance": true,
     "reach_target_table": [
-      0.15,
+      0.48,
       0.16,
-      0.05
+      0.1
     ],
     "reach_pitch_deg": 0.0
   },
@@ -960,7 +960,7 @@
       "Torso Forward Tilt": 0.0,
       "Reaching Hand Dist": 0.0,
       "Object Dist": 0.0,
-      "Pelvis Forward": 180.0,
+      "Pelvis Forward": 300.0,
       "Brace Pos": 120.0,
       "Brace Force": 20.0,
       "Contact": 30.0,

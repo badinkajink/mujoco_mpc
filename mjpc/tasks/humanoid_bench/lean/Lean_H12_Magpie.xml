@@ -1161,6 +1161,13 @@
         <numeric name="servo_slew" data="0.5"/>
         <numeric name="servo_max_age" data="1.0"/>
         <numeric name="servo_max_offset" data="0.25"/>
+        <numeric name="arm_range_urdf" data="0"/>
+        <!-- 2026-08-30 04:00 BACK TO THE 29_52 CONFIG: tonight's servo guards/gates OFF -->
+        <numeric name="grasp_y_tol" data="1.0"/>
+        <numeric name="servo_jump_max" data="1.0"/>
+        <numeric name="servo_drift_max" data="1.0"/>
+        <numeric name="servo_max_offset_y" data="1.0"/>
+        <numeric name="servo_freeze_dist" data="0.08"/>
         <numeric name="servo_nominal" data="0.525 0.16 0.025"/>
         <!-- 2026-08-28: hand-eye CALIBRATED live (5-pose pelvis-frame consistency
              solve, tag at B2, base fixed). Roll was ~-79 deg off the -180/90/90
