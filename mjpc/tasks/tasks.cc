@@ -73,6 +73,7 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<Lean_H12>(),
       std::make_shared<Lean_H12_Magpie>(),
       std::make_shared<Lean_H12_Battery>(),
+      std::make_shared<Lean_H12_BatteryHip>(),
 
       // H1_2 Beginning Task: the frozen pre-refurbish snapshot of Lean above
       // (identical costs/strategies/models, own strategies/ + XMLs). Kept

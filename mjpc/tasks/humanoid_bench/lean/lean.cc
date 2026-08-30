@@ -1648,6 +1648,13 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // is on the table. Only braced phases get here (the gate below), which is the
   // whole point of bracing.
   double pelvis_tilt_threshold = 0.5;
+  // ★ 2026-08-29 HIP PRESS: `pelvis_tilt_max_deg` (numeric, brace phases) caps the
+  // forward pelvis pitch -- past ~40 deg the pelvis rides over the 1in slab edge
+  // and the belly lands on the pack (hp7/hp8). 0/absent = the 60 deg default.
+  {
+    double tmax = GetNumberOrDefault(0.0, model, "pelvis_tilt_max_deg");
+    if (tmax > 0.0) pelvis_tilt_threshold = mju_cos(tmax * M_PI / 180.0);
+  }
   double pelvis_tilt_residual;
   if (any_arm_contact) {
     pelvis_tilt_residual = mju_max(0.0, pelvis_tilt_threshold - pelvis_up[2]);
@@ -3186,6 +3193,17 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // only the fold below target-slack is charged. slack <= 0/absent = OFF =
     // the old hard-0 behavior.
     double sink_res = 0.0;
+    // ★ 2026-08-29 HIP PRESS (brace_hip=1): the anchor is one-sided, so the planner
+    // floated the pelvis 7 cm ABOVE the keyframe (0.91 vs 0.84, hp4) and the hips rode
+    // OVER the 2.5 cm slab onto the pack. Charge RISING above kf z + base_rise_slack too.
+    {
+      int bhp = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
+      double rs = GetNumberOrDefault(0.0, model, "base_rise_slack");
+      if (bhp >= 0 && model->numeric_data[model->numeric_adr[bhp]] > 0.5 && rs > 0.0) {
+        double up = data->qpos[2] - (posture_target[2] + rs);
+        if (up > 0.0) sink_res += 10.0 * up;
+      }
+    }
     int nsl = mj_name2id(model, mjOBJ_NUMERIC, "brace_sink_slack");
     double slack = nsl >= 0
         ? model->numeric_data[model->numeric_adr[nsl]] : 0.0;
@@ -4860,6 +4878,34 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                      if (con.geom1 == pad_gid2 || con.geom2 == pad_gid2) {
                        on = true;
                        break;
+                     }
+                   }
+                   // ★ 2026-08-30 HIP PRESS (brace_hip=1): the brace is the
+                   // HIPS on the tall stop, not the wrist pad on the rail.
+                   // Verify via pelvis/hip-link contact with `hip_stop` so the
+                   // reach rungs advance on a real hip brace. Wrist-brace
+                   // models leave brace_hip unset -> byte-identical.
+                   {
+                     int bhg = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
+                     int stop_b = mj_name2id(model, mjOBJ_BODY, "hip_stop");
+                     if (!on && bhg >= 0 &&
+                         model->numeric_data[model->numeric_adr[bhg]] > 0.5 &&
+                         stop_b >= 0) {
+                       for (int ci = 0; ci < data->ncon; ci++) {
+                         const mjContact& con = data->contact[ci];
+                         int rb1 = model->geom_bodyid[con.geom1];
+                         int rb2 = model->geom_bodyid[con.geom2];
+                         bool s1 = (rb1 == stop_b), s2 = (rb2 == stop_b);
+                         if (s1 == s2) continue;
+                         int rb = s1 ? rb2 : rb1;
+                         const char* rbn = mj_id2name(model, mjOBJ_BODY, rb);
+                         if (rbn && (std::strcmp(rbn, "pelvis") == 0 ||
+                                     std::strstr(rbn, "_hip_pitch_link") ||
+                                     std::strstr(rbn, "_hip_roll_link"))) {
+                           on = true;
+                           break;
+                         }
+                       }
                      }
                    }
                    // ★ 2026-08-13 NEAR-CONTACT MARGIN (real flat_2): the

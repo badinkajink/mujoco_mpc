@@ -359,7 +359,8 @@ class lean : public Task {
     // (twin --spawn-key), isolating HOLD+REACH from the descent the planner can't do.
     names[32] = "h12_brace_battery_hold";
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
-    names[34] = "h12_mission_brace_grasp"; // 4-phase retrieval mission (see docs/plans)
+    names[34] = "h12_mission_brace_grasp";
+    names[35] = "h12_brace_battery_hip";   // 2026-08-29 toes-under-slab HIP-PRESS + wrist brace (task "Lean H12 Battery Hip") // 4-phase retrieval mission (see docs/plans)
     return names;
   }
 
@@ -456,6 +457,17 @@ class Lean_H12_Battery : public lean {
 
   std::string XmlPath() const override {
     return GetModelPath("humanoid_bench/lean/Lean_H12_Magpie_battery.xml");
+  }
+};
+
+// --task "Lean H12 Battery Hip" + strategy 35 (h12_brace_battery_hip): workcell 0.30 m
+// closer, toes under the slab, hips press the slab edge, wrist brace beside the hip.
+class Lean_H12_BatteryHip : public lean {
+ public:
+  std::string Name() const override { return "Lean H12 Battery Hip"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/lean/Lean_H12_Magpie_battery_hip.xml");
   }
 };
 
