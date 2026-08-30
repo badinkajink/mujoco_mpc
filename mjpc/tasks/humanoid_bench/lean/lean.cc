@@ -72,6 +72,11 @@ static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
 // the relay's ack was never read, close stayed 'pending' -> rung 4 hung 60 s
 // leaning until the operator killed it).
 static double s_grasp_cmd_time = -1.0;
+static int s_grasp_retries = 0;
+static double s_adv_err_y = 0.0;
+static bool s_servo_reset_outlier = false;  // clear the servo outlier memory on servo reset
+      // tip - target lateral error (world y) on reach rungs
+      // EMPTY-ack retries used on this ladder pass
 // ★ 2026-08-29 last tip<->target distance from the advance gate (m); the
 // servo freezes its correction once this is inside `servo_freeze_dist` so the
 // final approach is open-loop on the latched value (real 29_38: continuous
@@ -3978,6 +3983,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
   {
     static int s_last_kidx_open = -1;
     int kidx0 = motion_strategy_.GetCurrentKeyframeIndex();
+    if (kidx0 == 0) s_grasp_retries = 0;  // fresh ladder pass = fresh retry budget
     if (kidx0 == 0 && s_last_kidx_open != 0 &&
         mjpc::g_grasp_gate_cmd.load() == 0) {
       mjpc::g_grasp_gate_cmd.store(2);
@@ -4846,6 +4852,46 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
     bool expired28 =
         data->time - motion_strategy_.GetCurrentKeyframeStartTime() >
         current_kf.time_limit;
+    // ★ 2026-08-30 EMPTY ACK IS HANDLED EVERY TICK. The grasp-gate lambda
+    // below only runs while the rung's advance condition holds (tip inside
+    // tolerance + dwell). Real 29_54: CLOSE fired, jaws closed EMPTY, the
+    // relay answered "empty" -- but the tip had drifted out of tolerance, so
+    // the lambda never ran, the gate stayed at cmd=1, the mirror kept
+    // broadcasting CLOSE and the relay closed the jaws THREE more times on
+    // nothing ("kept trying to grasp") until the rung timed out. Consume the
+    // verdict here, unconditionally: regress one rung for a fresh approach
+    // (<= grasp_retry_max), else fail-soft advance = recover empty-handed.
+    if (current_kf.grasp_close && mjpc::g_grasp_gate_cmd.load() == 1 &&
+        mjpc::g_grasp_ack.load() == -1) {
+      int rmax_e = (int)GetNumberOrDefault(2.0, model, "grasp_retry_max");
+      mjpc::g_grasp_gate_cmd.store(0);
+      mjpc::g_grasp_ack.store(0);
+      s_grasp_cmd_time = -1.0;
+      int kidx_e = motion_strategy_.GetCurrentKeyframeIndex();
+      int kidx_go;
+      if (s_grasp_retries < rmax_e) {
+        ++s_grasp_retries;
+        kidx_go = kidx_e - 1;
+        std::printf("[grasp-gate] EMPTY -> retry %d/%d (regress to pre-grasp, "
+                    "re-approach)\n", s_grasp_retries, rmax_e);
+      } else {
+        kidx_go = std::min(kidx_e + 1,
+                           motion_strategy_.GetKeyframesCount() - 1);
+        std::printf("[grasp-gate] EMPTY after %d retries -> recover "
+                    "empty-handed (advance to rung %d)\n", rmax_e, kidx_go);
+      }
+      SnapshotEffectiveScales();
+      SnapshotCurrentWeightsAsPrev();
+      motion_strategy_.UpdateCurrentKeyframe(kidx_go);
+      MarkNewlyAppearedContacts(residual_.residual_keyframe_,
+                                motion_strategy_.GetCurrentKeyframe());
+      residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
+      motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+      motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
+      residual_.keyframe_start_time_ = data->time;
+      PrepareNextPhaseWeights(residual_.residual_keyframe_);
+      return;
+    }
     // ★ 2026-08-29: a pending close only defers the fail-soft timeout for
     // grasp_ack_timeout + 2 s after CLOSE fired; past that the rung advances
     // (jaws are closed either way) instead of hanging in the lean forever.
