@@ -33,15 +33,19 @@ import sys
 import time
 
 
-def judge(aperture_mm, object_min_mm):
-    """closed-on-object iff the jaws stopped >= object_min_mm apart."""
-    return aperture_mm >= object_min_mm
+def judge(aperture_mm, object_min_mm, open_min_mm=80.0):
+    """closed-on-object iff the jaws stopped >= object_min_mm apart AND
+    actually moved (< open_min_mm). Real 29_55 (2026-08-30): the magpie sat
+    in OVERLOAD after closing on nothing, ignored the close, aperture stayed
+    96 mm (= fully open) and the old judge called that 'object held'."""
+    return object_min_mm <= aperture_mm < open_min_mm
 
 
 def _selftest():
     ok = True
     for ap, want in [(50.0, True), (48.0, True), (25.0, True),
-                     (24.9, False), (2.0, False), (0.0, False)]:
+                     (24.9, False), (2.0, False), (0.0, False),
+                     (96.0, False), (80.0, False), (79.9, True), (-1.0, False)]:
         got = judge(ap, 25.0)
         ok &= got == want
         print(f"[selftest] aperture {ap:5.1f}mm -> "
@@ -59,6 +63,10 @@ def main():
     ap.add_argument("--object-min-mm", type=float, default=25.0,
                     help="aperture at/above this after close = object held "
                          "(5x5cm block reads ~50; empty reads ~0)")
+    ap.add_argument("--open-min-mm", type=float, default=80.0,
+                    help="aperture at/above this after a close = the jaws did "
+                         "NOT move (open reads ~96): reset_overload + re-close "
+                         "once, and never report 'held'")
     ap.add_argument("--settle-sec", type=float, default=1.2,
                     help="wait after the close call before judging aperture")
     ap.add_argument("--no-retry", action="store_true",
@@ -102,6 +110,10 @@ def main():
             ns = f"/{a.side}/gripper"
             self.cli_close = self.create_client(Trigger, f"{ns}/close")
             self.cli_open = self.create_client(Trigger, f"{ns}/open")
+            # 2026-08-30: closing on nothing / on an edge trips the magpie
+            # OVERLOAD latch; while latched it ignores open AND close (real
+            # 29_54 -> 29_55). reset_overload clears it.
+            self.cli_reset = self.create_client(Trigger, f"{ns}/reset_overload")
             self.create_subscription(GripperState, f"{ns}/state",
                                      lambda m: state.__setitem__("aperture",
                                                                  m.position), 10)
@@ -132,7 +144,9 @@ def main():
                     return                      # same 1 s burst: already opened
                 state["busy"] = True
                 try:
-                    self.get_logger().info("OPEN received -> opening gripper")
+                    self.get_logger().info("OPEN received -> reset_overload + opening gripper")
+                    self.call(self.cli_reset, "reset_overload")
+                    time.sleep(0.3)
                     self.call(self.cli_open, "open")
                     state["last_open"] = time.time()
                 finally:
@@ -142,7 +156,16 @@ def main():
                 return
             state["busy"] = True
             try:
-                self.get_logger().info("CLOSE received -> closing gripper")
+                # 2026-08-30 (29_66/67): EVERY first close after an open was
+                # ignored (aperture stayed 96-97 mm) and only the post-reset
+                # re-close moved the jaws -- the overload latch is set by the
+                # open itself. Clear it before every close, not just after.
+                # 29_68: reset+close 0.3 s apart was STILL ignored on the first
+                # try every time and only the second reset+close moved the jaws
+                # -> the reset needs longer to take. 1.2 s.
+                self.get_logger().info("CLOSE received -> reset_overload + closing gripper")
+                self.call(self.cli_reset, "reset_overload")
+                time.sleep(1.2)
                 ok = self.call(self.cli_close, "close")
                 # 2026-08-29: the magpie close service blocks for the whole
                 # motion and often outlives the future wait (real 29_33/29_42:
@@ -154,10 +177,20 @@ def main():
                                            "-- judging by aperture anyway")
                 time.sleep(a.settle_sec)
                 aper = state["aperture"]
+                if aper is not None and aper >= a.open_min_mm:
+                    # jaws never moved: overload latch -> clear it, close again
+                    self.get_logger().warn(
+                        f"jaws did not move (aperture {aper:.0f}mm) -> "
+                        "reset_overload + re-close")
+                    self.call(self.cli_reset, "reset_overload")
+                    time.sleep(0.3)
+                    self.call(self.cli_close, "close")
+                    time.sleep(a.settle_sec)
+                    aper = state["aperture"]
                 if aper is None:
                     self.answer("closed", "no aperture telemetry -- advancing")
                     return
-                if judge(aper, a.object_min_mm):
+                if judge(aper, a.object_min_mm, a.open_min_mm):
                     self.answer("closed", f"object held (aperture {aper:.0f}mm)")
                 elif a.no_retry and state["empties"] >= 1:
                     self.answer("closed",
@@ -165,6 +198,8 @@ def main():
                                 "thermal mode -- advancing empty")
                 else:
                     state["empties"] += 1
+                    self.call(self.cli_reset, "reset_overload")  # empty close latches overload
+                    time.sleep(0.3)
                     self.call(self.cli_open, "open")   # clear jaws for retry
                     self.answer("empty", f"EMPTY (aperture {aper:.0f}mm) -> "
                                          "reopened for retry")
@@ -180,7 +215,9 @@ def main():
     rclpy.init()
     node = Relay()
     # 2026-08-29: start from a known state -- jaws OPEN.
-    node.get_logger().info("startup -> opening gripper")
+    node.get_logger().info("startup -> reset_overload + opening gripper")
+    node.call(node.cli_reset, "reset_overload")
+    time.sleep(0.3)
     node.call(node.cli_open, "open")
     try:
         while rclpy.ok():

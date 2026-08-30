@@ -82,6 +82,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--object-offset", type=float, nargs=3, default=[0.0, 0.0, 0.0])
+    # ★ 2026-08-29 (battery): scene + object nominal are ARGS so the detector can
+    # track any scene's object. Defaults = the block scene = byte-identical for
+    # strat 27/28/29. The battery bench passes its scene + module (0.94,-0.04,0.895);
+    # without this the servo steered the gripper at a phantom block 16 cm away.
+    ap.add_argument("--scene", default=SCENE,
+                    help="twin scene XML (for the robot FK chain)")
+    ap.add_argument("--object-nominal", type=float, nargs=3, default=None,
+                    help="object world position [x y z] (default: BLOCK_NOMINAL)")
     ap.add_argument("--cam-pos", type=float, nargs=3, default=[0.06, 0.0, 0.05],
                     help="MUST equal the model's grip_cam_pos numeric")
     ap.add_argument("--cam-rpy-deg", type=float, nargs=3, default=[-90.0, 0.0, -90.0],
@@ -105,14 +113,15 @@ def main():
         raise SystemExit(_selftest())
 
     import mujoco
-    m = mujoco.MjModel.from_xml_path(SCENE)
+    m = mujoco.MjModel.from_xml_path(a.scene)
     d = mujoco.MjData(m)
     wy = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "right_wrist_yaw_link")
     gb = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "right_magpie_gripper")
     R_ow = opt_to_wrist(a.cam_rpy_deg)
     cam_pos = np.array(a.cam_pos)
-    obj_world = BLOCK_NOMINAL + np.array(a.object_offset)
-    print(f"[sim-obj] block at world {obj_world} (nominal {BLOCK_NOMINAL} + "
+    nominal = np.array(a.object_nominal) if a.object_nominal is not None else BLOCK_NOMINAL
+    obj_world = nominal + np.array(a.object_offset)
+    print(f"[sim-obj] object at world {obj_world} (nominal {nominal} + "
           f"offset {a.object_offset}); cam_pos {cam_pos} rpy {a.cam_rpy_deg}")
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
