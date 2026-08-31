@@ -3184,9 +3184,26 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   //   them -> kept OFF via JSON weight 0 (crouch already holds; squat-ascent
   //   needs a per-phase FK-derived target, a follow-on). Gated free-standing;
   //   brace/lean use the existing Height term -> byte-identical.
+  // ★ 2026-08-30 WRIST-BRACE SQUAT (contact-independent): the rise-charge below
+  // only fired under any_arm_contact, but the wrist barely touches during approach
+  // -> the base floated to 0.92 and the reach became a torso LEAN (arm saturates,
+  // topple). Force the squat during the brace/reach phase whether or not the pad
+  // is touching, so the planner descends to the keyframe z BEFORE it can lean.
+  double wrist_rise_res = 0.0;
+  {
+    int bwr = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    double rs = GetNumberOrDefault(0.0, model, "base_rise_slack");
+    bool wrist_on = (bwr >= 0 && model->numeric_data[model->numeric_adr[bwr]] > 0.5);
+    bool brace_phase = (is_forearm_brace ||
+                        residual_keyframe_.name == "forearm_brace_mid");
+    if (wrist_on && brace_phase && rs > 0.0) {
+      double up = data->qpos[2] - (posture_target[2] + rs);
+      if (up > 0.0) wrist_rise_res = 10.0 * up;
+    }
+  }
   if (!any_arm_contact) {
     double bh_err = posture_target[2] - data->qpos[2];
-    residual[counter++] = 10.0 * (bh_err >= 0.0 ? bh_err : 0.0);
+    residual[counter++] = 10.0 * (bh_err >= 0.0 ? bh_err : 0.0) + wrist_rise_res;
   } else {
     // ★ 2026-08-13 DRAPE FIX: this anchor used to be HARD 0 while the pad
     // touched -- w450 x 0.0 -- so the flat-brace press could fold the legs
@@ -3203,8 +3220,19 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // OVER the 2.5 cm slab onto the pack. Charge RISING above kf z + base_rise_slack too.
     {
       int bhp = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
+      // ★ 2026-08-30 WRIST-BRACE SQUAT: the one-sided anchor let the wrist-brace
+      // planner float the base UP to 0.92 and reach the low object by LEANING the
+      // torso (pitch ~20 deg) instead of squatting -- but a single wrist on a thin
+      // rail cannot bear the balancing load of a 20 deg whole-body lean, so the
+      // left arm saturated (Lsh/Lelb 90%) and it toppled forward every run
+      // (hp18-26). Charge RISING above the (low, squat) keyframe z for brace_wrist
+      // too, so the planner reaches by SQUATTING (knees bear load, CoM stays back,
+      // arm unloaded) instead of leaning. Gated on base_rise_slack>0.
+      int bwr = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
       double rs = GetNumberOrDefault(0.0, model, "base_rise_slack");
-      if (bhp >= 0 && model->numeric_data[model->numeric_adr[bhp]] > 0.5 && rs > 0.0) {
+      bool hip_on = (bhp >= 0 && model->numeric_data[model->numeric_adr[bhp]] > 0.5);
+      bool wrist_on = (bwr >= 0 && model->numeric_data[model->numeric_adr[bwr]] > 0.5);
+      if ((hip_on || wrist_on) && rs > 0.0) {
         double up = data->qpos[2] - (posture_target[2] + rs);
         if (up > 0.0) sink_res += 10.0 * up;
       }
@@ -5019,14 +5047,16 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                        break;
                      }
                    }
-                   // ★ 2026-08-30 HIP PRESS (brace_hip=1): the brace is the
-                   // HIPS on the tall stop, not the wrist pad on the rail.
-                   // Verify via pelvis/hip-link contact with `hip_stop` so the
-                   // reach rungs advance on a real hip brace. Wrist-brace
-                   // models leave brace_hip unset -> byte-identical.
+                   // ★ 2026-08-30 THIGH/HIP PRESS (brace_hip=1): the real battery
+                   // has only the 1-inch slab (`table`), no tall stop. The thigh/
+                   // hip-front presses the slab's robot-facing EDGE to offload the
+                   // arm while the wrist braces the slab top. Verify via pelvis/hip-
+                   // link contact with the `table` body so the reach rungs advance
+                   // on a real thigh brace. Non-hip models leave brace_hip unset ->
+                   // byte-identical.
                    {
                      int bhg = mj_name2id(model, mjOBJ_NUMERIC, "brace_hip");
-                     int stop_b = mj_name2id(model, mjOBJ_BODY, "hip_stop");
+                     int stop_b = mj_name2id(model, mjOBJ_BODY, "table");
                      if (!on && bhg >= 0 &&
                          model->numeric_data[model->numeric_adr[bhg]] > 0.5 &&
                          stop_b >= 0) {
