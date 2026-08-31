@@ -76,9 +76,9 @@
              (+0.095) -- more (e.g. -0.26 -> +0.123) tips FORWARD. Knee/ankle
              unchanged. NOTE: static bias alone can't fully cancel a 14 cm dynamic
              drift; this re-centers the drift range off the back edge. -->
-        <key name="stand_up" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
+        <key name="stand_up" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 -0.00851 -0.15293 -0.00028 0.37146 -0.17554 0.78392 0.00851 -0.15293 0.00028 0.37146 -0.17554 0.00000 0.00000 -0.16000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 -0.16000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.94000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- 2026-08-29 br48: fold+raise the brace arm at STANDING height BEFORE the squat (the hanging wrist swept onto the rail edge during the squat in br43/46/48) -->
-        <key name="battery_armfold" qpos="0.19000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 0.00000 -0.36000 0.12000 0.55000 -0.19000 0.00000 0.00000 -0.36000 -0.12000 0.55000 -0.19000 0.00000 0.00000 -0.26551 -0.18670 -0.11019 0.00000 0.00000 0.00000 0.00000 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="battery_armfold" qpos="0.00000 0.00000 0.98000 1.00000 0.00000 0.00000 0.00000 -0.03818 -0.25696 -0.00139 0.58097 -0.16480 1.25403 0.03818 -0.25696 0.00139 0.58097 -0.16480 -0.00000 0.00000 -0.26551 -0.18670 -0.11019 0.00000 0.00000 0.00000 0.00000 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- ★ 2026-08-18 standback_r4: post-recovery RIGHT-ARM CLEAR station.
              After the stand-back the right arm hangs low/under the tabletop; the
              direct pull to the stand pose sweeps it INTO the slab (operator had to
@@ -93,7 +93,7 @@
              backward CoM impulse. NOTE: the terminal backward LEAN is a dynamic
              drift, NOT this arm (24_10 fell back with r4 at -0.16). Elbow (-0.90)
              left as-is. -->
-        <key name="standback_r4" qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.90 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
+        <key name="standback_r4" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 -0.00851 -0.15293 -0.00028 0.37146 -0.17554 0.78392 0.00851 -0.15293 0.00028 0.37146 -0.17554 0.00000 0.00000 -0.16000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.45000 -0.15000 0.00000 -0.90000 0.00000 0.00000 0.00000 0.94000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <key name="stand"    qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
         <!-- straighten (strategy 25, pre-stand bring-up): CoM-CENTERED stand pose (hip
              -0.15/knee 0.35/ankle -0.28) = the wide-basin handoff target. stand_up plants
@@ -179,7 +179,7 @@
              surface (+0.0 cm), forearm LEVEL (0.0 deg), gripper lowest +3.2 cm clear, pad
              x 0.535 = seated 0.24 m past the 0.2975 near edge (short-side approach depth).
              Previous (0.865-era) pose left the pad 8.5 cm UNDER the new surface. -->
-        <key name="forearm_brace_lean" qpos="-0.16064 0.00000 0.88241 0.96891 0.00000 0.24740 0.00000 0.00000 -1.25000 0.00000 0.90000 -0.15000 0.00000 0.00000 -1.25000 0.00000 0.90000 -0.15000 0.00000 0.00000 -0.03083 -0.20849 -0.14140 0.04261 0.00000 0.00000 0.00000 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="forearm_brace_lean" qpos="-0.05574 0.00000 0.97020 0.97729 0.00000 0.21190 0.00000 0.20561 -0.64081 -0.10811 0.12000 1.20650 -0.08366 -0.23875 -0.63973 0.12548 0.12000 1.13630 -1.86450 0.00000 -0.05304 -0.17904 -0.12134 0.61591 -0.17659 0.46096 0.32076 -1.13401 -0.13672 0.06647 1.15434 0.32603 0.36418 0.65337 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- forearm_brace_reach (2026-07-31): the braced pose with the RIGHT
              arm solved for MAXIMUM forward gripper extension, staying >=10 mm
              above the tabletop. Left arm / legs / base copied unchanged, so the
@@ -187,16 +187,16 @@
              keyframe: with the reach phase pointed at forearm_brace_lean, whose
              right arm is NEUTRAL, Posture pulled the reaching arm back while
              Reaching Hand Dist pushed it out. -->
-        <key name="forearm_brace_mid" qpos="-0.23829 0.00000 0.90130 0.99220 0.00000 0.12467 0.00000 0.00000 -1.00000 0.00000 0.80000 -0.05000 0.00000 0.00000 -1.00000 0.00000 0.80000 -0.05000 0.00000 0.00000 -0.26551 -0.18670 -0.11019 0.00000 0.00000 0.00000 0.00000 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="forearm_brace_mid" qpos="-0.06664 0.00000 0.88677 0.99756 0.00000 0.06976 0.00000 0.23372 -0.80975 -0.06561 1.09078 -0.01327 0.86213 -0.23322 -0.80970 0.06546 1.08806 0.04342 -1.09543 0.00000 0.04543 -0.08694 -0.34666 0.43548 0.72743 0.22554 -0.21808 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <key name="forearm_brace_reach" qpos="0.212485 0 0.964242 0.974587 0 0.224009 0 0 -0.936662 0.12 0.665198 -0.181326 0 0 -0.936662 -0.12 0.665198 -0.181326 0 -0.0593057 -0.7682 -0.112756 0.444694 0.2490 0.225548 -0.461708 -0.740967 -1.57 -0.384143 -0.039751 0.841166 -0.000255 0.048759 1e-06 0.94 -0.04 0.895 1 0 0 0"/>
-        <key name="forearm_brace_release" qpos="-0.03496 0.01925 0.90204 0.97846 0.00286 0.20514 -0.02292 -0.01329 -1.15243 0.08032 1.17832 -0.43667 -0.05075 0.01485 -1.15569 -0.10242 1.15922 -0.41451 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
-        <key name="standback_r1" qpos="-0.03496 0.01925 0.96204 0.97846 0.00286 0.20514 -0.02292 -0.01329 -1.00243 0.08032 1.02832 -0.43667 -0.05075 0.01485 -1.00569 -0.10242 1.00922 -0.41451 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="forearm_brace_release" qpos="0.00000 0.01925 0.95000 1.00000 0.00000 0.00000 0.00000 0.48539 -0.40727 -0.01958 0.80588 -0.40430 -0.05075 -0.13139 -0.38430 -0.03138 0.80394 -0.40843 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r1" qpos="0.00000 0.01925 0.97000 1.00000 0.00000 0.00000 0.00000 0.60605 -0.34998 -0.01974 0.66470 -0.18361 -0.05077 -0.32330 -0.34148 -0.03083 0.66488 -0.25996 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- 2026-08-28 SQUAT-CATCH: CoM-retracting deep squat inserted between release
              and standback_r1. From the +43 deg grasp-lean the robot SITS BACK into this
              (knees 1.3, torso upright, CoM over feet Δ=-0.01) instead of lunging fwd. -->
         <key name="standback_squat" qpos="0.19 0 0.868893 1 0 0 0 0 -0.75 0.12 1.3 -0.55 0 0 -0.75 -0.12 1.3 -0.55 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.9 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
-        <key name="standback_r2" qpos="0.231869 0.000000 0.985412 0.996332 0.000000 0.085567 0.000000 0.000000 -0.596995 0.120000 0.717066 -0.291414 0.000000 0.000000 -0.596995 -0.120000 0.717066 -0.291414 0.000000 0.000000 -0.344877 -0.053058 0.291819 0.039794 0.099484 -0.179071 -0.384670 0.133000 -0.057000 0.000000 0.114000 0.000000 0.000000 0.000000 1.500000 0.000000 1.035000 1.000000 0.000000 0.000000 0.000000"/>
-        <key name="standback_r3" qpos="0.209833 0.000000 0.998210 0.999177 0.000000 0.040570 0.000000 0.000000 -0.472261 0.120000 0.629137 -0.238038 0.000000 0.000000 -0.472261 -0.120000 0.629137 -0.238038 0.000000 0.000000 -0.163363 -0.025133 0.138230 0.018850 0.047124 -0.084823 -0.182212 0.063000 -0.027000 0.000000 0.054000 0.000000 0.000000 0.000000 1.500000 0.000000 1.035000 1.000000 0.000000 0.000000 0.000000"/>
+        <key name="standback_r2" qpos="0.00000 0.00000 0.99000 1.00000 0.00000 0.00000 0.00000 0.12544 -0.22563 0.00345 0.49138 -0.22645 0.12107 -0.12543 -0.22563 -0.00345 0.49138 -0.22645 -0.00000 0.00000 -0.34488 -0.05306 0.29182 0.03979 0.09948 -0.17907 -0.38467 0.13300 -0.05700 0.00000 0.11400 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r3" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 0.09068 -0.16235 0.00258 0.37410 -0.22962 -0.37546 -0.09068 -0.16235 -0.00258 0.37410 -0.22961 0.00000 0.00000 -0.16336 -0.02513 0.13823 0.01885 0.04712 -0.08482 -0.18221 0.06300 -0.02700 0.00000 0.05400 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- ^ 2026-07-31 HIP-HINGE BRACE for the 0.955 adjustable table -- the first
              keyframe in the campaign that is (a) forearm-seated, (b) wrist/jaw clear,
              AND (c) STATICALLY ATTAINABLE FROM THE STAND:
@@ -793,7 +793,8 @@
              fired at ~17-20 deg believed and detonated; run12-class square braces
              sit at 3-8 deg. Requires the yaw preflight (believed heading
              table-aligned). 0 = off. -->
-        <numeric name="reach_yaw_gate" data="0.26"/>
+        <numeric name="reach_yaw_gate" data="0.0"/>
+        <numeric name="grasp_y_tol" data="0.025"/>
         <!-- ★ 2026-08-17 reach_fwd_cap [m]: during the forearm_brace_lean rung,
              cap the heading-frame FORWARD component (from torso_pos) of BOTH the
              reach air target and ideal_brace at this value. newtags_2 FK: hand
@@ -1036,18 +1037,18 @@
         <numeric name="brace_wrist" data="1"/>
         <!-- 2026-08-29 HIP PRESS: pelvis + hip links may touch the SLAB (up to hip_force_max N); pack top stays forbidden -->
         <numeric name="brace_hip" data="0.0"/>
-        <numeric name="pelvis_tilt_max_deg" data="55.0"/>
-        <numeric name="base_rise_slack" data="0.02"/>
+        <numeric name="pelvis_tilt_max_deg" data="30.0"/>
+        <numeric name="base_rise_slack" data="0.0"/>
         <numeric name="hip_force_max" data="150.0"/>
         <numeric name="brace_linear_gain" data="1.5"/>
-        <numeric name="brace_hover" data="0.15"/>
+        <numeric name="brace_hover" data="0.05"/>
         <numeric name="brace_hover_back" data="-0.067"/>
         <!-- 2026-08-29 pre-contact support credit toward the INTENDED rail point (lean.cc
              Balance polygon). 0.5 = vertex halfway midfoot->rail target once the wrist is
              horizontally over it and the descent ramp completes. -->
         <numeric name="table_force_cap" data="200.0"/>
-        <numeric name="brace_com_x_offset" data="-0.03"/>
-        <numeric name="brace_force_max" data="55.0"/>
+        <numeric name="brace_com_x_offset" data="0.0"/>
+        <numeric name="brace_force_max" data="90.0"/>
         <numeric name="brace_credit_max" data="0.35"/>
         <numeric name="brace_precontact_frac" data="0.35"/>
         <numeric name="brace_precontact_h" data="0.20"/>
@@ -1206,8 +1207,8 @@
              strat27/28's deeper grasp (wr_yaw -0.183 pulled wrist the WRONG way,
              elbow/shoulder over-raised) and drove the real arm into the flat-
              VERTICAL basin. Order: sh_p sh_r sh_y elb wr_r wr_p wr_y. -->
-        <numeric name="reach_arm_q" data="-1.1578 0.0933 -0.1659 0.6211 0.0491 0.4275 -0.0565"/>
-        <numeric name="reach_arm_hgate" data="0.20"/>
+        <numeric name="reach_arm_q" data="-1.1340 -0.1367 0.0665 1.1543 0.3260 0.3642 0.6534"/>
+        <numeric name="reach_arm_hgate" data="0.26"/>
         <!-- reach_arm_gain (2026-08-26): amplify the right-arm posture residual
              (idx 20..26) on basin-lock rungs so the deep-config target actually
              pulls the arm out of the shallow local min, DECOUPLED from global
