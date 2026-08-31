@@ -60,6 +60,8 @@ def main():
     ap.add_argument("--side", default="right")
     ap.add_argument("--gate-topic", default="rt/grasp_gate")
     ap.add_argument("--ack-topic", default="rt/grasp_ack")
+    ap.add_argument("--aperture-topic", default="rt/grasp_aperture",
+                    help="DDS topic to echo magpie aperture on for the recorder")
     ap.add_argument("--object-min-mm", type=float, default=25.0,
                     help="aperture at/above this after close = object held "
                          "(5x5cm block reads ~50; empty reads ~0)")
@@ -103,6 +105,12 @@ def main():
     ack_pub = ChannelPublisher(a.ack_topic, String_)
     ack_pub.Init()
     ack_msg = std_msgs_msg_dds__String_()
+    # 2026-08-30: echo the magpie aperture onto DDS so the run recorder captures
+    # it (grip_aperture in the npz) -- grasp success + the held-mm are then IN
+    # the recording, no relay-log scraping. "aperture_mm,contact,force".
+    ap_pub = ChannelPublisher(a.aperture_topic, String_)
+    ap_pub.Init()
+    ap_msg = std_msgs_msg_dds__String_()
 
     class Relay(Node):
         def __init__(self):
@@ -114,9 +122,16 @@ def main():
             # OVERLOAD latch; while latched it ignores open AND close (real
             # 29_54 -> 29_55). reset_overload clears it.
             self.cli_reset = self.create_client(Trigger, f"{ns}/reset_overload")
-            self.create_subscription(GripperState, f"{ns}/state",
-                                     lambda m: state.__setitem__("aperture",
-                                                                 m.position), 10)
+            def _on_state(m):
+                state["aperture"] = m.position
+                try:
+                    ct = int(getattr(m, "contact_detected", 0) or 0)
+                    fz = float(getattr(m, "force", float("nan")))
+                    ap_msg.data = f"{m.position:.2f},{ct},{fz:.2f}"
+                    ap_pub.Write(ap_msg)
+                except Exception:
+                    pass
+            self.create_subscription(GripperState, f"{ns}/state", _on_state, 10)
             # 2026-08-29: tick() is driven from the MAIN loop (see below), not a
             # ROS timer -- call() spins the executor to wait for the service
             # future, and spinning from inside a timer callback wedges the
