@@ -287,6 +287,8 @@ class lean : public Task {
     const std::string kPad = "h12_simple_stand";
     std::vector<std::string> names(36, kPad);
     names[6]  = "h12_simple_stand";         // stand: mission phase 0, deploy default
+    names[7]  = "h12_newstand";             // dedicated stand for estimator foot-anchor captures (BRACE)
+    names[8]  = "h12_contact_implicit";     // contact-implicit brace discovery (spec 2026-08-30)
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
     // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the
