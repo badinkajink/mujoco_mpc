@@ -223,7 +223,7 @@
   "target_ramp_sec": 18.0,
   "target_distance_tolerance": 0.07,
   "time_limit": 9999.0,
-  "brace_force_target": 0.0,
+  "brace_force_target": 50.0,
   "weight": {
    "Posture": 60.0,
    "Balance": 2.5,
@@ -251,24 +251,24 @@
    "Reaching Hand Dist": 300.0,
    "Object Dist": 0.0,
    "Pelvis Forward": 100.0,
-   "Brace Pos": 0.0,
-   "Brace Force": 0.0,
+   "Brace Pos": 220.0,
+   "Brace Force": 30.0,
    "Contact": 0.0,
    "Hip Clearance": 0.0,
    "Leg Clearance": 0.0,
    "Body Table Clearance": 150.0,
    "Brace Wrist Cock": 0.0,
    "Left Leg Anchor": 0.0,
-   "Brace Arm Plane": 0.0,
-   "Brace Roll Level": 0.0,
+   "Brace Arm Plane": 300.0,
+   "Brace Roll Level": 200.0,
    "Brace Erect": 0.0,
    "Brace Reach Lead": 0.0,
    "Brace Arm Inward": 0.0
   },
   "reach_target_table": [
-   0.05,
-   0.18,
-   0.06
+   0.35,
+   0.15,
+   0.05
   ]
  },
  {
