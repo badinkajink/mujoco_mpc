@@ -473,6 +473,21 @@ class Lean_H12_BatteryHip : public lean {
   }
 };
 
+// --task "Lean H12 Magpie Discover" + strategy 8 (h12_contact_implicit): the FLAT
+// magpie table brought 0.12 m CLOSER (workcell -0.12 x, lean_discover.xml) so the
+// forearm's balance-limited settling point lands ON reachable wood. Same robot/costs
+// as Lean_H12_Magpie; only the table x is shifted, in BOTH this planner model and the
+// twin (scene_close_real.xml) for parity -- so the Brace-Pos target follows the table.
+// Contact-implicit brace discovery, closer-stance parity build (spec 2026-08-30).
+class Lean_H12_MagpieDiscover : public lean {
+ public:
+  std::string Name() const override { return "Lean H12 Magpie Discover"; }
+
+  std::string XmlPath() const override {
+    return GetModelPath("humanoid_bench/lean/Lean_H12_Magpie_discover.xml");
+  }
+};
+
 }  // namespace mjpc
 
 #endif  // MJPC_TASKS_HUMANOID_BENCH_LEAN_LEAN_H_
