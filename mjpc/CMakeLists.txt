@@ -131,6 +131,12 @@ add_library(
   planners/icem/planner.h
   planners/icem_dr/planner.cc
   planners/icem_dr/planner.h
+  planners/mppi/planner.cc
+  planners/mppi/planner.h
+  planners/mppi/policy.cc
+  planners/mppi/policy.h
+  planners/covo/planner.cc
+  planners/covo/planner.h
   planners/robust/robust_planner.cc
   planners/robust/robust_planner.h
   planners/sample_gradient/planner.cc

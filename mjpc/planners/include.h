@@ -33,6 +33,8 @@ enum PlannerType : int {
   kSampleGradientPlanner,
   kICEMPlanner,
   kICEMDRPlanner,
+  kMPPIPlanner,
+  kCoVOPlanner,
 };
 
 // Planner names, separated by '\n'.

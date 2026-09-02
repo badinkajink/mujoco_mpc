@@ -17,8 +17,10 @@
 #include <memory>
 #include <vector>
 
+#include "mjpc/planners/covo/planner.h"
 #include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/planners/gradient/planner.h"
+#include "mjpc/planners/mppi/planner.h"
 #include "mjpc/planners/icem/planner.h"
 #include "mjpc/planners/icem_dr/planner.h"
 #include "mjpc/planners/ilqg/planner.h"
@@ -38,7 +40,9 @@ const char kPlannerNames[] =
     "Cross Entropy\n"
     "Sample Gradient\n"
     "iCEM\n"
-    "iCEM-DR";
+    "iCEM-DR\n"
+    "MPPI\n"
+    "CoVO";
 
 // load all available planners
 std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
@@ -59,6 +63,12 @@ std::vector<std::unique_ptr<mjpc::Planner>> LoadPlanners() {
   // iCEM-DR = iCEM scored over an ensemble of R domain-randomized model
   // copies via min-aggregation (risk-aware domain-randomized MPC).
   planners.emplace_back(new mjpc::iCEMDRPlanner);
+  // MPPI = predictive sampling with a softmax (information-theoretic) fold
+  // over sample costs. Williams et al., ICRA 2017.
+  planners.emplace_back(new mjpc::MPPIPlanner);
+  // CoVO = covariance-optimal sampling (diagonal curvature approximation from
+  // the sample batch) with an MPPI-style fold. Yi et al., L4DC 2024.
+  planners.emplace_back(new mjpc::CoVOPlanner);
   return planners;
 }
 
