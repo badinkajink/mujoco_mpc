@@ -93,7 +93,7 @@
              backward CoM impulse. NOTE: the terminal backward LEAN is a dynamic
              drift, NOT this arm (24_10 fell back with r4 at -0.16). Elbow (-0.90)
              left as-is. -->
-        <key name="standback_r4" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 -0.00851 -0.15293 -0.00028 0.37146 -0.17554 0.78392 0.00851 -0.15293 0.00028 0.37146 -0.17554 0.00000 0.00000 -0.16000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.45000 -0.15000 0.00000 -0.90000 0.00000 0.00000 0.00000 0.94000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r4" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 -0.00851 -0.15293 -0.00028 0.37146 -0.17554 0.78392 0.00851 -0.15293 0.00028 0.37146 -0.17554 0.00000 0.00000 0.15000 0.15000 0.00000 0.40000 0.00000 0.00000 0.00000 0.15000 -0.15000 0.00000 0.40000 0.00000 0.00000 0.00000 0.94000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <key name="stand"    qpos="0.19 0 1 1 0 0 0 0 -0.36 0.12 0.55 -0.19 0 0 -0.36 -0.12 0.55 -0.19 0 0 -0.16 0 0 0 0 0 0 -0.16 0 0 0 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
         <!-- straighten (strategy 25, pre-stand bring-up): CoM-CENTERED stand pose (hip
              -0.15/knee 0.35/ankle -0.28) = the wide-basin handoff target. stand_up plants
@@ -179,7 +179,16 @@
              surface (+0.0 cm), forearm LEVEL (0.0 deg), gripper lowest +3.2 cm clear, pad
              x 0.535 = seated 0.24 m past the 0.2975 near edge (short-side approach depth).
              Previous (0.865-era) pose left the pad 8.5 cm UNDER the new surface. -->
-        <key name="forearm_brace_lean" qpos="-0.05574 0.00000 0.97020 0.97729 0.00000 0.21190 0.00000 0.20561 -0.64081 -0.10811 0.12000 1.20650 -0.08366 -0.23875 -0.63973 0.12548 0.12000 1.13630 -1.86450 0.00000 -0.05304 -0.17904 -0.12134 0.61591 -0.17659 0.46096 0.32076 -1.13401 -0.13672 0.06647 1.15434 0.32603 0.36418 0.65337 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <!-- forearm_brace_lean (2026-08-31 REWORK): the reach is done from the STABLE
+             BENT-KNEE braced posture (seat/tip legs + wrist on rail x0.20, torso 15 deg),
+             NOT the old straight-knee deep hinge. The deep hinge (superseded below) was
+             itself unstable to transition into: the planner bailed backward and stepped
+             the feet -34 cm every time, even with NO reach. From the tip the module is
+             only ~25 cm BELOW the right hand (x already ~0.56 vs 0.62), so reach_target_table
+             drives the right arm DOWN from here -- short, low-torque, wrist stays braced. -->
+        <key name="forearm_brace_lean" qpos="-0.06664 0.00000 0.88677 0.99144 0.00000 0.13053 0.00000 0.23372 -0.80975 -0.06561 1.09078 -0.01327 0.86213 -0.23322 -0.80970 0.06546 1.08806 0.04342 -1.09543 0.00000 -0.19592 -0.18094 -0.06933 1.00001 0.90427 -0.47100 1.01200 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <!-- superseded 2026-08-31 (straight-knee deep hinge, unstable to enter):
+        <key name="forearm_brace_lean" qpos="-0.05574 0.00000 0.97020 0.97729 0.00000 0.21190 0.00000 0.20561 -0.64081 -0.10811 0.12000 1.20650 -0.08366 -0.23875 -0.63973 0.12548 0.12000 1.13630 -1.86450 0.00000 -0.05304 -0.17904 -0.12134 0.61591 -0.17659 0.46096 0.32076 -1.13401 -0.13672 0.06647 1.15434 0.32603 0.36418 0.65337 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/> -->
         <!-- forearm_brace_reach (2026-07-31): the braced pose with the RIGHT
              arm solved for MAXIMUM forward gripper extension, staying >=10 mm
              above the tabletop. Left arm / legs / base copied unchanged, so the
@@ -187,16 +196,24 @@
              keyframe: with the reach phase pointed at forearm_brace_lean, whose
              right arm is NEUTRAL, Posture pulled the reaching arm back while
              Reaching Hand Dist pushed it out. -->
-        <key name="forearm_brace_mid" qpos="-0.06664 0.00000 0.88677 0.99756 0.00000 0.06976 0.00000 0.23372 -0.80975 -0.06561 1.09078 -0.01327 0.86213 -0.23322 -0.80970 0.06546 1.08806 0.04342 -1.09543 0.00000 0.04543 -0.08694 -0.34666 0.43548 0.72743 0.22554 -0.21808 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="forearm_brace_mid" qpos="-0.06664 0.00000 0.88677 0.99756 0.00000 0.06976 0.00000 0.23372 -0.80975 -0.06561 1.09078 -0.01327 0.86213 -0.23322 -0.80970 0.06546 1.08806 0.04342 -1.09543 0.00000 -0.23564 -0.00937 -0.65522 1.00001 -0.86994 -0.47100 -1.01200 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <!-- forearm_brace_tip (2026-08-31): INTERMEDIATE rung between the upright SEAT
+             (forearm_brace_mid, torso 8 deg, wrist planted on rail x0.20) and the deep
+             HINGE (forearm_brace_lean, torso 24 deg + straight knees + reach). Seat pose
+             UNCHANGED except the base is pitched to 15 deg: this tips the torso forward
+             ONTO the already-seated wrist (shoulder swings fwd+down -> hand presses DOWN
+             on the rail, not away), knees stay bent, NO reach. Breaks the seat->hinge
+             collapse where the planner bailed backward and dropped the wrist. -->
+        <key name="forearm_brace_tip" qpos="-0.06664 0.00000 0.88677 0.99144 0.00000 0.13053 0.00000 0.23372 -0.80975 -0.06561 1.09078 -0.01327 0.86213 -0.23322 -0.80970 0.06546 1.08806 0.04342 -1.09543 0.00000 -0.19592 -0.18094 -0.06934 1.00001 0.90425 -0.47100 1.01200 -1.33174 -0.10185 -0.23109 0.60539 0.03107 0.38559 -0.08926 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <key name="forearm_brace_reach" qpos="0.212485 0 0.964242 0.974587 0 0.224009 0 0 -0.936662 0.12 0.665198 -0.181326 0 0 -0.936662 -0.12 0.665198 -0.181326 0 -0.0593057 -0.7682 -0.112756 0.444694 0.2490 0.225548 -0.461708 -0.740967 -1.57 -0.384143 -0.039751 0.841166 -0.000255 0.048759 1e-06 0.94 -0.04 0.895 1 0 0 0"/>
         <key name="forearm_brace_release" qpos="0.00000 0.01925 0.95000 1.00000 0.00000 0.00000 0.00000 0.48539 -0.40727 -0.01958 0.80588 -0.40430 -0.05075 -0.13139 -0.38430 -0.03138 0.80394 -0.40843 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
-        <key name="standback_r1" qpos="0.00000 0.01925 0.97000 1.00000 0.00000 0.00000 0.00000 0.60605 -0.34998 -0.01974 0.66470 -0.18361 -0.05077 -0.32330 -0.34148 -0.03083 0.66488 -0.25996 0.06524 0.06396 0.20000 0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.20000 -0.15000 0.00000 0.50000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r1" qpos="0.00000 0.01925 0.97000 1.00000 0.00000 0.00000 0.00000 0.60605 -0.34998 -0.01974 0.66470 -0.18361 -0.05077 -0.32330 -0.34148 -0.03083 0.66488 -0.25996 0.06524 0.06396 0.30000 0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 0.30000 -0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 0.62000 -0.04000 0.89500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- 2026-08-28 SQUAT-CATCH: CoM-retracting deep squat inserted between release
              and standback_r1. From the +43 deg grasp-lean the robot SITS BACK into this
              (knees 1.3, torso upright, CoM over feet Δ=-0.01) instead of lunging fwd. -->
         <key name="standback_squat" qpos="0.19 0 0.868893 1 0 0 0 0 -0.75 0.12 1.3 -0.55 0 0 -0.75 -0.12 1.3 -0.55 0 0 -0.16 0 0 0 0 0 0 0.45 -0.15 0 -0.9 0 0 0 0.94 -0.04 0.895 1 0 0 0"/>
-        <key name="standback_r2" qpos="0.00000 0.00000 0.99000 1.00000 0.00000 0.00000 0.00000 0.12544 -0.22563 0.00345 0.49138 -0.22645 0.12107 -0.12543 -0.22563 -0.00345 0.49138 -0.22645 -0.00000 0.00000 -0.34488 -0.05306 0.29182 0.03979 0.09948 -0.17907 -0.38467 0.13300 -0.05700 0.00000 0.11400 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
-        <key name="standback_r3" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 0.09068 -0.16235 0.00258 0.37410 -0.22962 -0.37546 -0.09068 -0.16235 -0.00258 0.37410 -0.22961 0.00000 0.00000 -0.16336 -0.02513 0.13823 0.01885 0.04712 -0.08482 -0.18221 0.06300 -0.02700 0.00000 0.05400 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r2" qpos="0.00000 0.00000 0.99000 1.00000 0.00000 0.00000 0.00000 0.12544 -0.22563 0.00345 0.49138 -0.22645 0.12107 -0.12543 -0.22563 -0.00345 0.49138 -0.22645 -0.00000 0.00000 0.30000 0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 0.30000 -0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
+        <key name="standback_r3" qpos="0.00000 0.00000 1.00000 1.00000 0.00000 0.00000 0.00000 0.09068 -0.16235 0.00258 0.37410 -0.22962 -0.37546 -0.09068 -0.16235 -0.00258 0.37410 -0.22961 0.00000 0.00000 0.30000 0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 0.30000 -0.25000 0.00000 1.30000 0.00000 0.00000 0.00000 1.50000 0.00000 1.03500 1.00000 0.00000 0.00000 0.00000"/>
         <!-- ^ 2026-07-31 HIP-HINGE BRACE for the 0.955 adjustable table -- the first
              keyframe in the campaign that is (a) forearm-seated, (b) wrist/jaw clear,
              AND (c) STATICALLY ATTAINABLE FROM THE STAND:
@@ -1037,12 +1054,23 @@
         <numeric name="brace_wrist" data="1"/>
         <!-- 2026-08-29 HIP PRESS: pelvis + hip links may touch the SLAB (up to hip_force_max N); pack top stays forbidden -->
         <numeric name="brace_hip" data="0.0"/>
+        <!-- 2026-09-01 wrist-contact gate: brace-side reach rungs advance only
+             when the measured left-wrist brace force >= this (N), verified over
+             brace_contact_verify s. Makes the descent wait for a LOADED wrist
+             instead of a blind timeout. 0 = OFF. -->
+        <numeric name="wrist_brace_gate" data="60.0"/>
+        <!-- 09-01 lip gate: require the wrist to be WEDGED against the pack face (battery_slab contact), not just resting on the rail. Lip contact was a perfect success separator (3/3 vs 0/3). -->
+        <numeric name="wrist_lip_gate" data="1.0"/>
+        <!-- 09-01 wedge abort-and-retry: if the seat/tip sits this long without the load+lip gate verifying, regress to arm-fold and re-approach the corner (max N times). Must be SHORTER than the seat time_limit so the retry wins over the blind timeout. -->
+        <numeric name="wedge_retry_sec" data="13.0"/>
+        <numeric name="wedge_retry_max" data="3.0"/>
+        <numeric name="brace_pos_fade_xy" data="0.85"/>
         <numeric name="pelvis_tilt_max_deg" data="30.0"/>
         <numeric name="base_rise_slack" data="0.0"/>
         <numeric name="hip_force_max" data="150.0"/>
         <numeric name="brace_linear_gain" data="1.5"/>
-        <numeric name="brace_hover" data="0.05"/>
-        <numeric name="brace_hover_back" data="-0.067"/>
+        <numeric name="brace_hover" data="0.0"/>
+        <numeric name="brace_hover_back" data="0.0"/>
         <!-- 2026-08-29 pre-contact support credit toward the INTENDED rail point (lean.cc
              Balance polygon). 0.5 = vertex halfway midfoot->rail target once the wrist is
              horizontally over it and the descent ramp completes. -->
@@ -1231,7 +1259,7 @@
              Pair with a SHALLOW brace_press_depth (~0.008): the deep 0.06 was tuned in the
              phantom-arm world where nothing arrested the pad. -->
         <numeric name="brace_target_slab" data="1.0"/>
-        <numeric name="brace_target_inset" data="0.045"/> <!-- 2026-08-29: wrist pad capsule reaches +0.108 ahead of the wrist origin; at inset 0.067 its far cap hit the PACK near face (twin x 0.4645) and rested on the pack corner (pad floor z 0.913, br40/41). Near-edge target keeps the far cap 1 cm clear. -->
+        <numeric name="brace_target_inset" data="0.065"/> <!-- 2026-08-29: wrist pad capsule reaches +0.108 ahead of the wrist origin; at inset 0.067 its far cap hit the PACK near face (twin x 0.4645) and rested on the pack corner (pad floor z 0.913, br40/41). Near-edge target keeps the far cap 1 cm clear. -->
         <!-- brace_target_slab_lat (2026-08-20): 0 = OFF = BYTE-IDENTICAL. 1 = anchor
              the LATERAL brace target to the TABLE y-centre (+brace_lat_inset toward
              the bracing side) instead of torso_y +-0.24, so a yawed/off-square body
