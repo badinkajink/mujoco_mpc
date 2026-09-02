@@ -1959,8 +1959,23 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double brace_force_ref  = mju_max(15.0, residual_keyframe_.brace_force_target);
   double brace_force_frac = mju_min(1.0, brace_contact_force / brace_force_ref);
   double brace_pos_gate   = phase_brace_pos_scale * (1.0 - 0.85 * brace_force_frac);
+  // ★ 2026-09-01 PER-COMPONENT FADE (`brace_pos_fade_xy` numeric; absent =>
+  // 0.85 = byte-identical). The force fade above is right for Z (no entry
+  // slam) but it also switches off the X/Y pull the moment the pad loads --
+  // for the CORNER STRUT (hand wedged into the rail-top / pack-face corner)
+  // that is fatal: the pad touches the rail's NEAR edge, loads, the pull
+  // drops to 15 %, and the hand never slides the last ~8 cm forward into the
+  // lip (hp101-105: pad parked at x 0.06-0.09 vs lip 0.1645 every run; the
+  // printed r~0.02 was the GATED residual of a ~15 cm miss). A small xy fade
+  // keeps the lateral/forward pull alive under load so the hand seats into
+  // the corner, while Z still fades and damps the contact.
+  double fade_xy = GetNumberOrDefault(0.85, model, "brace_pos_fade_xy");
+  double brace_pos_gate_xy =
+      phase_brace_pos_scale * (1.0 - fade_xy * brace_force_frac);
   mju_sub3(&residual[counter], bracing_hand, ideal_brace);
-  mju_scl3(&residual[counter], &residual[counter], brace_pos_gate);
+  residual[counter + 0] *= brace_pos_gate_xy;
+  residual[counter + 1] *= brace_pos_gate_xy;
+  residual[counter + 2] *= brace_pos_gate;
   counter += 3;
 
   // Per-phase brace-force reference.
