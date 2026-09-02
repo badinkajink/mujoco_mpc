@@ -4016,6 +4016,11 @@ void lean::ResidualFn::ContactResidual(const mjModel *model, const mjData *data,
 // anchoring is now done by real physics (gravcomp 0.97 → 0.90 gives ~49 N
 // of net body weight on each foot, enough friction to hold against the
 // soft cost gradients without artificial pins).
+// ★ 2026-09-01 wedge abort-and-retry state (corner strut): time the load+lip
+// gate last verified, and retries spent this ladder pass.
+static double s_wedge_ok_time = -1.0;
+static int s_wedge_retries = 0;
+
 void lean::TransitionLocked(mjModel *model, mjData *data) {
   // ★ 2026-08-29 JAWS OPEN ON STAND (user request): every entry into keyframe
   // 0 (stand_up -- node start, ladder reset, retry-to-stand) raises
@@ -4027,6 +4032,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
     static int s_last_kidx_open = -1;
     int kidx0 = motion_strategy_.GetCurrentKeyframeIndex();
     if (kidx0 == 0) s_grasp_retries = 0;  // fresh ladder pass = fresh retry budget
+    if (kidx0 == 0) { s_wedge_retries = 0; s_wedge_ok_time = -1.0; }
     if (kidx0 == 0 && s_last_kidx_open != 0 &&
         mjpc::g_grasp_gate_cmd.load() == 0) {
       mjpc::g_grasp_gate_cmd.store(2);
@@ -4935,6 +4941,47 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
       return;
     }
+    // ★ 2026-09-01 WEDGE ABORT-AND-RETRY (`wedge_retry_sec` numeric, 0/absent
+    // = OFF = byte-identical). Corner-strut runs fail ONLY when the hand never
+    // wedges into the rail/pack corner (hp95/98-108/111: lip 0%): the load+lip
+    // gate correctly refuses, but the timeout backstop then advances an
+    // un-wedged hand into the hinge and it sits back. With ~60% wedge odds per
+    // approach, RE-APPROACHING is the robust answer (2 tries ~84%, 3 ~94%). If
+    // the seat (or tip) has sat `wedge_retry_sec` s without the gate ever
+    // verifying, regress to the arm-fold rung (arm back up) and re-enter the
+    // seat for a fresh approach, up to `wedge_retry_max` times; past that the
+    // ladder just holds (safe stall) rather than advancing un-wedged.
+    {
+      const std::string& kfn_w = current_kf.name;
+      double wr_sec = GetNumberOrDefault(0.0, model, "wedge_retry_sec");
+      int wr_max = (int)GetNumberOrDefault(3.0, model, "wedge_retry_max");
+      bool seat_like = (kfn_w == "forearm_brace_mid" ||
+                        kfn_w == "forearm_brace_tip");
+      double t_in = data->time - residual_.keyframe_start_time_;
+      bool wedged_this_rung =
+          s_wedge_ok_time >= residual_.keyframe_start_time_;
+      int kidx_w = motion_strategy_.GetCurrentKeyframeIndex();
+      if (wr_sec > 0.0 && seat_like && !wedged_this_rung && t_in > wr_sec &&
+          s_wedge_retries < wr_max && kidx_w >= 1) {
+        ++s_wedge_retries;
+        int kidx_go = (kfn_w == "forearm_brace_tip") ? kidx_w - 2 : kidx_w - 1;
+        if (kidx_go < 0) kidx_go = 0;
+        std::printf("[lean-retry] WEDGE not verified after %.0fs in '%s' -> "
+                    "retry %d/%d (regress to rung %d, re-approach the corner)\n",
+                    t_in, kfn_w.c_str(), s_wedge_retries, wr_max, kidx_go);
+        SnapshotEffectiveScales();
+        SnapshotCurrentWeightsAsPrev();
+        motion_strategy_.UpdateCurrentKeyframe(kidx_go);
+        MarkNewlyAppearedContacts(residual_.residual_keyframe_,
+                                  motion_strategy_.GetCurrentKeyframe());
+        residual_.residual_keyframe_ = motion_strategy_.GetCurrentKeyframe();
+        motion_strategy_.SetCurrentKeyframeStartTime(data->time);
+        motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
+        residual_.keyframe_start_time_ = data->time;
+        PrepareNextPhaseWeights(residual_.residual_keyframe_);
+        return;
+      }
+    }
     // ★ 2026-08-29: a pending close only defers the fail-soft timeout for
     // grasp_ack_timeout + 2 s after CLOSE fired; past that the rung advances
     // (jaws are closed either way) instead of hanging in the lean forever.
@@ -5048,18 +5095,89 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                      }
                    }
                  }
+                 // ★ 2026-09-01: forearm_brace_tip added -- the tip->hinge
+                 // handoff was the one UN-gated brace transition; it advanced on
+                 // a blind timer into the strong-brace hinge weights and sat
+                 // back when the wrist wasn't loaded (hp80). Now wrist-verified.
                  bool brace_side = (kfn == "forearm_brace_lean" ||
                                     kfn == "forearm_brace_mid" ||
+                                    kfn == "forearm_brace_tip" ||
                                     kfn == "forearm_brace_reach");
                  if (vsec > 0.0 && brace_side) {
                    int pad_gid2 =
                        mj_name2id(model, mjOBJ_GEOM, "left_forearm_pad");
                    bool on = false;
+                   bool wrist_verified = false;
                    for (int ci = 0; ci < data->ncon; ci++) {
                      const mjContact& con = data->contact[ci];
                      if (con.geom1 == pad_gid2 || con.geom2 == pad_gid2) {
                        on = true;
                        break;
+                     }
+                   }
+                   // ★ 2026-09-01 WRIST BRACE GATE (`wrist_brace_gate` numeric,
+                   // N; 0/absent = OFF = byte-identical). A WRIST-on-rail brace
+                   // never triggers the `left_forearm_pad` contact scan above, so
+                   // the reach rungs could only advance by blind TIMEOUT -- the
+                   // descent fired on a fixed timer even mid-wobble (root cause of
+                   // the ~1/3 reach-descent topples, hp69-73). When the numeric is
+                   // set, count the brace as ON whenever the MEASURED left-wrist
+                   // brace force (TableBraceForce, same value the Brace Force cost
+                   // reads) >= the threshold, so the reach advances only on a
+                   // VERIFIED loaded wrist. The existing `vsec` sustain still
+                   // applies. `wrist_verified` exempts this from the forearm-
+                   // elevation inclined gate below (a forearm-pad concept).
+                   if (!on) {
+                     int nwg = mj_name2id(model, mjOBJ_NUMERIC,
+                                          "wrist_brace_gate");
+                     double wgate = nwg >= 0
+                         ? model->numeric_data[model->numeric_adr[nwg]] : 0.0;
+                     if (wgate > 0.0) {
+                       double wf =
+                           TableBraceForce(model, data, /*brace_left=*/true);
+                       // ★ 2026-09-01 LIP GATE (`wrist_lip_gate` numeric, 0/absent
+                       // = OFF): the CORNER STRUT (user design) works only when the
+                       // hand is WEDGED against the pack's vertical near face, not
+                       // merely resting on the rail. Six corner runs: lip contact
+                       // 32/67/28% -> all completed; 0/0/0% -> all sat back (hp99:
+                       // 98 N on the rail, 0% lip, fell). Rail force alone verifies
+                       // an un-wedged hand. When set, ALSO require an active contact
+                       // between a left_wrist* body and the `battery_slab` body.
+                       bool lip_ok = true;
+                       {
+                         int nlg = mj_name2id(model, mjOBJ_NUMERIC,
+                                              "wrist_lip_gate");
+                         if (nlg >= 0 &&
+                             model->numeric_data[model->numeric_adr[nlg]] > 0.5) {
+                           lip_ok = false;
+                           int slab_b = mj_name2id(model, mjOBJ_BODY,
+                                                   "battery_slab");
+                           for (int ci = 0; slab_b >= 0 && ci < data->ncon; ci++) {
+                             const mjContact& cc = data->contact[ci];
+                             if (cc.efc_address < 0) continue;
+                             int cb1 = model->geom_bodyid[cc.geom1];
+                             int cb2 = model->geom_bodyid[cc.geom2];
+                             int other = (cb1 == slab_b) ? cb2
+                                       : (cb2 == slab_b) ? cb1 : -1;
+                             if (other < 0) continue;
+                             const char* on_ = mj_id2name(model, mjOBJ_BODY, other);
+                             if (on_ && std::strncmp(on_, "left_wrist", 10) == 0) {
+                               lip_ok = true;
+                               break;
+                             }
+                           }
+                         }
+                       }
+                       if (wf >= wgate && lip_ok) {
+                         on = true;
+                         wrist_verified = true;
+                         s_wedge_ok_time = data->time;   // feeds the wedge retry
+                       }
+                       static int wg_note = 0;
+                       if (++wg_note % 100 == 1)
+                         std::printf("[lean-gate] wrist brace force %.0f N "
+                                     "(gate %.0f N) -> %s\n",
+                                     wf, wgate, wf >= wgate ? "ON" : "hold");
                      }
                    }
                    // ★ 2026-08-30 THIGH/HIP PRESS (brace_hip=1): the real battery
@@ -5151,7 +5269,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                                         "brace_flat_gate");
                    double fgate = nfg >= 0
                        ? model->numeric_data[model->numeric_adr[nfg]] : 0.0;
-                   if (on && fgate > 0.0) {
+                   if (on && fgate > 0.0 && !wrist_verified) {
                      int b_el3 =
                          mj_name2id(model, mjOBJ_BODY, "left_elbow_link");
                      int b_wr3 = mj_name2id(model, mjOBJ_BODY,
