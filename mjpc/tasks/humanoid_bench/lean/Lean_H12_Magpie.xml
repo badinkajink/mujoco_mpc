@@ -391,7 +391,7 @@
              lets the planner anticipate small drifts and apply the gradual
              position offsets that turn into stabilising torques given the soft
              PD. Sampling cost rises ~40% but balance is non-negotiable. -->
-        <numeric name="agent_horizon" data="0.9"/>
+        <numeric name="agent_horizon" data="1"/>
         <!-- agent_timestep 0.015 -> 0.010 (2026-06-07): THE sim2sim fix for the live
              twin crouch-and-fall. agent.cc:288 sets model.opt.timestep = agent_timestep,
              so the planner ROLLS OUT (predicts) at this dt. At 0.015 (15ms) the planner
@@ -1160,13 +1160,14 @@
              head camera in tag_bridge_node. -->
         <numeric name="servo_slew" data="0.5"/>
         <numeric name="servo_max_age" data="1.0"/>
-        <numeric name="servo_max_offset" data="0.25"/>
+        <numeric name="servo_max_offset" data="0.04"/>
         <numeric name="arm_range_urdf" data="0"/>
         <!-- 2026-08-30 04:00 BACK TO THE 29_52 CONFIG: tonight's servo guards/gates OFF -->
         <numeric name="grasp_y_tol" data="1.0"/>
         <numeric name="servo_jump_max" data="1.0"/>
         <numeric name="servo_drift_max" data="1.0"/>
         <numeric name="servo_max_offset_y" data="1.0"/>
+        <numeric name="servo_max_depth" data="0.30"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
         <numeric name="servo_freeze_dist" data="0.08"/>
         <numeric name="servo_nominal" data="0.525 0.16 0.025"/>
         <!-- 2026-08-28: hand-eye CALIBRATED live (5-pose pelvis-frame consistency
