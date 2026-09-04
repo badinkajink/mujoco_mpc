@@ -520,8 +520,93 @@
                                   recovered). Applied cost + swing sides. Try
                                   0.08-0.15. -->
         <numeric name="trot_release" data="0.0"/>
-        <numeric name="trot_step_width" data="0.0"/>
+        <!-- ★ R7 2026-09-03: step width ON (was 0). The lateral axis had NO
+             reference orbit — step_y is a pure regulator with the SAME sign on
+             both legs, but lateral bipedal motion is ORBITAL: the CoM is meant
+             to oscillate side to side and the feet need an alternating +/-w/2
+             reference for that oscillation to be a stable limit cycle. Without
+             it the controller fights its own intended rocking. Start small. -->
+        <numeric name="trot_step_width" data="0.02"/>
         <numeric name="trot_settle_thresh" data="0.0"/>
+
+        <!-- ═══════════ ★ R7 CONTACT-TRIGGERED GAIT (2026-09-03) ═══════════
+             Closes the gap between our open-loop gait clock and the reference
+             DCM/capture-point walker (The5439Workshop; Englsberger DCM lineage).
+             Verified formula-by-formula against that reference: our Raibert
+             error term cap_g*tau*(v-v_des) is ALREADY algebraically identical to
+             its (v-v_des)/omega. What was missing is everything that makes a
+             step DEFINITE rather than jiggly — contact-triggered switching, a
+             frozen per-step target, the measured-CoP anchor, and a ground-seek.
+
+             ALL DEFAULT 0 = OFF = byte-identical to the pre-R7 gait, so the
+             validated in-place trot and push-recovery are untouched until each
+             knob is switched on and benched.
+
+             trot_contact_switch  1 = correct the gait clock from DETECTED
+                                  touchdown (contact PLL). THE headline fix: the
+                                  free-running clock carries an uncorrected phase
+                                  error of up to +/-T_swing (0.36 s at cadence
+                                  1.1 / duty 0.60) on EVERY step. Early touchdown
+                                  => the script position-drives a LOADED leg;
+                                  late => it hands a FLOATING leg to the planner.
+                                  Both read as the hitch between steps.
+             trot_phase_snap      max clock correction per touchdown [cycles].
+                                  Caps how far one event may move the
+                                  CONTRALATERAL leg (antiphase on the same clock).
+             trot_phase_gain      PLL gain 0..1 on the wrapped phase error. <1 so
+                                  the clock steers onto the contact rhythm over
+                                  1-2 steps instead of snapping.
+             trot_td_force        touchdown normal-force threshold [N]. Force,
+                                  not proximity — a foot brushing the floor
+                                  unloaded is not a stance.
+             trot_min_step        touchdown debounce [s] (reference min_step_time)
+                                  so one bouncing landing can't re-trigger.
+             trot_freeze_place    1 = latch the placement target ONCE at swing
+                                  start. Recomputing it from live qvel every tick
+                                  makes the foot chase a MOVING setpoint, and a
+                                  smoothstep ramp toward a moving setpoint is not
+                                  monotone — the foot reverses mid-swing whenever
+                                  v fluctuates (which it does, hard, during the
+                                  weight shift).
+             trot_ground_seek     [rad/s] knee-extension rate once a leg overruns
+                                  its swing window with no touchdown. SwingBell
+                                  returns to exactly 0 and HOLDS, so a foot over
+                                  ground 1 cm lower than expected just hangs. The
+                                  reference keeps driving down (z -= tau-1). Try
+                                  0.4-1.0.
+             trot_cop_anchor      0..1 scale on the measured-CoP correction. The
+                                  DCM law p = xi - xi_dot/omega - K_xi(xi-xi_des)
+                                  reduces at K_xi=-1, via xdd = omega^2(x-p_cop),
+                                  to p = (x - a/omega^2) + tau*(v - v_des): the
+                                  anchor is the MEASURED CoP. Ours is the constant
+                                  stance_off_x=0.13, i.e. that term frozen — a
+                                  gait-phase-locked (so periodic, so visible)
+                                  placement error of a/omega^2. Try 0.5-1.0.
+             trot_cop_lp          low-pass time constant [s] on the differentiated
+                                  CoM velocity. The raw derivative is far too
+                                  noisy to place a foot with.
+             trot_dcm_target      1 = place the foot at the closed-form end-of-step
+                                  DCM, xtgt = p0 + (xi0-p0)e^{omega T} with
+                                  p0 = (xi_des - xi0 e^{omega T})/(1 - e^{omega T}).
+                                  The deadbeat DCM step. Needs a non-drifting
+                                  stance frame over a whole step, so run it with
+                                  EST_MODE=v4a (+4.4 mm/min) not v3 (+266.8).
+             stumble_step_height  swing-foot Cartesian clearance [m]. DEFAULT
+                                  RAISED 0.06 -> 0.08 (Unitree H1-2 walk) — only
+                                  safe WITH contact switching + ground-seek, since
+                                  more clearance under a free-running clock means
+                                  further to fall in the same fixed window. -->
+        <numeric name="trot_contact_switch" data="0"/>
+        <numeric name="trot_phase_snap" data="0.35"/>
+        <numeric name="trot_phase_gain" data="0.70"/>
+        <numeric name="trot_td_force" data="60.0"/>
+        <numeric name="trot_min_step" data="0.10"/>
+        <numeric name="trot_freeze_place" data="0"/>
+        <numeric name="trot_ground_seek" data="0.0"/>
+        <numeric name="trot_cop_anchor" data="0.0"/>
+        <numeric name="trot_cop_lp" data="0.08"/>
+        <numeric name="trot_dcm_target" data="0"/>
+        <numeric name="stumble_step_height" data="0.08"/>
         <!-- ★ trot_rock_ff [m] (2026-07-20, default 0 = OFF = byte-identical) —
              THE SAG FIX. Commanded pelvis LATERAL shift at full swing bump, driven
              OPEN-LOOP onto the STANCE hip_roll (and the Hip Roll cost target moved

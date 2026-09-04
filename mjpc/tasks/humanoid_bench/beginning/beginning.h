@@ -196,6 +196,77 @@ class beginning : public Task {
     // per-tick re-pin would zero out an 8-weight cost the walk was tuned with.
     // Defaults == the old constants => inert until TransitionLocked pins it.
     double drive_foot_anchor_[4] = {0.2196, -0.163, 0.2196, 0.163};
+
+    // ===== R7 CONTACT-TRIGGERED GAIT + FROZEN PLACEMENT (2026-09-03) ======
+    // WHY. The gait clock is open-loop -- ph = fmod(t*cadence,1) -- so touchdown
+    // carries an uncorrected phase error of up to +/-T_swing (0.36 s at cadence
+    // 1.1 / duty 0.60) on EVERY step. Early touchdown => do_leg keeps position-
+    // driving a LOADED leg toward a placement target; late touchdown => the bell
+    // returns to 0 with the foot still airborne and the script hands a FLOATING
+    // leg to the planner. Both read as a hitch at the step boundary. The
+    // reference DCM controller (The5439Workshop capture-point walker, and every
+    // DCM/ZMP walker since Englsberger) switches stance on CONTACT with a
+    // debounce, so its phase error is structurally zero.
+    //
+    // ARCHITECTURE. beginning::ModifyControl is const and gets only
+    // (model, qpos, qvel, time, ctrl) -- NO mjData, so it cannot see contacts.
+    // Therefore every quantity below is LATCHED in TransitionLocked (which has
+    // mjData, runs once per plan on the REAL state), copied into the per-plan
+    // snapshot by ResidualLocked, and read by BOTH ResidualFn::Residual and
+    // beginning::ModifyControl -- exactly the drive_gait_amp_ pattern above.
+    // Rollouts inherit the latch and march the nominal clock from it, which is
+    // what makes cost and open-loop swing agree over the horizon.
+    //
+    // ALL OF IT IS NUMERIC-GATED AND DEFAULT-OFF (trot_contact_switch,
+    // trot_freeze_place, trot_ground_seek, trot_cop_anchor, trot_dcm_target all
+    // default 0) => byte-identical to the pre-R7 gait until switched on.
+
+    // Phase-locked-loop correction [cycles] added to the raw clock. Updated on
+    // each debounced touchdown by the CLAMPED phase error, so the clock
+    // converges onto the real contact rhythm in 1-2 steps instead of snapping
+    // (a hard snap would discontinuously jump the CONTRALATERAL leg, which is
+    // antiphase on the same clock, straight through its swing).
+    double gait_phase_offset_ = 0.0;
+    // Debounce + swing bookkeeping, per leg [0]=L [1]=R.
+    double gait_td_time_[2] = {-1.0, -1.0};   // last accepted touchdown time [s]
+    bool   gait_in_swing_[2] = {false, false};// leg is inside its scripted swing
+    double gait_swing_t0_[2] = {-1.0, -1.0};  // swing-start time [s]
+    // Ground-seek overrun [s]: how long past its nominal swing end a leg has
+    // been airborne without an accepted touchdown. The reference walker's
+    // sin_adapt() keeps driving the foot DOWN when tau>1; our SwingBell returns
+    // to exactly 0 and stops, so a foot over ground 1 cm lower than expected
+    // just hangs there. This is that missing search-for-ground.
+    double gait_overrun_[2] = {0.0, 0.0};
+    // Frozen per-step placement [Lx,Ly,Rx,Ry]. Recomputing step_x from live
+    // qvel every tick means the swing foot chases a MOVING setpoint, and a
+    // smoothstep ramp toward a moving setpoint is not monotone -- the foot
+    // reverses mid-swing whenever v fluctuates (which it does, hard, during the
+    // weight shift). Latched once at swing start, then merely tracked.
+    double step_frozen_[4] = {0.0, 0.0, 0.0, 0.0};
+    bool   step_frozen_ok_[2] = {false, false};
+    // Filtered CoM acceleration [m/s^2], world xy -- the CoP anchor. The DCM law
+    // p = xi - xi_dot/omega - K_xi(xi - xi_des) reduces, at K_xi = -1 and with
+    // the LIPM relation xdd = omega^2 (x - p_cop), to
+    //        p = (x - a/omega^2) + tau*(v - v_des)
+    // i.e. step to the MEASURED CoP plus the velocity-error capture offset. We
+    // already have the second term exactly; the first is currently a hard-coded
+    // constant (stance_off_x = 0.13), which is a gait-phase-locked placement
+    // error of a/omega^2 (~cm at the accelerations the weight shift produces).
+    // Differentiated from the subtree CoM velocity sensor and low-passed --
+    // the raw derivative is far too noisy to place a foot with.
+    double com_acc_filt_[2] = {0.0, 0.0};
+    double com_vel_prev_[2] = {0.0, 0.0};
+    double com_acc_prev_time_ = -1.0;
+    // Per-step exponential DCM target [m], world xy: the closed-form LIPM
+    // solution x_target = p0 + (xi0 - p0) e^{omega T} with
+    // p0 = (xi_des - xi0 e^{omega T})/(1 - e^{omega T}). Latched at swing start.
+    // This is the one term that says where the CoM will BE at the end of the
+    // step; without it the placement script is memoryless. e^{omega T} ~ 3.2 for
+    // us (omega 3.21, T_swing 0.364), so an unmanaged placement error is
+    // amplified 3.2x per step -- the quantitative case for freezing a target.
+    double dcm_target_[2] = {0.0, 0.0};
+    bool   dcm_target_ok_ = false;
+
     mjtNum prev_phase_reach_scale_ = 0.0;
     mjtNum prev_phase_brace_pos_scale_ = 0.0;
     // Posture scale starts at 1.0 (no boost) and ramps to 3.0 during stand_up.
@@ -455,6 +526,25 @@ class beginning : public Task {
     rfn->cmd_active_ = residual_.cmd_active_;
     rfn->cmd_vdes_world_[0] = residual_.cmd_vdes_world_[0];
     rfn->cmd_vdes_world_[1] = residual_.cmd_vdes_world_[1];
+    // ★ R7 (2026-09-03): propagate the contact-latched gait state. Same reason
+    // as the cmd_active_ bugfix directly above -- without this the rollout cost
+    // would run the RAW open-loop clock and the un-frozen placement while
+    // beginning::ModifyControl (reading the canonical residual_) runs the
+    // contact-corrected clock and the frozen target, so cost and swing would
+    // disagree on every sampled trajectory. All of it is inert while the R7
+    // numerics are 0 (offset stays 0, frozen_ok stays false).
+    rfn->gait_phase_offset_ = residual_.gait_phase_offset_;
+    for (int i = 0; i < 2; i++) {
+      rfn->gait_td_time_[i]   = residual_.gait_td_time_[i];
+      rfn->gait_in_swing_[i]  = residual_.gait_in_swing_[i];
+      rfn->gait_swing_t0_[i]  = residual_.gait_swing_t0_[i];
+      rfn->gait_overrun_[i]   = residual_.gait_overrun_[i];
+      rfn->step_frozen_ok_[i] = residual_.step_frozen_ok_[i];
+      rfn->com_acc_filt_[i]   = residual_.com_acc_filt_[i];
+      rfn->dcm_target_[i]     = residual_.dcm_target_[i];
+    }
+    for (int i = 0; i < 4; i++) rfn->step_frozen_[i] = residual_.step_frozen_[i];
+    rfn->dcm_target_ok_ = residual_.dcm_target_ok_;
     return rfn;
   }
 

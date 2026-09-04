@@ -48,6 +48,60 @@ inline double SwingBell(double s) {
 }
 
 // ============================================================================
+// ★ R7 ONE GAIT CLOCK, TWO READERS (2026-09-03).
+// The clock was duplicated verbatim in ResidualFn::Residual and in
+// beginning::ModifyControl, with a "MUST match" comment holding them together by
+// hand. R7 adds a contact-derived phase OFFSET to it, which is exactly the kind
+// of change that silently desynchronises two hand-copied blocks -- so the clock
+// is hoisted here and both sites call it. Keeping the reads (stumble_cadence,
+// trot_duty) inside the helper means neither caller can look up a different
+// knob than the other either.
+//
+//   ph_l = frac((t - offset/cad) * cad)   ph_r = ph_l + 0.5 (antiphase)
+//
+// `offset` is in CYCLES and comes from the contact PLL (see
+// ResidualFn::gait_phase_offset_). offset == 0 reproduces the pre-R7 clock
+// bit-for-bit, which is what keeps trot_contact_switch=0 byte-identical.
+// ============================================================================
+struct GaitClock {
+  double ph_l, ph_r;   // per-leg phase in [0,1); swing iff ph >= duty
+  double duty, cad;    // resolved duty ratio and cadence [Hz]
+};
+
+inline GaitClock GaitPhases(const mjModel *model, double time, double offset,
+                            bool is_trot) {
+  constexpr double kCadenceHz = 1.1, kDutyRatio = 0.60;
+  GaitClock g;
+  int cad_id = mj_name2id(model, mjOBJ_NUMERIC, "stumble_cadence");
+  g.cad = (cad_id >= 0) ? model->numeric_data[model->numeric_adr[cad_id]]
+                        : kCadenceHz;
+  // duty: TROT may raise it (trot_duty, is_trot-gated) for more double support
+  // during slow forward walk; strat 20 keeps kDutyRatio. Both readers resolve it
+  // identically here so cost and swing can never disagree about the duty.
+  int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
+  g.duty = (is_trot && dty_id >= 0)
+               ? model->numeric_data[model->numeric_adr[dty_id]] : kDutyRatio;
+  double ph = std::fmod(time * g.cad + offset, 1.0);
+  if (ph < 0.0) ph += 1.0;                     // fmod is sign-preserving
+  g.ph_l = ph;
+  g.ph_r = std::fmod(ph + 0.5, 1.0);
+  return g;
+}
+
+// Ground-seek extension [rad] for a swing leg that is past its nominal swing end
+// with no accepted touchdown. The reference capture-point walker's sin_adapt()
+// adds z_offset = -(tau-1) for tau>1, i.e. it keeps driving the foot DOWN until
+// it finds the floor; SwingBell instead returns to exactly 0 and holds, so a
+// foot over ground even a centimetre lower than expected hangs in the air and
+// the planner has to catch the stall. Linear in overrun time, saturating, so a
+// genuinely missing floor does not command an unbounded lunge.
+inline double GroundSeek(double overrun_s, double rate, double max_rad) {
+  if (overrun_s <= 0.0 || rate <= 0.0) return 0.0;
+  double e = overrun_s * rate;
+  return (e > max_rad) ? max_rad : e;
+}
+
+// ============================================================================
 // STANCE-SIDE LATERAL WEIGHT-SHIFT ("ROCK") — trot_rock_ff, default 0 = OFF.
 //
 // WHY (2026-07-20, async-twin diagnosis of the real drive-24 Q/E estop):
@@ -738,17 +792,30 @@ void beginning::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // drive"), so all the velocity/step machinery below works; only g_amp differs.
   const bool is_drive =
       is_stumble && (residual_keyframe_.name.find("drive") != std::string::npos);
-  // gait parameters (constexpr -> tune by edit+rebuild; nav drives only kDesVel*)
-  constexpr double kCadenceHz  = 1.1;   // 0.8->1.1 FOOT-LIFT CLUSTER 2026-06-24 (Unitree H1-2
-                                        // rl_gym 1.25). steps/s per foot (slower -> swing fits
-                                        // fewer spline knots, stand-tolerable bandwidth: spline 8
-                                        // destabilises even a plain stand, spline<=5 holds.
-                                        // 2026-06-18). WATCH: faster cadence may re-stress the
-                                        // spline-5 bandwidth -> back off to 0.9 if it destabilises.
-  constexpr double kDutyRatio  = 0.60;  // 0.70->0.60 cluster: more SWING time (40% vs 30%) so the
-                                        // foot has longer to clear. (more double-support = steadier)
-  constexpr double kStepHeight = 0.06;  // 0.022->0.06 cluster: swing-foot peak Cartesian clearance
-                                        // [m] toward Unitree H1-2 0.08 (was a gentle 2.2cm shuffle)
+  // gait parameters. ★ R7 (2026-09-03): cadence + duty moved into the shared
+  // GaitPhases helper (top of file) so the residual and beginning::ModifyControl
+  // cannot resolve different values; step height became a live numeric. The
+  // tuning history they carried is kept here because it is the reason the
+  // defaults are what they are:
+  //   cadence 1.1 Hz  -- 0.8->1.1 FOOT-LIFT CLUSTER 2026-06-24 (Unitree H1-2
+  //                      rl_gym uses 1.25). steps/s per foot. Slower -> the swing
+  //                      fits in fewer spline knots. Stand-tolerable bandwidth:
+  //                      spline 8 destabilises even a plain stand, spline<=5
+  //                      holds (2026-06-18). WATCH: faster cadence may re-stress
+  //                      the spline-5 bandwidth -> back off to 0.9 if it does.
+  //   duty    0.60    -- 0.70->0.60 cluster: more SWING time (40% vs 30%) so the
+  //                      foot has longer to clear. (more double support = steadier)
+  //   height  0.06 m  -- 0.022->0.06 cluster: swing-foot peak Cartesian clearance.
+  //                      ★ R7 raises the DEFAULT to 0.08 = Unitree H1-2 walk
+  //                      clearance. This is only safe alongside contact-triggered
+  //                      touchdown + ground-seek: higher clearance with a
+  //                      free-running clock makes the landing problem WORSE, not
+  //                      better, because the foot has further to fall in the same
+  //                      fixed swing window. Live-tunable via stumble_step_height.
+  constexpr double kStepHeightDflt = 0.08;
+  int sth_id = mj_name2id(model, mjOBJ_NUMERIC, "stumble_step_height");
+  const double kStepHeight = (sth_id >= 0)
+      ? model->numeric_data[model->numeric_adr[sth_id]] : kStepHeightDflt;
   constexpr double kAmpRampSec = 4.5;   // ease the gait in over the first 4.5 s of the phase
   // desired CoM velocity [m/s] world x/y -- the NAV/walk command. Read from the
   // trot_des_vel_x/y numerics ONLY for the trot (is_trot); every other stumble
@@ -859,11 +926,10 @@ void beginning::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double trot_swing_scale = 1.0, trot_gait_wscale = 1.0;
   if (is_stumble) {
     // gait CLOCK always runs; only the AMPLITUDE g_amp decides whether it steps.
-    // Cadence is a live numeric (default kCadenceHz) so the operator can dial the
+    // Cadence is a live numeric (stumble_cadence) so the operator can dial the
     // step rate -- gentler/fewer steps for the trot starter -- without a rebuild.
-    int cad_id = mj_name2id(model, mjOBJ_NUMERIC, "stumble_cadence");
-    double kCad = (cad_id >= 0)
-        ? model->numeric_data[model->numeric_adr[cad_id]] : kCadenceHz;
+    // ★ R7: resolved inside GaitPhases below (gc.cad), so the lookup that used to
+    // sit here is gone; both readers now get cadence from the one helper.
     // stumble_swing_scale (default 1) multiplies the swing-leg lift DURING the
     // trot starter only (swing_mult below), so the operator can dial step HEIGHT
     // up to clear visibility live -- the balance-cautious planner damps the
@@ -878,14 +944,16 @@ void beginning::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int gb_id = mj_name2id(model, mjOBJ_NUMERIC, "stumble_gait_boost");
     double kGaitBoost = (gb_id >= 0)
         ? model->numeric_data[model->numeric_adr[gb_id]] : 1.0;
-    // duty: TROT can raise it (trot_duty numeric, is_trot-gated) for more double-
-    // support during slow forward walk (MJPC slow-walk gait uses 0.75); strat 20
-    // keeps kDutyRatio. ModifyControl reads the same numeric so cost+placement agree.
-    int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
-    double kDuty = (is_trot && dty_id >= 0)
-        ? model->numeric_data[model->numeric_adr[dty_id]] : kDutyRatio;
-    double ph_l = std::fmod(data->time * kCad,       1.0);  // L foot phase
-    double ph_r = std::fmod(data->time * kCad + 0.5, 1.0);  // R antiphase
+    // ★ R7: duty + phases now come from the SHARED GaitPhases helper (see the
+    // "ONE GAIT CLOCK, TWO READERS" block at the top of this file), so this site
+    // and beginning::ModifyControl cannot resolve a different cadence/duty or a
+    // different phase offset. gait_phase_offset_ is the contact PLL correction,
+    // latched in TransitionLocked; it is 0 unless trot_contact_switch is on, and
+    // offset 0 reproduces the old fmod(t*kCad) clock bit-for-bit.
+    const GaitClock gc = GaitPhases(model, data->time, gait_phase_offset_, is_trot);
+    const double kDuty = gc.duty;
+    double ph_l = gc.ph_l;                                  // L foot phase
+    double ph_r = gc.ph_r;                                  // R antiphase
     g_bump_l = (ph_l < kDuty) ? 0.0
         : SwingBell((ph_l - kDuty) / (1.0 - kDuty));
     g_bump_r = (ph_r < kDuty) ? 0.0
@@ -3646,14 +3714,46 @@ void beginning::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // angular-momentum strategy (ankle->HIP->step hierarchy) — unbuilt. The foot is
     // already reference-grade fore-aft (G1 0.17 m / H1 0.20 m) so do NOT lengthen it.
     constexpr double kStagL = 0.0, kStagR = 0.0;   // stagger off (see note)
+
+    // ---- ★ R7: CoP ANCHOR + FROZEN TARGET (both default OFF) -------------
+    // MUST MATCH beginning::ModifyControl's twin of this block -- the cost and
+    // the open-loop swing have to aim the foot at the SAME point or the sampler
+    // spends the plan fighting the script (the 2026-07-12 cmd_active_ bug class).
+    //
+    // (1) CoP anchor. kStanceOffX = 0.13 is a CONSTANT standing in for the DCM
+    //     law's -a/omega^2 term; see the derivation in ModifyControl. Replacing
+    //     the constant part of it with the measured CoM acceleration removes a
+    //     gait-phase-locked placement error.
+    // (2) Frozen target. Latched per leg at swing start so the foot tracks a
+    //     FIXED point instead of a setpoint that moves under it every tick.
+    double off_x_l = off_x, off_y_l = off_y;
+    double off_x_r = off_x, off_y_r = off_y;
+    const double kCopOnR = GetNumberOrDefault(0.0, model, "trot_cop_anchor");
+    if (kCopOnR > 1e-6) {
+      const double om2r = 9.81 / z_com;            // omega^2 = g/z
+      double cdx = mju_max(-0.10, mju_min(0.10,
+          -kCopOnR * com_acc_filt_[0] / om2r));
+      double cdy = mju_max(-0.06, mju_min(0.06,
+          -kCopOnR * com_acc_filt_[1] / om2r));
+      off_x_l += cdx; off_x_r += cdx;
+      off_y_l += cdy; off_y_r += cdy;
+    }
+    if (GetNumberOrDefault(0.0, model, "trot_freeze_place") > 0.5) {
+      // step_frozen_ holds the ABSOLUTE placement offset latched at swing start,
+      // in the same units/frame as off_x/off_y (a CoM-relative displacement), so
+      // it substitutes for them directly.
+      if (step_frozen_ok_[0]) { off_x_l = step_frozen_[0]; off_y_l = step_frozen_[1]; }
+      if (step_frozen_ok_[1]) { off_x_r = step_frozen_[2]; off_y_r = step_frozen_[3]; }
+    }
+
     residual[counter++] = (g_bump_l > 0.0)
-        ? (foot_left_pos[0]  - (com_pos[0] + kStanceOffX + kStagL + off_x)) : 0.0;
+        ? (foot_left_pos[0]  - (com_pos[0] + kStanceOffX + kStagL + off_x_l)) : 0.0;
     residual[counter++] = (g_bump_l > 0.0)
-        ? (foot_left_pos[1]  - (com_pos[1] + kStanceOffY + off_y)) : 0.0;
+        ? (foot_left_pos[1]  - (com_pos[1] + kStanceOffY + off_y_l)) : 0.0;
     residual[counter++] = (g_bump_r > 0.0)
-        ? (foot_right_pos[0] - (com_pos[0] + kStanceOffX + kStagR + off_x)) : 0.0;
+        ? (foot_right_pos[0] - (com_pos[0] + kStanceOffX + kStagR + off_x_r)) : 0.0;
     residual[counter++] = (g_bump_r > 0.0)
-        ? (foot_right_pos[1] - (com_pos[1] - kStanceOffY + off_y)) : 0.0;
+        ? (foot_right_pos[1] - (com_pos[1] - kStanceOffY + off_y_r)) : 0.0;
 
     // --- Foot Slip (dim 2): penalize the STANCE foot SLIDING horizontally (gated
     //     on bump==0 = the planted foot). The reference MuJoCo Playground humanoid
@@ -4347,6 +4447,223 @@ void beginning::TransitionLocked(mjModel *model, mjData *data) {
     }
   }
 
+  // ============ ★ R7 CONTACT-TRIGGERED GAIT LATCH (2026-09-03) ============
+  // Everything the contact-corrected gait needs, computed ONCE per plan on the
+  // REAL state. This is the ONLY place that can do it: beginning::ModifyControl
+  // is const and receives (model, qpos, qvel, time, ctrl) with NO mjData, so it
+  // cannot see a single contact. Results are written onto residual_ and copied
+  // into the per-plan snapshot by ResidualLocked, so the rollout cost and the
+  // open-loop swing writer read identical values -- the same discipline the
+  // 2026-07-12 cmd_active_ bugfix had to restore.
+  //
+  // Produces (each inert while its numeric is 0 => byte-identical to pre-R7):
+  //   gait_phase_offset_  contact PLL correction  <- trot_contact_switch
+  //   gait_overrun_       ground-seek overrun     <- trot_ground_seek
+  //   step_frozen_        per-step frozen target  <- trot_freeze_place
+  //   com_acc_filt_       CoP anchor input        <- trot_cop_anchor
+  //   dcm_target_         exponential DCM target  <- trot_dcm_target
+  {
+    const std::string &r7name = residual_.residual_keyframe_.name;
+    const bool r7_stumble = (r7name.rfind("stumble", 0) == 0);
+    if (!r7_stumble) {
+      // Not a stepping keyframe -> reset, so a later trot always starts clean
+      // rather than inheriting a stale phase correction from a previous run.
+      residual_.gait_phase_offset_ = 0.0;
+      residual_.com_acc_prev_time_ = -1.0;
+      residual_.dcm_target_ok_ = false;
+      for (int i = 0; i < 2; i++) {
+        residual_.gait_td_time_[i] = -1.0;
+        residual_.gait_in_swing_[i] = false;
+        residual_.gait_swing_t0_[i] = -1.0;
+        residual_.gait_overrun_[i] = 0.0;
+        residual_.step_frozen_ok_[i] = false;
+        residual_.com_acc_filt_[i] = 0.0;
+      }
+    } else {
+      const bool r7_trot = (r7name.find("trot") != std::string::npos);
+      const double now = data->time;
+      auto r7clip = [](double x, double lo, double hi) {
+        return x < lo ? lo : (x > hi ? hi : x);
+      };
+
+      // ---- (a) filtered CoM acceleration (the CoP-anchor input) -----------
+      // a = d/dt of the subtree CoM velocity sensor. The raw finite difference
+      // is far too noisy to place a feet with -- hence the spike reject plus a
+      // first-order low-pass whose time constant is a live numeric. This runs
+      // unconditionally (it is cheap and stateful, so it must stay warm even
+      // while trot_cop_anchor is 0, or switching the anchor on mid-run would
+      // start it from a cold filter).
+      double *r7cv = SensorByName(model, data, "waist_lower_subcomvel");
+      if (r7cv) {
+        double dt7 = (residual_.com_acc_prev_time_ > 0.0)
+                         ? (now - residual_.com_acc_prev_time_) : 0.0;
+        if (dt7 > 1e-4 && dt7 < 0.5) {
+          const double lp = mju_max(1e-3,
+              GetNumberOrDefault(0.08, model, "trot_cop_lp"));   // [s]
+          const double a_lp = dt7 / (lp + dt7);
+          for (int i = 0; i < 2; i++) {
+            double raw = (r7cv[i] - residual_.com_vel_prev_[i]) / dt7;
+            raw = r7clip(raw, -8.0, 8.0);        // reject differentiation spikes
+            residual_.com_acc_filt_[i] += a_lp * (raw - residual_.com_acc_filt_[i]);
+          }
+        }
+        residual_.com_vel_prev_[0] = r7cv[0];
+        residual_.com_vel_prev_[1] = r7cv[1];
+        residual_.com_acc_prev_time_ = now;
+      }
+
+      // ---- (b) per-foot normal force -> contact ---------------------------
+      // Same per-body contact-force summation the Gait residual already uses.
+      // A FORCE threshold (not mere geom proximity) is what makes this a real
+      // touchdown detector: a foot brushing the floor unloaded is not a stance.
+      int r7fl = mj_name2id(model, mjOBJ_BODY, "left_ankle_roll_link");
+      int r7fr = mj_name2id(model, mjOBJ_BODY, "right_ankle_roll_link");
+      double r7fn[2] = {0.0, 0.0};
+      for (int c = 0; c < data->ncon; c++) {
+        const mjContact &con = data->contact[c];
+        int ba = model->geom_bodyid[con.geom1], bb = model->geom_bodyid[con.geom2];
+        mjtNum f6[6];
+        mj_contactForce(model, data, c, f6);
+        double fn = mju_abs(f6[0]);              // normal force (contact-frame x)
+        if (ba == r7fl || bb == r7fl) r7fn[0] += fn;
+        if (ba == r7fr || bb == r7fr) r7fn[1] += fn;
+      }
+      const double kTdF = GetNumberOrDefault(60.0, model, "trot_td_force");  // [N]
+      const bool r7_contact[2] = {r7fn[0] > kTdF, r7fn[1] > kTdF};
+
+      // ---- (c) clock, swing bookkeeping, ground-seek overrun --------------
+      const GaitClock g7 = GaitPhases(model, now, residual_.gait_phase_offset_,
+                                      r7_trot);
+      const double r7ph[2] = {g7.ph_l, g7.ph_r};
+      const double T_sw = (1.0 - g7.duty) / mju_max(1e-6, g7.cad);  // swing dur [s]
+      const double kMinStep =
+          GetNumberOrDefault(0.10, model, "trot_min_step");   // debounce [s]
+      const bool kSwitchOn =
+          GetNumberOrDefault(0.0, model, "trot_contact_switch") > 0.5;
+
+      for (int i = 0; i < 2; i++) {
+        const bool nominal_swing = (r7ph[i] >= g7.duty);
+        // LIFTOFF: the clock has just entered this leg's swing window.
+        if (nominal_swing && !residual_.gait_in_swing_[i]) {
+          residual_.gait_in_swing_[i] = true;
+          residual_.gait_swing_t0_[i] = now;
+          residual_.gait_overrun_[i] = 0.0;
+
+          // ---- (d) FREEZE the placement for this step --------------------
+          // Latch the target ONCE, here, instead of letting the swing chase a
+          // setpoint recomputed from live qvel on every tick. Same quantity the
+          // residual's off_x/off_y compute (a CoM-relative displacement), so it
+          // substitutes for them directly on both readers.
+          int pid7 = mj_name2id(model, mjOBJ_BODY, "pelvis");
+          if (pid7 < 0) pid7 = 1;
+          const mjtNum *com7 = data->subtree_com + 3 * pid7;
+          const double z7 = mju_max(0.5, com7[2]);
+          const double tau7 = mju_sqrt(z7 / 9.81);
+          const double om7 = 1.0 / tau7;
+          // v_des in the WORLD frame -- MUST match the residual's resolution
+          // order (governed teleop command first, static numerics otherwise).
+          double vd7[2] = {0.0, 0.0};
+          if (r7_trot) {
+            int dvx7 = mj_name2id(model, mjOBJ_NUMERIC, "trot_des_vel_x");
+            int dvy7 = mj_name2id(model, mjOBJ_NUMERIC, "trot_des_vel_y");
+            if (dvx7 >= 0) vd7[0] = model->numeric_data[model->numeric_adr[dvx7]];
+            if (dvy7 >= 0) vd7[1] = model->numeric_data[model->numeric_adr[dvy7]];
+            if (residual_.cmd_active_) {
+              vd7[0] = residual_.cmd_vdes_world_[0];
+              vd7[1] = residual_.cmd_vdes_world_[1];
+            }
+          }
+          constexpr double kStepReach7 = 0.30;   // matches the residual clamp
+          double frz[2];
+          if (r7cv) {
+            frz[0] = (r7cv[0] - vd7[0]) * tau7;
+            frz[1] = (r7cv[1] - vd7[1]) * tau7;
+          } else {
+            frz[0] = frz[1] = 0.0;
+          }
+
+          // ---- (e) EXPONENTIAL DCM TARGET (trot_dcm_target, default OFF) --
+          // Closed-form LIPM solution over the swing:
+          //     xi0   = x + v/omega                (DCM now)
+          //     xides = x + v_des/omega            (DCM we want to be riding)
+          //     p0    = (xides - xi0 e^{omega T}) / (1 - e^{omega T})
+          //     xtgt  = p0 + (xi0 - p0) e^{omega T}
+          // xtgt is where the DCM will BE at touchdown, so planting the foot
+          // there is the deadbeat DCM step. Without it the placement script is
+          // memoryless -- and with e^{omega T} ~ 3.2 for us (omega 3.21,
+          // T_swing 0.364 s) an unmanaged placement error is amplified 3.2x per
+          // step, which is the quantitative reason a memoryless target drifts.
+          // (Note: the reference 2D walker computes this in get_target_0 but
+          // never consumes it downstream -- get_p drives its placement. We use
+          // it as the deadbeat placement it is actually derived to be.)
+          if (r7cv && GetNumberOrDefault(0.0, model, "trot_dcm_target") > 0.5) {
+            const double eT = std::exp(om7 * T_sw);
+            const double den = 1.0 - eT;                  // != 0 for T_sw > 0
+            if (std::fabs(den) > 1e-6) {
+              for (int a = 0; a < 2; a++) {
+                const double xi0 = com7[a] + r7cv[a] * tau7;
+                const double xid = com7[a] + vd7[a] * tau7;
+                const double p0 = (xid - xi0 * eT) / den;
+                residual_.dcm_target_[a] = p0 + (xi0 - p0) * eT;
+              }
+              residual_.dcm_target_ok_ = true;
+              // placement offset = CoM -> predicted end-of-step DCM
+              frz[0] = residual_.dcm_target_[0] - com7[0];
+              frz[1] = residual_.dcm_target_[1] - com7[1];
+            }
+          }
+          residual_.step_frozen_[2 * i]     = r7clip(frz[0], -kStepReach7, kStepReach7);
+          residual_.step_frozen_[2 * i + 1] = r7clip(frz[1], -kStepReach7, kStepReach7);
+          residual_.step_frozen_ok_[i] = true;
+        }
+
+        // TOUCHDOWN: loaded foot, was swinging, and past the debounce. The
+        // debounce is the reference walker's min_step_time -- without it a
+        // single bouncing landing re-triggers the switch several times.
+        const bool debounced =
+            (residual_.gait_td_time_[i] < 0.0) ||
+            (now - residual_.gait_td_time_[i] > kMinStep);
+        if (r7_contact[i] && residual_.gait_in_swing_[i] && debounced) {
+          residual_.gait_in_swing_[i] = false;
+          residual_.gait_td_time_[i] = now;
+          residual_.gait_overrun_[i] = 0.0;
+          residual_.step_frozen_ok_[i] = false;
+
+          // ---- (f) CONTACT PLL ----------------------------------------------
+          // This leg has just landed, so by definition it should be at the START
+          // of its stance: ph_i == 0. Steer the shared clock offset toward that
+          // instead of SNAPPING it -- the contralateral leg is antiphase on the
+          // SAME clock, so a hard snap would jump it discontinuously through its
+          // own swing. Clamped per event and gained < 1, this converges in 1-2
+          // steps while never moving either leg more than trot_phase_snap.
+          if (kSwitchOn) {
+            double err = r7ph[i];
+            if (err > 0.5) err -= 1.0;             // wrap to (-0.5, 0.5]
+            const double kSnap =
+                GetNumberOrDefault(0.35, model, "trot_phase_snap");   // cycles
+            const double kGain =
+                GetNumberOrDefault(0.70, model, "trot_phase_gain");   // 0..1
+            double corr = r7clip(-err * kGain, -kSnap, kSnap);
+            residual_.gait_phase_offset_ =
+                std::fmod(residual_.gait_phase_offset_ + corr, 1.0);
+            if (residual_.gait_phase_offset_ < 0.0)
+              residual_.gait_phase_offset_ += 1.0;
+          }
+        }
+
+        // GROUND-SEEK OVERRUN: still flagged in swing past the nominal swing
+        // duration => the floor is not where the clock assumed. Time-based (not
+        // phase-based) so it keeps growing after the phase has wrapped.
+        if (residual_.gait_in_swing_[i] && residual_.gait_swing_t0_[i] > 0.0) {
+          residual_.gait_overrun_[i] =
+              mju_max(0.0, (now - residual_.gait_swing_t0_[i]) - T_sw);
+        } else {
+          residual_.gait_overrun_[i] = 0.0;
+        }
+      }
+    }
+  }
+
   // Helper: diff old vs new keyframe contact-pair activity and mark which
   // pairs just appeared (active now, inactive before). ContactResidual
   // uses these flags to ramp the new pair's residual contribution from 0
@@ -4903,16 +5220,14 @@ void beginning::ModifyControl(const mjModel *model, const double *qpos,
   }
   if (g_amp <= 1e-4) return;                     // still settling -> planner owns
 
-  // gait clock (antiphase, duty 0.60; cadence live numeric)
-  constexpr double kCadenceHz = 1.1, kDutyRatio = 0.60;
-  int cad_id = mj_name2id(model, mjOBJ_NUMERIC, "stumble_cadence");
-  double kCad = (cad_id >= 0)
-      ? model->numeric_data[model->numeric_adr[cad_id]] : kCadenceHz;
-  int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
-  double kDuty = (dty_id >= 0) ? model->numeric_data[model->numeric_adr[dty_id]]
-                               : kDutyRatio;  // matches the residual gait clock
-  double ph_l = std::fmod(time * kCad, 1.0);
-  double ph_r = std::fmod(time * kCad + 0.5, 1.0);
+  // ★ R7: gait clock from the SHARED GaitPhases helper -- the same call the
+  // residual makes, with the same contact-PLL offset, so the cost and this
+  // open-loop swing writer can no longer drift apart. (is_trot is true here by
+  // the early return above, matching the residual's is_trot-gated duty lookup.)
+  const GaitClock gc = GaitPhases(model, time, residual_.gait_phase_offset_, true);
+  const double kCad = gc.cad, kDuty = gc.duty;
+  double ph_l = gc.ph_l;
+  double ph_r = gc.ph_r;
 
   // ---- CAPTURE POINT (instantaneous, inverted-pendulum) -------------------
   // base lin-vel (qvel[0:2], world) ~= CoM vel; step to xi = (v - v_des)*tau to
@@ -4999,6 +5314,56 @@ void beginning::ModifyControl(const mjModel *model, const double *qpos,
   double step_x = clip(cap_g * tau * (qvel[0] - standing * dvx) +
                        kw * standing * dvx * (0.5 * T_st), -0.30, 0.30);  // m
   double step_y = clip(cap_gl * (qvel[1] - dvy) * tau, -0.12, 0.12);  // tight=stabler
+
+  // ---- ★ R7 CoP ANCHOR (trot_cop_anchor, default 0 = OFF) ----------------
+  // The Raibert error term above is already algebraically identical to the
+  // reference DCM law's error term: cap_g*tau*(v - v_des) == (v - v_des)/omega
+  // at cap_g = 1. What differs is the ANCHOR the offset is measured from. The
+  // DCM law p = xi - xi_dot/omega - K_xi(xi - xi_des), at K_xi = -1 and with the
+  // LIPM relation xdd = omega^2 (x - p_cop), collapses to
+  //        p = (x - a/omega^2) + tau*(v - v_des),
+  // so the anchor is the MEASURED instantaneous CoP, x - a/omega^2. Our cost
+  // side anchors at the CoM plus a hard-coded stance_off_x = 0.13, which is that
+  // term frozen at a constant. During the weight shift the CoM fore-aft accel is
+  // NOT zero, so the correct anchor moves by a/omega^2 -- and because that
+  // motion is gait-phase-locked it reads as periodic jiggle rather than noise.
+  // Add the correction here as a placement DELTA (the cost side applies the same
+  // delta to its Step Place target, so both readers stay consistent).
+  // com_acc_filt_ is a LOW-PASSED derivative latched in TransitionLocked: the raw
+  // finite difference of the CoM velocity sensor is far too noisy to place a
+  // foot with, which is why this is gated off by default until it is benched.
+  const double kCopOn = GetNumberOrDefault(0.0, model, "trot_cop_anchor");
+  if (kCopOn > 1e-6) {
+    const double om2 = 9.81 / mju_max(0.5, qpos[2]);   // omega^2 = g/z
+    // -a/omega^2, clamped: a bad accel estimate must never command a lunge.
+    double cop_dx = clip(-kCopOn * residual_.com_acc_filt_[0] / om2, -0.10, 0.10);
+    double cop_dy = clip(-kCopOn * residual_.com_acc_filt_[1] / om2, -0.06, 0.06);
+    step_x = clip(step_x + cop_dx, -0.30, 0.30);
+    step_y = clip(step_y + cop_dy, -0.12, 0.12);
+  }
+
+  // ---- ★ R7 FROZEN PLACEMENT (trot_freeze_place, default 0 = OFF) --------
+  // Recomputing step_x/step_y from live qvel on every tick makes the swing foot
+  // chase a MOVING setpoint; combined with the smoothstep ramp `pl` below, the
+  // commanded foot path is not monotone and reverses mid-swing whenever v
+  // fluctuates. The reference walker freezes its target at leg switch
+  // (get_target_0) and only tracks it thereafter. step_frozen_ is latched at
+  // swing start in TransitionLocked; per leg, so L and R can be in different
+  // parts of their cycle. Falls back to the live value whenever the latch has
+  // not fired yet (step_frozen_ok_ false), which is also the OFF path.
+  const bool kFreeze = GetNumberOrDefault(0.0, model, "trot_freeze_place") > 0.5;
+  double step_x_l = step_x, step_y_l = step_y;   // per-leg placement (L)
+  double step_x_r = step_x, step_y_r = step_y;   //                   (R)
+  if (kFreeze) {
+    if (residual_.step_frozen_ok_[0]) {
+      step_x_l = residual_.step_frozen_[0];
+      step_y_l = residual_.step_frozen_[1];
+    }
+    if (residual_.step_frozen_ok_[1]) {
+      step_x_r = residual_.step_frozen_[2];
+      step_y_r = residual_.step_frozen_[3];
+    }
+  }
   // swing-height scale (live numeric, default 1.0): LOWER lift = smaller per-step
   // disturbance = stabler trot (trades visible clearance for hold-rate).
   int sh_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_swing_h");
@@ -5023,7 +5388,25 @@ void beginning::ModifyControl(const mjModel *model, const double *qpos,
   int swd_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_step_width");
   double w2 = 0.5 * ((swd_id >= 0)
       ? model->numeric_data[model->numeric_adr[swd_id]] : 0.0);
-  double dHipP = clip(-step_x / 0.80, -0.45, 0.45);  // foot FWD -> less hip_pitch
+  // ★ R7: per-leg, because the frozen placement latches independently for L and
+  // R (they are half a cycle apart, so they freeze at different instants). With
+  // trot_freeze_place off, step_x_l == step_x_r == step_x and this is the old
+  // single dHipP exactly.
+  double dHipP_l = clip(-step_x_l / 0.80, -0.45, 0.45);  // foot FWD -> less hip_pitch
+  double dHipP_r = clip(-step_x_r / 0.80, -0.45, 0.45);
+
+  // ---- ★ R7 GROUND-SEEK (trot_ground_seek [rad/s], default 0 = OFF) -------
+  // The reference walker's sin_adapt() keeps driving the swing foot DOWN while
+  // tau > 1 (z_offset = -(tau-1)); SwingBell returns to exactly 0 at s=1 and
+  // holds, so a foot over ground even a centimetre lower than expected simply
+  // hangs and the planner has to catch the stall -- one of the step-boundary
+  // hitches. gait_overrun_ is the time a leg has been airborne past its nominal
+  // swing end WITHOUT an accepted touchdown (latched in TransitionLocked, so it
+  // is 0 unless contact tracking is on). Extends the knee and ankle toward the
+  // floor, saturating so a genuinely missing floor cannot command a lunge.
+  const double kSeekRate = GetNumberOrDefault(0.0, model, "trot_ground_seek");
+  const double seek_l = GroundSeek(residual_.gait_overrun_[0], kSeekRate, 0.30);
+  const double seek_r = GroundSeek(residual_.gait_overrun_[1], kSeekRate, 0.30);
 
   // home stand pose = the "stumble_trot" keyframe (fallback home).
   int pk = mj_name2id(model, mjOBJ_KEY, kfname.c_str());
@@ -5039,7 +5422,7 @@ void beginning::ModifyControl(const mjModel *model, const double *qpos,
   // per-leg step-width direction (R5): +1 left (outward=+y), -1 right.
   // ctrl[i] == joint target for qpos[7+i]. L: hipP1 hipR2 knee3 ankP4; R:7 8 9 10
   auto do_leg = [&](double ph, int iHipP, int iHipR, int iKnee, int iAnkP,
-                    double ysign) {
+                    double ysign, double dHipP, double sxy_y, double seek) {
     if (ph < kDuty) return;                        // stance -> planner owns
     double s = (ph - kDuty) / (1.0 - kDuty);       // swing progress 0..1
     double cl = SwingBell(s);                           // clearance bell 0..1..0 (Bezier, soft touchdown)
@@ -5049,18 +5432,24 @@ void beginning::ModifyControl(const mjModel *model, const double *qpos,
       double r = mju_min((1.0 - s) / rel, 1.0);    // 1 until s=1-rel, 0 at s=1
       w *= r * r * (3.0 - 2.0 * r);                // smooth release
     }
-    double dHipR = clip((step_y + ysign * w2) / 0.79, -0.25, 0.25);  // R5 widen
+    double dHipR = clip((sxy_y + ysign * w2) / 0.79, -0.25, 0.25);  // R5 widen
     double tHipP = q0[7 + iHipP] - kSwingHip * sh * cl * g_amp + dHipP * pl * g_amp;
     double tHipR = q0[7 + iHipR] + dHipR * pl * g_amp;
-    double tKnee = q0[7 + iKnee] + kSwingKnee * sh * cl * g_amp;
-    double tAnkP = q0[7 + iAnkP] - kSwingAnk * sh * cl * g_amp;
+    // ★ R7 ground-seek: EXTEND the knee (reduce the fold) and plantarflex the
+    // ankle by `seek` once the leg is overrunning its swing window, so the foot
+    // keeps reaching for the floor instead of holding a fixed airborne pose.
+    // seek == 0 (the default / OFF path) leaves both terms exactly as before.
+    double tKnee = q0[7 + iKnee] + kSwingKnee * sh * cl * g_amp - seek;
+    double tAnkP = q0[7 + iAnkP] - kSwingAnk * sh * cl * g_amp - 0.4 * seek;
     ctrl[iHipP] += w * (tHipP - ctrl[iHipP]);
     ctrl[iHipR] += w * (tHipR - ctrl[iHipR]);
     ctrl[iKnee] += w * (tKnee - ctrl[iKnee]);
     ctrl[iAnkP] += w * (tAnkP - ctrl[iAnkP]);
   };
-  do_leg(ph_l, 1, 2, 3, 4, +1.0);    // LEFT  swing window ph_l in [duty,1]
-  do_leg(ph_r, 7, 8, 9, 10, -1.0);   // RIGHT swing window ph_r in [duty,1]
+  // LEFT swing window ph_l in [duty,1]; RIGHT ph_r. Each leg carries its own
+  // frozen placement (R7) and its own ground-seek overrun.
+  do_leg(ph_l, 1, 2, 3, 4, +1.0, dHipP_l, step_y_l, seek_l);
+  do_leg(ph_r, 7, 8, 9, 10, -1.0, dHipP_r, step_y_r, seek_r);
 
   // ---- STANCE-SIDE ROCK (trot_rock_ff, default 0 = OFF = byte-identical) ----
   // The missing half of a step: unload the foot BEFORE asking it to swing. This
