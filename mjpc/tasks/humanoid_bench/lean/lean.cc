@@ -5576,9 +5576,22 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                        // walks the CoM back is r1/r2 (PF 300, Balance 40:
                        // v11 pressed +246->+90 mm there); the fatal advance
                        // was r2->r3 at +90. Gate r1/r2 only.
-                       if (cgate > 0.0 &&
-                           (current_strategy_ == 28 || current_strategy_ == 29) &&
-                           kfn != "forearm_brace_release") {
+                       // ★ 2026-09-03 STRAT 25 LOOP: the looped pipeline
+                       // compounds a forward-CoM bias -- 25_loop_3 recovered
+                       // cycle 1 to CoM +6 mm (centered) but cycle 2 advanced
+                       // its recovery with CoM +100 mm ahead, so cycle 3 stood
+                       // 6 cm short and dove into the next brace (RankP estop).
+                       // Enable the SAME CoM-recenter gate for strat 25, scoped
+                       // to r2/r3 (the press rungs that walk the CoM back), so
+                       // every cycle re-centers before standing. 28/29 keep
+                       // their exact (battery/grasp-tested) behaviour.
+                       bool com_gate_scope =
+                           ((current_strategy_ == 28 ||
+                             current_strategy_ == 29) &&
+                            kfn != "forearm_brace_release") ||
+                           (current_strategy_ == 25 &&
+                            (kfn == "standback_r2" || kfn == "standback_r3"));
+                       if (cgate > 0.0 && com_gate_scope) {
                          int pid_cg = mj_name2id(model, mjOBJ_BODY, "pelvis");
                          double* fR = SensorByName(model, data,
                                                    "foot_right_pos");

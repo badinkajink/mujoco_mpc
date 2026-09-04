@@ -472,7 +472,7 @@
              release/r1/r2 advance until believed CoM is within this (m) of
              the midfoot: v4 released at +2mm and stood, v11 advanced at +90mm
              and the un-bow catapulted it backward. Escape after _wait s. -->
-        <numeric name="standback_com_gate" data="0.08"/>
+        <numeric name="standback_com_gate" data="0.04"/>
         <numeric name="standback_com_wait" data="20.0"/>
         <!-- ★★ standback stall relaxation (2026-08-14). sec<=0 = OFF.
              12 s of no pitch improvement (>0.01 rad) in a release-side rung
