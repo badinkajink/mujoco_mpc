@@ -651,7 +651,17 @@
              leave 0 unless you are deliberately testing it, with a hand on the
              robot. The underlying bug it targets is real though -- measured stance
              x=0.030 vs the constant's 0.2196 = a static 19 cm forward pull. -->
-        <numeric name="drive_foot_anchor" data="0"/>
+        <!-- ★ R7 2026-09-03: RE-ENABLED (0 -> 1). This was switched off after the
+             2026-07-20 real-robot sideways drag, but that result was measured
+             against a v3 estimator drifting at +266.8 mm/min — the anchor was
+             faithfully pinning to a frame that was itself walking away, which is
+             exactly the drag that was observed. v4a measures +4.4 mm/min (60x
+             better), so the falsifying condition is gone. Re-bench under
+             EST_MODE=v4a; revert to 0 if the drag reappears there.
+             CAVEAT: v4a fixes the GLOBAL frame, not relative kinematics — its
+             inter-foot spread is 46.6 mm vs v3's 14.4 mm. Use it for the stance
+             ORIGIN and keep leg kinematics for relative foot geometry. -->
+        <numeric name="drive_foot_anchor" data="1"/>
         <numeric name="trot_rock_ff" data="0.0"/>
         <!-- ★ trot_rock_lead [cycle fractions] (default 0). PHASE ADVANCE for the
              rock. With duty 0.60 the swing bump is 0 at liftoff (ph 0.60) and
