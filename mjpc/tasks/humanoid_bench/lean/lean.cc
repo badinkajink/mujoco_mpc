@@ -699,8 +699,14 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         int cy25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
         double col_y = (cy25 >= 0)
             ? model->numeric_data[model->numeric_adr[cy25]] : 0.0;
+        // ★ 2026-09-03 target_col_x (numeric, m, default 0): depth offset ADDED
+        // to every rung's reach_target_table[0] -- grid ROW knob, the pair of
+        // target_col_y. Absent/0 = byte-identical.
+        int cx25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_x");
+        double col_x = (cx25 >= 0)
+            ? model->numeric_data[model->numeric_adr[cx25]] : 0.0;
         const auto& rtt = residual_keyframe_.reach_target_table;
-        brace_air_target[0] = tc25[0] - half_depth25 + rtt[0];
+        brace_air_target[0] = tc25[0] - half_depth25 + rtt[0] + col_x;
         brace_air_target[1] = tc25[1] - (rtt[1] + col_y);
         brace_air_target[2] = face25 + rtt[2];
         // ★ 2026-08-24 SERVO: on a servo rung, add the world-space correction
@@ -4155,6 +4161,16 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         num3("grip_cam_pos", cam_pos, 0.0, 0.0, 0.0);
         num3("grip_cam_rpy_deg", cam_rpy, 0.0, 0.0, 0.0);
         num3("servo_nominal", nominal, 0.55, 0.16, 0.025);
+        // ★ 2026-09-03: the grid knobs move the rung targets, so they must
+        // move the nominal the correction is measured against by the same
+        // amount (else the servo would double-apply the column shift and hit
+        // the servo_max_offset clamp). 0/absent = byte-identical.
+        {
+          int cx = mj_name2id(model, mjOBJ_NUMERIC, "target_col_x");
+          int cy = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
+          if (cx >= 0) nominal[0] += model->numeric_data[model->numeric_adr[cx]];
+          if (cy >= 0) nominal[1] += model->numeric_data[model->numeric_adr[cy]];
+        }
         double t_cam[3] = {mjpc::g_object_cam_x.load(),
                            mjpc::g_object_cam_y.load(),
                            mjpc::g_object_cam_z.load()};
@@ -4723,8 +4739,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         int cy25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
         double col_y = (cy25 >= 0)
             ? model->numeric_data[model->numeric_adr[cy25]] : 0.0;
+        int cx25 = mj_name2id(model, mjOBJ_NUMERIC, "target_col_x");
+        double col_x = (cx25 >= 0)
+            ? model->numeric_data[model->numeric_adr[cx25]] : 0.0;
         const auto& rtt = current_kf.reach_target_table;
-        double tgt25[3] = {tc25[0] - half_depth25 + rtt[0],
+        double tgt25[3] = {tc25[0] - half_depth25 + rtt[0] + col_x,
                            tc25[1] - (rtt[1] + col_y),
                            face25 + rtt[2]};
         // ★ 2026-08-24 SERVO: same correction the residual applies, so the

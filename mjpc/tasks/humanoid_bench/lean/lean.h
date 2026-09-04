@@ -289,6 +289,12 @@ class lean : public Task {
     names[6]  = "h12_simple_stand";         // stand: mission phase 0, deploy default
     names[7]  = "h12_newstand";             // dedicated stand for estimator foot-anchor captures (BRACE)
     names[8]  = "h12_contact_implicit";     // contact-implicit brace discovery (spec 2026-08-30)
+    // ★ 2026-09-03 strat 9: SERVO TARGET SWEEP (session "retrieve"). Strat 29
+    //  kf0-4 (dive, hover, approach, servo) with the servo rung as a 5 s HOLD
+    //  (grasp_close=false, no retract rung) -> release -> standback. No kf5:
+    //  the old retract pulled the pelvis back 8-21 cm while braced (29_43/46/52).
+    //  Grid point = numerics target_col_x / target_col_y (also shift servo_nominal).
+    names[9]  = "h12_brace_servo_sweep";
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
     // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the

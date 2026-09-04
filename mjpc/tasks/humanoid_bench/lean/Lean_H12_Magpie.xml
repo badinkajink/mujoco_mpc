@@ -574,6 +574,12 @@
              knob=0.12 to pick grid column B; if that bench is ever rerun, pass
              target_col_y=0.12 for it. -->
         <numeric name="target_col_y" data="0.0"/>
+        <!-- ★ 2026-09-03 target_col_x (m): depth offset ADDED to every rung's
+             reach_target_table[0] (strat 9 servo sweep: grid ROW knob). Both
+             col knobs also shift servo_nominal inside the node, so a new grid
+             point = edit target_col_x/target_col_y ONLY, then
+             `ninja copy_model_resources` + restart the node. B3 = 0 / 0. -->
+        <numeric name="target_col_x" data="0.0"/>
         <!-- brace_flat_gate_lo (rad, >0): max allowed NEGATIVE elevation for
              contact to certify. Negative = gripper-first = illegal hand-brace
              and the stall pose. 0.05 rad = -2.9 deg of noise headroom. -->
