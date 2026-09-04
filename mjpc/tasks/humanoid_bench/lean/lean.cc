@@ -71,6 +71,15 @@ static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
 // advance gate on `servo_hold` rungs (strat 9): the 5 s hold clock counts
 // only while this is true. Stale/frozen keeps the last value (settled).
 static bool s_servo_settled = false;
+// ★ 2026-09-04 last MEASURED tag position in world, composed through the
+// BELIEVED wrist (same composition as the servo). Used by `servo_hold` rungs
+// to grade the hold in a belief-drift-free way: (tag - grasp centre), both
+// through the same believed wrist, is the PHYSICAL tag-to-jaw vector (up to
+// the small orientation error) -- real 9_B3_4: the estimator drifted 8 cm /
+// 6 deg during a hold the camera showed steady to <1 cm, and the tip-vs-target
+// gate (belief frame) timed out a hold that was physically inside 2 cm.
+static double s_tag_world[3] = {0.0, 0.0, 0.0};
+static double s_tag_world_t = -1.0;
 // ★ 2026-08-29 time the grasp CLOSE was fired (-1 = none pending). Lets the
 // fail-soft timeout see a close that the ack machinery could not consume
 // (real 29_33: pad-contact gate HOLD sat in front of the grasp-gate lambda,
@@ -4239,6 +4248,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double p_world[3];
         mju_mulMatVec3(p_world, data->xmat + 9 * wyb, in_wrist);
         mju_addTo3(p_world, data->xpos + 3 * wyb);
+        mju_copy3(s_tag_world, p_world);
+        s_tag_world_t = data->time;
         // nominal (table frame -> world), same convention as the residual
         const double* tc = data->geom_xpos + 3 * tg;
         double half_depth = model->geom_size[3 * tg + 0];
@@ -4820,6 +4831,40 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           h25 = tip25;
         }
         total_distance = mju_dist3(h25, tgt25);
+        // ★ 2026-09-04 SERVO-HOLD: grade (measured tag - grasp centre) against
+        // (nominal tag - rung target), all in the believed frame so the
+        // estimator's position drift cancels. Stale tag (> servo_max_age) =
+        // out of tolerance (the clock re-arms; no blind hold).
+        if (current_kf.servo_hold) {
+          double max_age = GetNumberOrDefault(1.0, model, "servo_max_age");
+          if (s_tag_world_t >= 0.0 && data->time - s_tag_world_t <= max_age) {
+            double nom[3] = {0.55, 0.16, 0.025};
+            int nid = mj_name2id(model, mjOBJ_NUMERIC, "servo_nominal");
+            if (nid >= 0) {
+              const double* pn = model->numeric_data + model->numeric_adr[nid];
+              nom[0] = pn[0]; nom[1] = pn[1]; nom[2] = pn[2];
+            }
+            double nom_tag[3] = {tc25[0] - half_depth25 + nom[0] + col_x,
+                                 tc25[1] - (nom[1] + col_y), face25 + nom[2]};
+            double tgt_nom[3] = {tc25[0] - half_depth25 + rtt[0] + col_x,
+                                 tc25[1] - (rtt[1] + col_y), face25 + rtt[2]};
+            double desired[3], rel[3], err[3];
+            mju_sub3(desired, nom_tag, tgt_nom);
+            mju_sub3(rel, s_tag_world, h25);
+            mju_sub3(err, rel, desired);
+            total_distance = mju_norm3(err);
+            static double last_hold_dbg = -1e9;
+            if (data->time - last_hold_dbg > 1.0) {
+              last_hold_dbg = data->time;
+              std::printf("[servo-hold] cam err=(%+.3f %+.3f %+.3f) dist=%.3f "
+                          "(belief tip-tgt %.3f) age=%.2fs\n", err[0], err[1],
+                          err[2], total_distance, mju_dist3(h25, tgt25),
+                          data->time - s_tag_world_t);
+            }
+          } else {
+            total_distance = 1e3;   // no fresh tag -> hold clock re-arms
+          }
+        }
         s_adv_dist = total_distance;
         s_adv_err_y = h25[1] - tgt25[1];
         // 1 Hz debug: what the ADVANCE actually sees (25_29 advanced with the
@@ -5102,7 +5147,6 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
     } else if (total_distance <= eff_tol &&
-               (!current_kf.servo_hold || s_servo_settled) &&
                data->time -
                        motion_strategy_.GetCurrentKeyframeSuccessStartTime() >
                    current_kf.success_sustain_time &&
@@ -5749,8 +5793,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance > eff_tol ||
-               (current_kf.servo_hold && !s_servo_settled)) {
+    } else if (total_distance > eff_tol) {
       // Re-arm the success clock: outside tolerance -- sustain must be
       // CONSECUTIVE.
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
