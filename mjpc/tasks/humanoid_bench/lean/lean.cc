@@ -1814,6 +1814,16 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     if (posture_target[7 + 3] > 0.3 || posture_target[7 + 9] > 0.3)
       leg_gain = GetNumberOrDefault(6.0, model, "crouch_leg_extension_gain");
     for (int li : {1, 3, 7, 9}) residual[counter + li] *= leg_gain;
+  } else {
+    // ★ 2026-09-03 BRACED-PHASE LEG ANCHOR (`brace_leg_gain`, 1 = off = byte-
+    // identical). On the wrist strut the reach rungs slid from the hinge into a
+    // SQUAT (knees 11 -> 27 deg, CoM drifting back, hp199-hp201) and the release
+    // folded into a sit: nothing held the legs while an arm was in contact.
+    // Amplify hip-pitch + knee Posture entries so the legs track the keyframe
+    // (both directions: blocks the squat AND the -6.9 deg lock-out).
+    double bg = GetNumberOrDefault(1.0, model, "brace_leg_gain");
+    if (bg != 1.0)
+      for (int li : {1, 3, 7, 9}) residual[counter + li] *= bg;
   }
   // ★ 2026-08-22 TARGET-PHASE RIGHT-ARM POSTURE MASK (strat 25): during a
   // target-hover phase (reach_target_table set) the RIGHT arm belongs to the
@@ -2606,7 +2616,19 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         com_over = mju_max(0.0, com_x_now - (midfoot_x + com_cap));
       }
     }
-    residual[counter++] = pelvis_band + com_over;
+    // ★ 2026-09-03 CoM HOLD (numeric `brace_com_hold`, m; absent/0 = byte-identical):
+    // one-sided "CoM at least this far ahead of midfoot" while an arm is on the
+    // table -- the post-contact twin of `stand_com_fwd` below. Every backward fall
+    // of hp133-161 shows the CoM walking from +5 cm to -10 cm at a rung fire.
+    double com_hold = GetNumberOrDefault(0.0, model, "brace_com_hold");
+    double com_behind = 0.0;
+    if (com_hold > 0.0) {
+      int pid_h = mj_name2id(model, mjOBJ_BODY, "pelvis");
+      if (pid_h >= 0)
+        com_behind = mju_max(0.0, (midfoot_x + com_hold) -
+                                      data->subtree_com[3 * pid_h + 0]);
+    }
+    residual[counter++] = pelvis_band + com_over + com_behind;
   } else {
     // ★ 2026-08-19 STAND FORWARD-CoM BIAS (free-stand only). The pelvis-forward
     // term above is any_arm_contact-gated, so free standing has NO sagittal

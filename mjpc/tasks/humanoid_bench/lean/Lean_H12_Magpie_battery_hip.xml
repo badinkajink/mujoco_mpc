@@ -1132,7 +1132,9 @@
              when the brace creates the asymmetry. y axis only -- the forward lean
              is untouched. Phases that legitimately stand off-centre carry weight 0. -->
         <numeric name="lateral_center_braced" data="1.0"/>
-        <numeric name="stand_com_fwd" data="0.035"/>
+        <numeric name="stand_com_fwd" data="0.07"/>
+        <numeric name="brace_com_hold" data="0.11"/> <!-- 2026-09-03: 0.11 (with a TRUE belief since hp197) drops the hips onto the rail (hp203 pitch 40 deg -> reach parks 24 cm off); 0.07 = hp202 regime (grasp fired, hips off rail) -->
+        <numeric name="brace_leg_gain" data="4.0"/> <!-- 2026-09-03: hold hip-pitch+knee Posture x4 while braced (anti-squat / anti-sit) --> <!-- 2026-09-03 CoM HOLD post-contact -->
         <!-- lean_commit_retry (2026-08-07): 0 = OFF = BYTE-IDENTICAL. >0 = seconds a
              detected commit STALL (lean/mid phase, tilt 12-28 deg, pad NOT on table,
              >=6 s in phase) must persist before the strategy regresses to stand and
