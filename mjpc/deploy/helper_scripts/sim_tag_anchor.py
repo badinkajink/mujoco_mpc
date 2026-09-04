@@ -26,6 +26,22 @@ import time
 
 import numpy as np
 
+# ★ 2026-09-03 IMU-SITE -> PELVIS. The twin's rt/sportmodestate position is the
+# IMU SITE framepos (unitree_interface.py `frame_pos`), which sits 0.278 m above
+# and 0.045 m behind the pelvis. The v4 aux contract is the world PELVIS xy.
+# Feeding the site as the pelvis latches fine while upright (constant offset)
+# but drags the estimate +12 cm FORWARD once the body pitches 35 deg (the wrist
+# strut): every planner target (pad, CoM hold, reach) was then realised ~12 cm
+# BEHIND where the planner believed (hp192: pad off the rail near edge, CoM hold
+# never real). Convert with the deploy convention base = site - R(imu_quat)*off.
+IMU_OFFSET = np.array([-0.04452, -0.01891, 0.27756])  # deploy_common.h kImuOffset
+
+def _quat2mat(q):
+    w, x, y, z = q
+    return np.array([[1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w)],
+                     [2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w)],
+                     [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)]])
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -51,6 +67,10 @@ def main():
                     help="mean blackout burst length (s) while past --headdown-deg; "
                          "between bursts a ~0.5s publish window opens (matches the "
                          "flickery real accept pattern at grazing angles)")
+    ap.add_argument("--site-is-pelvis", action="store_true",
+                    help="publish the truth position AS-IS (legacy, biased: the twin's "
+                         "sportmodestate is the IMU site, 12 cm ahead of the pelvis at a "
+                         "35 deg lean). Default converts site -> pelvis.")
     ap.add_argument("--frame-offset", type=float, nargs=2, default=[0.0, 0.0],
                     help="2026-08-13: constant xy added to every sample -- "
                          "emulates a mis-latched/mis-calibrated anchor frame "
@@ -68,8 +88,24 @@ def main():
     # (t_mono, xy) ring buffer so the published sample is latency-ms OLD
     buf = collections.deque(maxlen=256)
 
+    quat_latest = {"q": None}
+    if not a.site_is_pelvis:
+        try:
+            from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as _LS
+            def _on_ls_q(msg):
+                quat_latest["q"] = np.array(list(msg.imu_state.quaternion))
+            _lsq = ChannelSubscriber("rt/lowstate", _LS)
+            _lsq.Init(_on_ls_q, 10)
+        except Exception as e:
+            print(f"[simtag] lowstate quat tap failed ({e}) -- publishing the IMU SITE as pelvis (biased!)")
+            a.site_is_pelvis = True
+
     def on_truth(m):
-        buf.append((time.monotonic(), float(m.position[0]), float(m.position[1])))
+        px, py = float(m.position[0]), float(m.position[1])
+        if not a.site_is_pelvis and quat_latest["q"] is not None:
+            roff = _quat2mat(quat_latest["q"]) @ IMU_OFFSET
+            px -= roff[0]; py -= roff[1]
+        buf.append((time.monotonic(), px, py))
 
     sub = ChannelSubscriber(a.truth_topic, SportModeState_)
     sub.Init(on_truth, 20)
@@ -98,7 +134,8 @@ def main():
     gap_until = 0.0
     n, t0, last_note = 0, time.monotonic(), 0.0
     print(f"[simtag] {a.truth_topic} -> {a.aux_topic} mode=2 "
-          f"@{a.rate:.0f}Hz noise {a.noise_mm}mm latency {a.latency_ms:.0f}ms",
+          f"@{a.rate:.0f}Hz noise {a.noise_mm}mm latency {a.latency_ms:.0f}ms "
+          f"{'SITE-AS-PELVIS (legacy)' if a.site_is_pelvis else 'site->pelvis via IMU quat'}",
           flush=True)
     while True:
         time.sleep(1.0 / a.rate)
