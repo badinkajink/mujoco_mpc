@@ -66,6 +66,11 @@ static double s_trim_x = 0.0, s_trim_y = 0.0;
 // A world offset (rather than a table-frame correction) keeps the sign
 // conventions of reach_target_table out of the servo path entirely.
 static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
+// ★ 2026-09-03 servo SETTLED: an accepted detection exists on this pass and
+// the slewed correction has reached it (|want-applied| < 5 mm). Read by the
+// advance gate on `servo_hold` rungs (strat 9): the 5 s hold clock counts
+// only while this is true. Stale/frozen keeps the last value (settled).
+static bool s_servo_settled = false;
 // ★ 2026-08-29 time the grasp CLOSE was fired (-1 = none pending). Lets the
 // fail-soft timeout see a close that the ack machinery could not consume
 // (real 29_33: pad-contact gate HOLD sat in front of the grasp-gate lambda,
@@ -4319,6 +4324,12 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           double e = want[k] - *cur[k];
           *cur[k] += mju_clip(e, -step, step);
         }
+        if (accept && s_have_want) {
+          double emax = 0.0;
+          for (int k = 0; k < 3; ++k)
+            emax = mju_max(emax, mju_abs(want[k] - *cur[k]));
+          s_servo_settled = (emax < 0.005);
+        }
         static double last_note = -1e9;
         if (data->time - last_note > 2.0) {
           last_note = data->time;
@@ -4333,6 +4344,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       last_call_time = data->time;
     } else {
       s_servo_dx = s_servo_dy = s_servo_dz = 0.0;
+      s_servo_settled = false;
       s_servo_reset_outlier = true;
     }
   }
@@ -5090,6 +5102,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
     } else if (total_distance <= eff_tol &&
+               (!current_kf.servo_hold || s_servo_settled) &&
                data->time -
                        motion_strategy_.GetCurrentKeyframeSuccessStartTime() >
                    current_kf.success_sustain_time &&
@@ -5736,7 +5749,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
-    } else if (total_distance > eff_tol) {
+    } else if (total_distance > eff_tol ||
+               (current_kf.servo_hold && !s_servo_settled)) {
       // Re-arm the success clock: outside tolerance -- sustain must be
       // CONSECUTIVE.
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);

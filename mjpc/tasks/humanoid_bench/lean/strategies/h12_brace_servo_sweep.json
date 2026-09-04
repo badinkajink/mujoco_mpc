@@ -691,7 +691,7 @@
    "Body Yaw": 300.0
   },
   "reach_target_table": [
-   0.55,
+   0.53,
    0.16,
    0.045
   ],
@@ -699,7 +699,8 @@
   "servo": true,
   "grasp_close": false,
   "reach_pitch_deg": 30.0,
-  "timeout_advance": true
+  "timeout_advance": true,
+  "servo_hold": true
  },
  {
   "contacts": [

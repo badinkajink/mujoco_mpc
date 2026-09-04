@@ -114,6 +114,14 @@ class ContactKeyframe {
   // deliberately move AWAY from it and must not chase a stale detection.
   bool servo;
 
+  // ★ 2026-09-03 SERVO-SETTLED HOLD (lean strat 9 h12_brace_servo_sweep).
+  // true = this rung's success clock only runs while the servo correction is
+  // SETTLED: at least one accepted detection on this pass and the slew has
+  // reached its wanted value (frozen/stale counts as settled -- the jaws
+  // occlude the tag in the last cm by design). Absent = false = the clock
+  // runs on distance alone = byte-identical.
+  bool servo_hold;
+
   // ★ 2026-08-26 TILTED APPROACH (lean strat 28 "h12_brace_vision_retrieval").
   // Per-keyframe pitch-down [deg] of the gripper approach axis for the
   // "Reach Level" cost. 0 (default) = use the model numeric
@@ -142,6 +150,7 @@ class ContactKeyframe {
         grasp_center(false),
         grasp_close(false),
         servo(false),
+        servo_hold(false),
         reach_pitch_deg(0.),
         timeout_advance(false),
         time_limit(10.),

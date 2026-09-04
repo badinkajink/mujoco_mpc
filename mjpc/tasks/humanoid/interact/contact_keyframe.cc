@@ -50,6 +50,7 @@ void ContactKeyframe::Reset() {
   grasp_center = false;
   grasp_close = false;
   servo = false;
+  servo_hold = false;
   reach_pitch_deg = 0.;
   timeout_advance = false;
 }
@@ -86,6 +87,7 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"grasp_center", keyframe.grasp_center},
            {"grasp_close", keyframe.grasp_close},
            {"servo", keyframe.servo},
+           {"servo_hold", keyframe.servo_hold},
            {"reach_pitch_deg", keyframe.reach_pitch_deg},
            {"timeout_advance", keyframe.timeout_advance}};
 }
@@ -108,6 +110,7 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   keyframe.grasp_center = j.value("grasp_center", false);
   keyframe.grasp_close = j.value("grasp_close", false);
   keyframe.servo = j.value("servo", false);
+  keyframe.servo_hold = j.value("servo_hold", false);
   // ★ 2026-08-26 tilted approach (lean strat 28); absent = 0 = level/global.
   keyframe.reach_pitch_deg = j.value("reach_pitch_deg", 0.);
   // ★ 2026-08-26 fail-soft timeout (lean strat 28); absent = false = reset.
