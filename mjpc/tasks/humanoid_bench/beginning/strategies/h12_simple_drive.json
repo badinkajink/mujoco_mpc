@@ -1,11 +1,86 @@
 [
     {
         "contacts": [
-            { "body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0] },
-            { "body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0] },
-            { "body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0] },
-            { "body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0] },
-            { "body1": -1, "body2": -1, "geom1": -1, "geom2": -1, "local_pos1": [0.0, 0.0, 0.0], "local_pos2": [0.0, 0.0, 0.0] }
+            {
+                "body1": -1,
+                "body2": -1,
+                "geom1": -1,
+                "geom2": -1,
+                "local_pos1": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "local_pos2": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            {
+                "body1": -1,
+                "body2": -1,
+                "geom1": -1,
+                "geom2": -1,
+                "local_pos1": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "local_pos2": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            {
+                "body1": -1,
+                "body2": -1,
+                "geom1": -1,
+                "geom2": -1,
+                "local_pos1": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "local_pos2": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            {
+                "body1": -1,
+                "body2": -1,
+                "geom1": -1,
+                "geom2": -1,
+                "local_pos1": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "local_pos2": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            {
+                "body1": -1,
+                "body2": -1,
+                "geom1": -1,
+                "geom2": -1,
+                "local_pos1": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "local_pos2": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            }
         ],
         "facing_target": [],
         "name": "stumble_trot_drive",
@@ -52,7 +127,7 @@
             "Joint Vel. Limit": 5.0,
             "Knees Straight": 200.0,
             "Gait": 80.0,
-            "Step Place": 6.0,
+            "Step Place": 60.0,
             "Foot Slip": 25.0
         },
         "brace_force_target": 0.0
