@@ -549,7 +549,19 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // is excluded from the table in the model so the pad is the only brace contact.
   // (is_forearm_brace defined at the top of Residual for the any_arm_contact gate.)
   double forearm_site_pos[3];
-  if (is_forearm_brace) {
+  // ★ 2026-09-02 WRIST SEAT: with brace_wrist=1 the SEAT/TIP rungs (forearm_brace_mid /
+  // forearm_brace_tip) must also aim the WRIST PAD, not the gripper `left_hand` site
+  // (+0.15 m beyond the pad). hp115: the planner parked the gripper TIP on the corner
+  // target and held the pad 12 cm back / 5 cm up at 0 N for 240 s (Brace Pos r~0).
+  // brace_wrist absent/0 -> byte-identical.
+  bool wrist_seat_rung = false;
+  {
+    int bw0 = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    wrist_seat_rung = (bw0 >= 0) && model->numeric_data[model->numeric_adr[bw0]] > 0.5 &&
+                      (residual_keyframe_.name == "forearm_brace_mid" ||
+                       residual_keyframe_.name == "forearm_brace_tip");
+  }
+  if (is_forearm_brace || wrist_seat_rung) {
     // ★ 2026-08-28 (battery scene): brace_wrist numeric (default 0 = byte-identical)
     // repoints the brace POSITION to the WRIST brace site instead of the forearm.
     // The ARPA battery pack has no flat span for a forearm brace -- only the thin
@@ -1023,8 +1035,9 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     // The mid rung now holds the SAME target at hover height (a = 0), so the
     // lean rung changes z only. JSON gives the mid rung a Brace Pos weight.
     const bool is_mid_hover = (residual_keyframe_.name == "forearm_brace_mid");
+    const bool is_tip_rung  = (residual_keyframe_.name == "forearm_brace_tip");  // 2026-09-02 WRIST SEAT
     if (bwn2 >= 0 && model->numeric_data[model->numeric_adr[bwn2]] > 0.5 &&
-        (is_forearm_brace || is_mid_hover)) {
+        (is_forearm_brace || is_mid_hover || is_tip_rung)) {
       double hover = GetNumberOrDefault(0.12, model, "brace_hover");
       // ★ br43: the targets are for the wrist pad CAPSULE CENTRE, which sits
       // one pad radius above the surface when touching -- the legacy offsets
@@ -1040,7 +1053,7 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       }
       double z_hi = table_face_z + pad_r + hover;         // start of the rung
       double z_lo = ideal_brace[2] + pad_r;               // press target (centre)
-      double a = is_forearm_brace ? alpha_lin : 0.0;      // 0..1 over target_ramp_sec
+      double a = (is_forearm_brace || is_tip_rung) ? alpha_lin : 0.0;  // 0..1 over target_ramp_sec (tip descends too, 2026-09-02)
       ideal_brace[2] = z_hi + a * (z_lo - z_hi);
       // ★ br49: hover BEHIND the rail (brace_hover_back, m) so a lagging arm
       // sweeping down through the squat cannot catch the rail's near edge
@@ -1262,7 +1275,11 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // projection). That's preserved here for the no-arm-contact sub-case;
   // with arm contact during leg-lift we use the {L_foot, R_hand} line.
   double pcp[3];
-  if (any_arm_contact) {
+  // ★ 2026-09-02 WRIST SEAT: pre-contact fallback projects the capture point onto the
+  // inter-ANKLE LINE, charging the standing hip hinge (CoM +5..7 cm, inside the 13 cm
+  // sole) as a full balance error (hp117/118 hinge parked at 9 deg, pad 6 cm above the
+  // corner). Use the sole hull on the wrist seat/tip rungs too (brace_wrist gated).
+  if (any_arm_contact || wrist_seat_rung) {
     // L_foot + R_foot + R_hand triangle, with a LOAD-LIMITED hand vertex.
     //
     // MARGIN FIX (2026-05-26): the hand vertex used bracing_hand UNCONDITIONALLY
