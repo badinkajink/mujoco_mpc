@@ -4105,9 +4105,13 @@ static int s_wedge_retries = 0;
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr int kRtRows = 18;   // 2 pads x 3 + 2 feet x 6
-constexpr int kRtMaxSel = 32;
+constexpr int kRtRows = 18;      // 2 pads x 3 + 2 feet x 6
+constexpr int kRtRowsReach = 21;  // ... + the reaching jaw tip x 3
+constexpr int kRtMaxSel = 40;
 constexpr int kRtMaxNv = 96;
+
+// kGripperTipLocal is file-static above; repeat the value here would drift, so
+// the reach constraint reads that one.
 
 // The strategy-25 brace ladder. `forearm_brace_mid` is deliberately absent: it
 // is the battery variants' hover rung, its pad sits 0.30 m further onto the
@@ -4126,7 +4130,8 @@ void RtQuatErr(const mjtNum *qa, const mjtNum *qb, mjtNum *res) {
 // Collect the dofs the retarget is allowed to move: the floating base, both
 // legs, the waist, and the BRACING arm. The reaching arm is left exactly as
 // authored -- its pose is the reach solve, not ours.
-int RtSelectDofs(const mjModel *model, bool brace_left, int *sel) {
+int RtSelectDofs(const mjModel *model, bool brace_left, bool with_reach,
+                 int *sel) {
   int n = 0;
   for (int j = 0; j < model->njnt && n < kRtMaxSel; j++) {
     if (model->jnt_type[j] != mjJNT_FREE) continue;
@@ -4152,41 +4157,65 @@ int RtSelectDofs(const mjModel *model, bool brace_left, int *sel) {
     int j = mj_name2id(model, mjOBJ_JOINT, jn.c_str());
     if (j >= 0 && n < kRtMaxSel) sel[n++] = model->jnt_dofadr[j];
   }
+  // ★ brace_pose_track 2: the REACHING arm joins, so its jaw tip can be shifted
+  // with the slab too. Without this the trunk follows the slab and the reaching
+  // arm does not, and the rung-2 advance target -- face + 0.15 m, graded against
+  // that jaw tip -- drifts away from where the shipped pose leaves the hand:
+  // measured offline, 142 mm at the compiled height, 231 mm at 0.885 and 330 mm
+  // at 0.785. With the tip constrained it is 142-146 mm at every height.
+  if (with_reach) {
+    for (const char *suf : arm) {
+      std::string jn = std::string(brace_left ? "right" : "left") + suf;
+      int j = mj_name2id(model, mjOBJ_JOINT, jn.c_str());
+      if (j >= 0 && n < kRtMaxSel) sel[n++] = model->jnt_dofadr[j];
+    }
+  }
   return n;
 }
 
 // One keyframe. Returns the final max |residual| in metres (or -1 if the model
 // is missing a name the solve needs).
 double RtSolveKey(const mjModel *model, mjData *d, const mjtNum *q_ship,
-                  double dz, bool brace_left, mjtNum *q_out) {
+                  double dz, bool brace_left, bool with_reach, mjtNum *q_out) {
   int pad = mj_name2id(model, mjOBJ_GEOM,
                        brace_left ? "left_forearm_pad" : "right_forearm_pad");
   int pad2 = mj_name2id(model, mjOBJ_GEOM,
                         brace_left ? "left_wrist_pad" : "right_wrist_pad");
   int foot[2] = {mj_name2id(model, mjOBJ_BODY, "left_ankle_roll_link"),
                  mj_name2id(model, mjOBJ_BODY, "right_ankle_roll_link")};
+  int grip = mj_name2id(model, mjOBJ_BODY,
+                        brace_left ? "right_magpie_gripper"
+                                   : "left_magpie_gripper");
   if (pad < 0 || pad2 < 0 || foot[0] < 0 || foot[1] < 0) return -1.0;
+  if (with_reach && grip < 0) return -1.0;
   if (model->nv > kRtMaxNv) return -1.0;
 
   int sel[kRtMaxSel];
-  const int ns = RtSelectDofs(model, brace_left, sel);
+  const int ns = RtSelectDofs(model, brace_left, with_reach, sel);
   if (ns < 12) return -1.0;
+  const int nrow = with_reach ? kRtRowsReach : kRtRows;
 
   // targets and foot references, taken at the SHIPPED pose
   mju_copy(d->qpos, q_ship, model->nq);
   mju_zero(d->qvel, model->nv);
   mj_kinematics(model, d);
   mj_comPos(model, d);
-  mjtNum tgt[3], tgt2[3], fpos[2][3], fquat[2][4];
+  mjtNum tgt[3], tgt2[3], tgt3[3], fpos[2][3], fquat[2][4];
   mju_copy3(tgt, d->geom_xpos + 3 * pad);    tgt[2] += dz;
   mju_copy3(tgt2, d->geom_xpos + 3 * pad2);  tgt2[2] += dz;
+  if (with_reach) {
+    mju_mulMatVec3(tgt3, d->xmat + 9 * grip, kGripperTipLocal);
+    mju_addTo3(tgt3, d->xpos + 3 * grip);
+    tgt3[2] += dz;
+  }
   for (int k = 0; k < 2; k++) {
     mju_copy3(fpos[k], d->xpos + 3 * foot[k]);
     mju_copy4(fquat[k], d->xquat + 4 * foot[k]);
   }
 
   mjtNum jp[3 * kRtMaxNv], jr[3 * kRtMaxNv];
-  mjtNum J[kRtRows * kRtMaxSel], JJt[kRtRows * kRtRows], r[kRtRows], y[kRtRows];
+  mjtNum J[kRtRowsReach * kRtMaxSel], JJt[kRtRowsReach * kRtRowsReach];
+  mjtNum r[kRtRowsReach], y[kRtRowsReach];
   mjtNum dq[kRtMaxSel], bias[kRtMaxSel], e[kRtMaxNv], step[kRtMaxNv];
   double worst = 0.0;
 
@@ -4200,8 +4229,14 @@ double RtSolveKey(const mjModel *model, mjData *d, const mjtNum *q_ship,
       mju_sub3(r + 6 + 6 * k, d->xpos + 3 * foot[k], fpos[k]);
       RtQuatErr(fquat[k], d->xquat + 4 * foot[k], r + 9 + 6 * k);
     }
+    if (with_reach) {
+      mjtNum tip[3];
+      mju_mulMatVec3(tip, d->xmat + 9 * grip, kGripperTipLocal);
+      mju_addTo3(tip, d->xpos + 3 * grip);
+      mju_sub3(r + 18, tip, tgt3);
+    }
     worst = 0.0;
-    for (int i = 0; i < kRtRows; i++) worst = mju_max(worst, mju_abs(r[i]));
+    for (int i = 0; i < nrow; i++) worst = mju_max(worst, mju_abs(r[i]));
     if (worst < 1e-7) break;
 
     mj_jacGeom(model, d, jp, jr, pad);
@@ -4219,21 +4254,37 @@ double RtSolveKey(const mjModel *model, mjData *d, const mjtNum *q_ship,
         }
     }
 
+    if (with_reach) {
+      // point Jacobian of the jaw tip: J_p = jp + jr x off  (v = v_body + w x off)
+      mjtNum off[3];
+      mju_mulMatVec3(off, d->xmat + 9 * grip, kGripperTipLocal);
+      mj_jacBody(model, d, jp, jr, grip);
+      for (int c = 0; c < ns; c++) {
+        const int k = sel[c];
+        mjtNum w[3] = {jr[0 * model->nv + k], jr[1 * model->nv + k],
+                       jr[2 * model->nv + k]};
+        mjtNum cr[3];
+        mju_cross(cr, w, off);
+        for (int i = 0; i < 3; i++)
+          J[(18 + i) * ns + c] = jp[i * model->nv + k] + cr[i];
+      }
+    }
+
     // (J J^T + lambda I) y = r   ->   dq = -J^T y  (damped least squares)
-    mju_mulMatMatT(JJt, J, J, kRtRows, ns, kRtRows);
-    for (int i = 0; i < kRtRows; i++) JJt[i * kRtRows + i] += 1e-3;
-    if (mju_cholFactor(JJt, kRtRows, 0.0) < kRtRows) break;
-    mju_cholSolve(y, JJt, r, kRtRows);
-    mju_mulMatTVec(dq, J, y, kRtRows, ns);
+    mju_mulMatMatT(JJt, J, J, nrow, ns, nrow);
+    for (int i = 0; i < nrow; i++) JJt[i * nrow + i] += 1e-3;
+    if (mju_cholFactor(JJt, nrow, 0.0) < nrow) break;
+    mju_cholSolve(y, JJt, r, nrow);
+    mju_mulMatTVec(dq, J, y, nrow, ns);
     mju_scl(dq, dq, -1.0, ns);
 
     // null-space pull back toward the shipped pose: dq += (I - J^+ J) (-k e)
     mj_differentiatePos(model, e, 1.0, q_ship, d->qpos);
     for (int c = 0; c < ns; c++) bias[c] = -0.02 * e[sel[c]];
-    mju_mulMatVec(r, J, bias, kRtRows, ns);      // r reused as scratch
-    mju_cholSolve(y, JJt, r, kRtRows);
+    mju_mulMatVec(r, J, bias, nrow, ns);        // r reused as scratch
+    mju_cholSolve(y, JJt, r, nrow);
     mjtNum proj[kRtMaxSel];
-    mju_mulMatTVec(proj, J, y, kRtRows, ns);
+    mju_mulMatTVec(proj, J, y, nrow, ns);
     for (int c = 0; c < ns; c++) dq[c] += bias[c] - proj[c];
 
     mju_zero(step, model->nv);
@@ -4328,8 +4379,9 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           // ★ 2026-09-05 re-solve the brace posture keyframes for the new slab
           // (`brace_pose_track`, 0 = OFF = byte-identical). See the block above
           // RtSolveKey for why the shipped poses cannot serve another height.
-          if (GetNumberOrDefault(0.0, model, "brace_pose_track") > 0.5 &&
-              brace_face_nominal_ > 0.0) {
+          const double pose_track =
+              GetNumberOrDefault(0.0, model, "brace_pose_track");
+          if (pose_track > 0.5 && brace_face_nominal_ > 0.0) {
             if (brace_key_ids_.empty()) {
               for (const char *kn : kRtKeys) {
                 int ki = mj_name2id(model, mjOBJ_KEY, kn);
@@ -4348,10 +4400,17 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
             for (size_t i = 0; i < brace_key_ids_.size(); i++) {
               const int ki = brace_key_ids_[i];
               const mjtNum *ship = brace_key_shipped_.data() + i * model->nq;
-              const double err =
-                  RtSolveKey(model, scratch, ship, dface, brace_left, qn.data());
+              const double err = RtSolveKey(model, scratch, ship, dface,
+                                            brace_left, pose_track > 1.5,
+                                            qn.data());
               const char *kn = mj_id2name(model, mjOBJ_KEY, ki);
-              if (err < 0.0 || err > 5e-3) {
+              // 25 mm, not 5: with the reaching arm constrained too
+              // (`brace_pose_track` 2) a right-arm joint limit binds at the low
+              // end and the best solve is 8-10 mm. Falling back to the SHIPPED
+              // pose there would be strictly worse than accepting it, since the
+              // shipped pose is 200 mm off. Only a genuinely failed solve should
+              // take the fallback.
+              if (err < 0.0 || err > 25e-3) {
                 std::fprintf(stderr,
                              "[brace-pose-track] %s: solve returned %.1f mm -- "
                              "keyframe LEFT at the shipped pose\n",
@@ -4370,9 +4429,9 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                           std::asin(sp) * 180.0 / mjPI);
             }
             mj_deleteData(scratch);
-            std::printf("[brace-pose-track] face %.3f m, delta %+.0f mm from the "
-                        "compiled %.3f m\n",
-                        table_h, 1000.0 * dface, brace_face_nominal_);
+            std::printf("[brace-pose-track] mode %.0f, face %.3f m, delta %+.0f mm "
+                        "from the compiled %.3f m\n",
+                        pose_track, table_h, 1000.0 * dface, brace_face_nominal_);
           }
         }
         table_h_applied_ = table_h;

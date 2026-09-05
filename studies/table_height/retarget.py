@@ -30,6 +30,15 @@ DEFAULT_XML = os.path.join(
 # Base (6) + both legs (12) + torso yaw (1) + LEFT arm (7). The right arm is the
 # reaching arm and is left exactly as authored; the object dofs are untouched.
 SEL = list(range(0, 6)) + list(range(6, 18)) + [18] + list(range(19, 26))
+# `--reach` (brace_pose_track 2) additionally frees the REACHING arm and shifts
+# its jaw tip by the same delta, so the rung-2 advance target -- which is
+# face + 0.15 m -- keeps the same offset from the tip that it has at the
+# compiled height. Without it the trunk follows the slab and the reaching arm
+# does not: measured, the tip's error to that target grows from 142 mm at the
+# compiled slab to 231 mm at 0.885 m and 330 mm at 0.785 m.
+SEL_REACH = SEL + list(range(26, 33))
+# kGripperTipLocal, lean.cc: jaw_a's far corner in the gripper body frame.
+TIP_LOCAL = np.array([0.2254, -0.0118, -0.1062])
 KEYS = ("forearm_brace_lean", "forearm_brace_reach", "forearm_brace_release")
 # Both brace pads are constrained, not just the elbow: seating the forearm pad
 # alone leaves the wrist free to rotate, and the null-space pull then parks the
@@ -68,41 +77,59 @@ def quat_err(q_cur, q_tgt):
     return v
 
 
-def solve(m, q0, target_pad, target_pad2, iters=600, damp=1e-3, null_k=0.02):
-    """Gauss-Newton on [both pads xyz, both feet 6-dof], null-space pull to q0."""
+def tip_pos(m, d, grip):
+    return d.xpos[grip] + d.xmat[grip].reshape(3, 3) @ TIP_LOCAL
+
+
+def solve(m, q0, target_pad, target_pad2, target_tip=None,
+          iters=600, damp=1e-3, null_k=0.02):
+    """Gauss-Newton on [both pads xyz, both feet 6-dof], null-space pull to q0.
+
+    With `target_tip` the reaching arm's jaw tip is constrained too and its
+    joints join the selection.
+    """
+    sel = SEL_REACH if target_tip is not None else SEL
     d = mujoco.MjData(m)
     pad = nid(m, mujoco.mjtObj.mjOBJ_GEOM, PAD)
     pad2 = nid(m, mujoco.mjtObj.mjOBJ_GEOM, PAD2)
+    grip = nid(m, mujoco.mjtObj.mjOBJ_BODY,
+               "right_magpie_gripper" if PAD.startswith("left")
+               else "left_magpie_gripper")
     feet = [nid(m, mujoco.mjtObj.mjOBJ_BODY, b) for b in FEET]
     d.qpos[:] = q0
     mujoco.mj_kinematics(m, d); mujoco.mj_comPos(m, d)
     ref = [(d.xpos[b].copy(), d.xquat[b].copy()) for b in feet]
     jp = np.zeros((3, m.nv)); jr = np.zeros((3, m.nv))
-    r = np.zeros(18)
+    r = np.zeros(18 if target_tip is None else 21)
     for _ in range(iters):
         # mj_jac* read d.cdof, which mj_comPos fills -- kinematics alone leaves the
         # Jacobian identically zero and the solver silently returns the input pose.
         mujoco.mj_kinematics(m, d); mujoco.mj_comPos(m, d)
         res = [d.geom_xpos[pad] - target_pad]
         mujoco.mj_jacGeom(m, d, jp, jr, pad)
-        J = [jp[:, SEL].copy()]
+        J = [jp[:, sel].copy()]
         res.append(d.geom_xpos[pad2] - target_pad2)
         mujoco.mj_jacGeom(m, d, jp, jr, pad2)
-        J.append(jp[:, SEL].copy())
+        J.append(jp[:, sel].copy())
+        if target_tip is not None:
+            res.append(tip_pos(m, d, grip) - target_tip)
+            mujoco.mj_jacBody(m, d, jp, jr, grip)
+            off = d.xmat[grip].reshape(3, 3) @ TIP_LOCAL
+            J.append((jp[:, sel] + np.cross(jr[:, sel].T, off).T).copy())
         for k, b in enumerate(feet):
             res.append(d.xpos[b] - ref[k][0])
             res.append(-quat_err(d.xquat[b], ref[k][1]))
             mujoco.mj_jacBody(m, d, jp, jr, b)
-            J.append(jp[:, SEL].copy()); J.append(jr[:, SEL].copy())
+            J.append(jp[:, sel].copy()); J.append(jr[:, sel].copy())
         r = np.concatenate(res); Jm = np.vstack(J)
         if np.max(np.abs(r)) < 1e-7:
             break
         JJt = Jm @ Jm.T + damp * np.eye(Jm.shape[0])
         dq_task = -Jm.T @ np.linalg.solve(JJt, r)
         e = np.zeros(m.nv); mujoco.mj_differentiatePos(m, e, 1.0, q0, d.qpos)
-        proj = np.eye(len(SEL)) - Jm.T @ np.linalg.solve(JJt, Jm)
-        dq = dq_task + proj @ (-null_k * e[SEL])
-        full = np.zeros(m.nv); full[SEL] = np.clip(dq, -0.15, 0.15)
+        proj = np.eye(len(sel)) - Jm.T @ np.linalg.solve(JJt, Jm)
+        dq = dq_task + proj @ (-null_k * e[sel])
+        full = np.zeros(m.nv); full[sel] = np.clip(dq, -0.15, 0.15)
         mujoco.mj_integratePos(m, d.qpos, full, 1.0)
         for j in range(1, m.njnt):
             if m.jnt_limited[j]:
@@ -192,6 +219,9 @@ def main():
     ap.add_argument("--face", type=float)
     ap.add_argument("--xml", default=DEFAULT_XML)
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--reach", action="store_true",
+                    help="also shift the reaching arm's jaw tip by the same "
+                         "delta (brace_pose_track 2)")
     ap.add_argument("--restore", action="store_true")
     ap.add_argument("--keys", default=",".join(KEYS))
     a = ap.parse_args()
@@ -225,7 +255,11 @@ def main():
         d = mujoco.MjData(m); d.qpos[:] = q0; mujoco.mj_kinematics(m, d)
         tgt = d.geom_xpos[pad].copy(); tgt[2] += delta
         tgt2 = d.geom_xpos[pad2].copy(); tgt2[2] += delta
-        q, err = solve(m, q0, tgt, tgt2)
+        tip = None
+        if a.reach:
+            grip = nid(m, mujoco.mjtObj.mjOBJ_BODY, "right_magpie_gripper")
+            tip = tip_pos(m, d, grip).copy(); tip[2] += delta
+        q, err = solve(m, q0, tgt, tgt2, tip)
         dg = diagnose(m, q, a.face)
         new_q[kn] = q
         e = np.zeros(m.nv); mujoco.mj_differentiatePos(m, e, 1.0, q0, q)

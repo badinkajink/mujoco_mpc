@@ -89,6 +89,61 @@ def lead_table(lead):
             "<tbody>%s</tbody></table></div>" % body)
 
 
+
+def gate_table(gate):
+    got = [r for r in gate if r["closest_mm"] is not None]
+    rows = sorted(got, key=lambda r: (r["h"], r["label"], r["seed"]))
+    body = "".join(
+        "<tr><td>%.3f m / %s / s%d</td><td class=%s>%s</td><td>%.0f</td>"
+        "<td>%+.0f</td><td>%+.0f</td><td>%+.0f</td></tr>"
+        % (r["h"], r["label"], r["seed"], STAT[r["outcome"]], r["outcome"],
+           r["closest_mm"], r["dx_mm"], r["dy_mm"], r["dz_mm"]) for r in rows)
+    miss = [r for r in gate if r["closest_mm"] is None]
+    tail = ("" if not miss else
+            "<p class=meta>%d further runs never entered rung 2 at all "
+            "(%s).</p>" % (len(miss), ", ".join(
+                sorted({"%.3f m %s" % (r["h"], r["label"]) for r in miss}))))
+    return ("<div class=scroll><table><thead><tr><th>run</th><th>outcome</th>"
+            "<th>closest (mm)</th><th>dx</th><th>dy</th><th>dz</th></tr></thead>"
+            "<tbody>%s</tbody></table></div>%s" % (body, tail))
+
+
+def gate_claim(gate):
+    got = [r for r in gate if r["closest_mm"] is not None]
+    inside = [r for r in got if r["closest_mm"] <= 70.0]
+    outside = [r for r in got if r["closest_mm"] > 70.0]
+    ok_in = sum(1 for r in inside if r["outcome"] == "complete")
+    ok_out = sum(1 for r in outside if r["outcome"] == "complete")
+    cls = "ok" if (ok_in == len(inside) and ok_out == 0) else ""
+    return ('<div class="note %s"><b>The gate separates the outcomes '
+            'completely.</b> %d of %d runs that came within 70 mm completed the '
+            'ladder; %d of %d that did not, completed. The working window is the '
+            'set of slab heights at which that reach can be made, and the target '
+            'moves with the slab through the <code>face + 0.15 m</code> term '
+            'while nothing about the reaching arm does.</div>'
+            % (cls, ok_in, len(inside), ok_out, len(outside)))
+
+
+def m2_table(m2, off):
+    O = {round(x["h"], 3): x for x in (off or [])}
+    rows = []
+    for x in m2:
+        b = O.get(round(x["h"], 3))
+        cell = lambda v: ("&mdash;" if v is None else
+                          '<span class=%s>%d / %d</span>'
+                          % ("good" if v["complete"] == v["n"] else
+                             "bad" if v["complete"] == 0 else "hold",
+                             v["complete"], v["n"]))
+        rows.append("<tr><td>%.3f m</td><td>%s</td><td>%s</td><td>%s</td>"
+                    "<td>%s</td></tr>"
+                    % (x["h"], cell(b), cell(x), num(x["f_forearm_peak"]),
+                       num(x["t_end"], "%.0f")))
+    return ("<div class=scroll><table><thead><tr><th>table face</th>"
+            "<th>shipped</th><th>pose_track 2</th><th>forearm peak (N)</th>"
+            "<th>t end (s)</th></tr></thead><tbody>%s</tbody></table></div>"
+            % "".join(rows))
+
+
 def _by_h(agg):
     return {round(x["h"], 3): x for x in agg}
 
@@ -190,6 +245,7 @@ def main():
     ap.add_argument("--on", default="")
     ap.add_argument("--figs_rel", default="media/pose")
     ap.add_argument("--media", default="")
+    ap.add_argument("--mode2", default="")
     ap.add_argument("--lead_on", default="")
     ap.add_argument("--lead_off", default="")
     ap.add_argument("--baseline_page", default="20260904-table_height_generalization.html")
@@ -204,6 +260,8 @@ def main():
     lead_on = load(a.lead_on, "agg.json")
     lead_off = load(a.lead_off, "agg.json")
     lead = load(a.figs, "lead.json")
+    gate = load(a.figs, "gate.json")
+    m2 = load(a.mode2, "agg.json")
     R = a.figs_rel
 
     nom = pose["nominal_face"]
@@ -371,7 +429,7 @@ def main():
       "<code>--pose_track 1</code>, so machine state drifts through both "
       "equally. Three seeds per height, <code>--threads 6</code>, "
       "<code>--spp 3</code> (33 Hz plan rate, the rate the deploy node runs at), "
-      "75 s cap, serial under a <code>CPUQuota=700%%</code> scope.</p>")
+      "75 s cap, serial under a <code>CPUQuota=700%</code> scope.</p>")
     A("<div class=note warn><b>The pairing is not optional.</b> MJPC's sampling "
       "planner draws noise from a generator shared across the thread pool, so a "
       "rollout is not a function of (config, seed): two identical invocations "
@@ -382,12 +440,44 @@ def main():
 
     A("<h2>Results</h2>")
     A(ab_table(off, on))
+    A("<p>The window does not move. Both arms complete 3/3 at the compiled "
+      "height and 0/3 at 0.785 m, 0.885 m and 1.085 m. At 1.035 m the arms read "
+      "2/3 and 1/3, which at three seeds is one run and is not a difference. "
+      "What does move is the brace itself: the forearm spends more of the rung "
+      "in contact at every failing height, and at 1.085 m it goes from carrying "
+      "nothing at all to 34% of the rung with a real peak load. The pose reaches "
+      "the slab. The run still does not survive, so the block is downstream of "
+      "the seat.</p>")
     if off and on:
         A(fig("fig_bench",
               "Every headline metric against slab height, both arms. Solid is "
               "the retarget on, dashed is the shipped controller, three seeds "
               "each.", R))
         A(verdicts(off, on, nom))
+
+    if gate:
+        A("<h2>The gate the runs actually die at</h2>")
+        A("<p>Every failing height enters rung 2 &mdash; the targeting rung &mdash; "
+          "and never leaves it. That rung carries "
+          "<code>reach_target_table</code> [0.55, 0.04, 0.15], so "
+          "<code>TransitionLocked</code> builds its advance target from the slab "
+          "(near edge + 0.55 in x, table centre &minus; 0.04 in y, face + 0.15 in "
+          "z) and advances when the RIGHT gripper jaw tip holds within "
+          "<code>target_distance_tolerance</code> = 70 mm of it for 2 s. Cost and "
+          "gate grade the same point, and the repo's own note that this tolerance "
+          "is dead on every lean phase stopped being true when the targeting "
+          "rungs landed.</p>")
+        A(gate_table(gate))
+        A(fig("fig_gate",
+              "Left: closest approach of the jaw tip to that target, per run, "
+              "replayed from the logged qpos; the band is the 70 mm tolerance. "
+              "Right: which axis is short, median over the runs at each height.",
+              R))
+        A(gate_claim(gate))
+        A("<p>Both levers so far act on x. Neither acts on z, and z is short by "
+          "about a hundred millimetres at both failing ends &mdash; because the "
+          "retarget deliberately freezes the reaching arm at the authored pose "
+          "while the trunk follows the slab.</p>")
 
     A("<h2>A second lever the model already carries</h2>")
     A("<p><code>lean.cc</code> defines <b>Brace Reach Lead</b>: a one-sided "
@@ -418,6 +508,24 @@ def main():
           "result says whether either lever is sufficient alone. 1.085 m is left "
           "out: its peak base x is 0.196 m, so the term is inert there by "
           "construction and the high-end failure is a backward one.</div>")
+
+    A("<h2>Letting the reaching arm track the slab too</h2>")
+    A("<p><code>brace_pose_track</code> = 2 adds one constraint to the same "
+      "solve: the reaching arm's jaw tip shifts by the same (face &minus; "
+      "compiled face) as the pads, and its seven joints join the selection. "
+      "Offline the tip's error to the rung-2 target then reads 142&ndash;146 mm "
+      "at every slab from 0.735 to 1.135 m &mdash; the value it has at the "
+      "compiled height, where the reach cost closes it &mdash; against "
+      "121&ndash;371 mm with the arm frozen. The value on the numeric changes; "
+      "nothing else does.</p>")
+    if m2:
+        A(m2_table(m2, off))
+    else:
+        A("<div class=note><b>Running.</b> Four heights x 3 seeds at "
+          "<code>--pose_track 2</code>. The low end is approximate: a right-arm "
+          "joint limit binds below 0.8 m and the solve lands 8&ndash;10 mm off "
+          "instead of under 0.2 mm, which is why the accept threshold in "
+          "lean.cc is 25 mm rather than 5.</div>")
 
     if off and on:
         A("<h2>What this does not settle</h2>")

@@ -27,25 +27,28 @@ for D in ab/off ab/on lead/off lead/on; do
   [ -s $S/runs/$D/summary.csv ] && RUNS="$RUNS $(echo $D | tr / -)=$S/runs/$D"
 done
 $S/analyze_lead.py --runs $RUNS --out $S/figs || true
+$S/analyze_gate.py --runs $RUNS --out $S/figs || true
+[ -s $S/runs/mode/mode2/summary.csv ] && $S/analyze.py --runs $S/runs/mode/mode2 --out $S/figs_mode2 || true
 $S/render_pose.py --out $S/figs/fig_poses.png || true
 
 for H in 0785 0885 0985 1035 1085; do
   Q=$S/runs/ab/on/h${H}_s0.qpos.csv
   [ -f "$Q" ] || continue
   [ -f "$MEDIA/on_h${H}_s0.mp4" ] && continue
-  FACE=$(python3 -c "print('%.3f'%(${H}/1000.0))")
+  FACE=$(python3 -c "print('%.3f' % (int('${H}') / 1000.0))")
   $S/render_video.py --qpos $Q --states $S/runs/ab/on/h${H}_s0.csv \
       --table_h $FACE --out $MEDIA/on_h${H}_s0.mp4 || true
 done
 
 cp $S/figs/fig_keyframe*.png $S/figs/fig_pose.png $S/figs/fig_pose.dark.png \
    $S/figs/fig_mode*.png $S/figs/fig_armreach*.png $S/figs/fig_poses*.png \
-   $S/figs/fig_lead*.png $MEDIA/ 2>/dev/null
+   $S/figs/fig_lead*.png $S/figs/fig_gate*.png $MEDIA/ 2>/dev/null
 [ -f $S/figs_ab_on/fig_bench.png ] && cp $S/figs_ab_on/fig_bench*.png \
    $S/figs_ab_on/fig_pad*.png $S/figs_ab_on/fig_balance*.png $MEDIA/ 2>/dev/null
 
 $S/make_page_pose.py --figs $S/figs \
    $( [ -f $S/figs_ab_off/agg.json ] && echo "--off $S/figs_ab_off" ) \
    $( [ -f $S/figs_ab_on/agg.json ] && echo "--on $S/figs_ab_on" ) \
+   $( [ -f $S/figs_mode2/agg.json ] && echo "--mode2 $S/figs_mode2" ) \
    $LEAD_ARGS --figs_rel media/pose --media $MEDIA --out $PAGE
 echo "=== PUBLISHED $(date +%H:%M) -> $PAGE ==="

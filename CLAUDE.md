@@ -105,9 +105,20 @@ h12_control_node --task "Lean H12 Magpie" --strategy 6   # documented deploy inv
 Measured 2026-08-26 (`docs/lean/2026-08-26_schedule_cost.html`), still true:
 - **`target_ramp_sec` is NOT additive wall-clock.** It drives target-pose
   interpolation concurrently with the sustain and does not gate the advance.
-- **`target_distance_tolerance` is dead on every lean phase** -- no keyframe
-  declares a real contact pair, so `total_distance` is identically 0.
 - **`brace_contact_verify` (2.0 s) is what actually gates the brace rungs.**
+- ⚠ **`target_distance_tolerance` is NOT dead on a rung that carries
+  `reach_target_table`.** The 2026-08-26 note said it was, on the grounds that no
+  keyframe declares a real contact pair so `total_distance` is identically 0.
+  That stopped being true when the targeting rungs landed: for a keyframe with
+  `reach_target_table`, `TransitionLocked` overwrites `total_distance` with the
+  distance from the RIGHT gripper jaw tip (`kGripperTipLocal`, 0.2254 m past the
+  gripper body origin) to a point built from the slab -- near edge + rtt[0],
+  table centre - rtt[1], face + rtt[2] -- and the tolerance is the gate.
+  Strategy 25 rung 2 is `[0.55, 0.04, 0.15]` with tolerance 0.07.
+  **Measured 2026-09-05** over 21 runs of the table-height study, replayed from
+  the qpos dumps: every run whose jaw tip came within 70 mm of that point
+  completed the ladder, and every run that did not, failed. It is the gate the
+  height sweep dies at, and it is height-dependent through `face + 0.15`.
 
 `lean_simple_gripper.cc` is a red herring: not in `mjpc/CMakeLists.txt`, not
 registered in `tasks.cc`, and it defines the same symbols as `lean.cc` so it could
