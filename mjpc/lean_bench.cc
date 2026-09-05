@@ -16,6 +16,7 @@
 //   lean_bench --task "Lean H12 Magpie" --strategy 25 --table_h 0.86 --seed 0
 //              --total_time 120 --out run.csv [--qpos_out qpos.csv] [--threads 6]
 //              [--pose_track 1]   re-solve the brace keyframes for the slab
+//              [--numeric name=value ...]  override any model <numeric>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -25,6 +26,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include <mujoco/mujoco.h>
 
@@ -96,6 +98,22 @@ int main(int argc, char** argv) {
   // arms of a comparison differ by one value rather than by two model files.
   const double pose_track =
       std::atof(Arg(argc, argv, "--pose_track", "-1").c_str());
+  // `--numeric name=value`, repeatable: any model <numeric> can be overridden
+  // from the command line, so an A/B differs by one value on one line rather
+  // than by two model files. `--pose_track` is the same mechanism, kept because
+  // it is the one every sweep in this study uses.
+  std::vector<std::pair<std::string, double>> numeric_over;
+  for (int i = 1; i + 1 < argc; i++) {
+    if (std::strcmp(argv[i], "--numeric") != 0) continue;
+    std::string kv = argv[i + 1];
+    size_t eq = kv.find('=');
+    if (eq == std::string::npos) {
+      std::fprintf(stderr, "[bench] --numeric wants name=value, got '%s'\n",
+                   kv.c_str());
+      return 2;
+    }
+    numeric_over.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1));
+  }
 
   mjpc::Agent agent;
   agent.SetTaskList(mjpc::GetTasks());
@@ -116,6 +134,16 @@ int main(int argc, char** argv) {
     }
     model->numeric_data[model->numeric_adr[n]] = pose_track;
     std::fprintf(stderr, "[bench] brace_pose_track = %.1f\n", pose_track);
+  }
+  for (const auto& kv : numeric_over) {
+    int n = mj_name2id(model, mjOBJ_NUMERIC, kv.first.c_str());
+    if (n < 0) {
+      std::fprintf(stderr, "[bench] --numeric: no such numeric '%s'\n",
+                   kv.first.c_str());
+      return 2;
+    }
+    model->numeric_data[model->numeric_adr[n]] = kv.second;
+    std::fprintf(stderr, "[bench] %s = %g\n", kv.first.c_str(), kv.second);
   }
   mjData* data = mj_makeData(model);
 

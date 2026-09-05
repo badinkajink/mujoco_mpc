@@ -70,21 +70,26 @@ def main():
 
     n = len(hs)
     bar = 34
-    sheet = Image.new("RGB", (W * n, (H + bar) * 2), "#fcfcfb")
-    dr = ImageDraw.Draw(sheet)
     try:
         font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 21)
     except OSError:
         font = ImageFont.load_default()
-    for i, im in enumerate(cells):
-        x, y = (i % n) * W, (i // n) * (H + bar)
-        dr.text((x + 10, y + 7), labels[i], fill="#0b0b0b", font=font)
-        sheet.paste(im, (x, y + bar))
-        dr.rectangle([x, y + bar, x + W - 1, y + bar + H - 1], outline="#e1e0d9")
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    sheet.save(a.out)
-    print("wrote", a.out, sheet.size)
+    # light and dark surrounds: the rendered scene is the same either way, only
+    # the label bar and the cell borders follow the page's palette.
+    for suffix, ink in ((".png", ("#fcfcfb", "#0b0b0b", "#e1e0d9")),
+                        (".dark.png", ("#1a1a19", "#ffffff", "#383835"))):
+        sheet = Image.new("RGB", (W * n, (H + bar) * 2), ink[0])
+        dr = ImageDraw.Draw(sheet)
+        for i, im in enumerate(cells):
+            x, y = (i % n) * W, (i // n) * (H + bar)
+            dr.text((x + 10, y + 7), labels[i], fill=ink[1], font=font)
+            sheet.paste(im, (x, y + bar))
+            dr.rectangle([x, y + bar, x + W - 1, y + bar + H - 1], outline=ink[2])
+        path = a.out[:-4] + suffix if a.out.endswith(".png") else a.out + suffix
+        sheet.save(path)
+        print("wrote", path, sheet.size)
 
 
 if __name__ == "__main__":

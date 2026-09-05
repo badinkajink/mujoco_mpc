@@ -303,6 +303,7 @@ def main():
         meta = fig_mode(m, rows, g, a.out, mode)
         arm = fig_armreach(m, g, obs, a.out, mode)
     out = dict(nominal_face=g["nom"], pad_z=float(g["pad0"][2]),
+               pad_x=float(g["pad0"][0]), pad_y=float(g["pad0"][1]),
                press_depth=g["depth"],
                pad_clear_at_nominal_mm=1000*float(g["pad0"][2] - g["padr"] - g["nom"]),
                family=[{k: r[k] for k in
