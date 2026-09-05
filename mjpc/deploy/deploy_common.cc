@@ -1829,6 +1829,43 @@ int RunDeployNode(const NodeConfig& cfg) {
           target = -auxyaw.yoff; ok = true;
         }
       }
+      // ★ 2026-09-05 GYRO YAW HOLD WHILE THE BUNDLE IS BLIND (real 9_B3_34/37/38,
+      // 9_C3_1, [bundle-vs-belief]): during every dive/hover the IMU
+      // quaternion's yaw moves 7-13 deg while the body-frame gyro integrates
+      // ~0 deg about world z (pitch coupling in the IMU's own filter). The
+      // head cam is blind from the hover on, so nothing corrects it and the
+      // belief heading sits 10-15 deg off through the hold (= 15-20 cm at the
+      // hand). While NO fresh bundle solve is available, integrate the
+      // difference between the quaternion's yaw motion and the gyro's world-z
+      // rate into imu_yaw_off so the belief yaw follows the GYRO, not the
+      // quaternion. Fresh bundle solves take over again as before. Env
+      // H12_YAW_GYRO_HOLD=0 disables (byte-identical to the 07:05 build).
+      {
+        static const bool gyro_hold = [] {
+          const char* e = std::getenv("H12_YAW_GYRO_HOLD");
+          return e ? std::atoi(e) != 0 : true;
+        }();
+        static double prev_qyaw = 0.0; static bool have_prev = false;
+        double qw = cur.quat[0], qx = cur.quat[1], qy = cur.quat[2], qz = cur.quat[3];
+        double qyaw = std::atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
+        // world-z angular rate from the body gyro: (R * w_body).z
+        double r20 = 2 * (qx * qz - qw * qy), r21 = 2 * (qy * qz + qw * qx),
+               r22 = 1 - 2 * (qx * qx + qy * qy);
+        double wz_world = r20 * cur.gyro[0] + r21 * cur.gyro[1] + r22 * cur.gyro[2];
+        if (gyro_hold && have_prev && !ok) {
+          double dq = qyaw - prev_qyaw;
+          while (dq > M_PI) dq -= 2 * M_PI;
+          while (dq < -M_PI) dq += 2 * M_PI;
+          double dgyro = wz_world * ctrl_dt;
+          double corr = dgyro - dq;                 // what the quaternion did that the gyro did not
+          if (std::fabs(corr) < 0.02) imu_yaw_off += corr;   // per-tick sanity (< ~1.1 deg)
+          static long gh_note = 0;
+          if (++gh_note % (static_cast<long>(ctrl_hz) * 10) == 1)
+            std::fprintf(stderr, "[node] yaw gyro-hold (bundle blind): offset %.2f deg\n",
+                         imu_yaw_off * 180.0 / M_PI);
+        }
+        prev_qyaw = qyaw; have_prev = true;
+      }
       if (ok) {
         // ★ 2026-08-19 STATIONARY TAG RE-ZERO (best-practice "recalibrate bias
         // when still"). Warm gyro bias drifts the yaw zero ~0.4 deg/min over a
@@ -1850,8 +1887,33 @@ int RunDeployNode(const NodeConfig& cfg) {
         bool still_upright = gyro_mag < 0.05 &&            // < ~2.9 deg/s
                              std::fabs(bpitch) < 0.26 &&    // < ~15 deg
                              std::fabs(broll)  < 0.26;
-        const double rate = (still_upright ? 5.0 : 0.1) * M_PI / 180.0;  // rad/s
+        // ★ 2026-09-05 LEAN RE-ZERO (real 9_B3_33, [bundle-vs-belief] diag): the
+        // belief heading was 2-6 deg from the head-cam bundle until the cam went
+        // blind in the dive, then 12-16 deg through the hold and 25-30 deg by the
+        // stand -- the body turns during the brace/hold (feet twist), the IMU
+        // integrates it, and 0.1 deg/s cannot follow, so the bundle solve that
+        // IS available again mid-hold went unused until the final still+upright
+        // re-zero (a 20 deg snap). 12 deg of heading = 19 cm at the hand = the
+        // lateral servo swings of 9_B3_25..33. Middle rate when the body is
+        // ROTATIONALLY quiet (gyro < ~5.7 deg/s) but bowed: env
+        // H12_YAW_LEAN_RATE deg/s (default 1.5; 0 = old behaviour). Fresh
+        // (<0.5 s) bridge output only, as before; the bridge has no LPF
+        // (yaw_tau=0) so this is the only lag in the chain.
+        static const double lean_rate_deg = [] {
+          const char* e = std::getenv("H12_YAW_LEAN_RATE");
+          return e ? std::atof(e) : 1.5;
+        }();
+        bool rot_quiet = gyro_mag < 0.10;
         double err = target - imu_yaw_off;
+        // ★ 2026-09-05 (real 9_B3_36): while BOWED, a bridge target more than
+        // 12 deg from the current offset is a bad solve (1-2 tag planar flip,
+        // read +30..+40 deg), not a turn the gyro missed. Hold the offset and
+        // fall back to the 0.1 deg/s crawl; the still+upright re-zero is
+        // untouched (it sees the full bundle from the stand).
+        bool far_target = !still_upright && std::fabs(err) > 12.0 * M_PI / 180.0;
+        const double rate = (still_upright ? 5.0
+                             : (rot_quiet && lean_rate_deg > 0.0 && !far_target) ? lean_rate_deg
+                             : 0.1) * M_PI / 180.0;  // rad/s
         double step = std::max(-rate * ctrl_dt, std::min(rate * ctrl_dt, err));
         imu_yaw_off += step;
         static long yf_note = 0;
@@ -1859,7 +1921,8 @@ int RunDeployNode(const NodeConfig& cfg) {
           std::fprintf(stderr, "[node] yaw_fusion: offset %.2f deg (bridge target "
                                "%.2f, gap %.2f%s)\n", imu_yaw_off * 180.0 / M_PI,
                        target * 180.0 / M_PI, err * 180.0 / M_PI,
-                       still_upright ? ", FAST re-zero (still+upright)" : "");
+                       still_upright ? ", FAST re-zero (still+upright)"
+                       : (rot_quiet && lean_rate_deg > 0.0) ? ", LEAN re-zero (rot-quiet)" : "");
       }
     }
 
