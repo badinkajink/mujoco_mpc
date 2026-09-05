@@ -308,6 +308,8 @@ class lean : public Task {
     //  (grasp_close=false, no retract rung) -> release -> standback. No kf5:
     //  the old retract pulled the pelvis back 8-21 cm while braced (29_43/46/52).
     //  Grid point = numerics target_col_x / target_col_y (also shift servo_nominal).
+    //  2026-09-05: recovery rungs = strat 29 lineage (25 rungs tried in 9_B3_8: stalled at pitch 17 deg, reverted);
+    //  CoM-recenter gate scoped like 28/29 (all standback rungs); hold point 0.44 (jaw tips ~5 cm off the face).
     names[9]  = "h12_brace_servo_sweep";
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1

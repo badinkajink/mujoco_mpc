@@ -5769,7 +5769,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                        // their exact (battery/grasp-tested) behaviour.
                        bool com_gate_scope =
                            ((current_strategy_ == 28 ||
-                             current_strategy_ == 29) &&
+                             current_strategy_ == 29 ||
+                             current_strategy_ == 9) &&   // 2026-09-05: strat 9 = 29's recovery rungs
                             kfn != "forearm_brace_release") ||
                            (current_strategy_ == 25 &&
                             (kfn == "standback_r2" || kfn == "standback_r3"));
