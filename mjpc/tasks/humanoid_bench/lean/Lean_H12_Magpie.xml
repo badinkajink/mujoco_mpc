@@ -452,6 +452,13 @@
              brace-side rung may advance (0 = OFF); loss = dropout tolerated
              before the verify clock resets. swing_* = reach via-arc geometry. -->
         <numeric name="brace_contact_verify" data="2.0"/>
+        <!-- ★ 2026-09-05 stall_pad_gap (m, 0 = OFF): the dive commit-stall detector also
+             counts the pad as ON when it is over the slab with a BELIEVED gap below this.
+             Real 9_B3_13/17/22 aborted physically-seated dives because the believed
+             pad gap was 25-27 mm (estimator height error) and the belief model had no
+             contact. 0.05 = twice today's worst believed gap; a true hover sits higher. -->
+        <numeric name="stall_pad_gap" data="0.05"/>
+        <numeric name="brace_seat_proxy" data="0.0"/>  <!-- 2026-09-05: believed pad 14-34 mm above the slab in every 9_B3_24-29 run -> residual saw no brace load -> pelvis driven 20-25 cm past the feet. Over-slab + believed gap < this => brace force floored at the rung target -->
         <numeric name="brace_contact_loss" data="1.0"/>
         <numeric name="swing_engage_below" data="0.10"/>
         <numeric name="swing_engage_near" data="0.30"/>

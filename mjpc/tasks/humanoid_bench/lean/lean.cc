@@ -634,6 +634,40 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // arm is the bracing one.
   if (is_forearm_brace) {
     brace_contact_force = TableBraceForce(model, data, /*brace_left=*/reach_right);
+    // ★ 2026-09-05 SEAT PROXY (`brace_seat_proxy`, m; 0/absent = OFF =
+    // byte-identical). Real 9_B3_24..29: the pad was physically seated in
+    // every run (tilt plateau, robot leaning on it) but the BELIEVED pad sat
+    // 14-34 mm above the slab (estimator height error) -> the belief model had
+    // no pad contact -> brace_contact_force 0 -> the Brace Force shortfall and
+    // the load-transfer pelvis pull stayed at full strength for the whole lean.
+    // The pelvis walked 20-25 cm past the feet (cap 13), the pad landed
+    // 0.74-0.94 m out, and every run that entered the hold with CoM > 14.5 cm
+    // ahead of the feet twisted or could not push off. Same over-the-slab +
+    // believed-gap test as the stall detector's `stall_pad_gap`: when it says
+    // seated, floor the force at the rung's target so the shortfall reads 0.
+    double bsp = GetNumberOrDefault(0.0, model, "brace_seat_proxy");
+    if (bsp > 0.0 && reach_right) {
+      int bwn = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+      bool bw_on = bwn >= 0 && model->numeric_data[model->numeric_adr[bwn]] > 0.5;
+      int pad_gid = mj_name2id(model, mjOBJ_GEOM,
+                               bw_on ? "left_wrist_pad" : "left_forearm_pad");
+      int g_tab = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+      if (pad_gid >= 0 && g_tab >= 0) {
+        const double* pp = data->geom_xpos + 3 * pad_gid;
+        double prad = model->geom_size[3 * pad_gid];
+        const double* tc = data->geom_xpos + 3 * g_tab;
+        double thx = model->geom_size[3 * g_tab + 0];
+        double thy = model->geom_size[3 * g_tab + 1];
+        double surf = tc[2] + model->geom_size[3 * g_tab + 2];
+        bool over = mju_abs(pp[0] - tc[0]) < thx + 0.10 &&
+                    mju_abs(pp[1] - tc[1]) < thy + 0.10;
+        double gap = (pp[2] - prad) - surf;
+        if (over && gap < bsp) {
+          double floor_f = mju_max(0.0, residual_keyframe_.brace_force_target);
+          brace_contact_force = mju_max(brace_contact_force, floor_f);
+        }
+      }
+    }
   }
 
   double reward = 0;
@@ -5071,6 +5105,31 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           if (con.geom1 == pad_gid || con.geom2 == pad_gid) {
             pad_on = true;
             break;
+          }
+        }
+        // ★ 2026-09-05 BELIEF-GAP PROXY (`stall_pad_gap`, m; 0/absent = OFF =
+        // byte-identical). Real 9_B3_13/17/22: the pad was physically seated
+        // (robot leaning on it, tilt 18-20 deg plateau) but the BELIEVED pad
+        // sat 25-27 mm above the slab (estimator height error), so the belief
+        // model had no contact, `pad_on` stayed false, and the stall detector
+        // regressed a seated dive to stand from a 0.45 m forward pelvis. The
+        // seat gate already accepts a believed gap < brace_contact_zmargin
+        // (80 mm); use the same over-the-slab + gap test here so the two
+        // gates agree on what "seated" means.
+        if (!pad_on) {
+          double spg = GetNumberOrDefault(0.0, model, "stall_pad_gap");
+          int g_tab_s = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+          if (spg > 0.0 && pad_gid >= 0 && g_tab_s >= 0) {
+            const double* pp = data->geom_xpos + 3 * pad_gid;
+            double prad = model->geom_size[3 * pad_gid];
+            const double* tc = data->geom_xpos + 3 * g_tab_s;
+            double thx = model->geom_size[3 * g_tab_s + 0];
+            double thy = model->geom_size[3 * g_tab_s + 1];
+            double surf = tc[2] + model->geom_size[3 * g_tab_s + 2];
+            bool over = mju_abs(pp[0] - tc[0]) < thx + 0.10 &&
+                        mju_abs(pp[1] - tc[1]) < thy + 0.10;
+            double gap = (pp[2] - prad) - surf;
+            if (over && gap < spg) pad_on = true;
           }
         }
         // tilt RATE (EMA over ~1 s): a HEALTHY approach descends at 2-4
