@@ -232,7 +232,9 @@ class TagCore:
         # (real 9_B3_37: the one solve that reached the node before the cam went
         # blind had reproj 2.13 px and a +10 deg yaw jump -> belief 20 deg off for
         # the whole hold.) Yaw also needs a tight fit: reproj <= 1.0 px.
-        yaw_ok = n_tags_seen >= 3 and err <= 1.0
+        # 9_C3_3: standing full-bundle solves run 1.1-1.9 px -> a 1.0 px gate froze
+        # the yaw from the first solve on. Gate at 2.5 px (max_reproj is 3.0).
+        yaw_ok = n_tags_seen >= 3 and err <= 2.5
         if yaw_ok and self.yaw_off is not None:
             jump = abs(_wrap(off - self.yaw_off))
             if jump > math.radians(15.0):
@@ -245,6 +247,8 @@ class TagCore:
                 self._yaw_pend = None
         if not yaw_ok and self.yaw_off is not None:
             self.n_yaw_rejected = getattr(self, "n_yaw_rejected", 0) + 1
+        self.last_yaw_ok = bool(yaw_ok)
+        self.last_n_tags = int(n_tags_seen)
         if self.yaw_off is None:
             self.yaw_off = off
         elif yaw_ok:
@@ -697,7 +701,7 @@ def main():
             if bp_pub is not None and core.last_yaw_table_pelvis is not None:
                 bp_msg.position[0], bp_msg.position[1] = float(xy[0]), float(xy[1])
                 bp_msg.position[2] = float(_wrap(-core.last_yaw_table_pelvis))
-                bp_msg.velocity[0] = float(err); bp_msg.velocity[1] = 0.0; bp_msg.velocity[2] = 0.0
+                bp_msg.velocity[0] = float(err); bp_msg.velocity[1] = float(getattr(core, "last_n_tags", 0)); bp_msg.velocity[2] = 0.0
                 bp_msg.mode = 3
                 bp_pub.Write(bp_msg)
             # ★ 2026-08-18 LIVE YAW SIDE-CHANNEL: position[2] was a dead 0.0 (v4
@@ -711,6 +715,14 @@ def main():
             out_msg.position[2] = float(yoff)
             for k in range(3):
                 out_msg.velocity[k] = 0.0
+            # ★ 2026-09-05 (real 9_C3_2): YAW-VALID flag. With the yaw guards the
+            # offset above can be FROZEN (1-2 tag solves through a whole hold)
+            # while the position anchor keeps streaming; the node must not treat
+            # a frozen yaw as fresh. velocity[1] = 1.0 when THIS solve updated
+            # the yaw offset, 0.0 otherwise; velocity[2] = number of tags. The
+            # estimator never reads velocity (v4 contract).
+            out_msg.velocity[1] = 1.0 if getattr(core, "last_yaw_ok", True) else 0.0
+            out_msg.velocity[2] = float(getattr(core, "last_n_tags", 0))
             out_msg.mode = 2                       # POSITION-ONLY (v4 contract)
             pub.Write(out_msg)
             # ★ 2026-09-05 head-cam block lock: tag30 in this frame -> table -> world

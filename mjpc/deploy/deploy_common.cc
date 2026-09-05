@@ -1122,8 +1122,12 @@ int RunDeployNode(const NodeConfig& cfg) {
           if (s->mode() != 2) return;        // tag bridge contract
           std::lock_guard<std::mutex> lk(auxyaw.mu);
           auxyaw.yoff = s->position().at(2);
-          auxyaw.stamp = std::chrono::steady_clock::now();
-          auxyaw.have = true;
+          // ★ 2026-09-05: only a solve that UPDATED the bridge's yaw counts as a
+          // fresh yaw sample (velocity[1] flag; old bridges send 0 -> treated
+          // as valid so nothing regresses). A frozen yaw is not fresh.
+          bool yaw_valid = s->velocity().at(1) > 0.5 || s->velocity().at(2) < 0.5;
+          if (yaw_valid) auxyaw.stamp = std::chrono::steady_clock::now();
+          auxyaw.have = auxyaw.have || yaw_valid;
         },
         10);
     std::fprintf(stderr, "[node] yaw_fusion ON: slewing --imu_yaw_offset_deg toward "
