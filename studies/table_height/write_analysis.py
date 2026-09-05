@@ -201,26 +201,61 @@ def main():
         p.append("<h2>Follow-ups that have since run</h2><ul>%s</ul>"
                  % "".join(ran))
 
-    p.append("""<h2>What this does not settle</h2>
+    p.append("""<h2>The next question: what is the minimal change?</h2>
+<p>Nothing above changed the controller. The window it measures is therefore a
+property of the shipped configuration, and the follow-on work has one question:
+<b>what is the smallest edit that widens it?</b> Minimal is measured in numbers
+touched &mdash; a model numeric that already exists beats a new weight, a weight
+beats a new residual, and a new residual beats moving the robot.</p>
+<p>The two ends fail for different reasons, so the honest expectation is that one
+change will not do both. The first thing worth knowing is whether a single
+height-aware quantity can, or whether the low and high edges need separate
+fixes.</p>
+<table><thead><tr><th>candidate</th><th>numbers touched</th><th>what the data says</th><th>test, and what kills it</th></tr></thead><tbody>
+<tr><td><b>1. Turn on <code>brace_com_hold</code></b><br>(high end)</td><td>1 numeric,
+already implemented and shipped off</td><td>Raises survival at the tallest slab from
+32.6 s to 47.8 s with non-overlapping arms, and still completes 0/3. The term
+exists precisely for the backward walk-off this failure shows.</td>
+<td>Value sweep 0.02 / 0.05 / 0.10, 3 seeds at 1.085 m. Dead if no value
+completes, which would mean the CoM is a symptom and the reach is the cause.</td></tr>
+<tr><td><b>2. Reprice the forward excursion</b><br>(low end)</td><td>1 weight in the
+strategy JSON, no rebuild</td><td>At the lowest slab the torso carries several
+hundred newtons and the CoM goes far past <code>com_cap_fwd</code>. That cap is a
+soft cost, so the brace reward is simply outbidding it.</td>
+<td>Sweep the weight on the residual carrying <code>com_over</code>
+(<code>Pelvis Forward</code>) at 0.885 m. Dead if the robot stops reaching
+instead of starting to brace &mdash; a cheaper way to avoid the penalty.</td></tr>
+<tr><td><b>3. Scale the brace-geometry constants with the slab</b></td><td>3-4 numerics
+become functions of face height</td><td><code>brace_erect_target</code> 0.38,
+<code>brace_lead_x0</code> 0.24 and <code>brace_press_depth</code> were fitted at
+0.985 m and do not move with the table, unlike every task-space term. At 1.085 m
+the pad sits at face level for the whole brace and never touches the wood, which
+is an aiming failure, not a balance one.</td>
+<td>Make each a function of (face z &minus; shoulder z) and re-run the full
+sweep. Dead if contact fraction at the failing heights does not rise.</td></tr>
+<tr><td><b>4. Move the robot</b></td><td>1 number, but it changes the
+experiment</td><td>The slab's near edge sits at x = 0.45 m at every height, so a
+low table is reached by bowing rather than stepping. &ldquo;Cannot brace
+low&rdquo; and &ldquo;cannot brace far&rdquo; are not separated by this
+sweep.</td><td>Sweep the table's x at one low height. Deliberately last: it
+rewrites the task rather than generalising the controller.</td></tr>
+</tbody></table>
+<p>A result counts if it widens the window on <b>3 seeds per height</b> at the
+same thread count, and does not cost completions at 0.985 m. The baseline to beat
+is in the table above.</p>
+
+<h3>Still open, independent of that</h3>
 <ul>
-<li><b>Why the low end cannot reach.</b> The slab's near edge sits at x = 0.45 m
-at every height here, so a low table is reached by bowing rather than stepping,
-and the torso gets there before the forearm does. The measurement that separates
-"cannot brace low" from "cannot brace far" is a sweep of the table's <i>x</i> at
-one low height, which is goal 4's last resort and should stay last.</li>
-<li><b>Whether the excursion penalty can be made to win.</b> At the lowest slab
-the torso takes several hundred newtons and the CoM goes far past
-<code>com_cap_fwd</code>, which is a soft cost rather than a limit. The lever is
-the weight on the residual carrying it (<code>Pelvis Forward</code>), not the cap
-value; a weight sweep at the mid-low height is the cheap test, and it fails if
-the robot simply stops reaching instead of bracing.</li>
-<li><b>Whether the window generalises past the planner's own model.</b> Every
-number here is own-sim, where the table is excluded from the arm chain and an
-inert pad reports the newtons. The twin is the check, and no twin run exists at
-an off-nominal height.</li>
-<li><b>Seeds.</b> %d per point rejects "it always works" and does not put an
-interval on a completion rate. Six would, and the marginal upper edge is exactly
-where that matters.</li>
+<li><b>Whether any of this survives the twin.</b> Every number here is own-sim,
+where the table is excluded from the arm chain and an inert pad reports the
+newtons. No twin run exists at an off-nominal height.</li>
+<li><b>Seed count at the margin.</b> %d per point rejects &ldquo;it always
+works&rdquo; and does not put an interval on a completion rate. The upper edge,
+which completed 3/3 at one time cap and 1/2 at another, is exactly where that
+matters.</li>
+<li><b>Strategy coverage.</b> Only <code>h12_brace_targeting</code> was swept. The
+servo ladder cannot be evaluated headless (its corrections arrive over DDS), so
+the height dependence of the vision path is unmeasured.</li>
 </ul>""" % nseed)
 
     open(a.out, "w").write("\n".join(p))

@@ -178,6 +178,72 @@ def fig_outcome(agg, out, mode):
     fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
 
 
+
+def fig_bench(agg, out, mode, overlay=None, overlay_label="", nominal=0.985):
+    """The benchmark: every headline metric against table height, one panel each.
+
+    Small multiples rather than one crowded axis, because the metrics have
+    unrelated units and a shared y would be a lie. x is shared, so a reader
+    tracks one height down the column. The band marks the heights that complete
+    every seed; it is drawn from the data, not hardcoded.
+    """
+    c = style(mode)
+    panels = [
+        ("completion rate", lambda x: 100.0 * x["complete"] / x["n"], "%", None),
+        ("forearm in contact", lambda x: (None if x["seated_fraction"] is None
+                                          else 100 * x["seated_fraction"]), "%", None),
+        ("peak forearm load", lambda x: x["f_forearm_peak"], "N", None),
+        ("torso load while braced", lambda x: x["load"]["torso"], "N", None),
+        ("peak CoM past toes", lambda x: x["com_beyond_peak_mm"], "mm", 145.0),
+        ("peak torso tilt", lambda x: x["torso_tilt_peak_deg"], "deg", None),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(10.6, 6.0), sharex=True)
+    win = [x["h"] for x in agg if x["complete"] == x["n"]]
+    hs = [x["h"] for x in agg]
+    for ax, (title, get, unit, ref) in zip(axes.ravel(), panels):
+        if win:
+            ax.axvspan(min(win) - 0.012, max(win) + 0.012, color="#0ca30c",
+                       alpha=0.10, lw=0, zorder=0)
+        if ref is not None:
+            ax.axhline(ref, lw=1.2, ls=(0, (4, 3)), color="#d03b3b", zorder=1)
+        y = [get(x) for x in agg]
+        xs = [h for h, v in zip(hs, y) if v is not None]
+        ys = [v for v in y if v is not None]
+        ax.plot(xs, ys, "-o", lw=2.0, ms=6, color=CAT["left forearm"],
+                markeredgecolor=c["surface"], markeredgewidth=1.2, zorder=3,
+                label="75 s cap, 3 seeds" if overlay else None)
+        if overlay:
+            oy = [get(x) for x in overlay]
+            oxs = [x["h"] for x, v in zip(overlay, oy) if v is not None]
+            oys = [v for v in oy if v is not None]
+            ax.plot(oxs, oys, "--s", lw=1.6, ms=5, color=CAT["left wrist"],
+                    markeredgecolor=c["surface"], markeredgewidth=1.2, zorder=2,
+                    label=overlay_label)
+        ax.axvline(nominal, lw=1.0, color=c["axis"], zorder=1)
+        ax.set_title("%s (%s)" % (title, unit), loc="left", fontsize=9.5,
+                     color=c["fg"])
+        ax.grid(lw=0.6, alpha=0.9)
+        ax.set_axisbelow(True)
+        ax.tick_params(labelsize=8.5)
+    for ax in axes[1]:
+        ax.set_xlabel("table face height (m)", fontsize=9)
+    axes[0][0].set_ylim(-5, 105)
+    if overlay:
+        # Figure-level, so it cannot sit on top of a flat 0 %% run of data.
+        h_, l_ = axes[0][0].get_legend_handles_labels()
+        fig.legend(h_, l_, frameon=False, fontsize=8.5, ncols=2,
+                   loc="upper right", bbox_to_anchor=(0.995, 1.0))
+    fig.suptitle("Table-height benchmark — the controller is unmodified at every "
+                 "point", x=0.008, ha="left", fontsize=12, color=c["fg"])
+    fig.text(0.008, 0.935,
+             "green band = every seed completes · grey line = the compiled "
+             "%.3f m · dashed red = com_cap_fwd" % nominal,
+             ha="left", fontsize=8, color=c["muted"])
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
 def fig_ladder(runs, out, mode):
     c = style(mode)
     fig, ax = plt.subplots(figsize=(9.2, 0.34 * len(runs) + 2.2))
@@ -321,6 +387,10 @@ def run_record(r):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", required=True)
+    ap.add_argument("--overlay", default="",
+                    help="a second figs dir (e.g. figs_long) to draw as a "
+                         "comparison series on the benchmark panel")
+    ap.add_argument("--overlay_label", default="140 s cap")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -359,8 +429,14 @@ def main():
             torso_tilt_peak_deg=m("torso_tilt_peak_deg"),
             t_end=m("t_end")))
 
+    overlay = None
+    if a.overlay and os.path.exists(os.path.join(a.overlay, "agg.json")):
+        overlay = json.load(open(os.path.join(a.overlay, "agg.json")))
+
     for mode in ("light", "dark"):
         sfx = ".png" if mode == "light" else ".dark.png"
+        fig_bench(agg, os.path.join(a.out, "fig_bench" + sfx), mode,
+                  overlay=overlay, overlay_label=a.overlay_label)
         fig_outcome(agg, os.path.join(a.out, "fig_outcome" + sfx), mode)
         fig_ladder(runs, os.path.join(a.out, "fig_ladder" + sfx), mode)
         fig_load(agg, os.path.join(a.out, "fig_load" + sfx), mode)

@@ -184,8 +184,10 @@ def main():
 
 <h1>Table height generalisation for the braced lean controller</h1>
 <p class=sub>The lean controller was tuned at one slab height. This makes the
-height a task parameter, changes it without touching a cost weight, and measures
-what degrades.</p>
+height a task parameter, sweeps it with <b>no cost weight, residual or schedule
+changed</b>, and measures where the controller stops working. It is the baseline
+the next question is asked against: what are the minimal changes required to make
+table-height generalisation work?</p>
 <p class=meta>{datetime.date.today().isoformat()} &middot;
 <code>Lean H12 Magpie</code>, strategy 25 (<code>h12_brace_targeting</code>)
 &middot; branch <code>icra2026</code> &middot; CEM, 20 rollouts, 1.0 s horizon,
@@ -206,6 +208,16 @@ or is the geometry load-bearing?</p>
 claim about its <i>domain</i>, and it is the cheapest generalisation axis available
 &mdash; the height is one number, the task is otherwise unchanged, and the real
 robot meets tables of many heights.</p>
+<div class="note">
+<b>Scope: nothing in the controller was changed.</b> No cost weight, no residual,
+no strategy JSON, no keyframe, no robot&ndash;table standoff. The only addition is
+a parameter that moves the slab, and it defaults to off. Every point on the sweep
+runs the same binary, the same <code>h12_brace_targeting</code> ladder and the
+same weights as the shipped configuration. That is deliberate: a baseline with a
+modified controller in it cannot say what the modification bought. The follow-on
+work &mdash; <b>what is the minimal change that makes this generalise?</b> &mdash;
+is measured against these numbers.
+</div>
 
 <h2>What was built</h2>
 <p>Table height is now MJPC task parameter index 7,
@@ -340,6 +352,7 @@ The two are equal at a height that braces properly; they diverge when the forear
 reaches face level without touching the wood, which is what a too-high slab does.
 Nominal is <b>{nominal:.3f} m</b>.</p>
 
+{fig("fig_bench", "The benchmark: every headline metric against table height, with the 140 s re-run overlaid. Green band = all seeds complete; grey line = the 0.985 m the controller was tuned at. Load medians at a height that barely makes contact rest on few samples, so read the low-height load panels alongside the contact panel.", a.figs_rel)}
 {fig("fig_outcome", "Outcome by table height. The controller was tuned at 0.985 m and every other height is a generalisation test.", a.figs_rel)}
 {fig("fig_ladder", "Every run: how far the phase ladder got and how long each rung took. Marker at the right end is the outcome.", a.figs_rel)}
 {fig("fig_pad", "Forearm pad clearance above the slab face. Zero is a flat seated pad, positive is a hover. Axis clipped: a fall drives these traces to -840 mm.", a.figs_rel)}

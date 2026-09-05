@@ -5,7 +5,23 @@ Branch **`wxie/table-height`**, cut from `icra2026` at `3e876d70` on 2026-09-05.
 file holds what is specific to our work. Neither repeats the other — if a fact
 appears in both, one of them is stale.
 
-## 0. Branch discipline
+## 0. The question this branch is answering
+
+**What is the minimal change that makes table-height generalisation work?**
+
+The first effort is closed and is a pure baseline: it swept slab height with **no
+cost weight, residual, strategy JSON, keyframe or standoff altered**, so the
+window it measured belongs to the shipped controller. Everything after it is
+scored against that baseline, and "minimal" is counted in numbers touched — an
+existing model numeric beats a new weight, a weight beats a new residual, a new
+residual beats moving the robot.
+
+A result counts only if it widens the window on **3 seeds per height at a fixed
+thread count** and costs no completions at the compiled height. The ranked
+candidates and their kill conditions live in the doc page; the commands live in
+STATUS.md.
+
+## 1. Branch discipline
 
 - **Work on `wxie/table-height`, never on `icra2026` directly.** Allen owns
   `lean.cc` and commits to `icra2026` most days; the first session of this study
@@ -18,7 +34,7 @@ appears in both, one of them is stale.
   which reproduces the compiled model byte for byte. That is what makes them
   cheap to rebase and safe to propose upstream.
 
-## 1. What this branch adds
+## 2. What this branch adds
 
 | Path | What |
 |---|---|
@@ -50,7 +66,7 @@ Hip / Leg / Body-Table Clearance, the `reach_target_table` rungs. Fixed constant
 fitted at one height do not track: `com_cap_fwd` 0.145, `pelvis_cap_fwd` 0.13,
 `lean_nominal_x` 0.06, `brace_erect_target` 0.38, `brace_lead_x0` 0.24.
 
-## 2. Running it
+## 3. Running it
 
 ```bash
 ninja -C build_cmake -j4 lean_bench
@@ -91,7 +107,7 @@ script now falls back to the X socket it finds, which on this box is **`:1`**,
 not `:0`. It also re-applies the table height, because the model on disk always
 shows the nominal slab and a naive replay draws the robot bracing on air.
 
-## 3. Current results
+## 4. Current results
 
 **`studies/table_height/STATUS.md` is the single source of truth for numbers,
 and it is generated — do not hand-edit it.** Regenerate with `write_status.py`
@@ -103,7 +119,7 @@ first time a sweep is re-run. STATUS.md carries the window, the per-height
 outcome counts, the failure modes and the open questions; the page carries the
 figures and the scored hypotheses.
 
-## 4. Invariants for our own code
+## 5. Invariants for our own code
 
 - **Contact summing has a trap** (table legs on the floor -> the table's own
   weight counted as brace load). It is a property of the model, so it is
@@ -119,7 +135,7 @@ figures and the scored hypotheses.
 - **>= 3 seeds, and hold `--threads` fixed across a comparison** — see the
   nondeterminism section in `CLAUDE.md`.
 
-## 5. Writing the pages
+## 6. Writing the pages
 
 Global style rules live in `~/.claude/CLAUDE.md` and are not repeated here. Two
 that bite most often: the title is a descriptive noun phrase, and the filename is

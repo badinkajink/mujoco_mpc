@@ -41,9 +41,10 @@ run any of this and `CLAUDE.md` for repo-level facts.
 
 ## Where it stands
 
-Table height is an MJPC task parameter (`residual_Table H`, index 7) and the
-controller was swept over it with nothing else changed. **%d of %d runs
-completed.** The working window is %s; %s fail outright.
+Table height is an MJPC task parameter (`residual_Table H`, index 7). This is the
+**baseline**: the sweep changed no cost weight, no residual, no strategy JSON, no
+keyframe and no robot–table standoff, so what it measures is a property of the
+shipped controller. **%d of %d runs completed.** The working window is %s; %s fail outright.
 
 | face (m) | complete | outcomes | seated | forearm peak | CoM past toes |
 |---|---|---|---|---|---|
@@ -69,7 +70,7 @@ wood at face height. At both working heights the two measures agree exactly.
 - Raw runs: `studies/table_height/runs/seeded/` (gitignored)
 - Index: `docs/experiments/INDEX.md`
 
-## Code changed (all uncommitted, on `icra2026`)
+## Code changed (branch `wxie/table-height`, committed)
 
 - `mjpc/tasks/humanoid_bench/lean/lean.h` — param index 7, bench accessors
 - `mjpc/tasks/humanoid_bench/lean/lean.cc` — the `Table H` block in
@@ -80,37 +81,51 @@ wood at face height. At both working heights the two measures agree exactly.
 - `studies/table_height/` — sweep, analyze, render, page, status
 - `CLAUDE.md` — corrected to point at `lean.cc` on `icra2026`
 
-⚠ Nothing is committed. Allen commits to `icra2026` most days; a `git pull`
-before committing will otherwise clobber the `lean.h`/`lean.cc` edits.
+Every change to a file Allen owns is additive (no deletions) and default-off, so
+this rebases onto `icra2026` without conflict. Rebase, never merge.
 
-## Next, in order
+## The question now
 
-**The two ends fail differently and need different fixes.** My pre-sweep guess
-that `com_cap_fwd` was the binding constraint is wrong on both counts: it is a
-soft cost (`max(0, com_x - (midfoot_x + cap))` folded into a residual), not a
-limit, and the failures blow straight past it — 371 mm at 0.885 against a 145 mm
-cap. It is being beaten, not enforced.
+**What is the minimal change that makes table-height generalisation work?**
 
-1. **High end — `brace_com_hold`, already queued as `brace_hold_ab.sh`.**
-   `lean.cc` has a one-sided "keep the CoM at least this far ahead of midfoot
-   while an arm is on the table" term whose comment describes my 1.085 signature
-   exactly: *"every backward fall of hp133-161 shows the CoM walking from +5 cm
-   to -10 cm at a rung fire."* The numeric is **absent from
-   `Lean_H12_Magpie.xml`, so it defaults to 0 = off.** The A/B runs 3 seeds with
-   it off and 3 with `brace_com_hold 0.05`, at 1.085 m, editing only the build
-   copy of the model. Results append below. Falsified if the treatment arm still
-   falls backward 3/3.
-2. **Low end — the excursion penalty is losing, so raise its price.** At 0.785
-   the torso takes 398 N and the CoM goes 625 mm out; the robot buys chest
-   support with excursion because the brace reward outbids the excursion penalty.
-   The lever is the WEIGHT on that residual (`Pelvis Forward`, which carries
-   `com_over`), not the cap value. A weight sweep at 0.885 is the cheap test.
-3. **Resolve the stalls.** The long-cap sweep (`runs/long`, 140 s) is appended
-   below. If the stalled points still do not finish, they are stuck rather than
-   clipped, and it is a reach problem: the slab's near edge sits at x = 0.45 m at
-   every height, so a low table is reached by bowing rather than stepping.
-4. **Only then, standoff.** Sweep the table's x at one off-nominal height to
-   separate "cannot brace low" from "cannot brace far". Goal 4's last resort.
+The baseline above is closed: it changed no cost weight, no residual, no strategy
+JSON and no standoff, so the window it measures belongs to the shipped
+configuration. Everything from here is scored against it. Minimal is counted in
+numbers touched — an existing model numeric beats a new weight, a weight beats a
+new residual, a new residual beats moving the robot.
+
+**A result counts only if it widens the window on 3 seeds per height at
+`--threads 6`, and costs no completions at 0.985 m.**
+
+The reasoning behind the ranking, with the kill condition for each candidate, is
+in the page's "next question" section. What to run, in order:
+
+```bash
+S=studies/table_height
+
+# 1. brace_com_hold value sweep at the tall slab (1 numeric, already implemented)
+#    0.05 gave +15 s of survival and 0/3. Try 0.02 / 0.10 the way
+#    brace_hold_ab.sh does it: inject into the BUILD copy only, restore on exit.
+#    -> dead if no value completes; that makes CoM a symptom, not the cause.
+
+# 2. reprice forward excursion at the mid-low slab (1 weight, no rebuild)
+#    Edit "Pelvis Forward" in strategies/h12_brace_targeting.json, 3 seeds @ 0.885.
+#    -> dead if the robot stops reaching instead of starting to brace.
+
+# 3. scale the brace-geometry constants with the slab (3-4 numerics -> functions)
+#    brace_erect_target 0.38, brace_lead_x0 0.24, brace_press_depth: all fitted
+#    at 0.985 and none of them move with the table.
+#    -> dead if contact fraction at the failing heights does not rise.
+
+# after any arm:
+$S/analyze.py --runs $S/runs/<arm> --overlay $S/figs_long --out $S/figs
+$S/write_analysis.py --figs $S/figs --long $S/figs_long --ab $S/runs/bracehold \\
+    --out $S/figs/analysis.html
+$S/make_page.py ...   &&   $S/write_status.py ...
+```
+
+Moving the robot–table standoff stays **last**: it rewrites the task rather than
+generalising the controller.
 
 ## Two defects to send Allen (neither affects the controller)
 
