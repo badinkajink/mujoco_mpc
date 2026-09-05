@@ -66,6 +66,16 @@ static double s_trim_x = 0.0, s_trim_y = 0.0;
 // A world offset (rather than a table-frame correction) keeps the sign
 // conventions of reach_target_table out of the servo path entirely.
 static double s_servo_dx = 0.0, s_servo_dy = 0.0, s_servo_dz = 0.0;
+// ★ 2026-09-05 HOLD INTEGRATOR (strat 9 `servo_hold` rungs): world-space
+// shift added on top of the servo correction, integrated from the CAMERA-frame
+// hold error so the hand lands ON the hold point instead of where the arm's
+// PD sag (R shoulder roll q lags cmd by 2-3 deg = 2-3 cm inward on every
+// certified run) and the free-air stop (2-3 cm short in depth) leave it.
+// Numeric `servo_hold_ki` (1/s, 0/absent = OFF = byte-identical),
+// `servo_hold_int_max` (m, default 0.04). Reset on every rung change.
+static double s_hold_int[3] = {0.0, 0.0, 0.0};
+static double s_hold_int_t = -1.0;
+static int s_hold_int_kf = -1;
 // ★ 2026-09-03 servo SETTLED: an accepted detection exists on this pass and
 // the slewed correction has reached it (|want-applied| < 5 mm). Read by the
 // advance gate on `servo_hold` rungs (strat 9): the 5 s hold clock counts
@@ -788,6 +798,11 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
           brace_air_target[0] += s_servo_dx;
           brace_air_target[1] += s_servo_dy;
           brace_air_target[2] += s_servo_dz;
+        }
+        if (residual_keyframe_.servo_hold) {
+          brace_air_target[0] += s_hold_int[0];
+          brace_air_target[1] += s_hold_int[1];
+          brace_air_target[2] += s_hold_int[2];
         }
       }
     }
@@ -4952,6 +4967,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           tgt25[1] += s_servo_dy;
           tgt25[2] += s_servo_dz;
         }
+        if (current_kf.servo_hold) {
+          tgt25[0] += s_hold_int[0];
+          tgt25[1] += s_hold_int[1];
+          tgt25[2] += s_hold_int[2];
+        }
         // ★ 2026-08-23 TIP TARGETING: measure the GRIPPER JAW TIP (55 mm past
         // the right_hand site), matching the residual-side switch — the
         // advance and the cost must grade the same point.
@@ -4990,13 +5010,29 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
             mju_sub3(rel, s_tag_world, h25);
             mju_sub3(err, rel, desired);
             total_distance = mju_norm3(err);
+            {  // ★ 2026-09-05 HOLD INTEGRATOR update (fresh tag only; see decl.)
+              double ki = GetNumberOrDefault(0.0, model, "servo_hold_ki");
+              double imax = GetNumberOrDefault(0.04, model, "servo_hold_int_max");
+              int kfi = motion_strategy_.GetCurrentKeyframeIndex();
+              if (kfi != s_hold_int_kf) {
+                s_hold_int_kf = kfi; s_hold_int[0] = s_hold_int[1] = s_hold_int[2] = 0.0;
+                s_hold_int_t = -1.0;
+              }
+              if (ki > 0.0) {
+                double dti = (s_hold_int_t >= 0.0) ? mju_max(0.0, data->time - s_hold_int_t) : 0.0;
+                if (dti < 0.5)   // skip gaps (stale stretches re-arm without a jump)
+                  for (int k = 0; k < 3; ++k)
+                    s_hold_int[k] = mju_clip(s_hold_int[k] + ki * err[k] * dti, -imax, imax);
+                s_hold_int_t = data->time;
+              }
+            }
             static double last_hold_dbg = -1e9;
             if (data->time - last_hold_dbg > 1.0) {
               last_hold_dbg = data->time;
               std::printf("[servo-hold] cam err=(%+.3f %+.3f %+.3f) dist=%.3f "
-                          "(belief tip-tgt %.3f) age=%.2fs\n", err[0], err[1],
+                          "(belief tip-tgt %.3f) age=%.2fs int=(%+.3f %+.3f %+.3f)\n", err[0], err[1],
                           err[2], total_distance, mju_dist3(h25, tgt25),
-                          data->time - s_tag_world_t);
+                          data->time - s_tag_world_t, s_hold_int[0], s_hold_int[1], s_hold_int[2]);
             }
           } else {
             total_distance = 1e3;   // no fresh tag -> hold clock re-arms

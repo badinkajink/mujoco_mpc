@@ -1190,6 +1190,8 @@
         <numeric name="servo_drift_max" data="1.0"/>
         <numeric name="servo_max_offset_y" data="0.12"/>  <!-- 2026-09-05 run 16: D405 composition put the block 8 cm right of where the head cam (table bundle) put it; lateral now from head-lock + belief, D405 keeps depth/height -->
         <numeric name="servo_max_offset_y_out" data="0.07"/>  <!-- 2026-09-05 one-sided RIGHTWARD cap: R shoulder roll at its outward stop on every hold (9_B3_25/26/27 body shoved, pad slid, elbow folded) -->
+        <numeric name="servo_hold_ki" data="0.3"/>  <!-- 2026-09-05 hold integrator (1/s): camera-frame hold error integrated into the hold target; 0 = off -->
+        <numeric name="servo_hold_int_max" data="0.04"/>
         <numeric name="servo_max_depth" data="0.40"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
         <numeric name="servo_freeze_dist" data="0.08"/>
         <numeric name="servo_nominal" data="0.525 0.16 0.025"/>
