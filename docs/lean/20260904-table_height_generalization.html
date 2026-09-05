@@ -60,7 +60,7 @@
 <p class=sub>The lean controller was tuned at one slab height. This makes the
 height a task parameter, changes it without touching a cost weight, and measures
 what degrades.</p>
-<p class=meta>2026-09-04 &middot;
+<p class=meta>2026-09-05 &middot;
 <code>Lean H12 Magpie</code>, strategy 25 (<code>h12_brace_targeting</code>)
 &middot; branch <code>icra2026</code> &middot; CEM, 20 rollouts, 1.0 s horizon,
 spp 3 &rarr; <b>33 Hz</b> plan rate &middot; harness
@@ -244,28 +244,27 @@ Nominal is <b>0.985 m</b>.</p>
 <p>At the lowest slab the torso carries 398 N and the forearm &mdash; the only link the task declares as a brace &mdash; carries 37 N. The robot rests its chest on the wood, which is why those runs end on the clock instead of on the floor. A pass/fail flag scores them the same as the tallest slab, which fails the opposite way.</p>
 <p><b>This refutes hypothesis 2 as a general explanation.</b> At 1.085 m the CoM peaks <i>behind</i> the toes (-85 mm), so a forward excursion cap cannot be what ends those runs. The slab sits above the reachable brace envelope, the robot gets no support at all, and it topples away from the table. <code>com_cap_fwd</code> remains a candidate for the low end only.</p>
 <p>Across all 15 runs: 6 completed, 3 stalled to the 75 s cap, 6 fell.</p>
+<h2>Follow-ups that have since run</h2><ul><li><b>The 75 s cap was not hiding slow successes.</b> A 140 s re-run leaves 0.785 m, 0.885 m completing 0 of their seeds with three times the clock, so the low slab is unreachable rather than slow. It also demotes the top of the window: 1.035 m completed 3/3 at 75 s and 1/2 here, so the upper edge is marginal.</li><li><b><code>brace_com_hold</code> is a real effect and not a fix.</b> The term is absent from the model, so it ships off. At 0.05, mean survival at the tallest slab goes from 32.6 s to 47.8 s with no overlap between the arms, and still completes 0 of 3. It buys time against the backward fall. A value sweep (0.02 / 0.05 / 0.10) comes before calling it the wrong lever.</li></ul>
 <h2>What this does not settle</h2>
 <ul>
-<li><b>Whether a height-scaled CoM cap recovers the window.</b> The next run is a
-two-point A/B at the worst off-nominal height: <code>com_cap_fwd</code> at its
-current 0.145 against a value scaled by (slab face &minus; ankle height), 3 seeds
-each, nothing else changed. Falsified if the scaled arm completes no more often
-than the fixed one.</li>
-<li><b>Whether the standoff, not the height, is the real variable.</b> The slab's
-near edge sits at x = 0.45 m at every height here, so a low table is reached by
-bowing rather than by stepping. Sweeping the table's <i>x</i> at one off-nominal
-height separates &ldquo;cannot brace low&rdquo; from &ldquo;cannot brace
-far&rdquo;. This is goal 4's last resort and should stay last.</li>
-<li><b>Whether the 75 s cap hides slow successes.</b> Stalled runs are censored,
-not failed. Re-running them at <code>--total_time 140</code> costs about 10 min
-each and turns a censored outcome into a real one. Queued as
-<code>studies/table_height/runs/long</code>.</li>
-<li><b>Whether any of this leaves the planner's own model.</b> Every number is
-own-sim, where the table is excluded from the arm chain and an inert pad reports
-the newtons. The twin is the check, and no twin run exists at an off-nominal
-height.</li>
-<li><b>Seeds.</b> 3 per point rejects &ldquo;it always works&rdquo; and does not
-put an interval on a completion rate. Six would.</li>
+<li><b>Why the low end cannot reach.</b> The slab's near edge sits at x = 0.45 m
+at every height here, so a low table is reached by bowing rather than stepping,
+and the torso gets there before the forearm does. The measurement that separates
+"cannot brace low" from "cannot brace far" is a sweep of the table's <i>x</i> at
+one low height, which is goal 4's last resort and should stay last.</li>
+<li><b>Whether the excursion penalty can be made to win.</b> At the lowest slab
+the torso takes several hundred newtons and the CoM goes far past
+<code>com_cap_fwd</code>, which is a soft cost rather than a limit. The lever is
+the weight on the residual carrying it (<code>Pelvis Forward</code>), not the cap
+value; a weight sweep at the mid-low height is the cheap test, and it fails if
+the robot simply stops reaching instead of bracing.</li>
+<li><b>Whether the window generalises past the planner's own model.</b> Every
+number here is own-sim, where the table is excluded from the arm chain and an
+inert pad reports the newtons. The twin is the check, and no twin run exists at
+an off-nominal height.</li>
+<li><b>Seeds.</b> 3 per point rejects "it always works" and does not put an
+interval on a completion rate. Six would, and the marginal upper edge is exactly
+where that matters.</li>
 </ul>
 
 </div></body></html>

@@ -15,6 +15,8 @@ def f(v, fmt="%.0f", dash="&mdash;"):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--figs", required=True)
+    ap.add_argument("--long", default="", help="agg.json dir for the 140 s sweep")
+    ap.add_argument("--ab", default="", help="runs dir for the brace_com_hold A/B")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     agg = json.load(open(os.path.join(a.figs, "agg.json")))
@@ -159,28 +161,66 @@ def main():
              "%d fell.</p>" % (len(runs), len(runs) - stalled - fell, stalled,
                                max(r["t_end"] for r in runs), fell))
 
+    # ---- follow-ups that have since run -----------------------------------
+    ran = []
+    if a.long and os.path.exists(os.path.join(a.long, "agg.json")):
+        lg = json.load(open(os.path.join(a.long, "agg.json")))
+        stuck = [x for x in lg if x["h"] < nominal and x["complete"] == 0]
+        marg = [x for x in lg if 0 < x["complete"] < x["n"]]
+        line = ("<li><b>The 75 s cap was not hiding slow successes.</b> A 140 s "
+                "re-run leaves %s completing 0 of their seeds with three times "
+                "the clock, so the low slab is unreachable rather than slow."
+                % ", ".join("%.3f m" % x["h"] for x in stuck))
+        if marg:
+            line += (" It also demotes the top of the window: %s completed 3/3 "
+                     "at 75 s and %s here, so the upper edge is marginal."
+                     % (", ".join("%.3f m" % x["h"] for x in marg),
+                        ", ".join("%d/%d" % (x["complete"], x["n"]) for x in marg)))
+        ran.append(line + "</li>")
+    if a.ab and os.path.isdir(a.ab):
+        import glob, re
+        arms = {}
+        for fp in sorted(glob.glob(os.path.join(a.ab, "*.log"))):
+            arm = os.path.basename(fp).split("_")[0]
+            m = re.search(r"complete=(\d+) t_complete=\S+ t_end=(\S+)",
+                          open(fp).read())
+            if m:
+                arms.setdefault(arm, []).append((int(m.group(1)), float(m.group(2))))
+        if "on" in arms and "off" in arms:
+            mo = sum(t for _, t in arms["on"]) / len(arms["on"])
+            mf = sum(t for _, t in arms["off"]) / len(arms["off"])
+            ran.append(
+                "<li><b><code>brace_com_hold</code> is a real effect and not a "
+                "fix.</b> The term is absent from the model, so it ships off. At "
+                "0.05, mean survival at the tallest slab goes from %.1f s to "
+                "%.1f s with no overlap between the arms, and still completes "
+                "%d of %d. It buys time against the backward fall. A value sweep "
+                "(0.02 / 0.05 / 0.10) comes before calling it the wrong lever."
+                "</li>" % (mf, mo, sum(c for c, _ in arms["on"]), len(arms["on"])))
+    if ran:
+        p.append("<h2>Follow-ups that have since run</h2><ul>%s</ul>"
+                 % "".join(ran))
+
     p.append("""<h2>What this does not settle</h2>
 <ul>
-<li><b>Whether a height-scaled CoM cap recovers the window.</b> The next run is a
-two-point A/B at the worst off-nominal height: <code>com_cap_fwd</code> at its
-current 0.145 against a value scaled by (slab face &minus; ankle height), 3 seeds
-each, nothing else changed. Falsified if the scaled arm completes no more often
-than the fixed one.</li>
-<li><b>Whether the standoff, not the height, is the real variable.</b> The slab's
-near edge sits at x = 0.45 m at every height here, so a low table is reached by
-bowing rather than by stepping. Sweeping the table's <i>x</i> at one off-nominal
-height separates &ldquo;cannot brace low&rdquo; from &ldquo;cannot brace
-far&rdquo;. This is goal 4's last resort and should stay last.</li>
-<li><b>Whether the 75 s cap hides slow successes.</b> Stalled runs are censored,
-not failed. Re-running them at <code>--total_time 140</code> costs about 10 min
-each and turns a censored outcome into a real one. Queued as
-<code>studies/table_height/runs/long</code>.</li>
-<li><b>Whether any of this leaves the planner's own model.</b> Every number is
-own-sim, where the table is excluded from the arm chain and an inert pad reports
-the newtons. The twin is the check, and no twin run exists at an off-nominal
-height.</li>
-<li><b>Seeds.</b> %d per point rejects &ldquo;it always works&rdquo; and does not
-put an interval on a completion rate. Six would.</li>
+<li><b>Why the low end cannot reach.</b> The slab's near edge sits at x = 0.45 m
+at every height here, so a low table is reached by bowing rather than stepping,
+and the torso gets there before the forearm does. The measurement that separates
+"cannot brace low" from "cannot brace far" is a sweep of the table's <i>x</i> at
+one low height, which is goal 4's last resort and should stay last.</li>
+<li><b>Whether the excursion penalty can be made to win.</b> At the lowest slab
+the torso takes several hundred newtons and the CoM goes far past
+<code>com_cap_fwd</code>, which is a soft cost rather than a limit. The lever is
+the weight on the residual carrying it (<code>Pelvis Forward</code>), not the cap
+value; a weight sweep at the mid-low height is the cheap test, and it fails if
+the robot simply stops reaching instead of bracing.</li>
+<li><b>Whether the window generalises past the planner's own model.</b> Every
+number here is own-sim, where the table is excluded from the arm chain and an
+inert pad reports the newtons. The twin is the check, and no twin run exists at
+an off-nominal height.</li>
+<li><b>Seeds.</b> %d per point rejects "it always works" and does not put an
+interval on a completion rate. Six would, and the marginal upper edge is exactly
+where that matters.</li>
 </ul>""" % nseed)
 
     open(a.out, "w").write("\n".join(p))
