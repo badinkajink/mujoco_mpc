@@ -1271,6 +1271,17 @@
         <numeric name="residual_Reach X" data="0 -5 5" />
         <numeric name="residual_Reach Y" data="0 -5 5" />
         <numeric name="residual_Reach Z" data="0.9 0 2.5" />
+        <!-- ★ 2026-09-04 TABLE HEIGHT (generalisation study, parameter index 7).
+             Absolute world z of the slab's PHYSICAL TOP FACE, metres.
+             0 = OFF = use the compiled table = byte-identical to every earlier run.
+             Non-zero: lean.cc::TransitionLocked rewrites the table body's z so the
+             face lands there, restretches the cosmetic legs, and shifts the object
+             + target mocap by the same delta (task held fixed in the TABLE frame).
+             Range 0.55-1.15 brackets a low workbench through a standing-height
+             counter; the compiled slab is 0.985. Appended at the TAIL so indices
+             0-6 (Height Goal / Strategy / Phase / Reach Active/X/Y/Z), which lean.h
+             hardcodes, are untouched. -->
+        <numeric name="residual_Table H" data="0 0 1.4" />
         <!-- The LIVE cmd_vel teleop params (residual_Cmd Active/Vx/Vy/Seq/Wz)
              were removed 2026-07-30 with the drive/trot strategies that read
              them; nothing in lean.cc consumes them any more. They lived at

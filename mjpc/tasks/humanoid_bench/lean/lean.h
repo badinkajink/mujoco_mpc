@@ -75,6 +75,25 @@ constexpr int kLeanReachXParameterIndex = 4;
 constexpr int kLeanReachYParameterIndex = 5;
 constexpr int kLeanReachZParameterIndex = 6;
 
+// ★ 2026-09-04 TABLE HEIGHT (generalisation study). Absolute world z of the
+// table's PHYSICAL TOP FACE, in metres. 0 (default) = OFF = use whatever the
+// compiled model says, i.e. byte-identical to every run before this parameter
+// existed. Non-zero = TransitionLocked rewrites model->body_pos[table] so the
+// face lands exactly there, and shifts the object/target bodies by the same
+// delta so the manipulation task stays fixed IN THE TABLE FRAME.
+//
+// WHY A PARAMETER AND NOT A MODEL VARIANT. Almost every table-dependent term in
+// lean.cc already derives its geometry from the `table_surface_pos` framepos and
+// the compiled `table_top` geom half-extents (Brace Pos, the brace force gate,
+// Hip/Leg/Body-Table Clearance, the reach_target_table rungs), so the height is
+// an INPUT the costs can consume, not a constant baked into them. Exposing it as
+// parameter index 7 makes a sweep a --table_h flag rather than 9 XML forks, and
+// lets the GUI slider show the degradation live.
+//
+// Appended AFTER Reach Z so indices 0-6 are untouched; guarded everywhere by a
+// parameters.size() check so models that do not declare it fall through.
+constexpr int kLeanTableHeightParameterIndex = 7;
+
 constexpr char kLeanStrategyFilePath[] =
     SOURCE_DIR "/mjpc/tasks/humanoid_bench/lean/strategies/";
 
@@ -224,6 +243,19 @@ class lean : public Task {
   void TransitionLocked(mjModel *model, mjData *data) override;
 
   void ResetLocked(const mjModel *model) override;
+
+  // ---- headless bench accessors (lean_bench.cc) ------------------------- //
+  // The phase index/name are what a "did the ladder actually advance" call is
+  // made of, and they live behind motion_strategy_. Read-only, main-thread.
+  int BenchPhaseIndex() const {
+    return motion_strategy_.GetCurrentKeyframeIndex();
+  }
+  int BenchPhaseCount() const { return motion_strategy_.GetKeyframesCount(); }
+  std::string BenchPhaseName() const {
+    return motion_strategy_.HasKeyframes()
+               ? motion_strategy_.GetCurrentKeyframe().name
+               : std::string("none");
+  }
 
   // Populate phase-aware monitoring metrics (reach, CoP, ICP, brace force,
   // saturation, etc.) for the Research GUI / headless analyzer. Reads the
@@ -414,6 +446,12 @@ class lean : public Task {
   std::array<double, 3> target_position_;
   mjpc::humanoid::MotionStrategy motion_strategy_;
   int current_strategy_;
+
+  // ★ 2026-09-04 Table-height parameter state. The `Table H` value last written
+  // into model->body_pos, so the write (and the object/target shift that rides
+  // with it) happens once per CHANGE instead of once per step -- a per-step
+  // write would fight the free object's own dynamics. -1 = never applied.
+  double table_h_applied_ = -1.0;
 
   // Weight-ramp state (parallel to ResidualFn::prev_phase_*_scale_):
   //   xml_default_weights_  -- per-residual default from sensor user data,

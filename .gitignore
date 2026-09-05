@@ -43,3 +43,17 @@ docs/specs/
 # scratch backups: use git, not .bak files (archived 2026-08-06)
 *.bak
 *.bak.*
+
+# --- wxie/table-height ------------------------------------------------------
+# Raw sweep outputs: large (300+ MB), regenerable from studies/*/sweep.py, and
+# meaningless without the binary that produced them. The figures + summary JSON
+# a doc page depends on ARE committed, under docs/lean/media/.
+studies/runs/
+studies/*/runs/
+studies/**/__pycache__/
+# Analysis output: `make_page.py` copies the figures a page needs into
+# docs/lean/media/, which IS committed. Keeping studies/*/figs/ as well would
+# ship two copies of every PNG and let them drift.
+studies/*/figs/
+studies/*/figs_*/
+studies/*/*.log

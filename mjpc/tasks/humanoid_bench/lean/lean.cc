@@ -4072,6 +4072,71 @@ static double s_wedge_ok_time = -1.0;
 static int s_wedge_retries = 0;
 
 void lean::TransitionLocked(mjModel *model, mjData *data) {
+  // ---- ★ 2026-09-04 TABLE HEIGHT (`Table H`, parameter index 7) ---------- //
+  // Move the whole table so its PHYSICAL TOP FACE sits at the requested world z.
+  // 0 = OFF = the compiled model's own height = byte-identical to every run
+  // before this block existed.
+  //
+  // The face is derived from the compiled geom, never hardcoded:
+  //     face_z = body_pos.z + geom_pos.z + geom_size.z      (table_top, axis-aligned)
+  // so this stays correct through every slab retune (0.75 -> 0.85 -> 0.87 -> 0.985).
+  //
+  // Three things move together, because the alternative is a table that hovers:
+  //   1. the table body itself;
+  //   2. the free `object_anchor` and the `target` mocap, by the SAME delta, so
+  //      the reach/grasp task is held fixed IN THE TABLE FRAME -- a block that
+  //      stayed at world z while the slab dropped would simply fall off;
+  //   3. the four cosmetic legs, restretched to span floor -> slab underside.
+  // Everything else that depends on the height -- Brace Pos, the brace force
+  // proximity gate, Hip/Leg/Body-Table Clearance, the reach_target_table rungs --
+  // already reads `table_surface_pos` + the geom half-extents, so it tracks with
+  // no further work. That asymmetry IS the experiment: the task-space terms
+  // follow the slab, the joint-space and CoM-cap constants do not.
+  if ((int)parameters.size() > kLeanTableHeightParameterIndex) {
+    const double table_h = parameters[kLeanTableHeightParameterIndex];
+    if (table_h > 0.0 && mju_abs(table_h - table_h_applied_) > 1e-9) {
+      int tb  = mj_name2id(model, mjOBJ_BODY, "table");
+      int tgv = mj_name2id(model, mjOBJ_GEOM, "table_top");
+      if (tb >= 0 && tgv >= 0) {
+        const double slab_off =                       // face above body origin
+            model->geom_pos[3 * tgv + 2] + model->geom_size[3 * tgv + 2];
+        const double want_body_z = table_h - slab_off;
+        const double dz = want_body_z - model->body_pos[3 * tb + 2];
+        if (mju_abs(dz) > 1e-9) {
+          model->body_pos[3 * tb + 2] = want_body_z;
+          // legs: half-height so they span world 0 -> slab underside.
+          const double under =                        // underside, body frame
+              model->geom_pos[3 * tgv + 2] - model->geom_size[3 * tgv + 2];
+          const char *legs[] = {"table_leg_1", "table_leg_2", "table_leg_3",
+                                "table_leg_4", "table_leg_1_collision",
+                                "table_leg_2_collision", "table_leg_3_collision",
+                                "table_leg_4_collision"};
+          for (const char *ln : legs) {
+            int lg = mj_name2id(model, mjOBJ_GEOM, ln);
+            if (lg < 0) continue;
+            double half = 0.5 * (under + want_body_z);
+            if (half < 0.01) half = 0.01;             // table below the floor
+            model->geom_size[3 * lg + 2] = half;
+            model->geom_pos[3 * lg + 2] = under - half;
+          }
+          // the object rides the slab
+          int oj = mj_name2id(model, mjOBJ_JOINT, "object_anchor_joint");
+          if (oj >= 0) {
+            int qa = model->jnt_qposadr[oj], va = model->jnt_dofadr[oj];
+            data->qpos[qa + 2] += dz;
+            mju_zero(data->qvel + va, 6);              // no ringing on a teleport
+          }
+          int tmb = mj_name2id(model, mjOBJ_BODY, "target");
+          if (tmb >= 0 && model->body_mocapid[tmb] >= 0)
+            data->mocap_pos[3 * model->body_mocapid[tmb] + 2] += dz;
+          mj_kinematics(model, data);                  // sensors see it THIS step
+          std::printf("[table-h] face -> %.3f m (body z %.4f, dz %+.4f)\n",
+                      table_h, want_body_z, dz);
+        }
+        table_h_applied_ = table_h;
+      }
+    }
+  }
   // ★ 2026-08-29 JAWS OPEN ON STAND (user request): every entry into keyframe
   // 0 (stand_up -- node start, ladder reset, retry-to-stand) raises
   // g_grasp_gate_cmd=2. The deploy mirror publishes "OPEN" on rt/grasp_gate

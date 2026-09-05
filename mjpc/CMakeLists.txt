@@ -288,6 +288,30 @@ target_link_options(testspeed PRIVATE ${MJPC_LINK_OPTIONS})
 target_compile_definitions(testspeed PRIVATE MJSIMULATE_STATIC)
 
 # -----------------------------------------------------------------------------
+# lean_bench: headless strategy/table-height bench for the lean pipeline.
+# Same agent loop as testspeed, but it can set task parameters (Strategy,
+# Table H) and dumps a per-step metric CSV + optional qpos track for offline
+# video. Task behaviour is untouched -- see mjpc/lean_bench.cc.
+# -----------------------------------------------------------------------------
+add_executable(
+  lean_bench
+  lean_bench.cc
+)
+target_link_libraries(
+  lean_bench
+  libmjpc
+  mujoco::mujoco
+  threadpool
+  Threads::Threads
+)
+target_include_directories(lean_bench PRIVATE
+  ${CMAKE_CURRENT_BINARY_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_options(lean_bench PUBLIC ${MJPC_COMPILE_OPTIONS})
+target_link_options(lean_bench PRIVATE ${MJPC_LINK_OPTIONS})
+
+# -----------------------------------------------------------------------------
 # Embedded DDS control node for the Unitree H1-2 (digital twin + real robot).
 # OFF by default so the normal build never needs unitree_sdk2.  Enable with:
 #   cmake .. -DMJPC_BUILD_DEPLOY=ON
