@@ -23,12 +23,13 @@ done
 
 $S/analyze_pose.py --baseline $S/runs/seeded --out $S/figs || true
 RUNS="seeded=$S/runs/seeded"
-for D in ab/off ab/on lead/off lead/on; do
+for D in ab/off ab/on lead/off lead/on mode/mode2 tol; do
   [ -s $S/runs/$D/summary.csv ] && RUNS="$RUNS $(echo $D | tr / -)=$S/runs/$D"
 done
 $S/analyze_lead.py --runs $RUNS --out $S/figs || true
 $S/analyze_gate.py --runs $RUNS --out $S/figs || true
 [ -s $S/runs/mode/mode2/summary.csv ] && $S/analyze.py --runs $S/runs/mode/mode2 --out $S/figs_mode2 || true
+[ -s $S/runs/tol/summary.csv ] && $S/analyze.py --runs $S/runs/tol --out $S/figs_tol || true
 $S/render_pose.py --out $S/figs/fig_poses.png || true
 
 for H in 0785 0885 0985 1035 1085; do
@@ -51,4 +52,10 @@ $S/make_page_pose.py --figs $S/figs \
    $( [ -f $S/figs_ab_on/agg.json ] && echo "--on $S/figs_ab_on" ) \
    $( [ -f $S/figs_mode2/agg.json ] && echo "--mode2 $S/figs_mode2" ) \
    $LEAD_ARGS --figs_rel media/pose --media $MEDIA --out $PAGE
+ARMS="shipped=$S/figs_ab_off pose_track1=$S/figs_ab_on"
+[ -f $S/figs_lead_off/agg.json ] && ARMS="$ARMS lead=$S/figs_lead_off"
+[ -f $S/figs_lead_on/agg.json ] && ARMS="$ARMS lead+pose=$S/figs_lead_on"
+[ -f $S/figs_mode2/agg.json ] && ARMS="$ARMS pose_track2=$S/figs_mode2"
+[ -f $S/figs_tol/agg.json ] && ARMS="$ARMS gate_opened=$S/figs_tol"
+$S/write_status_pose.py --figs $S/figs --arms $ARMS --out $S/STATUS.md
 echo "=== PUBLISHED $(date +%H:%M) -> $PAGE ==="

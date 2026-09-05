@@ -203,32 +203,37 @@ def open_items(off, on, nom):
     items = []
     if still:
         items.append(
-            "<li><b>%s still complete 0 of 3.</b> The next two numerics to test, "
-            "both already implemented and both shipping off: "
-            "<code>table_contact_exclusive</code> 1 &rarr; 2, which arms the "
-            "preventive keep-off guard for every non-brace body over the slab "
-            "footprint (the low-end failure with the pose correct is a drape, "
-            "torso onto the wood at over 1 kN after the forearm has seated); and "
-            "<code>brace_target_slab</code> 0 &rarr; 1 with "
-            "<code>brace_target_inset</code> 0.05 &rarr; 0.11, which moves the "
-            "brace x target off the body and onto the slab at the inset the "
-            "keyframe already uses. At the re-solved pose the body-tied target "
-            "still asks for 32&ndash;51 mm of extra forward travel at the low "
-            "end. Both die if the completion count at %s does not move.</li>"
-            % (", ".join("%.3f m" % h for h in still),
-               ", ".join("%.3f m" % h for h in still)))
+            "<li><b>%s still complete 0 of 3.</b> The gate they die at is the "
+            "rung-2 reach, and the two things that could make it are (a) the "
+            "reaching arm tracking the slab, which is "
+            "<code>brace_pose_track</code> 2 and is measured above, and (b) the "
+            "reach target's own height, <code>reach_target_table</code>[2] = "
+            "0.15 m above the face, which no one has swept. Both die if the "
+            "closest approach at the failing heights does not fall under "
+            "70 mm.</li>"
+            % ", ".join("%.3f m" % h for h in still))
     items.append(
-        "<li><b>The window edges are untested.</b> The A/B covers the five "
+        "<li><b>Whether the gate is the ONLY thing wrong there.</b> The rungs "
+        "after the targeting one have never run at a failing height, so they "
+        "have never been tested there. <code>sweep_tol.py</code> opens the "
+        "tolerance to 0.20 m as a diagnostic: if the failing heights then "
+        "complete, generalisation reduces to making that reach; if they do not, "
+        "the gate was only the first thing to break. It is a diagnostic and not "
+        "a fix &mdash; the tolerance is the task's success criterion, and "
+        "loosening it declares victory rather than earning it.</li>")
+    items.append(
+        "<li><b>The window edges are untested.</b> The arms cover the five "
         "heights the baseline covered. 1.135 m and 0.735 m have not been run "
-        "with the retarget on, so &ldquo;the window widened&rdquo; is bounded "
-        "below by the grid, not measured. Run "
+        "with any of them, so &ldquo;the window did not move&rdquo; is bounded "
+        "by the grid on both sides. Run "
         "<code>sweep_ab.py --heights 0.735,1.135</code>.</li>")
     items.append(
-        "<li><b>The ramp was not adjusted.</b> The brace rung glides the posture "
-        "target over <code>target_ramp_sec</code> 18 s, and the re-solved pose "
-        "is up to 10&deg; deeper in base pitch, so the commanded bow rate rises "
-        "by about 40% at the low end while the ramp stays put. Whether that "
-        "matters is one JSON edit and 3 seeds, and it needs no rebuild.</li>")
+        "<li><b>The low end of the reach-arm solve is approximate.</b> With the "
+        "reaching arm constrained, a right-arm joint limit binds below 0.8 m and "
+        "the solve lands 8&ndash;10 mm off instead of under 0.2 mm. That is why "
+        "the accept threshold in <code>lean.cc</code> is 25 mm; below about "
+        "0.75 m it will start refusing and falling back to the shipped pose, and "
+        "the fallback is silent apart from one line on stderr.</li>")
     items.append(
         "<li><b>Only sim.</b> Every number here is the planner's own model. The "
         "documented own-sim-over-holds gap means a pose the agent server holds "

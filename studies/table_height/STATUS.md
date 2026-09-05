@@ -138,3 +138,54 @@ The stalls are real, not clipped: 0.785 m, 0.885 m still complete 0 of their see
 | on (0.05) | 0/3 | 3 | 49.4, 40.7, 53.3 |
 
 Mean survival 32.6 s off vs 47.8 s on. The two sets do not overlap (worst treatment 40.7 s beats best baseline 35.0 s), so with 3 seeds each the effect is real rather than planner noise. It still completes 0/3: the term buys time and does not fix the upper edge. Next is a value sweep (0.02 / 0.05 / 0.10) before concluding the term is the wrong lever.
+
+<!-- POSE:BEGIN -->
+
+## The minimal-change work (2026-09-05)
+
+**The window did not move.** No arm below completes a single seed at 0.785 m, 0.885 m, 1.085 m, and every arm still completes every seed at the compiled height. Each is free where the controller already works, and each changes the mechanism without changing the outcome.
+
+| face | shipped | pose_track1 | lead | lead+pose | pose_track2 |
+|---|---|---|---|---|---|
+| 0.785 m | 0/3 | 0/3 | 0/3 | 0/3 | &mdash; |
+| 0.885 m | 0/3 | 0/3 | 0/3 | 0/3 | 0/1 |
+| 0.985 m | 3/3 | 3/3 | 3/3 | 3/3 | &mdash; |
+| 1.035 m | 2/3 | 1/3 | &mdash; | &mdash; | &mdash; |
+| 1.085 m | 0/3 | 0/3 | &mdash; | &mdash; | &mdash; |
+
+### What the sweep is actually blocked on
+
+Rung 2 carries `reach_target_table` [0.55, 0.04, 0.15], so
+`TransitionLocked` overwrites `total_distance` with the distance from
+the right gripper jaw tip to `(near_edge+0.55, ctr_y-0.04, face+0.15)`
+and `target_distance_tolerance` (70 mm) is the gate. Replayed from the
+qpos dumps over 15 runs: **8 of 8 runs that came within 70 mm
+completed the ladder, and 0 of 7 that did not.** No other measured
+quantity separates the outcomes.
+
+Which axis is short at the closest approach (median per height):
+
+| face | dx (mm) | dy (mm) | dz (mm) | closest (mm) |
+|---|---|---|---|---|
+| 0.785 m | +454 | -53 | -150 | 481 |
+| 0.885 m | +115 | -42 | -114 | 180 |
+| 0.985 m | +19 | +4 | -6 | 21 |
+| 1.035 m | -25 | +5 | -0 | 25 |
+| 1.085 m | -138 | -34 | -64 | 161 |
+
+### Run it
+
+```bash
+S=studies/table_height
+$S/sweep_ab.py    --out $S/runs/ab      # pose_track off vs on, one binary
+$S/sweep_lead.py  --out $S/runs/lead    # Brace Reach Lead 400, +/- retarget
+$S/sweep_mode2.py --out $S/runs/mode    # pose_track 2, reaching arm too
+$S/sweep_tol.py   --out $S/runs/tol     # DIAGNOSTIC: open the gate to 0.20
+$S/publish_pose.sh                      # figures, videos, page, this section
+```
+
+Page: `docs/lean/20260905-brace_posture_retarget.html` (local only).
+
+_Generated 2026-09-05 by write_status_pose.py._
+
+<!-- POSE:END -->

@@ -9,17 +9,42 @@ appears in both, one of them is stale.
 
 **What is the minimal change that makes table-height generalisation work?**
 
-The first effort is closed and is a pure baseline: it swept slab height with **no
-cost weight, residual, strategy JSON, keyframe or standoff altered**, so the
-window it measured belongs to the shipped controller. Everything after it is
-scored against that baseline, and "minimal" is counted in numbers touched — an
-existing model numeric beats a new weight, a weight beats a new residual, a new
-residual beats moving the robot.
+Minimal is counted in NUMBERS TOUCHED — an existing model numeric beats a new
+weight, a weight beats a new residual, a new residual beats moving the robot. A
+result counts only if it widens the window on **3 seeds per height at a fixed
+thread count** and costs no completions at the compiled 0.985 m.
 
-A result counts only if it widens the window on **3 seeds per height at a fixed
-thread count** and costs no completions at the compiled height. The ranked
-candidates and their kill conditions live in the doc page; the commands live in
-STATUS.md.
+**Answer so far: not yet, and we know exactly what is blocking it.** Three arms
+have been run paired against the shipped controller from one binary
+(`studies/table_height/sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`). None
+widened the window; all are free at the compiled height. The blocker is the
+**rung-2 reach gate**, not the brace:
+
+> Rung 2 of strategy 25 carries `reach_target_table` [0.55, 0.04, 0.15], so
+> `TransitionLocked` overwrites `total_distance` with the distance from the RIGHT
+> gripper jaw tip to `(near_edge + 0.55, table_ctr_y − 0.04, face + 0.15)` and
+> `target_distance_tolerance` = 0.07 is the gate. Every run in the study that
+> came within 70 mm completed the ladder; every run that did not, failed.
+
+Numbers live in `studies/table_height/STATUS.md` (generated) and on the page
+`docs/lean/20260905-brace_posture_retarget.html`. The repo-level correction —
+that this tolerance is NOT dead on a `reach_target_table` rung — is in
+`CLAUDE.md` §1c.
+
+## 0a. Tools this line has built
+
+| Script | What it answers |
+|---|---|
+| `retarget.py` | the offline twin of `brace_pose_track`: re-solve the brace keyframes for a slab |
+| `probe_ik.py` | what posture each slab requires, and how many dimensions the family uses |
+| `probe_armreach.py` | trunk frozen, which slabs the bracing arm can seat on at all |
+| `probe_static.py` | whether those poses are statically holdable on the feet |
+| `probe_advance.py`, `analyze_gate.py` | what the rung-2 gate saw, replayed from the qpos dumps |
+| `analyze_lead.py` | forward base travel against the line `Brace Reach Lead` draws |
+| `sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`, `sweep_tol.py` | the paired arms |
+| `publish_pose.sh` | figures, videos, page and the STATUS section, idempotent |
+
+Everything replays from `--qpos_out`; none of it costs sim time.
 
 ## 1. Branch discipline
 
