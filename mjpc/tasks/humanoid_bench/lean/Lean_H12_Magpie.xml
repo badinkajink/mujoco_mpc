@@ -1233,6 +1233,18 @@
              body physically ~+20deg off). -->
         <numeric name="brace_target_slab_lat" data="1.0"/>
         <numeric name="brace_lat_inset" data="0.20"/>
+        <!-- brace_pose_track (2026-09-05): 0 = OFF = BYTE-IDENTICAL, 1 = ON.
+             When `Table H` moves the slab, re-solve the brace posture keyframes
+             (forearm_brace_lean / _reach / _release) so both brace pads shift with
+             the face, feet held. WHY: `forearm_brace_lean` seats the forearm pad
+             2 mm above the COMPILED face and nothing re-solves it when the slab
+             moves, so Posture and Brace Pos then pull the pad to two places that
+             differ by exactly the height error. The header above that keyframe
+             records it being hand-solved the last time the slab moved. A zero
+             shift returns the shipped pose bit for bit, so this is free at the
+             compiled height. ⚠ must stay BEFORE the first `residual_*` numeric.
+             Offline twin: studies/table_height/retarget.py. -->
+        <numeric name="brace_pose_track" data="0"/>
         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
         <!-- Slider → strategy. GetStrategyNames() in lean.h is 36 slots long and every
              slot not listed here is PADDED with h12_simple_stand: Strategy is a

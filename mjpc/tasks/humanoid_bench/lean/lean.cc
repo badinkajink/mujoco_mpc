@@ -4071,7 +4071,200 @@ void lean::ResidualFn::ContactResidual(const mjModel *model, const mjData *data,
 static double s_wedge_ok_time = -1.0;
 static int s_wedge_retries = 0;
 
+// ---------------------------------------------------------------------------
+// ★ 2026-09-05 BRACE POSTURE RETARGET (`brace_pose_track`, 0 = OFF = byte-identical)
+//
+// WHY. `forearm_brace_lean` puts the left forearm pad 2 mm above the COMPILED
+// slab face, and the pad's drive target (`brace_press_z`) tracks the face. At
+// the compiled height the two agree to 2 mm; at any other height they disagree
+// by exactly the height error, and Posture (w60 over all 27 joints, plus the
+// leg-chain amplifier) spends the whole brace rung pulling the body back to a
+// pose whose forearm is 100-200 mm off the wood. The header above that keyframe
+// records the pose being hand-solved ("--surface 0.955 --min-x 0.34") the last
+// time the slab moved; nothing re-solves it when `Table H` moves it now.
+// MEASURED (studies/table_height, 3 seeds per height, strategy 25): the shipped
+// controller completes 3/3 at 0.985 and 1.035 m and 0/3 at 0.785 / 0.885 /
+// 1.085 m, and the offline solve below is what the failures are missing.
+//
+// WHAT. Re-solve the brace posture keyframes against the slab: shift BOTH brace
+// pads by (face - compiled face) in z, hold both feet exactly where and how the
+// keyframe holds them, and take the pose NEAREST the shipped one that does it.
+// A zero shift reproduces the shipped keyframe bit for bit, which is what makes
+// this free at the compiled height instead of merely cheap.
+//
+// BOTH pads, not just the forearm: constraining the elbow pad alone leaves the
+// wrist free, and the nearest solution then parks the HAND 122 mm inside a
+// 0.785 m slab. Two points make the forearm rigid, which is what "flat on the
+// table" means.
+//
+// Damped least squares with a null-space pull back to the shipped pose, run
+// ONCE per height change. Offline (studies/table_height/retarget.py, the same
+// arithmetic) it converges to < 0.2 mm over 0.685 .. 1.185 m, holds the CoM
+// 15-53 mm ahead of midfoot at every height -- inside `com_cap_fwd` 0.145
+// throughout -- and never drives base_x past `brace_lead_x0` 0.24.
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr int kRtRows = 18;   // 2 pads x 3 + 2 feet x 6
+constexpr int kRtMaxSel = 32;
+constexpr int kRtMaxNv = 96;
+
+// The strategy-25 brace ladder. `forearm_brace_mid` is deliberately absent: it
+// is the battery variants' hover rung, its pad sits 0.30 m further onto the
+// slab, and a shift solved for the seat is not the shift it wants.
+const char *const kRtKeys[] = {"forearm_brace_lean", "forearm_brace_reach",
+                               "forearm_brace_release"};
+
+// world-frame rotation vector taking qa to qb
+void RtQuatErr(const mjtNum *qa, const mjtNum *qb, mjtNum *res) {
+  mjtNum neg[4], dq[4];
+  mju_negQuat(neg, qa);
+  mju_mulQuat(dq, qb, neg);
+  mju_quat2Vel(res, dq, 1.0);
+}
+
+// Collect the dofs the retarget is allowed to move: the floating base, both
+// legs, the waist, and the BRACING arm. The reaching arm is left exactly as
+// authored -- its pose is the reach solve, not ours.
+int RtSelectDofs(const mjModel *model, bool brace_left, int *sel) {
+  int n = 0;
+  for (int j = 0; j < model->njnt && n < kRtMaxSel; j++) {
+    if (model->jnt_type[j] != mjJNT_FREE) continue;
+    for (int k = 0; k < 6; k++) sel[n++] = model->jnt_dofadr[j] + k;
+    break;
+  }
+  static const char *const legs[] = {
+      "left_hip_yaw_joint", "left_hip_pitch_joint", "left_hip_roll_joint",
+      "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
+      "right_hip_yaw_joint", "right_hip_pitch_joint", "right_hip_roll_joint",
+      "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
+      "torso_joint"};
+  for (const char *jn : legs) {
+    int j = mj_name2id(model, mjOBJ_JOINT, jn);
+    if (j >= 0 && n < kRtMaxSel) sel[n++] = model->jnt_dofadr[j];
+  }
+  static const char *const arm[] = {"_shoulder_pitch_joint", "_shoulder_roll_joint",
+                                    "_shoulder_yaw_joint", "_elbow_joint",
+                                    "_wrist_roll_joint", "_wrist_pitch_joint",
+                                    "_wrist_yaw_joint"};
+  for (const char *suf : arm) {
+    std::string jn = std::string(brace_left ? "left" : "right") + suf;
+    int j = mj_name2id(model, mjOBJ_JOINT, jn.c_str());
+    if (j >= 0 && n < kRtMaxSel) sel[n++] = model->jnt_dofadr[j];
+  }
+  return n;
+}
+
+// One keyframe. Returns the final max |residual| in metres (or -1 if the model
+// is missing a name the solve needs).
+double RtSolveKey(const mjModel *model, mjData *d, const mjtNum *q_ship,
+                  double dz, bool brace_left, mjtNum *q_out) {
+  int pad = mj_name2id(model, mjOBJ_GEOM,
+                       brace_left ? "left_forearm_pad" : "right_forearm_pad");
+  int pad2 = mj_name2id(model, mjOBJ_GEOM,
+                        brace_left ? "left_wrist_pad" : "right_wrist_pad");
+  int foot[2] = {mj_name2id(model, mjOBJ_BODY, "left_ankle_roll_link"),
+                 mj_name2id(model, mjOBJ_BODY, "right_ankle_roll_link")};
+  if (pad < 0 || pad2 < 0 || foot[0] < 0 || foot[1] < 0) return -1.0;
+  if (model->nv > kRtMaxNv) return -1.0;
+
+  int sel[kRtMaxSel];
+  const int ns = RtSelectDofs(model, brace_left, sel);
+  if (ns < 12) return -1.0;
+
+  // targets and foot references, taken at the SHIPPED pose
+  mju_copy(d->qpos, q_ship, model->nq);
+  mju_zero(d->qvel, model->nv);
+  mj_kinematics(model, d);
+  mj_comPos(model, d);
+  mjtNum tgt[3], tgt2[3], fpos[2][3], fquat[2][4];
+  mju_copy3(tgt, d->geom_xpos + 3 * pad);    tgt[2] += dz;
+  mju_copy3(tgt2, d->geom_xpos + 3 * pad2);  tgt2[2] += dz;
+  for (int k = 0; k < 2; k++) {
+    mju_copy3(fpos[k], d->xpos + 3 * foot[k]);
+    mju_copy4(fquat[k], d->xquat + 4 * foot[k]);
+  }
+
+  mjtNum jp[3 * kRtMaxNv], jr[3 * kRtMaxNv];
+  mjtNum J[kRtRows * kRtMaxSel], JJt[kRtRows * kRtRows], r[kRtRows], y[kRtRows];
+  mjtNum dq[kRtMaxSel], bias[kRtMaxSel], e[kRtMaxNv], step[kRtMaxNv];
+  double worst = 0.0;
+
+  for (int it = 0; it < 80; it++) {
+    mj_kinematics(model, d);
+    mj_comPos(model, d);       // mj_jac* read d->cdof, which this fills
+
+    mju_sub3(r + 0, d->geom_xpos + 3 * pad, tgt);
+    mju_sub3(r + 3, d->geom_xpos + 3 * pad2, tgt2);
+    for (int k = 0; k < 2; k++) {
+      mju_sub3(r + 6 + 6 * k, d->xpos + 3 * foot[k], fpos[k]);
+      RtQuatErr(fquat[k], d->xquat + 4 * foot[k], r + 9 + 6 * k);
+    }
+    worst = 0.0;
+    for (int i = 0; i < kRtRows; i++) worst = mju_max(worst, mju_abs(r[i]));
+    if (worst < 1e-7) break;
+
+    mj_jacGeom(model, d, jp, jr, pad);
+    for (int i = 0; i < 3; i++)
+      for (int c = 0; c < ns; c++) J[(0 + i) * ns + c] = jp[i * model->nv + sel[c]];
+    mj_jacGeom(model, d, jp, jr, pad2);
+    for (int i = 0; i < 3; i++)
+      for (int c = 0; c < ns; c++) J[(3 + i) * ns + c] = jp[i * model->nv + sel[c]];
+    for (int k = 0; k < 2; k++) {
+      mj_jacBody(model, d, jp, jr, foot[k]);
+      for (int i = 0; i < 3; i++)
+        for (int c = 0; c < ns; c++) {
+          J[(6 + 6 * k + i) * ns + c] = jp[i * model->nv + sel[c]];
+          J[(9 + 6 * k + i) * ns + c] = jr[i * model->nv + sel[c]];
+        }
+    }
+
+    // (J J^T + lambda I) y = r   ->   dq = -J^T y  (damped least squares)
+    mju_mulMatMatT(JJt, J, J, kRtRows, ns, kRtRows);
+    for (int i = 0; i < kRtRows; i++) JJt[i * kRtRows + i] += 1e-3;
+    if (mju_cholFactor(JJt, kRtRows, 0.0) < kRtRows) break;
+    mju_cholSolve(y, JJt, r, kRtRows);
+    mju_mulMatTVec(dq, J, y, kRtRows, ns);
+    mju_scl(dq, dq, -1.0, ns);
+
+    // null-space pull back toward the shipped pose: dq += (I - J^+ J) (-k e)
+    mj_differentiatePos(model, e, 1.0, q_ship, d->qpos);
+    for (int c = 0; c < ns; c++) bias[c] = -0.02 * e[sel[c]];
+    mju_mulMatVec(r, J, bias, kRtRows, ns);      // r reused as scratch
+    mju_cholSolve(y, JJt, r, kRtRows);
+    mjtNum proj[kRtMaxSel];
+    mju_mulMatTVec(proj, J, y, kRtRows, ns);
+    for (int c = 0; c < ns; c++) dq[c] += bias[c] - proj[c];
+
+    mju_zero(step, model->nv);
+    for (int c = 0; c < ns; c++) step[sel[c]] = mju_clip(dq[c], -0.15, 0.15);
+    mj_integratePos(model, d->qpos, step, 1.0);
+    for (int j = 0; j < model->njnt; j++) {
+      if (!model->jnt_limited[j] || model->jnt_type[j] == mjJNT_FREE) continue;
+      int a = model->jnt_qposadr[j];
+      d->qpos[a] = mju_clip(d->qpos[a], model->jnt_range[2 * j],
+                            model->jnt_range[2 * j + 1]);
+    }
+  }
+  mju_copy(q_out, d->qpos, model->nq);
+  return worst;
+}
+
+}  // namespace
+
 void lean::TransitionLocked(mjModel *model, mjData *data) {
+  // The COMPILED slab face, read before anything in this function moves the
+  // table. Both `Table H` and the brace-posture retarget below measure their
+  // delta from here, so a second height change still measures from the model
+  // rather than from the last answer.
+  if (brace_face_nominal_ < 0.0) {
+    int tb0 = mj_name2id(model, mjOBJ_BODY, "table");
+    int tg0 = mj_name2id(model, mjOBJ_GEOM, "table_top");
+    if (tb0 >= 0 && tg0 >= 0)
+      brace_face_nominal_ = model->body_pos[3 * tb0 + 2] +
+                            model->geom_pos[3 * tg0 + 2] +
+                            model->geom_size[3 * tg0 + 2];
+  }
   // ---- ★ 2026-09-04 TABLE HEIGHT (`Table H`, parameter index 7) ---------- //
   // Move the whole table so its PHYSICAL TOP FACE sits at the requested world z.
   // 0 = OFF = the compiled model's own height = byte-identical to every run
@@ -4132,6 +4325,55 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           mj_kinematics(model, data);                  // sensors see it THIS step
           std::printf("[table-h] face -> %.3f m (body z %.4f, dz %+.4f)\n",
                       table_h, want_body_z, dz);
+          // ★ 2026-09-05 re-solve the brace posture keyframes for the new slab
+          // (`brace_pose_track`, 0 = OFF = byte-identical). See the block above
+          // RtSolveKey for why the shipped poses cannot serve another height.
+          if (GetNumberOrDefault(0.0, model, "brace_pose_track") > 0.5 &&
+              brace_face_nominal_ > 0.0) {
+            if (brace_key_ids_.empty()) {
+              for (const char *kn : kRtKeys) {
+                int ki = mj_name2id(model, mjOBJ_KEY, kn);
+                if (ki < 0) continue;
+                brace_key_ids_.push_back(ki);
+                brace_key_shipped_.insert(
+                    brace_key_shipped_.end(), model->key_qpos + ki * model->nq,
+                    model->key_qpos + (ki + 1) * model->nq);
+              }
+            }
+            const double dface = table_h - brace_face_nominal_;
+            const bool brace_left =
+                GetNumberOrDefault(0.0, model, "reach_hand") > 1.5;
+            mjData *scratch = mj_makeData(model);
+            std::vector<mjtNum> qn(model->nq);
+            for (size_t i = 0; i < brace_key_ids_.size(); i++) {
+              const int ki = brace_key_ids_[i];
+              const mjtNum *ship = brace_key_shipped_.data() + i * model->nq;
+              const double err =
+                  RtSolveKey(model, scratch, ship, dface, brace_left, qn.data());
+              const char *kn = mj_id2name(model, mjOBJ_KEY, ki);
+              if (err < 0.0 || err > 5e-3) {
+                std::fprintf(stderr,
+                             "[brace-pose-track] %s: solve returned %.1f mm -- "
+                             "keyframe LEFT at the shipped pose\n",
+                             kn ? kn : "?", 1000.0 * err);
+                mju_copy(model->key_qpos + ki * model->nq, ship, model->nq);
+                continue;
+              }
+              mju_copy(model->key_qpos + ki * model->nq, qn.data(), model->nq);
+              // base z and pitch are printed so a run can be checked against the
+              // offline solve (studies/table_height/retarget.py) without a dump.
+              const double sp = mju_clip(
+                  2.0 * (qn[3] * qn[5] - qn[6] * qn[4]), -1.0, 1.0);
+              std::printf("[brace-pose-track] %-22s re-solved %.2f mm | base_z "
+                          "%.3f | pitch %.2f deg\n",
+                          kn ? kn : "?", 1000.0 * err, qn[2],
+                          std::asin(sp) * 180.0 / mjPI);
+            }
+            mj_deleteData(scratch);
+            std::printf("[brace-pose-track] face %.3f m, delta %+.0f mm from the "
+                        "compiled %.3f m\n",
+                        table_h, 1000.0 * dface, brace_face_nominal_);
+          }
         }
         table_h_applied_ = table_h;
       }

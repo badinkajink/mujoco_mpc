@@ -15,6 +15,7 @@
 // usage:
 //   lean_bench --task "Lean H12 Magpie" --strategy 25 --table_h 0.86 --seed 0
 //              --total_time 120 --out run.csv [--qpos_out qpos.csv] [--threads 6]
+//              [--pose_track 1]   re-solve the brace keyframes for the slab
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -90,6 +91,11 @@ int main(int argc, char** argv) {
       std::atof(Arg(argc, argv, "--hold_after_final", "3.0").c_str());
   const std::string out      = Arg(argc, argv, "--out", "");
   const std::string qpos_out = Arg(argc, argv, "--qpos_out", "");
+  // Model <numeric> overrides, applied to the loaded model before the first
+  // Transition. `brace_pose_track` ships 0 (off, byte-identical) so the A and B
+  // arms of a comparison differ by one value rather than by two model files.
+  const double pose_track =
+      std::atof(Arg(argc, argv, "--pose_track", "-1").c_str());
 
   mjpc::Agent agent;
   agent.SetTaskList(mjpc::GetTasks());
@@ -101,6 +107,16 @@ int main(int argc, char** argv) {
   auto load = agent.LoadModel();
   mjModel* model = load.model.get();
   if (!model) { std::fprintf(stderr, "%s\n", load.error.c_str()); return 2; }
+  if (pose_track >= 0.0) {
+    int n = mj_name2id(model, mjOBJ_NUMERIC, "brace_pose_track");
+    if (n < 0) {
+      std::fprintf(stderr, "[bench] --pose_track: the model has no "
+                           "brace_pose_track numeric\n");
+      return 2;
+    }
+    model->numeric_data[model->numeric_adr[n]] = pose_track;
+    std::fprintf(stderr, "[bench] brace_pose_track = %.1f\n", pose_track);
+  }
   mjData* data = mj_makeData(model);
 
   int home_id = mj_name2id(model, mjOBJ_KEY, "home");

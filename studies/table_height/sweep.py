@@ -24,7 +24,10 @@ def tag_for(h, seed):
 
 
 def run_one(job):
-    h, seed, outdir, task, slot, total_time, threads, video, spp, quota = job
+    # an 11th element carries extra lean_bench flags (e.g. ["--pose_track", "1"]);
+    # sweep.py itself never passes one, so its own jobs are unchanged.
+    h, seed, outdir, task, slot, total_time, threads, video, spp, quota = job[:10]
+    extra = list(job[10]) if len(job) > 10 else []
     tag = tag_for(h, seed)
     csv_path = os.path.join(outdir, tag + ".csv")
     qpos_path = os.path.join(outdir, tag + ".qpos.csv") if video else ""
@@ -42,6 +45,7 @@ def run_one(job):
            "--table_h", "%.4f" % h,
            "--total_time", str(total_time), "--threads", str(threads),
            "--spp", str(spp), "--out", csv_path]
+    cmd += extra
     if qpos_path:
         cmd += ["--qpos_out", qpos_path]
     t0 = time.time()

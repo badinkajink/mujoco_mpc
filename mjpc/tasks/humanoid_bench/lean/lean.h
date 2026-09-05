@@ -453,6 +453,20 @@ class lean : public Task {
   // write would fight the free object's own dynamics. -1 = never applied.
   double table_h_applied_ = -1.0;
 
+  // ★ 2026-09-05 BRACE POSTURE RETARGET state (`brace_pose_track`, 0 = OFF).
+  // The shipped brace keyframes are a solution of ONE slab height: the
+  // forearm pad sits 2 mm above the compiled 0.985 m face, and the header
+  // above `forearm_brace_lean` in the lean XMLs records that the pose was
+  // hand-solved for a surface the last time the slab moved. Nothing re-solves
+  // it when `Table H` moves the slab, so Posture and Brace Pos then pull the
+  // pad to two different places, by exactly the height error. These hold the
+  // SHIPPED poses (captured before the first retarget, so every re-solve
+  // starts from the compiled pose rather than from the last answer) and the
+  // compiled face they were solved for.
+  double brace_face_nominal_ = -1.0;
+  std::vector<int> brace_key_ids_;
+  std::vector<double> brace_key_shipped_;   // nq per entry, parallel to the ids
+
   // Weight-ramp state (parallel to ResidualFn::prev_phase_*_scale_):
   //   xml_default_weights_  -- per-residual default from sensor user data,
   //                            snapshot once in ResetLocked. Used as the
