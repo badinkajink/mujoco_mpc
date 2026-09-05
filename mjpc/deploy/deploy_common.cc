@@ -1846,8 +1846,13 @@ int RunDeployNode(const NodeConfig& cfg) {
       // H12_YAW_GYRO_HOLD=0 disables (byte-identical to the 07:05 build).
       {
         static const bool gyro_hold = [] {
+          // 2026-09-05 08:35 DEFAULT OFF: the learned bias is not repeatable
+          // (0.27, 0.29, 0.46, 0.62 deg/s across four stands) and when it is
+          // wrong the hold drives the heading AWAY from the bundle (9_C3_6
+          // -15 deg, 9_B50_4 -7 deg). The runs without it (9_B3_38, 9_B50_2/3)
+          // held within 2-5 deg. Opt in with H12_YAW_GYRO_HOLD=1.
           const char* e = std::getenv("H12_YAW_GYRO_HOLD");
-          return e ? std::atoi(e) != 0 : true;
+          return e ? std::atoi(e) != 0 : false;
         }();
         static double prev_qyaw = 0.0; static bool have_prev = false;
         double qw = cur.quat[0], qx = cur.quat[1], qy = cur.quat[2], qz = cur.quat[3];
@@ -1856,17 +1861,44 @@ int RunDeployNode(const NodeConfig& cfg) {
         double r20 = 2 * (qx * qz - qw * qy), r21 = 2 * (qy * qz + qw * qx),
                r22 = 1 - 2 * (qx * qx + qy * qy);
         double wz_world = r20 * cur.gyro[0] + r21 * cur.gyro[1] + r22 * cur.gyro[2];
-        if (gyro_hold && have_prev && !ok) {
+        // 9_C3_3: the raw gyro carries a bias (~0.5 deg/s measured: the hold
+        // walked the offset 30 deg in 60 s at a standstill). Learn the
+        // quaternion-vs-gyro rate difference while the bundle IS fresh (that
+        // difference is the bias the IMU's own filter removes), subtract it
+        // while blind, and cap the total blind-window correction at 15 deg.
+        static double gyro_bias = 0.0; static bool have_bias = false;
+        static double hold_accum = 0.0;
+        if (have_prev && ctrl_dt > 0.0) {
           double dq = qyaw - prev_qyaw;
           while (dq > M_PI) dq -= 2 * M_PI;
           while (dq < -M_PI) dq += 2 * M_PI;
-          double dgyro = wz_world * ctrl_dt;
-          double corr = dgyro - dq;                 // what the quaternion did that the gyro did not
-          if (std::fabs(corr) < 0.02) imu_yaw_off += corr;   // per-tick sanity (< ~1.1 deg)
-          static long gh_note = 0;
-          if (++gh_note % (static_cast<long>(ctrl_hz) * 10) == 1)
-            std::fprintf(stderr, "[node] yaw gyro-hold (bundle blind): offset %.2f deg\n",
-                         imu_yaw_off * 180.0 / M_PI);
+          double rate_diff = wz_world - dq / ctrl_dt;          // rad/s the gyro says but the quat doesn't
+          // 9_C3_6: learning the bias during the DIVE (fresh bundle, body
+          // pitching) absorbed the quaternion's pitch-coupled yaw walk as
+          // "bias" (0.62 deg/s vs 0.24 at rest) and the blind-window hold then
+          // ran to its 15 deg cap the wrong way. Learn ONLY at a quiet, upright
+          // stand (same gate as the FAST re-zero); cap the hold at 8 deg.
+          double gm = std::sqrt(cur.gyro[0] * cur.gyro[0] + cur.gyro[1] * cur.gyro[1] +
+                                cur.gyro[2] * cur.gyro[2]);
+          double bp = std::asin(std::fmax(-1.0, std::fmin(1.0, 2 * (qw * qy - qz * qx))));
+          bool quiet_stand = gm < 0.05 && std::fabs(bp) < 0.26;
+          if (ok) {
+            if (quiet_stand) {
+              double a = ctrl_dt / (10.0 + ctrl_dt);             // 10 s EMA
+              gyro_bias = have_bias ? gyro_bias + a * (rate_diff - gyro_bias) : rate_diff;
+              have_bias = true;
+            }
+            hold_accum = 0.0;
+          } else if (gyro_hold && have_bias) {
+            double corr = (rate_diff - gyro_bias) * ctrl_dt;
+            if (std::fabs(corr) < 0.02 && std::fabs(hold_accum + corr) < 8.0 * M_PI / 180.0) {
+              imu_yaw_off += corr; hold_accum += corr;
+            }
+            static long gh_note = 0;
+            if (++gh_note % (static_cast<long>(ctrl_hz) * 10) == 1)
+              std::fprintf(stderr, "[node] yaw gyro-hold (yaw blind): offset %.2f deg, hold %.2f deg, bias %.3f deg/s\n",
+                           imu_yaw_off * 180.0 / M_PI, hold_accum * 180.0 / M_PI, gyro_bias * 180.0 / M_PI);
+          }
         }
         prev_qyaw = qyaw; have_prev = true;
       }
