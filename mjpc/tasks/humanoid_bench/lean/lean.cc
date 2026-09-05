@@ -4968,6 +4968,26 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
             total_distance = 1e3;   // no fresh tag -> hold clock re-arms
           }
         }
+        // ★ 2026-09-05 SERVO-WAIT: the hover rung must not advance until a
+        // servo detection has been latched ON THIS RUNG (real 9_B3_13..23:
+        // belief-only hover advanced in 2 s, the arm was committed left before
+        // the first tag frame). Rung entry time tracked here.
+        {
+          static int sw_last_kf = -1;
+          static double sw_kf_t0 = -1.0;
+          int kf_now = motion_strategy_.GetCurrentKeyframeIndex();
+          if (kf_now != sw_last_kf) { sw_last_kf = kf_now; sw_kf_t0 = data->time; }
+          if (current_kf.servo_wait) {
+            bool latched_here = (s_tag_world_t >= sw_kf_t0);
+            static double last_sw_dbg = -1e9;
+            if (data->time - last_sw_dbg > 1.0) {
+              last_sw_dbg = data->time;
+              std::printf("[servo-wait] latched=%d on_rung=%.1fs dist=%.3f\n",
+                          latched_here ? 1 : 0, data->time - sw_kf_t0, total_distance);
+            }
+            if (!latched_here) total_distance = 1e3;
+          }
+        }
         s_adv_dist = total_distance;
         s_adv_err_y = h25[1] - tgt25[1];
         // 1 Hz debug: what the ADVANCE actually sees (25_29 advanced with the

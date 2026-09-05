@@ -122,6 +122,12 @@ class ContactKeyframe {
   // runs on distance alone = byte-identical.
   bool servo_hold;
 
+  // ★ 2026-09-05 SERVO-WAIT (lean strat 9). true = this rung cannot advance on
+  // distance until at least one servo detection has been ACCEPTED (latched)
+  // while on this rung; until then the advance distance reads 1e3. Pair with
+  // timeout_advance so a blind run still fails soft. Absent = false = as before.
+  bool servo_wait;
+
   // ★ 2026-08-26 TILTED APPROACH (lean strat 28 "h12_brace_vision_retrieval").
   // Per-keyframe pitch-down [deg] of the gripper approach axis for the
   // "Reach Level" cost. 0 (default) = use the model numeric
@@ -151,6 +157,7 @@ class ContactKeyframe {
         grasp_close(false),
         servo(false),
         servo_hold(false),
+        servo_wait(false),
         reach_pitch_deg(0.),
         timeout_advance(false),
         time_limit(10.),
