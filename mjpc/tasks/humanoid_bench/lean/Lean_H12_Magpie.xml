@@ -492,7 +492,7 @@
         <numeric name="brace_contact_xyslack" data="0.12"/>
         <numeric name="brace_knee_sym" data="1.5"/>
         <numeric name="brace_knee_sym_db" data="0.12"/>
-        <numeric name="stance_width_min" data="0.30"/>
+        <numeric name="stance_width_min" data="0.33"/>
         <numeric name="stance_width_gain" data="2.0"/>
         <numeric name="brace_flat_tol" data="0.05"/>
         <numeric name="brace_flat_gate" data="0.28"/>
@@ -573,7 +573,7 @@
              (h12_brace_targeting, absorbed/bench-only) used rtt[1]=0.04 + this
              knob=0.12 to pick grid column B; if that bench is ever rerun, pass
              target_col_y=0.12 for it. -->
-        <numeric name="target_col_y" data="0.0"/>
+        <numeric name="target_col_y" data="0.05"/>
         <!-- ★ 2026-09-03 target_col_x (m): depth offset ADDED to every rung's
              reach_target_table[0] (strat 9 servo sweep: grid ROW knob). Both
              col knobs also shift servo_nominal inside the node, so a new grid
@@ -1174,20 +1174,22 @@
              head camera in tag_bridge_node. -->
         <numeric name="servo_slew" data="0.5"/>
         <numeric name="servo_max_age" data="1.0"/>
-        <numeric name="servo_max_offset" data="0.04"/>
+        <numeric name="servo_max_offset" data="0.12"/>  <!-- 2026-09-05: 0.04->0.08 (y/z): belief lateral error 7-10 cm on 9_B3_7/8/12 exceeded the clamp; depth stays 0.04 via servo_max_offset_x -->
+        <numeric name="servo_max_offset_x" data="0.06"/>
         <numeric name="arm_range_urdf" data="0"/>
         <!-- 2026-08-30 04:00 BACK TO THE 29_52 CONFIG: tonight's servo guards/gates OFF -->
         <numeric name="grasp_y_tol" data="1.0"/>
         <numeric name="servo_jump_max" data="1.0"/>
         <numeric name="servo_drift_max" data="1.0"/>
-        <numeric name="servo_max_offset_y" data="1.0"/>
-        <numeric name="servo_max_depth" data="0.30"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
+        <numeric name="servo_max_offset_y" data="0.12"/>  <!-- 2026-09-05 run 16: D405 composition put the block 8 cm right of where the head cam (table bundle) put it; lateral now from head-lock + belief, D405 keeps depth/height -->
+        <numeric name="servo_max_offset_y_out" data="0.07"/>  <!-- 2026-09-05 one-sided RIGHTWARD cap: R shoulder roll at its outward stop on every hold (9_B3_25/26/27 body shoved, pad slid, elbow folded) -->
+        <numeric name="servo_max_depth" data="0.40"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
         <numeric name="servo_freeze_dist" data="0.08"/>
         <numeric name="servo_nominal" data="0.525 0.16 0.025"/>
         <!-- 2026-08-28: hand-eye CALIBRATED live (5-pose pelvis-frame consistency
              solve, tag at B2, base fixed). Roll was ~-79 deg off the -180/90/90
              placeholder = the 15cm-right aim in run 29_1. Reconstruction 6.7cm->~1.5cm. -->
-        <numeric name="grip_cam_pos" data="0.108 0.0 0.0"/>
+        <numeric name="grip_cam_pos" data="0.108 0.0 0.0"/>  <!-- 2026-09-05: fitted 0.166/0.075/-0.056 REVERTED after 9_B3_21 (hand went 7 cm left): the fit absorbed the ESTIMATOR lateral error, not a mount offset -->
         <numeric name="grip_cam_rpy_deg" data="-13.1 88.5 185.7"/>
         <numeric name="grasp_ack_timeout" data="12.0"/>
         <numeric name="grasp_retry_max" data="2"/>

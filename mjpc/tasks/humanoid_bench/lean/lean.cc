@@ -4324,6 +4324,22 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         // block.
         double cap_y = GetNumberOrDefault(0.04, model, "servo_max_offset_y");
         want[1] = mju_clip(want[1], -cap_y, cap_y);
+        // ★ 2026-09-05 OUTWARD (rightward, -y) one-sided cap (real 9_B3_25/26/27):
+        // the right shoulder roll sits at its +11 deg outward stop on every hold
+        // at this stance, so a rightward correction beyond a few cm cannot be
+        // met by the arm -- the sampler shoves the body instead (right foot
+        // rolls and lifts, pelvis retreats, pad slides, elbow lands on the
+        // table). Leftward (+y, inward) keeps the symmetric cap. Numeric
+        // `servo_max_offset_y_out` (m, default = servo_max_offset_y).
+        double cap_y_out = GetNumberOrDefault(cap_y, model, "servo_max_offset_y_out");
+        if (want[1] < -cap_y_out) want[1] = -cap_y_out;
+        // ★ 2026-09-05 per-axis DEPTH cap (`servo_max_offset_x`, default =
+        // servo_max_offset): lets the lateral/height clamp open up (the
+        // estimator's lateral belief was 7-10 cm off on 9_B3_7/8/12 while the
+        // camera saw the block in the same place every run) WITHOUT letting
+        // the depth correction drive the jaws into the block (9_B3_7).
+        double cap_x = GetNumberOrDefault(cap, model, "servo_max_offset_x");
+        want[0] = mju_clip(want[0], -cap_x, cap_x);
         // ★ 2026-08-30 OUTLIER GUARD (real 29_57): two accepted detections
         // 4 s apart put the block at y +0.046 and then y +0.164 (12 cm apart,
         // wrist quiet both times) -- a D405/AprilTag pose glitch. The arm
