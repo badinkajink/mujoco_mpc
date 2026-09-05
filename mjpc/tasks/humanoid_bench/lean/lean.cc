@@ -3991,6 +3991,34 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         level_res[0] = axis[2] + std::sin(pitch);  // 0 = level (or tuned pitch)
         level_res[1] = axis[1];                    // 0 = pointing table-forward
         level_res[2] = sep[2];                     // 0 = JAWS LATERAL
+        // ★ 2026-09-05 AIM AT THE TARGET (`reach_level_aim`, 0/absent = OFF =
+        // byte-identical; only on servo_hold rungs). Component (1) pins the
+        // approach axis to world +x, so the hand can only reach a laterally
+        // offset target by translating, and the right arm has no outward
+        // room at C (9_C3_1..8: hand 3-8 cm left, tag leaving the frame).
+        // With aim on, (1) instead charges the horizontal angle between the
+        // approach axis and the bearing from the grasp centre to the (servo-
+        // corrected) target: the wrist yaws toward the block, the grasp
+        // centre swings ~3.3 cm per 10 deg, and the gripper cam keeps the tag
+        // centred. Depth/height components unchanged.
+        if (residual_keyframe_.servo_hold) {
+          int aim_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_level_aim");
+          double aim = (aim_id >= 0) ? model->numeric_data[model->numeric_adr[aim_id]] : 0.0;
+          if (aim > 0.5) {
+            double gc[3];
+            mju_mulMatVec3(gc, data->xmat + 9 * wyb, kGripperGraspLocal);
+            mju_addTo3(gc, data->xpos + 3 * wyb);
+            double to[3] = {brace_air_target[0] - gc[0], brace_air_target[1] - gc[1], 0.0};
+            double n = mju_norm3(to);
+            if (n > 0.02) {
+              double ax_h = std::hypot(axis[0], axis[1]);
+              if (ax_h > 1e-6) {
+                // sin of the horizontal angle between axis and bearing
+                level_res[1] = (axis[0] * to[1] - axis[1] * to[0]) / (ax_h * n);
+              }
+            }
+          }
+        }
       }
     }
     residual[counter++] = level_res[0];
