@@ -5394,6 +5394,14 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                  // retract/release deal with the brace.
                  if (motion_strategy_.GetCurrentKeyframe().grasp_close)
                    return true;
+                 // ★ 2026-09-05 HOLD RUNG EXEMPT (real 9_B50_3): same logic
+                 // for the strat-9 servo_hold rung -- the camera had the hand
+                 // within 1.5 cm of the hold point for 8 s and the clock never
+                 // ran because the pad read INCLINED (forearm elevation over
+                 // brace_flat_gate while the torso adjusted). The hold is
+                 // graded by the camera; the brace is not what it certifies.
+                 if (motion_strategy_.GetCurrentKeyframe().servo_hold)
+                   return true;
                  // ★ 2026-08-17 YAW-SANE ADVANCE (`reach_yaw_gate` numeric,
                  // rad; 0/absent = OFF = byte-identical). Real tags_12/15:
                  // the brace yaw-walked 10-20 deg on the slick pad zone and
