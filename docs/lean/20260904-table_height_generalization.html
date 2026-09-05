@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>Table height generalisation for the braced lean controller</title>
+<style>
+  :root{ color-scheme:light dark;
+    --bg:#fcfcfb; --panel:#f3f3f0; --line:#dededa;
+    --ink:#0b0b0b; --ink2:#52514e; --ink3:#7a7873;
+    --s1:#2a78d6; --s2:#eb6834; --warn:#d03b3b; --good:#0ca30c; --hold:#fab219; }
+  @media (prefers-color-scheme:dark){ :root{
+    --bg:#1a1a19; --panel:#232322; --line:#3a3a37;
+    --ink:#fff; --ink2:#c3c2b7; --ink3:#918f86;
+    --s1:#3987e5; --s2:#d95926; --warn:#e66767; --good:#0ca30c; --hold:#fab219; } }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);margin:0;
+       font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       padding:2.5rem 1.25rem 5rem}
+  .wrap{max-width:64rem;margin:0 auto}
+  h1{font-size:1.75rem;line-height:1.2;margin:0 0 .4rem;letter-spacing:-.02em}
+  h2{font-size:1.2rem;margin:3rem 0 .5rem;letter-spacing:-.01em;
+     padding-top:1rem;border-top:1px solid var(--line)}
+  h3{font-size:1rem;margin:1.8rem 0 .3rem}
+  .sub{color:var(--ink2);margin:0 0 .4rem}
+  .meta{color:var(--ink3);font-size:.85rem;margin:0 0 2rem}
+  p,li{color:var(--ink2)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.87em;
+       background:var(--panel);padding:.1em .35em;border-radius:4px}
+  pre{background:var(--panel);padding:.9rem 1rem;border-radius:8px;overflow-x:auto;
+      font-size:.78rem;line-height:1.45;color:var(--ink)}
+  table{border-collapse:collapse;width:100%;font-size:.88rem;margin:.8rem 0}
+  th,td{text-align:right;padding:.35rem .6rem;border-bottom:1px solid var(--line);
+        white-space:nowrap;font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left;white-space:normal;
+        font-variant-numeric:normal}
+  th{color:var(--ink3);font-weight:600;font-size:.75rem;text-transform:uppercase;
+     letter-spacing:.05em}
+  td{color:var(--ink2)} td:first-child{color:var(--ink)}
+  .scroll{overflow-x:auto}
+  .note{border-left:3px solid var(--s1);background:var(--panel);
+        border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:1.2rem 0}
+  .note.warn{border-left-color:var(--warn)} .note.ok{border-left-color:var(--good)}
+  .note b{color:var(--ink)}
+  figure{margin:1.6rem 0}
+  img,video{width:100%;border-radius:10px;display:block;background:#fff}
+  img.dk{display:none}
+  @media (prefers-color-scheme:dark){ img.lt{display:none} img.dk{display:block} }
+  figcaption{color:var(--ink3);font-size:.84rem;margin-top:.5rem}
+  ul{padding-left:1.15rem}
+  .tag{display:inline-block;font-size:.72rem;padding:.1rem .45rem;border-radius:4px;
+       border:1px solid var(--line);color:var(--ink3);margin-left:.3rem}
+  .good{color:var(--good);font-weight:600}
+  .bad{color:var(--warn);font-weight:600}
+  .hold{color:var(--hold);font-weight:600}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:52rem){.grid2{grid-template-columns:1fr}}
+  .vidgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:1rem}
+</style></head><body><div class=wrap>
+
+<h1>Table height generalisation for the braced lean controller</h1>
+<p class=sub>The lean controller was tuned at one slab height. This makes the
+height a task parameter, changes it without touching a cost weight, and measures
+what degrades.</p>
+<p class=meta>2026-09-04 &middot;
+<code>Lean H12 Magpie</code>, strategy 25 (<code>h12_brace_targeting</code>)
+&middot; branch <code>icra2026</code> &middot; CEM, 20 rollouts, 1.0 s horizon,
+spp 3 &rarr; <b>33 Hz</b> plan rate &middot; harness
+<code>mjpc/lean_bench.cc</code> + <code>studies/table_height/</code>
+&middot; 5 heights, 15 runs</p>
+
+<h2>Why this experiment</h2>
+<p>The braced-lean result rests on one workcell geometry. The slab face sits at
+<b>0.985 m</b> in <code>lean.xml</code> and the robot stands a fixed distance from
+its near edge, and both numbers were arrived at by sweeping them until the brace
+worked &mdash; the XML comment history records the face moving 0.75 &rarr; 0.85
+&rarr; 0.87 &rarr; 0.985 m and the body x moving 1.0125 &rarr; 0.78 &rarr; 1.04 m,
+each time with keyframe targets re-solved in lockstep. A controller tuned that way
+has an obvious question against it: does it work at a table it was not tuned on,
+or is the geometry load-bearing?</p>
+<p>Everything else in the ICRA submission is a claim about a controller. This is a
+claim about its <i>domain</i>, and it is the cheapest generalisation axis available
+&mdash; the height is one number, the task is otherwise unchanged, and the real
+robot meets tables of many heights.</p>
+
+<h2>What was built</h2>
+<p>Table height is now MJPC task parameter index 7,
+<code>residual_Table H</code> &mdash; the absolute world z of the slab's physical
+top face, in metres. <code>0</code> means off and uses the compiled model, so
+every pre-existing run is byte-identical. A non-zero value makes
+<code>lean::TransitionLocked</code> rewrite the table body's z on the first
+transition, restretch the four cosmetic legs to span floor-to-underside, and shift
+the free object and the target mocap by the same delta.</p>
+<p>The object rides the slab rather than staying at a fixed world height. A block
+left at world z while the table dropped 200 mm would simply fall off, so the
+manipulation task is held fixed <b>in the table frame</b>: same depth from the near
+edge, same lateral offset, same height above the face. Strategy 25's reach rung is
+already written that way &mdash; <code>reach_target_table: [0.55, 0.04, 0.15]</code>
+&mdash; so no target had to be re-authored.</p>
+<div class="note">
+<b>What tracks the slab for free, and what does not.</b> Every task-space term
+derives its geometry from the <code>table_surface_pos</code> framepos and the
+compiled <code>table_top</code> half-extents: the Brace Pos target, the brace-force
+proximity gate, Hip / Leg / Body-Table Clearance, and the reach rungs. Those follow
+the table with no edit. What does not follow it is the joint-space and CoM-cap
+family &mdash; <code>com_cap_fwd</code> 0.145 m, <code>pelvis_cap_fwd</code> 0.13 m,
+<code>lean_nominal_x</code> 0.06 m, <code>brace_erect_target</code> 0.38,
+<code>brace_lead_x0</code> 0.24 &mdash; all fixed constants fitted at one height.
+The split is the whole experiment.
+</div>
+
+<h2>Goals</h2>
+<ol>
+<li>Change the slab height with the controller otherwise untouched, and see
+    whether it still braces and reaches.</li>
+<li>Expose the height as an MJPC parameter rather than a set of forked XMLs, so a
+    sweep is a flag and the GUI slider shows degradation live. <span class=tag>done</span></li>
+<li>If it holds up, benchmark across height for a reach target held fixed in the
+    table frame.</li>
+<li>If it does not, work back through cost weights first, then new cost terms,
+    and only then the robot&ndash;table standoff.</li>
+</ol>
+
+<h2>Hypotheses, before the runs</h2>
+<p>Recorded ahead of the sweep so they can be scored rather than reconstructed.</p>
+<ol>
+<li><b>An asymmetric window.</b> Raising the table degrades gracefully and lowering
+it fails first. The brace is a downward press with a bowed torso; a lower slab
+demands more forward CoM travel to reach it, and the caps that limit that travel
+are fixed constants.</li>
+<li><b>The binding constraint is <code>com_cap_fwd</code> (145 mm), not arm
+reach.</b> The arm has ~460 mm of radius and the slab edge does not move
+horizontally, so kinematic reach is not what runs out first.</li>
+<li><b>The load path moves before the outcome does.</b> Off-nominal heights seat
+the forearm pad worse, and the newtons migrate to the wrist pad or the torso while
+the run still nominally completes. Pad clearance and per-body load degrade earlier
+and more smoothly than a pass/fail flag.</li>
+<li><b>The reach survives wherever the brace survives.</b> The reach target is
+table-relative and the reach cost is task-space, so a run that braces should also
+reach; reach error should track brace quality rather than height directly.</li>
+</ol>
+
+<h2>Procedure</h2>
+<pre>build_cmake/bin/lean_bench --task "Lean H12 Magpie" --strategy 25 \
+  --table_h &lt;face z&gt; --seed &lt;n&gt; --total_time 75 --threads 6 --spp 3 \
+  --out &lt;tag&gt;.csv --qpos_out &lt;tag&gt;.qpos.csv
+
+studies/table_height/sweep.py   --out runs/recon --heights 0.785,0.885,0.985,1.035,1.085 --seeds 1
+studies/table_height/analyze.py --runs runs/recon --out figs
+studies/table_height/render_video.py --qpos ... --table_h ... --out ....mp4</pre>
+<p>One run per point, run serially under
+<code>systemd-run --user --scope -p CPUQuota=700%</code>: MJPC saturates every
+planner thread it is given and this box is a workstation. Nothing is recompiled
+between points &mdash; the height is a parameter, so all runs share one binary and
+one strategy JSON. Outcome is decided by the bench, not by eye:
+<b>fell</b> if the pelvis drops below 0.5 m, <b>complete</b> if the terminal phase
+is reached and held 3 s, <b>stalled</b> otherwise.</p>
+<div class="note warn">
+<b>The planner is not run-to-run repeatable, and that sets the sample size.</b>
+Two invocations with identical height, identical seed and identical binary
+completed at t = 45.77 s and t = 45.50 s, entering phase 3 at <b>32.15 s and
+28.23 s</b> &mdash; 3.9 s apart. MJPC's sampling planner draws its noise from a
+generator shared across the thread pool, so a rollout is not a function of
+(height, seed) and the thread count changes the stream too: h = 0.785 seed 0
+stood past t = 35 s at <code>--threads 4</code> and fell at t = 3.4 s at
+<code>--threads 6</code>. Every number below is therefore an aggregate over
+3 seeds at one fixed thread count, and no single run is used to argue
+anything.
+</div>
+<div class="note warn">
+<b>Three measurement defects found before these numbers.</b>
+(1) The table's four legs stand on the floor, and floor geoms belong to body 0, so
+a &ldquo;one side is the table&rdquo; contact test booked the <i>table's own
+weight</i> as table contact load &mdash; 166 N at h=0.785 with the arm still
+228 mm above the face and every named body reading zero. Contacts against the
+world and against the free object are now skipped.
+(2) The left wrist pad had no column of its own. It has one now, because a brace
+silently carried by the wrist rather than the forearm is a failure this task has
+produced before, and a residual channel would have hidden it inside the table
+weight. The right arm is named too: the nominal run carries 15&ndash;20 N of
+robot-on-slab contact through the whole of <code>stand_up</code> with every left
+body at zero, so something was already resting on the table before the brace
+began.
+(3) Load was first summarised as a median over the whole brace phase, which is
+mostly approach with no contact and reads 0 N even when the forearm peaks at
+168 N. Load statistics are now taken over the <b>seated</b> window &mdash; pad
+within 5 mm of the face.
+</div>
+<div class="note">
+<b>Two defects in <code>lean::ComputeMetrics</code>, reported not fixed.</b>
+They are Allen's file and neither affects the controller, but both make its
+monitoring channels read wrong for this ladder.
+<code>brace_force</code> is <code>right_contact ? right_contact[0] : 0.0</code>,
+keyed on a right-hand sensor under the comment &ldquo;right arm always braces,
+left arm always reaches&rdquo; &mdash; while the model's brace geoms are
+<code>left_forearm_pad</code> and <code>left_wrist_pad</code>. Measured: the
+metric reads 0.00 N for the entire run while the left forearm carries
+97&ndash;168 N. The deploy monitor therefore shows no brace force during a real
+brace. Separately, the whole <code>reach_err</code> / <code>reach_tgt_*</code>
+family is gated on <code>kf.name == "reach_to_target"</code>, a rung name
+strategy 25 never uses, so it is nan for the entire braced ladder. The reach
+column here is computed in the bench from the right gripper and the target
+mocap instead.
+</div>
+
+<h2>Results</h2>
+<p>6 of 15 runs reached the terminal phase. At the compiled height
+the ladder completes 3 of 3
+times; across every off-nominal height together it completes
+<b>3 of 12</b>.</p>
+<div class=scroll><table><thead><tr><th>table face</th><th>complete</th><th>in contact %</th><th>at face %</th><th>pad min (mm)</th><th>forearm N</th><th>wrist N</th><th>right arm N</th><th>torso N</th><th>pelvis N</th><th>forearm peak N</th><th>CoM past toes (mm)</th><th>tilt peak (deg)</th><th>reach err (mm)</th></tr></thead><tbody><tr><td>0.785 m</td><td class=bad>0 / 3</td><td>13</td><td>48</td><td>-34</td><td>37</td><td>21</td><td>28</td><td>398</td><td>0</td><td>191</td><td>+625</td><td>61.7</td><td>361</td></tr><tr><td>0.885 m</td><td class=bad>0 / 3</td><td>11</td><td>19</td><td>-836</td><td>46</td><td>6</td><td>8</td><td>0</td><td>0</td><td>143</td><td>+371</td><td>105.6</td><td>201</td></tr><tr><td>0.985 m</td><td class=good>3 / 3</td><td>32</td><td>32</td><td>-1</td><td>106</td><td>0</td><td>0</td><td>0</td><td>0</td><td>234</td><td>+185</td><td>31.4</td><td>330</td></tr><tr><td>1.035 m</td><td class=good>3 / 3</td><td>23</td><td>23</td><td>+0</td><td>77</td><td>0</td><td>0</td><td>0</td><td>0</td><td>179</td><td>+34</td><td>24.2</td><td>315</td></tr><tr><td>1.085 m</td><td class=bad>0 / 3</td><td>0</td><td>100</td><td>-230</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>-85</td><td>55.5</td><td>442</td></tr></tbody></table></div>
+<p class=meta>One row per height, median over 3 seeds. Load columns are the
+median while the pad is <b>in contact</b> &mdash; within 5 mm of the face
+<i>and</i> carrying force. &ldquo;at face&rdquo; is the geometric test alone.
+The two are equal at a height that braces properly; they diverge when the forearm
+reaches face level without touching the wood, which is what a too-high slab does.
+Nominal is <b>0.985 m</b>.</p>
+
+<figure><img class=lt src="media/th/fig_outcome.png" alt="Outcome by table height. The controller was tuned at 0.985 m and every other height is a generalisation test."><img class=dk src="media/th/fig_outcome.dark.png" alt="Outcome by table height. The controller was tuned at 0.985 m and every other height is a generalisation test."><figcaption>Outcome by table height. The controller was tuned at 0.985 m and every other height is a generalisation test.</figcaption></figure>
+<figure><img class=lt src="media/th/fig_ladder.png" alt="Every run: how far the phase ladder got and how long each rung took. Marker at the right end is the outcome."><img class=dk src="media/th/fig_ladder.dark.png" alt="Every run: how far the phase ladder got and how long each rung took. Marker at the right end is the outcome."><figcaption>Every run: how far the phase ladder got and how long each rung took. Marker at the right end is the outcome.</figcaption></figure>
+<figure><img class=lt src="media/th/fig_pad.png" alt="Forearm pad clearance above the slab face. Zero is a flat seated pad, positive is a hover. Axis clipped: a fall drives these traces to -840 mm."><img class=dk src="media/th/fig_pad.dark.png" alt="Forearm pad clearance above the slab face. Zero is a flat seated pad, positive is a hover. Axis clipped: a fall drives these traces to -840 mm."><figcaption>Forearm pad clearance above the slab face. Zero is a flat seated pad, positive is a hover. Axis clipped: a fall drives these traces to -840 mm.</figcaption></figure>
+<figure><img class=lt src="media/th/fig_load.png" alt="Median table contact load during the brace, split by body. The question is not how much load but which link takes it."><img class=dk src="media/th/fig_load.dark.png" alt="Median table contact load during the brace, split by body. The question is not how much load but which link takes it."><figcaption>Median table contact load during the brace, split by body. The question is not how much load but which link takes it.</figcaption></figure>
+<figure><img class=lt src="media/th/fig_balance.png" alt="CoM excursion past the front foot edge against com_cap_fwd. That 145 mm constant is a soft cost, not a limit, and the low-table runs blow 226 mm past it. Axis clipped."><img class=dk src="media/th/fig_balance.dark.png" alt="CoM excursion past the front foot edge against com_cap_fwd. That 145 mm constant is a soft cost, not a limit, and the low-table runs blow 226 mm past it. Axis clipped."><figcaption>CoM excursion past the front foot edge against com_cap_fwd. That 145 mm constant is a soft cost, not a limit, and the low-table runs blow 226 mm past it. Axis clipped.</figcaption></figure>
+<figure><img class=lt src="media/th/fig_reach.png" alt="Right gripper to the target mocap. The target rides the slab, so this is the same task at every height."><img class=dk src="media/th/fig_reach.dark.png" alt="Right gripper to the target mocap. The target rides the slab, so this is the same task at every height."><figcaption>Right gripper to the target mocap. The target rides the slab, so this is the same task at every height.</figcaption></figure>
+
+<h3>Per-run detail</h3>
+<div class=scroll><table><thead><tr><th>height / seed</th><th>outcome</th><th>t end (s)</th><th>brace (s)</th><th>seated (s)</th><th>pad min (mm)</th><th>forearm peak N</th><th>CoM past toes (mm)</th><th>reach err (mm)</th><th>wall (s)</th></tr></thead><tbody><tr><td>0.785&nbsp;/&nbsp;s0</td><td class="hold">stalled</td><td>75.0</td><td>63.0</td><td>8.2</td><td>+2</td><td>191</td><td>+702</td><td>345</td><td>592</td></tr><tr><td>0.785&nbsp;/&nbsp;s1</td><td class="hold">stalled</td><td>75.0</td><td>63.0</td><td>27.1</td><td>-34</td><td>218</td><td>+562</td><td>361</td><td>604</td></tr><tr><td>0.785&nbsp;/&nbsp;s2</td><td class="hold">stalled</td><td>75.0</td><td>63.0</td><td>0.0</td><td>-59</td><td>0</td><td>+625</td><td>575</td><td>658</td></tr><tr><td>0.885&nbsp;/&nbsp;s0</td><td class="bad">fell</td><td>37.6</td><td>24.0</td><td>2.7</td><td>-836</td><td>143</td><td>+371</td><td>201</td><td>271</td></tr><tr><td>0.885&nbsp;/&nbsp;s1</td><td class="bad">fell</td><td>5.2</td><td>0.0</td><td>0.0</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>37</td></tr><tr><td>0.885&nbsp;/&nbsp;s2</td><td class="bad">fell</td><td>17.2</td><td>0.0</td><td>0.0</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>125</td></tr><tr><td>0.985&nbsp;/&nbsp;s0</td><td class="good">complete</td><td>47.9</td><td>20.1</td><td>7.6</td><td>+0</td><td>234</td><td>+194</td><td>336</td><td>329</td></tr><tr><td>0.985&nbsp;/&nbsp;s1</td><td class="good">complete</td><td>42.2</td><td>18.0</td><td>5.7</td><td>-1</td><td>265</td><td>+185</td><td>328</td><td>298</td></tr><tr><td>0.985&nbsp;/&nbsp;s2</td><td class="good">complete</td><td>41.7</td><td>17.9</td><td>5.2</td><td>-1</td><td>197</td><td>+160</td><td>330</td><td>289</td></tr><tr><td>1.035&nbsp;/&nbsp;s0</td><td class="good">complete</td><td>42.8</td><td>19.5</td><td>4.5</td><td>+0</td><td>256</td><td>+85</td><td>302</td><td>300</td></tr><tr><td>1.035&nbsp;/&nbsp;s1</td><td class="good">complete</td><td>44.7</td><td>20.4</td><td>9.0</td><td>-5</td><td>179</td><td>+34</td><td>315</td><td>317</td></tr><tr><td>1.035&nbsp;/&nbsp;s2</td><td class="good">complete</td><td>40.6</td><td>17.6</td><td>2.2</td><td>+4</td><td>57</td><td>+21</td><td>376</td><td>280</td></tr><tr><td>1.085&nbsp;/&nbsp;s0</td><td class="bad">fell</td><td>30.4</td><td>18.4</td><td>0.0</td><td>-212</td><td>0</td><td>-85</td><td>448</td><td>201</td></tr><tr><td>1.085&nbsp;/&nbsp;s1</td><td class="bad">fell</td><td>33.6</td><td>21.6</td><td>3.3</td><td>-232</td><td>21</td><td>-78</td><td>442</td><td>238</td></tr><tr><td>1.085&nbsp;/&nbsp;s2</td><td class="bad">fell</td><td>28.1</td><td>16.1</td><td>0.0</td><td>-230</td><td>0</td><td>-97</td><td>439</td><td>195</td></tr></tbody></table></div>
+
+<h3>Rollouts</h3>
+<div class=vidgrid><figure><video controls muted playsinline preload=metadata src="media/th/h0785_s0.mp4"></video><figcaption><b>0.785 m</b> &mdash; stalled, ended t=75.0 s</figcaption></figure><figure><video controls muted playsinline preload=metadata src="media/th/h0885_s0.mp4"></video><figcaption><b>0.885 m</b> &mdash; fell, ended t=37.6 s</figcaption></figure><figure><video controls muted playsinline preload=metadata src="media/th/h0985_s0.mp4"></video><figcaption><b>0.985 m</b> &mdash; complete, ended t=47.9 s</figcaption></figure><figure><video controls muted playsinline preload=metadata src="media/th/h1035_s0.mp4"></video><figcaption><b>1.035 m</b> &mdash; complete, ended t=42.8 s</figcaption></figure><figure><video controls muted playsinline preload=metadata src="media/th/h1085_s0.mp4"></video><figcaption><b>1.085 m</b> &mdash; fell, ended t=30.4 s</figcaption></figure></div>
+
+<h2>Analysis</h2>
+<p>The compiled height completes <b>3 of 3</b>. Every other height together completes <b>3 of 12</b> &mdash; 0 of 6 below nominal, 3 of 6 above.</p>
+<h3>Hypotheses, scored</h3><ol>
+<li><b>An asymmetric window &mdash; supported.</b> Below nominal 0/6 complete; above nominal 3/6. The prediction was that raising the slab degrades gracefully and lowering it fails first.</li>
+<li><b>The CoM cap binds &mdash; consistent with the data.</b> 3 of 5 heights push the CoM past the fixed 145 mm <code>com_cap_fwd</code> at peak, worst 625 mm at 0.785 m. That constant was fitted at one height and does not move with the slab.</li>
+<li><b>The load path moves before the outcome does &mdash; supported.</b> At 0.785 m the largest seated load is not on the forearm.</li>
+<li><b>The reach survives wherever the brace survives.</b> Best gripper-to-target distance by height: 0.785&nbsp;m 361&nbsp;mm, 0.885&nbsp;m 201&nbsp;mm, 0.985&nbsp;m 330&nbsp;mm, 1.035&nbsp;m 315&nbsp;mm, 1.085&nbsp;m 442&nbsp;mm.</li>
+</ol>
+<h3>Reaching the face and touching it are different things</h3>
+<p>Per height, the fraction of brace samples with the pad at face level, and the fraction actually carrying force: 0.785&nbsp;m 48%&nbsp;at&nbsp;face&nbsp;/&nbsp;13%&nbsp;in&nbsp;contact, 0.885&nbsp;m 19%&nbsp;at&nbsp;face&nbsp;/&nbsp;11%&nbsp;in&nbsp;contact, 0.985&nbsp;m 32%&nbsp;at&nbsp;face&nbsp;/&nbsp;32%&nbsp;in&nbsp;contact, 1.035&nbsp;m 23%&nbsp;at&nbsp;face&nbsp;/&nbsp;23%&nbsp;in&nbsp;contact, 1.085&nbsp;m 100%&nbsp;at&nbsp;face&nbsp;/&nbsp;0%&nbsp;in&nbsp;contact.</p>
+<p>At the heights that complete, the two agree to the sample (0.985&nbsp;m 32%, 1.035&nbsp;m 23%), so a pad at face level is a pad under load. They come apart at the failures: the tallest slab holds the forearm at face level for the whole brace and never touches it, because the arm is outboard of the wood rather than on it. The geometric test alone scores that 100%, so seating has to be defined by newtons.</p>
+<p>Peak forearm load by height: 0.785&nbsp;m 191&nbsp;N, 0.885&nbsp;m 143&nbsp;N, 0.985&nbsp;m 234&nbsp;N, 1.035&nbsp;m 179&nbsp;N, 1.085&nbsp;m 0&nbsp;N.</p>
+<h3>Three failure modes, not one</h3>
+<ul><li><b>0.785 m</b> &mdash; <b>drapes</b>: 398 N through the TORSO against only 37 N on the forearm, CoM +625 mm past the toes.</li><li><b>0.885 m</b> &mdash; <b>falls forward</b>: torso reaches 106 deg with the CoM +371 mm out and only 46 N on the forearm.</li><li><b>0.985 m</b> &mdash; braces on the forearm alone &mdash; 106 N on the forearm, 0 N everywhere else.</li><li><b>1.035 m</b> &mdash; braces on the forearm alone &mdash; 77 N on the forearm, 0 N everywhere else.</li><li><b>1.085 m</b> &mdash; <b>falls backward</b>: CoM peaks -85 mm &mdash; behind the toes &mdash; with 1 N of table contact.</li></ul>
+<p>At the lowest slab the torso carries 398 N and the forearm &mdash; the only link the task declares as a brace &mdash; carries 37 N. The robot rests its chest on the wood, which is why those runs end on the clock instead of on the floor. A pass/fail flag scores them the same as the tallest slab, which fails the opposite way.</p>
+<p><b>This refutes hypothesis 2 as a general explanation.</b> At 1.085 m the CoM peaks <i>behind</i> the toes (-85 mm), so a forward excursion cap cannot be what ends those runs. The slab sits above the reachable brace envelope, the robot gets no support at all, and it topples away from the table. <code>com_cap_fwd</code> remains a candidate for the low end only.</p>
+<p>Across all 15 runs: 6 completed, 3 stalled to the 75 s cap, 6 fell.</p>
+<h2>What this does not settle</h2>
+<ul>
+<li><b>Whether a height-scaled CoM cap recovers the window.</b> The next run is a
+two-point A/B at the worst off-nominal height: <code>com_cap_fwd</code> at its
+current 0.145 against a value scaled by (slab face &minus; ankle height), 3 seeds
+each, nothing else changed. Falsified if the scaled arm completes no more often
+than the fixed one.</li>
+<li><b>Whether the standoff, not the height, is the real variable.</b> The slab's
+near edge sits at x = 0.45 m at every height here, so a low table is reached by
+bowing rather than by stepping. Sweeping the table's <i>x</i> at one off-nominal
+height separates &ldquo;cannot brace low&rdquo; from &ldquo;cannot brace
+far&rdquo;. This is goal 4's last resort and should stay last.</li>
+<li><b>Whether the 75 s cap hides slow successes.</b> Stalled runs are censored,
+not failed. Re-running them at <code>--total_time 140</code> costs about 10 min
+each and turns a censored outcome into a real one. Queued as
+<code>studies/table_height/runs/long</code>.</li>
+<li><b>Whether any of this leaves the planner's own model.</b> Every number is
+own-sim, where the table is excluded from the arm chain and an inert pad reports
+the newtons. The twin is the check, and no twin run exists at an off-nominal
+height.</li>
+<li><b>Seeds.</b> 3 per point rejects &ldquo;it always works&rdquo; and does not
+put an interval on a completion rate. Six would.</li>
+</ul>
+
+</div></body></html>

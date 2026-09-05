@@ -1,0 +1,60 @@
+{
+  "rows": 6,
+  "variants": [
+    {
+      "variant": "h12_recovery_noreach_base",
+      "n": 3,
+      "completed": 2,
+      "fell": 1,
+      "t_complete_med": 81.199,
+      "t_complete_all": [
+        75.4,
+        87.0
+      ],
+      "brace_peak_med": 228.05,
+      "brace_duty_med": 0.5176923076923077,
+      "reached_phase": [
+        8,
+        2,
+        8
+      ],
+      "phase_dwell": [
+        15.0,
+        26.0,
+        20.19,
+        5.0,
+        5.0,
+        4.0,
+        3.0
+      ]
+    },
+    {
+      "variant": "h12_recovery_noreach_both50",
+      "n": 3,
+      "completed": 3,
+      "fell": 0,
+      "t_complete_med": 49.708,
+      "t_complete_all": [
+        47.5,
+        49.7,
+        55.9
+      ],
+      "brace_peak_med": 227.4,
+      "brace_duty_med": 0.5349500713266762,
+      "reached_phase": [
+        8,
+        8,
+        8
+      ],
+      "phase_dwell": [
+        15.0,
+        14.01,
+        9.07,
+        2.5,
+        2.5,
+        2.0,
+        1.5
+      ]
+    }
+  ]
+}
