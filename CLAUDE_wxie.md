@@ -98,10 +98,10 @@ and it is generated — do not hand-edit it.** Regenerate with `write_status.py`
 after any new sweep. The doc page (`docs/lean/`) is likewise generated from
 `agg.json` / `summary.json`, so prose and figures cannot drift apart.
 
-Headline as of 2026-09-05: the working window is **0.985-1.035 m** against a
-compiled 0.985, with the upper edge marginal. Three distinct failure modes —
-drape (low), forward fall (low-mid), backward fall (high). Details, tables and
-the open questions live in STATUS.md and the page.
+No result numbers are repeated in this file on purpose: they would drift the
+first time a sweep is re-run. STATUS.md carries the window, the per-height
+outcome counts, the failure modes and the open questions; the page carries the
+figures and the scored hypotheses.
 
 ## 4. Invariants for our own code
 
