@@ -148,7 +148,7 @@ Mean survival 32.6 s off vs 47.8 s on. The two sets do not overlap (worst treatm
 | face | shipped | pose_track1 | lead | lead+pose | pose_track2 |
 |---|---|---|---|---|---|
 | 0.785 m | 0/3 | 0/3 | 0/3 | 0/3 | &mdash; |
-| 0.885 m | 0/3 | 0/3 | 0/3 | 0/3 | 0/1 |
+| 0.885 m | 0/3 | 0/3 | 0/3 | 0/3 | 0/2 |
 | 0.985 m | 3/3 | 3/3 | 3/3 | 3/3 | &mdash; |
 | 1.035 m | 2/3 | 1/3 | &mdash; | &mdash; | &mdash; |
 | 1.085 m | 0/3 | 0/3 | &mdash; | &mdash; | &mdash; |
@@ -159,8 +159,8 @@ Rung 2 carries `reach_target_table` [0.55, 0.04, 0.15], so
 `TransitionLocked` overwrites `total_distance` with the distance from
 the right gripper jaw tip to `(near_edge+0.55, ctr_y-0.04, face+0.15)`
 and `target_distance_tolerance` (70 mm) is the gate. Replayed from the
-qpos dumps over 15 runs: **8 of 8 runs that came within 70 mm
-completed the ladder, and 0 of 7 that did not.** No other measured
+qpos dumps over 16 runs: **8 of 8 runs that came within 70 mm
+completed the ladder, and 0 of 8 that did not.** No other measured
 quantity separates the outcomes.
 
 Which axis is short at the closest approach (median per height):
@@ -168,7 +168,7 @@ Which axis is short at the closest approach (median per height):
 | face | dx (mm) | dy (mm) | dz (mm) | closest (mm) |
 |---|---|---|---|---|
 | 0.785 m | +454 | -53 | -150 | 481 |
-| 0.885 m | +115 | -42 | -114 | 180 |
+| 0.885 m | +144 | -17 | -118 | 216 |
 | 0.985 m | +19 | +4 | -6 | 21 |
 | 1.035 m | -25 | +5 | -0 | 25 |
 | 1.085 m | -138 | -34 | -64 | 161 |

@@ -77,6 +77,30 @@ def family_table(fam, nom):
 
 
 
+
+def lead_claim(lead):
+    import statistics as st
+    comp = [r for r in lead if r["outcome"] == "complete"]
+    low = [r for r in lead if r["outcome"] != "complete" and r["h"] < 0.95]
+    high = [r for r in lead if r["outcome"] != "complete" and r["h"] > 1.05]
+    overlap = max(r["peak"] for r in comp) > min(r["peak"] for r in low)
+    return ("<p>Median peak base x is %.3f m over the %d completing runs and "
+            "%.3f m over the %d low-slab failures, and median time past the line "
+            "is %.1f s against %.1f s. The ranges overlap &mdash; one 0.885 m "
+            "run peaked at %.3f m, inside the completing band, and fell anyway "
+            "&mdash; so the excursion is a strong correlate rather than a "
+            "decision boundary. At the high slab the term is inert by "
+            "construction: those %d runs never cross the line (peak %.3f m), "
+            "which is consistent with that failure being a backward one. One "
+            "number in the strategy JSON, no rebuild.</p>"
+            % (st.median(r["peak"] for r in comp), len(comp),
+               st.median(r["peak"] for r in low), len(low),
+               st.median(r["over_s"] for r in comp),
+               st.median(r["over_s"] for r in low),
+               min(r["peak"] for r in low), len(high),
+               max(r["peak"] for r in high) if high else float("nan")))
+
+
 def lead_table(lead):
     rows = sorted(lead, key=lambda r: (r["h"], r["label"], r["seed"]))
     body = "".join(
@@ -88,6 +112,39 @@ def lead_table(lead):
             "<th>peak base x (m)</th><th>seconds past the line</th></tr></thead>"
             "<tbody>%s</tbody></table></div>" % body)
 
+
+
+
+def videos(media_dir, media_rel, on, off):
+    """Seed 0 at each height, shipped controller against the retarget."""
+    by_h = {round(x["h"], 3): x for x in (on or [])}
+    off_h = {round(x["h"], 3): x for x in (off or [])}
+    if not os.path.isdir(media_dir):
+        return ""
+    heights = sorted({int(f.split("_h")[1][:4]) / 1000.0
+                      for f in os.listdir(media_dir)
+                      if f.endswith(".mp4") and "_h" in f})
+    out = []
+    for h in heights:
+        tag = "%04d" % round(h * 1000)
+        for arm, label, agg in (("off", "shipped", off_h), ("on", "retarget on", by_h)):
+            f = "%s_h%s_s0.mp4" % (arm, tag)
+            if not os.path.exists(os.path.join(media_dir, f)):
+                continue
+            a = agg.get(round(h, 3))
+            note = ("" if not a else " &mdash; %d/%d seeds complete"
+                    % (a["complete"], a["n"]))
+            out.append(
+                "<figure><video controls muted playsinline preload=metadata "
+                "src=\"%s/%s\"></video><figcaption><b>%.3f m</b>, %s%s"
+                "</figcaption></figure>" % (media_rel, f, h, label, note))
+    if not out:
+        return ""
+    return ("<h3>The runs</h3>"
+            "<p>Seed 0 at each height, shipped controller then retarget, "
+            "replayed from the logged qpos through the same assembled model with "
+            "the same slab, so a video cannot disagree with its run.</p>"
+            "<div class=vidgrid>%s</div>" % "".join(out))
 
 
 def gate_table(gate):
@@ -423,10 +480,11 @@ def main():
       "studies/table_height/retarget.py --face 0.885        # the same solve, offline\n"
       "studies/table_height/sweep_ab.py --out studies/table_height/runs/ab</pre>")
     A("<p>The offline twin (<code>studies/table_height/retarget.py</code>) runs "
-      "the same arithmetic out of process. The two solvers land within 1.0&deg; "
-      "of base pitch and 1 mm of base height of each other at every height "
-      "tested; both satisfy the pad constraints to better than 0.2 mm, and they "
-      "differ only in where the null-space pull leaves them.</p>")
+      "the same arithmetic out of process. Checked at 0.785, 0.885 and 1.085 m, "
+      "the two land within 1.0&deg; of base pitch and 1 mm of base height of each "
+      "other; both satisfy the pad constraints to better than 0.2 mm, and they "
+      "differ only in where the null-space pull leaves them inside the "
+      "constraint's null space.</p>")
 
     A("<h2>Procedure</h2>")
     A("<p>Paired A/B from one binary. For each (height, seed) cell the two arms "
@@ -459,6 +517,7 @@ def main():
               "the retarget on, dashed is the shipped controller, three seeds "
               "each.", R))
         A(verdicts(off, on, nom))
+        A(videos(a.media, a.figs_rel, on, off))
 
     if gate:
         A("<h2>The gate the runs actually die at</h2>")
@@ -496,15 +555,18 @@ def main():
         A(lead_table(lead))
     A(fig("fig_lead",
           "Peak forward base travel against the seconds spent past the line, one "
-          "point per run with a qpos dump. The two completing runs sit on or just "
-          "past the line; every low-slab failure lives well beyond it.", R))
-    A("<p>That is the separation the term was built to charge for, and it splits "
-      "the same way with the retarget on. It is one number in the strategy JSON "
-      "and needs no rebuild, which ranks it just below an existing model "
-      "numeric.</p>")
+          "point per run with a qpos dump.", R))
+    if lead:
+        A(lead_claim(lead))
     if lead_on or lead_off:
         A("<h3>Brace Reach Lead at weight 400, with and without the retarget</h3>")
         A(ab_table(lead_off, lead_on))
+        A("<p>3/3 at the compiled height either way, so the term is free where "
+          "the controller already works &mdash; which is what its one-sidedness "
+          "was for. It moves the axis it was built for: at 0.885 m the jaw tip's "
+          "depth error at closest approach goes from 238 mm in the shipped run "
+          "to 25 mm with the term and the retarget together. The height error "
+          "stays 114 mm short, and the run still fails.</p>")
     else:
         A("<div class=note><b>Running.</b> Three heights (0.785 m, 0.885 m, "
           "0.985 m) x 3 seeds x two arms, weight 400 on both "

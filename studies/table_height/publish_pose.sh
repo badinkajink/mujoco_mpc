@@ -23,8 +23,10 @@ done
 
 $S/analyze_pose.py --baseline $S/runs/seeded --out $S/figs || true
 RUNS="seeded=$S/runs/seeded"
-for D in ab/off ab/on lead/off lead/on mode/mode2 tol; do
-  [ -s $S/runs/$D/summary.csv ] && RUNS="$RUNS $(echo $D | tr / -)=$S/runs/$D"
+for SPEC in ab-off:ab/off ab-on:ab/on lead-off:lead/off lead-on:lead/on \
+            pose2:mode/mode2 gate-open:tol; do
+  L=${SPEC%%:*}; D=${SPEC#*:}
+  [ -s $S/runs/$D/summary.csv ] && RUNS="$RUNS $L=$S/runs/$D"
 done
 $S/analyze_lead.py --runs $RUNS --out $S/figs || true
 $S/analyze_gate.py --runs $RUNS --out $S/figs || true
@@ -32,13 +34,15 @@ $S/analyze_gate.py --runs $RUNS --out $S/figs || true
 [ -s $S/runs/tol/summary.csv ] && $S/analyze.py --runs $S/runs/tol --out $S/figs_tol || true
 $S/render_pose.py --out $S/figs/fig_poses.png || true
 
-for H in 0785 0885 0985 1035 1085; do
-  Q=$S/runs/ab/on/h${H}_s0.qpos.csv
-  [ -f "$Q" ] || continue
-  [ -f "$MEDIA/on_h${H}_s0.mp4" ] && continue
-  FACE=$(python3 -c "print('%.3f' % (int('${H}') / 1000.0))")
-  $S/render_video.py --qpos $Q --states $S/runs/ab/on/h${H}_s0.csv \
-      --table_h $FACE --out $MEDIA/on_h${H}_s0.mp4 || true
+for ARM in on off; do
+  for H in 0785 0885 0985 1035 1085; do
+    Q=$S/runs/ab/$ARM/h${H}_s0.qpos.csv
+    [ -f "$Q" ] || continue
+    [ -f "$MEDIA/${ARM}_h${H}_s0.mp4" ] && continue
+    FACE=$(python3 -c "print('%.3f' % (int('${H}') / 1000.0))")
+    nice -n 19 $S/render_video.py --qpos $Q --states $S/runs/ab/$ARM/h${H}_s0.csv \
+        --table_h $FACE --out $MEDIA/${ARM}_h${H}_s0.mp4 || true
+  done
 done
 
 cp $S/figs/fig_keyframe*.png $S/figs/fig_pose.png $S/figs/fig_pose.dark.png \
