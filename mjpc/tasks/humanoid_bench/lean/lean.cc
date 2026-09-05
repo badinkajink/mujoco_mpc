@@ -78,6 +78,14 @@ static bool s_servo_settled = false;
 // the small orientation error) -- real 9_B3_4: the estimator drifted 8 cm /
 // 6 deg during a hold the camera showed steady to <1 cm, and the tip-vs-target
 // gate (belief frame) timed out a hold that was physically inside 2 cm.
+// ★ 2026-09-05 HEAD-CAM BLOCK LOCK: world-frame shift (block seen by the HEAD
+// camera while standing, minus the JSON nominal) latched on rungs 0-1 and
+// FROZEN from rung 2 on. Applied to every reach_target_table target and to
+// the D405 servo nominal, so the gripper servo only handles the residual.
+// Numeric `head_block_lock` 0/absent = OFF = byte-identical.
+static double s_block_fix[3] = {0.0, 0.0, 0.0};
+static bool s_block_fix_ok = false;
+static unsigned long long s_block_fix_seq = 0;
 static double s_tag_world[3] = {0.0, 0.0, 0.0};
 static double s_tag_world_t = -1.0;
 // ★ 2026-08-29 time the grasp CLOSE was fired (-1 = none pending). Lets the
@@ -735,6 +743,10 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         brace_air_target[0] = tc25[0] - half_depth25 + rtt[0] + col_x;
         brace_air_target[1] = tc25[1] - (rtt[1] + col_y);
         brace_air_target[2] = face25 + rtt[2];
+        if (s_block_fix_ok) {   // 2026-09-05 head-cam block lock (world shift)
+          brace_air_target[0] += s_block_fix[0];
+          brace_air_target[1] += s_block_fix[1];
+        }
         // ★ 2026-08-24 SERVO: on a servo rung, add the world-space correction
         // TransitionLocked computed from the gripper camera (0 when the servo
         // is off / no detection, so this is byte-identical then).
@@ -4135,6 +4147,47 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         out[0] = d0; out[1] = d1; out[2] = d2;
       }
     };
+    {  // ★ 2026-09-05 head-cam block lock latch (rungs 0-1 only; frozen after)
+      double lock = GetNumberOrDefault(0.0, model, "head_block_lock");
+      int kidx = motion_strategy_.GetCurrentKeyframeIndex();
+      if (lock > 0.0 && kidx <= 1) {
+        unsigned long long hs = mjpc::g_object_head_seq.load();
+        int tgh = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
+        if (hs != s_block_fix_seq && hs > 0 && tgh >= 0) {
+          s_block_fix_seq = hs;
+          const double* tch = data->geom_xpos + 3 * tgh;
+          double hd = model->geom_size[3 * tgh + 0];
+          double nomh[3] = {0.55, 0.16, 0.025};
+          int nid = mj_name2id(model, mjOBJ_NUMERIC, "servo_nominal");
+          if (nid >= 0) {
+            const double* pn = model->numeric_data + model->numeric_adr[nid];
+            nomh[0] = pn[0]; nomh[1] = pn[1]; nomh[2] = pn[2];
+          }
+          int cxh = mj_name2id(model, mjOBJ_NUMERIC, "target_col_x");
+          int cyh = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
+          double colx = cxh >= 0 ? model->numeric_data[model->numeric_adr[cxh]] : 0.0;
+          double coly = cyh >= 0 ? model->numeric_data[model->numeric_adr[cyh]] : 0.0;
+          double nom_w[2] = {tch[0] - hd + nomh[0] + colx, tch[1] - (nomh[1] + coly)};
+          double fx = mjpc::g_object_head_x.load() - nom_w[0];
+          double fy = mjpc::g_object_head_y.load() - nom_w[1];
+          double cap = lock;   // the numeric doubles as the max |shift| (m)
+          if (std::fabs(fx) <= cap && std::fabs(fy) <= cap) {
+            s_block_fix[0] = fx; s_block_fix[1] = fy; s_block_fix[2] = 0.0;
+            s_block_fix_ok = true;
+          }
+          static double last_hb = -1e9;
+          if (data->time - last_hb > 2.0) {
+            last_hb = data->time;
+            std::printf("[head-lock] block world=(%.3f,%.3f) nominal=(%.3f,%.3f) "
+                        "shift=(%+.3f,%+.3f) %s\n", mjpc::g_object_head_x.load(),
+                        mjpc::g_object_head_y.load(), nom_w[0], nom_w[1], fx, fy,
+                        (std::fabs(fx) <= cap && std::fabs(fy) <= cap) ? "LATCHED" : "REJECTED (> cap)");
+          }
+        }
+      }
+      if (kidx == 0 && lock > 0.0) { /* new ladder pass: keep latching */ }
+      if (lock <= 0.0) { s_block_fix_ok = false; s_block_fix[0] = s_block_fix[1] = s_block_fix[2] = 0.0; }
+    }
     double slew = GetNumberOrDefault(0.0, model, "servo_slew");
     if (slew > 0.0) {
       static unsigned long long last_seq = 0;
@@ -4223,6 +4276,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           int cy = mj_name2id(model, mjOBJ_NUMERIC, "target_col_y");
           if (cx >= 0) nominal[0] += model->numeric_data[model->numeric_adr[cx]];
           if (cy >= 0) nominal[1] += model->numeric_data[model->numeric_adr[cy]];
+          if (s_block_fix_ok) { nominal[0] += s_block_fix[0]; nominal[1] -= s_block_fix[1]; }
         }
         double t_cam[3] = {mjpc::g_object_cam_x.load(),
                            mjpc::g_object_cam_y.load(),
@@ -4562,6 +4616,38 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
     // (user reports "leg lifting before braced arm position" — verify).
     printf("  [STRAT %d:%s | kf %d/%d]\n", current_strategy_, strat_name,
            strat_phase_idx + 1, strat_phase_count);
+    {  // ★ 2026-09-05 BUNDLE-VS-BELIEF DIAG (1 Hz): head-cam bundle solve of the
+       // torso xy + heading vs the node's belief. Direct measurement of the
+       // estimator's position/heading error during the lean (the servo demand
+       // flipped +-10-15 cm lateral run to run on 9_B3_24..30 with the block
+       // fixed; 10 cm at the hand = ~6 deg of heading at the pelvis).
+      static unsigned long long last_bseq = 0;
+      static double last_bseq_t = -1.0;
+      static double last_bdbg = -1e9;
+      unsigned long long bseq = mjpc::g_bundle_seq.load();
+      if (bseq != last_bseq) { last_bseq = bseq; last_bseq_t = data->time; }
+      if (bseq > 0 && data->time - last_bdbg > 1.0) {
+        last_bdbg = data->time;
+        int tb = mj_name2id(model, mjOBJ_BODY, "torso_link");
+        int pb = mj_name2id(model, mjOBJ_BODY, "pelvis");
+        if (tb >= 0 && pb >= 0) {
+          const double* tp = data->xpos + 3 * tb;
+          const double* pq = data->xquat + 4 * pb;
+          double R[9]; mju_quat2Mat(R, pq);
+          double hdg = std::atan2(R[3], R[0]);
+          double bx = mjpc::g_bundle_x.load(), by = mjpc::g_bundle_y.load();
+          double byaw = mjpc::g_bundle_yaw.load();
+          double dyaw = byaw - hdg;
+          while (dyaw > M_PI) dyaw -= 2 * M_PI;
+          while (dyaw < -M_PI) dyaw += 2 * M_PI;
+          std::printf("[bundle-vs-belief] t=%.2f torso belief=(%.3f,%.3f) bundle=(%.3f,%.3f) "
+                      "d=(%+.3f,%+.3f) | heading belief=%+.1f bundle=%+.1f dyaw=%+.1f deg | "
+                      "age=%.2fs reproj=%.2f\n", data->time, tp[0], tp[1], bx, by,
+                      bx - tp[0], by - tp[1], hdg * 180.0 / M_PI, byaw * 180.0 / M_PI,
+                      dyaw * 180.0 / M_PI, data->time - last_bseq_t, mjpc::g_bundle_err.load());
+        }
+      }
+    }
     printf("  [BIO  t=%.2f phase=%s(%.2fs)] "
            "L_hipP=%6.1f L_knee=%6.1f R_hipP=%6.1f R_knee=%6.1f deg | "
            "footR_z=%.3f footL_z=%.3f | "
@@ -4808,6 +4894,7 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double tgt25[3] = {tc25[0] - half_depth25 + rtt[0] + col_x,
                            tc25[1] - (rtt[1] + col_y),
                            face25 + rtt[2]};
+        if (s_block_fix_ok) { tgt25[0] += s_block_fix[0]; tgt25[1] += s_block_fix[1]; }
         // ★ 2026-08-24 SERVO: same correction the residual applies, so the
         // advance test and the cost keep grading the same point.
         if (current_kf.servo) {

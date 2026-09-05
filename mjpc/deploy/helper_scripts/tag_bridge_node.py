@@ -202,25 +202,70 @@ class TagCore:
         # invert: table <- camera
         R_tc = R_ct.T
         p_cam_table = -R_tc @ t_ct
+        # ★ 2026-09-05 HEAD-CAM BLOCK LOCK: keep the camera<-table pose of this
+        # solve so a same-frame tag30 detection can be mapped into the table frame.
+        self.last_R_tc = R_tc
+        self.last_p_cam_table = p_cam_table
+        # ★ 2026-09-05 BUNDLE POSE DIAG: table-frame torso pose + pelvis yaw of
+        # THIS solve, for rt/bundle_pose (node logs it against its belief).
+        self.last_p_torso_table = None
+        self.last_yaw_table_pelvis = None
         # camera -> torso -> pelvis
         R_table_torso = R_tc @ self.T_tc_R.T
         p_torso_table = p_cam_table - R_table_torso @ self.T_tc_p
         R_table_pelvis = R_table_torso @ _rz(-float(waist))
+        self.last_p_torso_table = p_torso_table.copy()
+        self.last_yaw_table_pelvis = _yaw(R_table_pelvis)
         # yaw alignment to the IMU world (lio_bridge trick: both frames agree on
         # gravity, so one LPF'd yaw offset relates them; tracks IMU yaw drift)
         R_wt_imu = _quat_wxyz_to_mat(np.asarray(imu_quat, float))
         R_wp_imu = R_wt_imu @ _rz(-float(waist))
         off = _wrap(_yaw(R_wp_imu) - _yaw(R_table_pelvis))
+        # ★ 2026-09-05 YAW SOLVE GUARD (real 9_B3_36): with yaw_tau at 3 s a
+        # 1-2 tag solve at a steep view (planar pose ambiguity: bundle heading
+        # read +30..+40 deg for 5 s at reproj 0.2-1.3 px) walked straight into
+        # the node's heading and flipped the servo demand by 20 cm. Position
+        # from such a solve is fine; the YAW is not. Update the yaw offsets only
+        # from solves with >= 3 tags, and reject a single-step yaw jump > 15 deg
+        # unless the next solve agrees (two consecutive = a real turn).
+        n_tags_seen = len(detections)
+        # (real 9_B3_37: the one solve that reached the node before the cam went
+        # blind had reproj 2.13 px and a +10 deg yaw jump -> belief 20 deg off for
+        # the whole hold.) Yaw also needs a tight fit: reproj <= 1.0 px.
+        yaw_ok = n_tags_seen >= 3 and err <= 1.0
+        if yaw_ok and self.yaw_off is not None:
+            jump = abs(_wrap(off - self.yaw_off))
+            if jump > math.radians(15.0):
+                pend = getattr(self, "_yaw_pend", None)
+                if pend is not None and abs(_wrap(off - pend)) < math.radians(5.0):
+                    pass                                  # second agreeing solve: accept
+                else:
+                    self._yaw_pend = off; yaw_ok = False
+            else:
+                self._yaw_pend = None
+        if not yaw_ok and self.yaw_off is not None:
+            self.n_yaw_rejected = getattr(self, "n_yaw_rejected", 0) + 1
         if self.yaw_off is None:
             self.yaw_off = off
-        else:
+        elif yaw_ok:
             alpha = dt / (self.yaw_tau + dt)
             self.yaw_off = _wrap(self.yaw_off + alpha * _wrap(off - self.yaw_off))
+        # 2026-08-29 ABS-WORLD heading: the model world is the bundle frame
+        # MIRRORED in y (see the --abs-world publish block), and a reflection
+        # reverses yaw: world heading = -yaw_table. Track imu - (-yaw_table)
+        # separately so the node's yaw fusion (heading = imu - offset) gets
+        # the right sign in --abs-world.
+        off_abs = _wrap(_yaw(R_wp_imu) + _yaw(R_table_pelvis))
+        if getattr(self, "yaw_off_abs", None) is None:
+            self.yaw_off_abs = off_abs
+        elif yaw_ok:                                      # same guard as above
+            alpha = dt / (self.yaw_tau + dt)
+            self.yaw_off_abs = _wrap(self.yaw_off_abs + alpha * _wrap(off_abs - self.yaw_off_abs))
         xy = (_rz(self.yaw_off) @ p_torso_table)[:2]
         self.n_solved += 1
         # p_torso_table (un-rotated table-frame pose) rides along for the
         # 2026-08-13 --abs-world mode; legacy callers unpack 3 values.
-        return xy, self.yaw_off, err, p_torso_table
+        return xy, self.yaw_off, err, p_torso_table, self.yaw_off_abs
 
 
 class ObjectTagCore:
@@ -419,7 +464,13 @@ def main():
                     help="publish ABSOLUTE model-world xy (table corner at "
                          "0.45,0.2975) instead of the imu-yaw-rotated relative "
                          "pose; pair with est --aux-abs")
-    ap.add_argument("--yaw-tau", type=float, default=30.0)
+    # ★ 2026-09-05 (real 9_B3_34, [bundle-vs-belief]): the IMU quaternion yaw
+    # steps ~-9 deg during every dive with ZERO body-z gyro rotation (pitch
+    # coupling), and this LPF at 30 s handed that step to the node over minutes
+    # ([tag] yaw_off decayed 13 -> 5 deg across 2 min) -> belief heading 12 deg
+    # off through the whole hold = 19 cm at the hand. The node already
+    # rate-limits (0.1 / 1.5 / 5 deg/s); per-solve PnP yaw noise is ~1 deg.
+    ap.add_argument("--yaw-tau", type=float, default=3.0)
     ap.add_argument("--min-tags", type=int, default=1)
     ap.add_argument("--max-reproj-px", type=float, default=3.0)
     ap.add_argument("--domain", type=int, default=0)
@@ -440,6 +491,13 @@ def main():
                          "frame; consumer composes with believed wrist FK)")
     ap.add_argument("--object-tag-id", type=int, default=30)
     ap.add_argument("--object-tag-size", type=float, default=0.045)
+    # ★ 2026-09-05 HEAD-CAM BLOCK LOCK (strat 9): the head camera sees tag30 on the
+    # block in the SAME frames it solves the bundle from, while the robot is still
+    # standing. Publish the block in PLANNER WORLD (same mapping + 08-29 sign fix as
+    # --abs-world) on rt/object_head so the node can latch (block - nominal B3)
+    # BEFORE the lean. Separate topic, never touches aux/estimator.
+    ap.add_argument("--head-object-topic", default="rt/object_head")
+    ap.add_argument("--no-head-object", action="store_true")
     ap.add_argument("--gripper-publish", action="store_true",
                     help="actually publish rt/object_tag (default: LOG ONLY)")
     a = ap.parse_args()
@@ -500,6 +558,28 @@ def main():
               f"({a.object_tag_size*1000:.0f}mm) {a.gripper_image_topic} -> "
               f"{'DDS ' + a.object_topic if a.gripper_publish else 'LOG ONLY'} "
               f"(CAMERA-frame pose; FIREWALLED from aux/estimator)")
+
+    # ★ 2026-09-05 BUNDLE POSE DIAG (--abs-world only): every bundle solve ->
+    # rt/bundle_pose: position = torso (x, y) in planner world, position[2] =
+    # planner-world heading from the bundle [rad] (= -yaw_table_pelvis, the
+    # mirrored frame), velocity[0] = reproj px, mode = 3. Read by
+    # h12_control_node and printed next to its belief ([bundle-vs-belief]).
+    # Nothing consumes it for control.
+    bp_pub = None; bp_msg = None
+    if a.abs_world:
+        bp_pub = ChannelPublisher("rt/bundle_pose", SportModeState_)
+        bp_pub.Init()
+        bp_msg = unitree_go_msg_dds__SportModeState_()
+        print("[bundle-pose] DIAG publisher ON: rt/bundle_pose (torso xy world, heading rad)", flush=True)
+    head_core = None; head_pub = None; head_msg = None
+    head_state = {"n": 0, "last": 0.0}
+    if a.abs_world and not a.no_head_object:
+        head_core = ObjectTagCore(a.object_tag_id, a.object_tag_size, max_reproj_px=3.0)
+        head_pub = ChannelPublisher(a.head_object_topic, SportModeState_)
+        head_pub.Init()
+        head_msg = unitree_go_msg_dds__SportModeState_()
+        print(f"[head-obj] HEAD-CAM block lock ON: tag{a.object_tag_id} -> DDS {a.head_object_topic} "
+              f"(planner-world xyz; y = y_bundle - 0.2975 per the 08-29 sign fix; z = 0.985 + z_bundle)", flush=True)
 
     class Bridge(Node):
         def __init__(self):
@@ -606,8 +686,20 @@ def main():
                 # (r[3]) so IMU yaw_off never leaks into position. Pair with
                 # est --aux-abs (latch bypass) or the est will re-relativize.
                 p_tt = r[3]
-                xy = np.array([0.45 + p_tt[0], 0.2975 - p_tt[1]])
+                # 2026-08-29 SIGN FIX (tape-verified: block at B3 = 16cm RIGHT of
+                # centreline sits at bundle y~0.15; robot 7.6cm right of the
+                # centreline was read as 9.6cm LEFT). Bundle y+ runs to the
+                # robot's LEFT (right-handed: x into slab, z up) = world y+, so
+                # world y = y_bundle - 0.2975, NOT 0.2975 - y_bundle.
+                xy = np.array([0.45 + p_tt[0], p_tt[1] - 0.2975])
+                yoff = r[4]                      # mirrored-frame heading offset
             out_msg.position[0], out_msg.position[1] = float(xy[0]), float(xy[1])
+            if bp_pub is not None and core.last_yaw_table_pelvis is not None:
+                bp_msg.position[0], bp_msg.position[1] = float(xy[0]), float(xy[1])
+                bp_msg.position[2] = float(_wrap(-core.last_yaw_table_pelvis))
+                bp_msg.velocity[0] = float(err); bp_msg.velocity[1] = 0.0; bp_msg.velocity[2] = 0.0
+                bp_msg.mode = 3
+                bp_pub.Write(bp_msg)
             # ★ 2026-08-18 LIVE YAW SIDE-CHANNEL: position[2] was a dead 0.0 (v4
             # fuses xy only and provably never reads z). Carry the continuously
             # tracked IMU-vs-table yaw offset [rad] so the CONTROL NODE can slew
@@ -621,6 +713,23 @@ def main():
                 out_msg.velocity[k] = 0.0
             out_msg.mode = 2                       # POSITION-ONLY (v4 contract)
             pub.Write(out_msg)
+            # ★ 2026-09-05 head-cam block lock: tag30 in this frame -> table -> world
+            if head_core is not None and head_core.tag_id in detections and a.abs_world:
+                r30 = head_core.step(detections[head_core.tag_id], latest["K"], latest["dist"])
+                if r30 is not None:
+                    t_cam = r30[0]
+                    p_tab = core.last_R_tc @ t_cam + core.last_p_cam_table
+                    wx, wy, wz = 0.45 + p_tab[0], p_tab[1] - 0.2975, 0.985 + p_tab[2]
+                    head_msg.position[0], head_msg.position[1], head_msg.position[2] = float(wx), float(wy), float(wz)
+                    head_msg.velocity[0] = float(r30[2]); head_msg.velocity[1] = 0.0; head_msg.velocity[2] = 0.0
+                    head_msg.mode = head_core.tag_id
+                    head_pub.Write(head_msg)
+                    head_state["n"] += 1
+                    now_h = time.time()
+                    if now_h - head_state["last"] > 5.0:
+                        head_state["last"] = now_h
+                        print(f"[head-obj] tag{head_core.tag_id} #{head_state['n']} bundle=({p_tab[0]:+.3f},{p_tab[1]:+.3f},{p_tab[2]:+.3f}) "
+                              f"world=({wx:.3f},{wy:.3f},{wz:.3f}) [B3 nominal world = (1.000,-0.160)] reproj={r30[2]:.2f}px", flush=True)
             stats["n"] += 1
             now = time.time()
             if now - stats["last"] > 5.0:
@@ -628,7 +737,7 @@ def main():
                 hz = stats["n"] / max(now - stats["t0"], 1e-6)
                 print(f"[tag] {stats['n']} anchors ({hz:.1f}Hz) tags={sorted(detections)} "
                       f"reproj={err:.2f}px yaw_off={math.degrees(yoff):+.1f}deg "
-                      f"rej={core.n_rejected}", flush=True)
+                      f"rej={core.n_rejected} yawrej={getattr(core, 'n_yaw_rejected', 0)}", flush=True)
 
     rclpy.init()
     node = Bridge()

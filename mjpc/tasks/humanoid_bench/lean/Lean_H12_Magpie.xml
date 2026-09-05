@@ -580,6 +580,14 @@
              point = edit target_col_x/target_col_y ONLY, then
              `ninja copy_model_resources` + restart the node. B3 = 0 / 0. -->
         <numeric name="target_col_x" data="0.0"/>
+        <!-- ★ 2026-09-05 head_block_lock (m, 0 = OFF): while STANDING (rungs 0-1) the head
+             camera sees tag30 on the block in the same frames as the table bundle; the
+             bridge publishes it in planner world (rt/object_head) and the node latches
+             (block - servo_nominal) as a world shift applied to every reach target + the
+             D405 nominal, FROZEN from rung 2. Value = max accepted |shift| per axis.
+             Fixes block placement / table-frame error before the lean; the D405 servo
+             then only covers the residual. -->
+        <numeric name="head_block_lock" data="0.15"/>
         <!-- brace_flat_gate_lo (rad, >0): max allowed NEGATIVE elevation for
              contact to certify. Negative = gripper-first = illegal hand-brace
              and the stall pose. 0.05 rad = -2.9 deg of noise headroom. -->

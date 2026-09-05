@@ -43,6 +43,20 @@ inline std::atomic<int> g_grasp_ack{0};
 // (sub-mm), and the slew limiter downstream swallows that anyway.
 // g_object_seq is the FRESHNESS signal: the task watches it change rather than
 // comparing a callback wall-clock against plant time (the two-clock trap).
+// ★ 2026-09-05 HEAD-CAM BLOCK LOCK bus: block (tag30) in PLANNER WORLD from the
+// head camera + table bundle (rt/object_head), written by deploy_common.
+inline std::atomic<double> g_object_head_x{0.0};
+inline std::atomic<double> g_object_head_y{0.0};
+inline std::atomic<double> g_object_head_z{0.0};
+inline std::atomic<unsigned long long> g_object_head_seq{0};
+// ★ 2026-09-05 BUNDLE POSE DIAG: head-cam table-bundle solve of the torso xy
+// (planner world) + heading [rad], from tag_bridge_node rt/bundle_pose. Logged
+// against the belief only ([bundle-vs-belief]); never used for control.
+inline std::atomic<double> g_bundle_x{0.0};
+inline std::atomic<double> g_bundle_y{0.0};
+inline std::atomic<double> g_bundle_yaw{0.0};
+inline std::atomic<double> g_bundle_err{0.0};
+inline std::atomic<unsigned long long> g_bundle_seq{0};
 inline std::atomic<double> g_object_cam_x{0.0};
 inline std::atomic<double> g_object_cam_y{0.0};
 inline std::atomic<double> g_object_cam_z{0.0};

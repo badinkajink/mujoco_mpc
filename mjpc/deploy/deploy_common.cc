@@ -1168,6 +1168,8 @@ int RunDeployNode(const NodeConfig& cfg) {
   // touch rt/aux_odom or anything the estimator reads: the gripper camera rides
   // on the moving arm and must never reach the base estimate.
   ChannelSubscriberPtr<SportState> obj_sub;
+  ChannelSubscriberPtr<SportState> head_sub;  // 2026-09-05 head-cam block lock
+  ChannelSubscriberPtr<SportState> bundle_sub;  // 2026-09-05 bundle pose diag
   if (cfg.object_servo) {
     obj_sub.reset(new ChannelSubscriber<SportState>("rt/object_tag"));
     obj_sub->InitChannel(
@@ -1181,6 +1183,33 @@ int RunDeployNode(const NodeConfig& cfg) {
         10);
     std::fprintf(stderr, "[node] object_servo ON: rt/object_tag -> task servo bus "
                          "(needs servo_slew>0 + calibrated grip_cam_* numerics)\n");
+    // ★ 2026-09-05 HEAD-CAM BLOCK LOCK: block (tag30) in planner world from the
+    // head camera + table bundle, published by tag_bridge_node while standing.
+    head_sub.reset(new ChannelSubscriber<SportState>("rt/object_head"));
+    head_sub->InitChannel(
+        [](const void* msg) {
+          const SportState* s = static_cast<const SportState*>(msg);
+          mjpc::g_object_head_x.store(s->position().at(0));
+          mjpc::g_object_head_y.store(s->position().at(1));
+          mjpc::g_object_head_z.store(s->position().at(2));
+          mjpc::g_object_head_seq.fetch_add(1);
+        },
+        10);
+    std::fprintf(stderr, "[node] head-cam block lock bus: rt/object_head -> task "
+                         "(numeric head_block_lock gates its use)\n");
+    // ★ 2026-09-05 BUNDLE POSE DIAG: rt/bundle_pose -> [bundle-vs-belief] print.
+    bundle_sub.reset(new ChannelSubscriber<SportState>("rt/bundle_pose"));
+    bundle_sub->InitChannel(
+        [](const void* msg) {
+          const SportState* s = static_cast<const SportState*>(msg);
+          mjpc::g_bundle_x.store(s->position().at(0));
+          mjpc::g_bundle_y.store(s->position().at(1));
+          mjpc::g_bundle_yaw.store(s->position().at(2));
+          mjpc::g_bundle_err.store(s->velocity().at(0));
+          mjpc::g_bundle_seq.fetch_add(1);
+        },
+        10);
+    std::fprintf(stderr, "[node] bundle pose diag bus: rt/bundle_pose -> [bundle-vs-belief] log\n");
   }
 
   ChannelPublisherPtr<LowCmd> cmd_pub(
