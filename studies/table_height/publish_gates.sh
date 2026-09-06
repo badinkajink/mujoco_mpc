@@ -41,4 +41,6 @@ cp $S/figs/fig_pitchgate*.png $S/figs/fig_basinaim*.png $S/figs/fig_window*.png 
    $MEDIA/ 2>/dev/null
 $S/make_page_gates.py --figs $S/figs --shipped $S/figs_ab_off $ARGS \
    --figs_rel media/gates --out $PAGE
+$S/write_status_gates.py --figs $S/figs --out $S/STATUS.md \
+   --arms shipped=$S/figs_ab_off reach_arm_posture=$S/figs_basin "+pose_track1=$S/figs_both"
 echo "=== PUBLISHED $(date +%H:%M) -> $PAGE ==="

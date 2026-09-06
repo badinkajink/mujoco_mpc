@@ -96,6 +96,34 @@ def arm_table(arms):
     return "".join(r)
 
 
+def highend_table(G, h=1.085):
+    """closest rung-2 approach per arm at one slab, from the qpos replay."""
+    by = {}
+    for r in (G or []):
+        if r["h"] != h or r.get("closest_mm") is None:
+            continue
+        by.setdefault(r["label"], []).append(r)
+    order = [(("shipped", "ab-off", "seeded"), "shipped"),
+             (("pose1", "ab-on"), "brace_pose_track 1"),
+             (("basin",), "reach_arm_posture"),
+             (("both",), "reach_arm_posture + brace_pose_track 1")]
+    r = ["<table><tr><th>arm at %.3f m</th><th>closest to the gate</th>"
+         "<th>dx</th><th>dz</th></tr>" % h]
+    for keys, lab in order:
+        g = [x for k in keys for x in by.get(k, [])]
+        if not g:
+            continue
+        lo = min(x["closest_mm"] for x in g)
+        hi = max(x["closest_mm"] for x in g)
+        dxs = [x["dx_mm"] for x in g]
+        dzs = [x["dz_mm"] for x in g]
+        rng = ("%.0f mm" % lo) if len(g) == 1 else ("%.0f&ndash;%.0f mm" % (lo, hi))
+        r.append("<tr><td>%s</td><td>%s</td><td>%+.0f</td><td>%+.0f</td></tr>"
+                 % (lab, rng, np.median(dxs), np.median(dzs)))
+    r.append("</table>")
+    return "".join(r)
+
+
 def verdict(basin, both, shipped):
     """Score the pre-registered hypothesis against whatever landed."""
     base_h = by_h(shipped)
@@ -296,6 +324,41 @@ def main():
           "two arms, one binary, <code>--threads 6</code>, serial under a 700% "
           "CPU quota. The shipped column is <code>runs/ab/off</code>, which came "
           "off this same binary.</div>")
+
+    if basin and both:
+        A("<h2>What the refutation says</h2>")
+        A("<p>Both hypotheses are wrong, and the way they are wrong retires the "
+          "family they came from. Replaying the jaw tip against the rung-2 gate "
+          "at 1.085 m:</p>")
+        A(highend_table(G))
+        A("<p>The basin lock did not move the tip closer &mdash; 167 mm measured "
+          "against 105 mm predicted offline &mdash; and no arm beats the shipped "
+          "154 mm. The offline probe evaluated <code>reach_arm_q</code> from a "
+          "brace pose already seated on the slab; in the run the robot never "
+          "seats it. Peak base pitch at 1.085 m is 12.6&deg; against the "
+          "17.2&deg; the pose requires.</p>")
+        A("<p><b>x is short by 125&ndash;149 mm in every arm</b>, whatever the "
+          "right arm is told to do. Over the torso lever, 4.6&deg; of missing "
+          "pitch is about 72 mm of shoulder travel, and base x is a further "
+          "11 mm short of the 0.207 m the pose needs. The shoulder is in the "
+          "wrong place, so a seven-joint arm cannot recover it: the high end is "
+          "a trunk-commitment problem, not an arm problem.</p>")
+        A("<p>Nothing stops the trunk. Required forward CoM at 1.085 m is "
+          "+0.041 m against <code>com_cap_fwd</code> 0.145, required base x is "
+          "0.207 m against <code>brace_lead_x0</code> 0.24, and pitch has "
+          "11.4&deg; of margin to the release gate. No cap binds; the lean is "
+          "not being forbidden, it is not being asked. With "
+          "<code>brace_pose_track</code> 1 the posture keyframe already commands "
+          "17.2&deg;, so the next measurement is what the planner trades that "
+          "against &mdash; Posture's weight against Brace Pos on the "
+          "<code>forearm_brace_lean</code> rungs, read from the residual dump at "
+          "1.085 m. Both are weights in the strategy JSON; no rebuild.</p>")
+        A("<div class=note><b>Cost check.</b> "
+          "<code>reach_arm_posture</code> alone is neutral: 3/3 at 0.985 m and "
+          "2/3 at 1.035 m, matching the shipped controller. Combining it with "
+          "<code>brace_pose_track</code> 1 takes 1.035 m from 2/3 to 0/3, so the "
+          "pair is disqualified by the rule that a change must cost no "
+          "completions where the controller already works.</div>")
 
     A("<h2>What this does not settle</h2>")
     A(("<ul>"

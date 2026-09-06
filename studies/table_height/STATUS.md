@@ -189,3 +189,71 @@ Page: `docs/lean/20260905-brace_posture_retarget.html` (local only).
 _Generated 2026-09-05 by write_status_pose.py._
 
 <!-- POSE:END -->
+
+<!-- GATES:BEGIN -->
+
+## The two gates that bound the window (2026-09-05)
+
+The window is bounded by two different constants, one at each end, and
+neither tracks the slab.
+
+**Low end -- `standback_pitch_release` (0.50 rad = 28.6 deg).** Seating both
+brace pads requires more bow than the release gate admits below ~0.958 m.
+The requirement is geometry against a gate, so it holds for any planner or
+seed. Probe: `probe_pitch.py`.
+
+| face | brace pose pitch | margin to the gate |
+|---|---|---|
+| 0.785 m | 47.1 deg | -18.5 deg |
+| 0.885 m | 36.1 deg | -7.4 deg |
+| 0.985 m | 25.9 deg | +2.8 deg |
+| 1.035 m | 21.3 deg | +7.4 deg |
+| 1.085 m | 17.2 deg | +11.4 deg |
+
+Predicted lower edge **0.958 m**. Untested: nothing between 0.885 m and
+0.985 m has been run under any arm. Refuted if 0.905 m completes.
+
+**High end -- the trunk, not the arm.** With both pads seated and both feet
+planted the rung-2 waypoint solves to under 1 mm at every height over a
+0.30-0.75 x 0-0.30 m grid (`probe_reachset.py`), so the 154-185 mm gate miss
+at 1.085 m is not a reach limit. Replayed, `dx` is short by 125-149 mm in
+every arm regardless of what the right arm is commanded: peak base pitch is
+12.6 deg against the 17.2 deg the pose requires, and base x is 11 mm short of
+0.207 m. No cap binds -- CoM +0.041 against `com_cap_fwd` 0.145, base x 0.207
+against `brace_lead_x0` 0.24, 11.4 deg of pitch margin to the release gate.
+
+| face | shipped | reach_arm_posture | +pose_track1 |
+|---|---|---|---|
+| 0.785 m | 0/3 | 0/3 | 0/3 |
+| 0.885 m | 0/3 | 0/3 | 0/3 |
+| 0.985 m | 3/3 | 3/3 | 3/3 |
+| 1.035 m | 2/3 | 2/3 | 0/3 |
+| 1.085 m | 0/3 | 0/3 | 0/3 |
+
+`reach_arm_posture` is neutral: it matches the shipped controller at both
+working heights and completes nothing at the three failing ones. Paired
+with `brace_pose_track` 1 it costs 1.035 m outright, which disqualifies
+the pair under the rule that a change must cost no completions where the
+controller already works.
+
+`reach_arm_posture`'s config aims 303/200/98/82/105 mm from the gate target offline; a
+per-slab solve aims 0-6 mm. In the runs it moved the tip no closer than
+the shipped posture did, because the probe assumed a brace the robot
+never seats.
+
+### Run it
+
+```bash
+S=studies/table_height
+$S/probe_pitch.py --json $S/figs/pitch.json      # the pitch bound, no sim
+$S/probe_reachset.py --json $S/figs/reachset.json # the rung-2 reach set
+$S/probe_basin.py --json $S/figs/basin.json      # where reach_arm_q aims
+$S/sweep_basin.py --out $S/runs/basin            # the two arms
+$S/publish_gates.sh                              # figures, page, this section
+```
+
+Page: `docs/lean/20260905-height_window_gates.html` (local only).
+
+_Generated 2026-09-05 by write_status_gates.py._
+
+<!-- GATES:END -->
