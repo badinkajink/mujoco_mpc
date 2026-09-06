@@ -120,6 +120,28 @@ Measured 2026-08-26 (`docs/lean/2026-08-26_schedule_cost.html`), still true:
   completed the ladder, and every run that did not, failed. It is the gate the
   height sweep dies at, and it is height-dependent through `face + 0.15`.
 
+### Two constants the code comments get wrong or leave off
+
+Both verified 2026-09-05 against `Lean_H12_Magpie.xml`, and both bite anyone
+debugging why a braced ladder will not advance.
+
+- **`standback_pitch_release` is 0.50 rad (28.6 deg) in the XML**, not the 0.42
+  that `lean.cc`'s own comments quote (they date from before the numeric was
+  retuned). Rung 3 will not let go of the table above it. The pose required to
+  seat the brace pads is more bowed than that on any slab below ~0.96 m -- 36.1
+  deg at 0.885 m, 47.1 deg at 0.785 m -- so a low slab cannot leave the brace
+  rung without un-bowing past the pose that is holding it up. Measured by
+  `studies/table_height/probe_pitch.py`; no sim time, it is geometry against a
+  gate.
+- **`reach_arm_posture` ships at 0.0 = off, but its height gate already admits
+  strategy 25's targeting rung.** `reach_arm_hgate` is 0.16 in the XML (the code
+  default is 0.10) and rung 2 of `h12_brace_targeting` hovers at 0.15, so the
+  basin lock is aimed at that rung and simply switched off. The comment above it
+  states the conflict it exists to fix -- "Posture (idx 27..33 = right arm) is
+  tracking the brace-UP keyframe here, so it actively fights Reach DOWN" -- and
+  that conflict is live on every braced reach, not only the grasp descents it
+  was written for.
+
 `lean_simple_gripper.cc` is a red herring: not in `mjpc/CMakeLists.txt`, not
 registered in `tasks.cc`, and it defines the same symbols as `lean.cc` so it could
 not link alongside it.
