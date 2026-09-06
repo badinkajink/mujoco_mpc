@@ -1691,6 +1691,44 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double pelvis_tilt_residual;
   if (any_arm_contact) {
     pelvis_tilt_residual = mju_max(0.0, pelvis_tilt_threshold - pelvis_up[2]);
+    // ★ 2026-09-06 BRACE PITCH TRACK (`brace_pitch_track`, 0 = OFF =
+    // byte-identical). The line above is a one-sided DEAD BAND: every bow from 0
+    // to `pelvis_tilt_max_deg` (60 deg by default) costs exactly zero. Torso
+    // Forward Tilt is yaw-only by construction (see its residual) and Brace
+    // Erect is gated to forearm_brace_release, so on the lean rungs -- the rungs
+    // where the brace has to seat -- nothing in the cost has an opinion about
+    // base pitch anywhere in a 60 deg band.
+    // Measured 2026-09-06 (studies/table_height/probe_base_split.py): re-solving
+    // the brace keyframe for a slab 100 mm high moves base pitch by -8.7 deg and
+    // base z by +18 mm; for one 200 mm low, +21.3 deg and -47 mm. Re-apply only
+    // the JOINT half of that retarget -- all a posture cost can command -- and
+    // the forearm pad lands 75 mm BELOW the face at 1.085 m and 205 mm ABOVE it
+    // at 0.785 m. The coordinate that has to track the slab is the one with no
+    // gradient, which is why `brace_pose_track` alone moved nothing in the runs
+    // (rung-2 forearm load at 1.085 m: 0.0 N median, pad 16 mm under the face,
+    // against 79-88 N and +3 mm at the compiled height).
+    // Replace the dead band with two-sided tracking of the base pitch held by
+    // the CURRENT keyframe, read with the same asin() the release gate uses so
+    // target and gate share a frame. `Pelvis Tilt` carries a smooth-abs norm, so
+    // the sign is symmetric: it presses the bow DEEPER at a low slab and
+    // SHALLOWER at a high one. With `brace_pose_track` on, the keyframe is the
+    // per-slab solve and the pair reads "retarget the pose" + "make its trunk
+    // commandable"; with it off the target is the compiled pitch at every
+    // height, so this numeric is only meaningful alongside it.
+    const double bpt = GetNumberOrDefault(0.0, model, "brace_pitch_track");
+    if (bpt > 0.5 && residual_keyframe_.name == "forearm_brace_lean") {
+      const int ki = mj_name2id(model, mjOBJ_KEY, "forearm_brace_lean");
+      if (ki >= 0) {
+        const mjtNum *kq = model->key_qpos + ki * model->nq;
+        const double st =
+            mju_clip(2.0 * (kq[3] * kq[5] - kq[6] * kq[4]), -1.0, 1.0);
+        const double *q = data->qpos;
+        const double sp =
+            mju_clip(2.0 * (q[3] * q[5] - q[6] * q[4]), -1.0, 1.0);
+        const double gain = GetNumberOrDefault(1.0, model, "brace_pitch_gain");
+        pelvis_tilt_residual = gain * (std::asin(sp) - std::asin(st));
+      }
+    }
   } else {
     // FREE-STANDING upright (stand/crouch/arms_*): the legacy residual
     // pelvis_up[2]-1 == cos(tilt)-1 is QUADRATICALLY FLAT near vertical, so a

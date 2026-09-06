@@ -1245,6 +1245,33 @@
              compiled height. ⚠ must stay BEFORE the first `residual_*` numeric.
              Offline twin: studies/table_height/retarget.py. -->
         <numeric name="brace_pose_track" data="0"/>
+
+        <!-- pelvis_tilt_max_deg (2026-08-29, deg): caps the free forward bow
+             during brace phases; the residual is max(0, cos(tmax) - pelvis_up_z).
+             0/absent = the 60 deg default written into lean.cc. Present here at 0
+             so `lean_bench --numeric pelvis_tilt_max_deg=<deg>` can reach it --
+             the override needs the numeric to EXIST, and 0 is the shipped
+             behaviour bit for bit. Low-slab over-bow: at a 0.785 m face the run
+             bows to 74.9 deg against the 47.1 deg the brace pose needs, then
+             drapes the torso on the slab (622 N through torso contact, feet off
+             the floor). -->
+        <numeric name="pelvis_tilt_max_deg" data="0"/>
+        <!-- brace_pitch_track (2026-09-06, 0 = OFF = byte-identical): on the
+             forearm_brace_lean rungs, replace the one-sided pelvis-tilt dead band
+             with two-sided tracking of the base pitch held by the CURRENT
+             keyframe. Rationale in lean.cc at the pelvis-tilt residual: the dead
+             band is free from 0 to 60 deg, Torso Forward Tilt is yaw-only and
+             Brace Erect is gated to forearm_brace_release, so base pitch is
+             uncommanded exactly where the brace has to seat -- while the per-slab
+             retarget moves it by -8.7 deg at a 1.085 m face and +21.3 deg at
+             0.785 m. Meaningful only with `brace_pose_track` on, which is what
+             puts the per-slab pitch into the keyframe. -->
+        <numeric name="brace_pitch_track" data="0"/>
+        <!-- brace_pitch_gain (2026-09-06): scales the tracking residual above so
+             it can be traded against Brace Pos (700) and Posture (60) without a
+             rebuild. 1.0 = raw radians of pitch error under the Pelvis Tilt
+             weight (50) and its smooth-abs norm. -->
+        <numeric name="brace_pitch_gain" data="1.0"/>
         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
         <!-- Slider → strategy. GetStrategyNames() in lean.h is 36 slots long and every
              slot not listed here is PADDED with h12_simple_stand: Strategy is a
