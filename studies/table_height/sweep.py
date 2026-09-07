@@ -16,6 +16,13 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "../.."))
 BIN = os.path.join(ROOT, "build_cmake/bin/lean_bench")
+# ★ 2026-09-06 The cgroup memory cap. 6G was chosen when the box was quiet and it
+# sits right at the peak: `lean_bench --threads 6 --spp 3` reaches RSS 6.0 G, so
+# three runs of the pitch sweep were SIGKILLed and the stance sweep died at 7 s
+# with an RL training job resident and swap 100% full. Raise it per sweep via
+# SWEEP_MEM_MAX rather than editing this line -- the cap's job is to make
+# lean_bench die before the desktop does, so it must stay well under `available`.
+MEM_MAX = os.environ.get("SWEEP_MEM_MAX", "6G")
 SUMMARY = re.compile(r"\[bench-summary\] (.*)")
 
 
@@ -39,7 +46,7 @@ def run_one(job):
         # A hard CPU cap is the only thing that reliably keeps the compositor
         # responsive; `nice` does not when the contention is thread count.
         cmd += ["systemd-run", "--user", "--scope", "--quiet",
-                "-p", "CPUQuota=%d%%" % quota, "-p", "MemoryMax=6G"]
+                "-p", "CPUQuota=%d%%" % quota, "-p", "MemoryMax=%s" % MEM_MAX]
     cmd += ["nice", "-n", "15",
            BIN, "--task", task, "--strategy", str(slot), "--seed", str(seed),
            "--table_h", "%.4f" % h,
