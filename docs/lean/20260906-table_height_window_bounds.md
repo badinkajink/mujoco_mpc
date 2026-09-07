@@ -8,7 +8,8 @@ reproducible from committed scripts; the commands are in §8.
 ## 1. State
 
 The braced lean completes at slab faces **0.985 m and 1.035 m** and fails at
-**0.785 m, 0.885 m and 1.085 m**. Twelve arms have been run against that baseline —
+**0.785 m, 0.885 m, 1.050 m, 1.060 m and 1.085 m**. The upper edge is between
+1.035 m and 1.050 m. Twelve arms have been run against that baseline —
 eleven candidate levers and one deliberate diagnostic — and **none has widened the
 window**. Two are disqualified for costing completions where the controller
 already works: `brace_pitch_gain 100` drops 0.985 m to 2/3, and
@@ -132,10 +133,28 @@ The slope of clearance against slab height is **−0.87**: the arm recovers 13% 
 each millimetre the table rises and the posture supplies the rest of nothing.
 Extrapolated to zero clearance, the upper edge is **1.07 m**.
 
-**Prediction, and the test for it.** 1.06 m should be marginal and 1.05 m should
-complete, on the shipped controller with no change at all. Three seeds at each is
-6 runs. If 1.05 m fails, clearance is not what bounds the upper edge and §4a is
-wrong.
+**The 1.07 m prediction was tested and is refuted.** Three seeds each at 1.050 m
+and 1.060 m, shipped controller, nothing changed: **0/3 at both**, all six falling
+at 29–34 s. The upper edge of the window is therefore between **1.035 m and
+1.050 m** — 50 mm above the compiled face, not 85 mm.
+
+The clearance line itself survived the test exactly. Interpolated from 1.035 and
+1.085 it predicts +0.019 m at 1.050 and +0.012 m at 1.060; measured, +0.019 and
++0.009. What is refuted is that positive clearance is *sufficient*. It is not:
+
+| face | max pad clear | peak forearm load | outcome |
+|---|---|---|---|
+| 1.035 m | +0.030 m | 137–189 N | 2/3–3/3 |
+| 1.050 m | +0.019 m | 93–113 N | **0/3** |
+| 1.060 m | +0.009 m | 89–94 N | **0/3** |
+| 1.085 m | −0.006 m | 0–3 N | 0/3 |
+
+There are three regimes, not two. Above 1.085 m the pad never reaches the wood and
+carries nothing. Between 1.050 and 1.060 m it does seat and load, to roughly half
+the force the working heights carry, and the robot still topples. The brace needs
+a clearance *margin* of roughly 25–30 mm to build the force that holds it, not
+merely a non-negative number, so the fix in §7 item 1 has to buy back tens of
+millimetres rather than just cross zero.
 
 **The two ends are different defects.** At 0.885 m the pad has +164 mm of
 clearance — more than at the compiled height — and still completes 0/3. Height is
@@ -367,11 +386,12 @@ Ranked. Each entry names the measurement that settles it.
    1.085 m max pad clearance goes positive and rung-2 forearm load leaves zero.
    **Killed** if 0.985 m loses a completion, or if the shoulder rises and the pad
    does not follow — which would mean the arm posture, not the base, holds it.
-2. **The 1.07 m prediction (running).** §4a's clearance line puts the upper edge
-   at 1.07 m. Three seeds each at 1.060 m and 1.050 m, shipped controller, no
-   change of any kind — `sweep.py --heights 1.060,1.050`. **Confirmed** if 1.050 m
-   completes and 1.060 m is marginal. **Refuted** if 1.050 m fails, in which case
-   clearance is not what bounds the upper edge.
+2. **Where between 1.035 m and 1.050 m the edge sits, and what the force threshold
+   is.** Both questions were opened by the refuted 1.07 m prediction (§4a). Three
+   seeds at 1.040 m and 1.045 m locates the edge to 5 mm and, with the clearance
+   and peak-force numbers already tabulated, says whether completion tracks a
+   clearance threshold (~25 mm) or a force threshold (~130 N). That distinction
+   decides how much height item 1 has to buy. 6 runs, ~35 min.
    *(Item 2 as previously written — whether the low end is the same defect with
    the sign reversed — was answered on 2026-09-06 and is now in §4a: it is not.
    At 0.885 m the pad has +164 mm of clearance and still completes 0/3.)*
