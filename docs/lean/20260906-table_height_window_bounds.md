@@ -115,9 +115,32 @@ logged qpos (`probe_padheight.py`). Three seeds per cell, three arms:
 (One 1.085 m seed under `brace_target_slab` touched +0.045 m; the other eight
 1.085 m runs across three arms did not clear the face at any instant.)
 
-The shoulder's height above the face falls by the same 100 mm the slab rises, so
-the arm is asked to make up the whole difference and cannot. Median forearm load
-through the brace rungs at 1.085 m is 0.0–2.8 N in every run of every arm.
+Median forearm load through the brace rungs at 1.085 m is 0.0–2.8 N in every run
+of every arm.
+
+**The shoulder is pinned at a fixed absolute height and the clearance falls
+linearly with the slab.** Across every arm that has dumps:
+
+| face (m) | shoulder above face | shoulder, absolute | max pad clearance |
+|---|---|---|---|
+| 0.885 | +0.466 … +0.501 | ~1.37 m | +0.141 … +0.182 |
+| 0.985 | +0.406 … +0.418 | ~1.40 m | +0.073 … +0.083 |
+| 1.035 | +0.356 … +0.362 | ~1.40 m | +0.030 … +0.031 |
+| 1.085 | +0.253 … +0.315 | ~1.40 m | −0.012 … +0.001 |
+
+The slope of clearance against slab height is **−0.87**: the arm recovers 13% of
+each millimetre the table rises and the posture supplies the rest of nothing.
+Extrapolated to zero clearance, the upper edge is **1.07 m**.
+
+**Prediction, and the test for it.** 1.06 m should be marginal and 1.05 m should
+complete, on the shipped controller with no change at all. Three seeds at each is
+6 runs. If 1.05 m fails, clearance is not what bounds the upper edge and §4a is
+wrong.
+
+**The two ends are different defects.** At 0.885 m the pad has +164 mm of
+clearance — more than at the compiled height — and still completes 0/3. Height is
+abundant there; §5's balance failure is what stops it. The low end is not this
+mechanism with the sign reversed.
 
 ### 4a-ii. Forward reach, the symptom rather than the cause
 
@@ -344,13 +367,14 @@ Ranked. Each entry names the measurement that settles it.
    1.085 m max pad clearance goes positive and rung-2 forearm load leaves zero.
    **Killed** if 0.985 m loses a completion, or if the shoulder rises and the pad
    does not follow — which would mean the arm posture, not the base, holds it.
-2. **Whether the height deficit also explains the low end.** At 0.785 m the slab
-   is 200 mm *below* the compiled face, so the same fixed posture puts the shoulder
-   too high and the robot has to bow much further to reach — 47.1° against 25.9°.
-   `probe_padheight.py --heights 0.785,0.885,0.985` costs nothing and says whether
-   the low end is the same defect with the sign reversed. Do this before any more
-   sweeps: if it is one mechanism, the fix in item 1 is a two-sided one and the
-   whole study collapses to a single number.
+2. **The 1.07 m prediction (running).** §4a's clearance line puts the upper edge
+   at 1.07 m. Three seeds each at 1.060 m and 1.050 m, shipped controller, no
+   change of any kind — `sweep.py --heights 1.060,1.050`. **Confirmed** if 1.050 m
+   completes and 1.060 m is marginal. **Refuted** if 1.050 m fails, in which case
+   clearance is not what bounds the upper edge.
+   *(Item 2 as previously written — whether the low end is the same defect with
+   the sign reversed — was answered on 2026-09-06 and is now in §4a: it is not.
+   At 0.885 m the pad has +164 mm of clearance and still completes 0/3.)*
 3. **The 0.905–0.935 m band has never been run under any arm.** Three seeds at each,
    shipped controller, 6 runs (~35 min at the corrected memory cap). Bounds the
    lower edge to 50 mm and tests whether §5's balance story predicts it.
