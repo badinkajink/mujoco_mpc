@@ -93,6 +93,26 @@ int main(int argc, char** argv) {
       std::atof(Arg(argc, argv, "--hold_after_final", "3.0").c_str());
   const std::string out      = Arg(argc, argv, "--out", "");
   const std::string qpos_out = Arg(argc, argv, "--qpos_out", "");
+  // ★ 2026-09-06 STANCE SHIFT (`--stance_shift_x`, m forward; 0 = OFF =
+  // byte-identical). BENCH-ONLY on purpose: it moves the reset pose, not the
+  // task, so `lean.cc` and the XMLs stay untouched and the shipped controller is
+  // unchanged.
+  //   WHY. The `home` keyframe every entry point resets to (here, app.cc:423,
+  //   deploy_common.cc:899) puts the feet 260 mm behind the slab's near edge.
+  //   All three `forearm_brace_*` keyframes were authored for 197 mm -- a 63 mm
+  //   step the ladder cannot take, because `Foot Left/Right Up` carry weight 2000
+  //   on all nine rungs of strategy 25 and there is no stepping rung. Measured
+  //   consequence (studies/table_height/probe_stance.py): the forearm pad's best
+  //   reach past the near edge is +0.140 m at a 0.985 m face, +0.054 at 1.035 and
+  //   -0.066 at 1.085, crossing zero exactly where completions stop.
+  //   SAFE TO SHIFT IN THIS STRATEGY. Every live forward-x term is measured from
+  //   midfoot and travels with the feet (`Pelvis Forward` band -> midfoot+0.05
+  //   and midfoot+`pelvis_cap_fwd`; `com_cap_fwd`; `brace_com_hold`). The one
+  //   absolute-world-x constant, `brace_lead_x0` 0.24 against `data->qpos[0]`,
+  //   sits behind JSON weight "Brace Reach Lead" = 0.0 on all nine rungs, so it
+  //   cannot bite. Re-check both facts before using this flag on another strategy.
+  const double stance_shift_x =
+      std::atof(Arg(argc, argv, "--stance_shift_x", "0").c_str());
   // Model <numeric> overrides, applied to the loaded model before the first
   // Transition. `brace_pose_track` ships 0 (off, byte-identical) so the A and B
   // arms of a comparison differ by one value rather than by two model files.
@@ -149,6 +169,14 @@ int main(int argc, char** argv) {
 
   int home_id = mj_name2id(model, mjOBJ_KEY, "home");
   if (home_id >= 0) mj_resetDataKeyframe(model, data, home_id);
+  // qpos[0..6] is the pelvis free joint; the legs follow by kinematics, so this
+  // translates the whole robot. The free `object` lives further down qpos and is
+  // deliberately NOT moved -- it belongs to the table frame, like the slab.
+  if (stance_shift_x != 0.0) {
+    data->qpos[0] += stance_shift_x;
+    std::fprintf(stderr, "[bench] stance_shift_x = %+.3f m (base_x %.3f)\n",
+                 stance_shift_x, data->qpos[0]);
+  }
   PerturbState(model, data, perturb, static_cast<uint64_t>(seed));
   mj_forward(model, data);
 
