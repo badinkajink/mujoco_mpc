@@ -35,7 +35,7 @@ def gid(m, n):
     return mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, n)
 
 
-def scan(m, d, qcsv, scsv):
+def scan(m, d, qcsv, scsv, slab_inset=None):
     ph = {round(float(r["t"]), 3): int(float(r["phase"]))
           for r in csv.DictReader(open(scsv))}
     pad = gid(m, R.PAD)
@@ -59,7 +59,10 @@ def scan(m, d, qcsv, scsv):
         face = float(d.geom_xpos[tgc][2] + m.geom_size[tgc][2])
         ctr = float(d.geom_xpos[tgv][0])
         torso_x = float(d.xpos[tb][0])
-        tgt_x = torso_x + 0.4 * (ctr - torso_x)
+        # `brace_target_slab` is a command-line override, so it is not recoverable
+        # from the dump: pass --slab_inset for a run that was launched with it.
+        tgt_x = (near + slab_inset) if slab_inset is not None \
+            else torso_x + 0.4 * (ctr - torso_x)
         pad_x = float(d.geom_xpos[pad][0])
         if best is None or pad_x > best["pad_x_abs"]:
             best = {"t": t, "pad_x_abs": pad_x,
@@ -76,6 +79,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--json")
+    ap.add_argument("--slab_inset", type=float, default=None,
+                    help="the run used brace_target_slab=1; compute the gated "
+                         "target `near_edge + inset` instead of the legacy one "
+                         "(shipped brace_target_inset is 0.05)")
     a = ap.parse_args()
     rows = []
     print("all x measured from the slab's NEAR EDGE (+ = past it, over the wood)")
@@ -91,7 +98,8 @@ def main():
             seed = int(tag.split("_s")[1])
             m = pristine_model(); set_table_height(m, h)
             d = mujoco.MjData(m)
-            s = scan(m, d, os.path.join(d_, f), os.path.join(d_, tag + ".csv"))
+            s = scan(m, d, os.path.join(d_, f), os.path.join(d_, tag + ".csv"),
+                     a.slab_inset)
             if s is None:
                 continue
             s.update(arm=label, h=h, seed=seed)
