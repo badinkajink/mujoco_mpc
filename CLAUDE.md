@@ -133,6 +133,11 @@ debugging why a braced ladder will not advance.
   rung without un-bowing past the pose that is holding it up. Measured by
   `studies/table_height/probe_pitch.py`; no sim time, it is geometry against a
   gate.
+  ⚠ **Amended 2026-09-06:** the pitch requirement is real, but it is not what the
+  low-slab runs die on. Over 3 seeds each at 0.785 m and 0.885 m, **no run ever
+  reaches rung 3**, so the release gate is untested rather than binding. They lose
+  balance during the lean itself. See
+  `docs/lean/20260906-table_height_window_bounds.md` §5.
 - **`reach_arm_posture` ships at 0.0 = off, but its height gate already admits
   strategy 25's targeting rung.** `reach_arm_hgate` is 0.16 in the XML (the code
   default is 0.10) and rung 2 of `h12_brace_targeting` hovers at 0.15, so the

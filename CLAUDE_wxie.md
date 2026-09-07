@@ -14,38 +14,35 @@ weight, a weight beats a new residual, a new residual beats moving the robot. A
 result counts only if it widens the window on **3 seeds per height at a fixed
 thread count** and costs no completions at the compiled 0.985 m.
 
-**Answer so far: the window has two different blockers, one at each end, and
-both are existing model numerics.** Four arms were run paired against the
-shipped controller from one binary (`sweep_ab.py`, `sweep_lead.py`,
-`sweep_mode2.py`, `sweep_tol.py`); none widened the window and all are free at
-the compiled height. What they bought is the diagnosis:
+**Read `docs/lean/20260906-table_height_window_bounds.md` first.** It is the
+current, self-contained account: the window, all ten refuted levers with their
+kill conditions, the high-end localisation, and what is still open. This section
+is only the pointer and the standing corrections.
 
-- **Low end (0.785 m, 0.885 m) -- the release pitch gate.** Seating the brace
-  pads on a low slab requires 36.1 deg of base pitch at 0.885 m and 47.1 deg at
-  0.785 m; `standback_pitch_release` is 0.50 rad = 28.6 deg. The requirement
-  crosses the gate at **0.958 m**, which is a prediction of the window's lower
-  edge that nothing between 0.885 and 0.985 has yet tested.
-- **High end (1.085 m) -- the rung-2 reach.** Pitch clears the gate by 11.4 deg
-  there, and with the rung-2 tolerance opened to 0.20 m the ladder ran end to
-  end. The waypoint is kinematically reachable to under a millimetre at every
-  height with the pads seated and the feet planted, so the 176 mm miss is the
-  right arm's posture target, not the arm.
+**Answer so far: ten levers run, none widens the window.** The high end is
+localised — the forearm pad's forward reach past the slab's near edge crosses zero
+between 1.035 m and 1.085 m, the feet never leave where `home` puts them, and the
+brace keyframes were authored for a stance 63 mm further forward than `home`
+provides. Strategy 25 pins both feet on all nine rungs. The untested lever is a
+stance shift (bench-only `stance_shift_x`, applied at reset).
 
-> Rung 2 of strategy 25 carries `reach_target_table` [0.55, 0.04, 0.15], so
-> `TransitionLocked` overwrites `total_distance` with the distance from the RIGHT
-> gripper jaw tip to `(near_edge + 0.55, table_ctr_y - 0.04, face + 0.15)` and
-> `target_distance_tolerance` = 0.07 is the gate. Every run in the study that
-> came within 70 mm completed the ladder; every run that did not, failed.
+⚠ **Superseded.** Earlier revisions of this file and of `STATUS.md` say the low
+end is bounded by `standback_pitch_release` with a predicted lower edge at
+0.958 m. The pitch requirement is real (47.1° at 0.785 m, 36.1° at 0.885 m) but
+**no low-height run ever reaches the release rung**, so the gate cannot be the
+blocker. The low end is a loss of balance during the lean itself. `STATUS.md` is
+generated and still carries the old text in its `GATES` block; the 2026-09-06 page
+is authoritative where they disagree.
 
 ⚠ Strategy 25's ladder has **no manipulation rung**: stand, brace, reach,
 release, stand back up. Rung 2 IS the task, so opening its tolerance is a
 diagnostic and never a fix.
 
 Numbers live in `studies/table_height/STATUS.md` (generated) and on the pages
-`docs/lean/20260905-height_window_gates.html` (the two gates) and
-`docs/lean/20260905-brace_posture_retarget.html` (the posture work). The
-repo-level correction —
-that this tolerance is NOT dead on a `reach_target_table` rung — is in
+`docs/lean/20260906-table_height_window_bounds.md` (current),
+`docs/lean/20260905-height_window_gates.html` and
+`docs/lean/20260905-brace_posture_retarget.html`. The repo-level correction —
+that the rung-2 tolerance is NOT dead on a `reach_target_table` rung — is in
 `CLAUDE.md` §1c.
 
 ## 0a. Tools this line has built
@@ -62,7 +59,10 @@ that this tolerance is NOT dead on a `reach_target_table` rung — is in
 | `probe_reachset.py` | which rung-2 waypoints the arm can hold with the brace seated |
 | `probe_basin.py` | where `reach_arm_q` aims, against a per-slab solve |
 | `analyze_gates.py` | the two-gate figures |
-| `sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`, `sweep_tol.py`, `sweep_basin.py` | the paired arms |
+| `probe_base_split.py` | how much of the brace retarget lives in the floating base (the part a posture cost cannot command) |
+| `probe_stance.py` | where the robot stands and how far the pad gets over the slab, against what the keyframes assume |
+| `analyze_pitch.py` | the six-arm comparison: shipped, pose_track, the pitch-track gain ladder, the tilt cap |
+| `sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`, `sweep_tol.py`, `sweep_basin.py`, `sweep_pitch.py`, `sweep_tilt.py` | the paired arms |
 | `publish_pose.sh`, `publish_gates.sh` | figures, videos, page and the STATUS section, idempotent |
 
 Everything replays from `--qpos_out`; none of it costs sim time.

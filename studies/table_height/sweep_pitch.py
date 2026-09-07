@@ -45,8 +45,14 @@ import sweep
 KEYS = ["table_h", "seed", "wall_s", "rc", "fell", "complete", "t_complete",
         "t_end", "face_z", "phases", "enter", "csv", "summary"]
 
+# gain variants: at gain 1 the term is 0.17% of the rung-2 cost at 1.085 m
+# (2.9 against a total of 1740), i.e. below the planner's own run-to-run spread.
+# `brace_pitch_gain` is a numeric, so the ladder costs no rebuild.
+_BASE = ["--pose_track", "1", "--numeric", "brace_pitch_track=1"]
 ARMS = {
-    "pitch": ["--pose_track", "1", "--numeric", "brace_pitch_track=1"],
+    "pitch": _BASE,
+    "g20":   _BASE + ["--numeric", "brace_pitch_gain=20"],
+    "g100":  _BASE + ["--numeric", "brace_pitch_gain=100"],
 }
 
 
