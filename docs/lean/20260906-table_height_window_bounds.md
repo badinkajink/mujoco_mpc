@@ -14,19 +14,16 @@ window**. Two are disqualified for costing completions where the controller
 already works: `brace_pitch_gain 100` drops 0.985 m to 2/3, and
 `brace_pose_track 1` drops 1.035 m to 1/3.
 
-The high end is now localised to a single measured quantity: the forearm pad's
+The high end is localised to a single measured quantity: the forearm pad's
 forward reach past the slab's near edge, which crosses zero between 1.035 m and
-1.085 m. The robot stalls 66–85 mm short of the slab, never gets load into the
-brace, and topples backward. The proximate cause is a **63 mm disagreement
-between two shipped keyframes** — `home`, where every entry point resets the
-robot, and `forearm_brace_lean`, which was authored for a stance 63 mm further
-forward. Strategy 25's ladder pins both feet on all nine rungs, so the robot
-cannot take that step.
+1.085 m. At 1.085 m the pad stops 66 mm short of the wood and 13 mm below the
+face, carries 0.00 N in every run of every arm, and the robot topples backward.
 
-The untested lever that follows from this is a **stance shift**: start the robot
-closer to the table. It is last on the minimality ranking because it moves the
-robot rather than generalising the controller, and it is now the only candidate
-whose mechanism matches the measurement.
+**The pad's position is set by the slab, not by the robot's stance or by where the
+pad is aimed.** Both were tested directly and both are refuted (§4a). What remains
+is that the pad jams against the slab's vertical front face and cannot get over
+the edge, which is a different problem from running out of reach: the levers that
+would fix a reach shortfall have all been null because reach was never short.
 
 ## 2. The task, the bench, and the run policy
 
@@ -116,6 +113,42 @@ where completions stop. At 1.085 m the pad stops short of the wood and 13–23 m
 below the face, so it carries 0.00 N in every run of every arm, and the run ends
 with the CoM **1.07–1.14 m behind the forward foot edge**.
 
+### 4a-bis. Stance and aim are both refuted, by direct test
+
+**Stance.** `--stance_shift_x 0.063` (bench-only, §7) starts the robot 63 mm
+closer, landing the feet at −0.199 to −0.203 m from the near edge, which is where
+all three brace keyframes assume them. The pad did not move:
+
+| 1.085 m | feet from edge | pad past edge | pad clear |
+|---|---|---|---|
+| shipped | −0.268 m | −0.066 m | −0.013 m |
+| shift, seed 0 | −0.203 m | −0.069 m | −0.018 m |
+| shift, seed 1 | −0.199 m | −0.077 m | −0.019 m |
+| shift, seed 2 | — | never entered a brace rung | — |
+
+0/3 at 1.085 m, no seed reaching rung 2, against 0/3 shipped with two seeds
+reaching it. The feet moved exactly as commanded and the pad stayed at the same
+offset from the slab.
+
+**Aim.** `brace_target_slab` ships **0**, so `Brace Pos` aims the pad with the
+legacy expression at `lean.cc:952`, `torso_x + 0.4*(table_centre_x − torso_x)` — a
+convex combination of the *torso* and the table_top geom centre, which tracks the
+body rather than the slab. Measured over the brace rungs, past the near edge
+(`probe_bracetgt.py`):
+
+| face (m) | torso | target | pad | pad − target |
+|---|---|---|---|---|
+| 0.985 | −0.235 | **+0.095** | +0.140 | +0.045 |
+| 1.035 | −0.339 | **+0.033** | +0.054 | +0.021 |
+| 1.085 | −0.444 | **−0.030** | −0.066 | −0.036 |
+
+At 1.085 m the aim point is 30 mm in front of the near edge, off the wood, and
+with `brace_press_depth` −0.044 under `brace_target_face` 1 it sits 44 mm above
+the face — so the gradient pulls the pad into the slab's front face rather than
+over the edge. The stance shift moved that target onto the slab in all three seeds
+(+0.021 to +0.089) and the pad still did not follow, opening a 98–185 mm gap to
+its own target. At this height the wood sets the pad's x.
+
 ### 4b. The robot never moves its feet
 
 Median foot midpoint over the brace rungs, relative to the slab's near edge:
@@ -139,8 +172,9 @@ Measured at the compiled face:
 
 The brace pose assumes a stance **63 mm further forward** than the reset provides,
 with the feet 41 mm ahead of the pelvis rather than under it. Every rung pins both
-feet at weight 2000, so the ladder cannot close the gap. At 0.985 m the arm has
-enough spare reach to absorb 63 mm; at 1.085 m it does not.
+feet at weight 2000, so the ladder cannot close the gap. This disagreement is
+real and worth fixing on its own terms, but §4a-bis shows it is **not** what
+bounds the height window: closing it changes nothing at 1.085 m.
 
 ### 4d. What the high end is not
 
@@ -253,32 +287,46 @@ two seconds into the lean rung.
 
 Ranked. Each entry names the measurement that settles it.
 
-1. **Stance shift (untested, the only candidate that matches §4).** Add a numeric
-   `stance_shift_x` (default 0) applied at reset in `lean_bench.cc` — bench-only,
-   so the shipped task stays byte-identical — and start the robot 63 mm closer.
-   Run 1.085, 1.035, 0.985 and 0.785 m, 3 seeds. **Confirmed** if the 1.085 m pad
-   reach goes positive and any seed completes. **Killed** if 0.985 m loses a
-   completion, or if 0.785 m drapes worse (a closer stance bows the robot further
-   over a low slab). If it works, the follow-up question is whether the fix
-   belongs in the task at all, or in a stepping rung the ladder does not have.
-2. **The 0.905–0.935 m band has never been run under any arm.** Three seeds at
+1. ~~**Stance shift.**~~ **Run 2026-09-06, refuted** — see §4a-bis. Implemented as
+   `--stance_shift_x`, bench-only. 0/3 at 1.085 m with the pad unmoved; 0.985 m
+   held (seed 0 completed in 41.5 s). The flag stays in the bench: it is the clean
+   way to test any future stance question, and the 63 mm keyframe disagreement is
+   still a real defect even though it does not bound the window.
+2. **`brace_target_slab` = 1 (running).** One existing model numeric, already
+   implemented, 0 = OFF = byte-identical, top of the minimality ladder. It moves
+   the aim from `torso_x + 0.4*(centre − torso_x)` to `near_edge + 0.05`, which
+   makes it track the slab instead of the body. **Confirmed** if the 1.085 m pad
+   clears the face and rung-2 load rises off 0.00 N, or if the 0.785 m drape
+   weakens below the shipped 398 N through the torso. **Killed** if 0.985 m loses
+   a completion, or if the target lands on the slab and the pad still stops short
+   with `pad_clear` negative — in which case nothing about the aim holds the pad.
+   Standing evidence against it is in §4a-bis. Script: `sweep_bracetgt.py`.
+3. **The 0.905–0.935 m band has never been run under any arm.** Three seeds at
    0.905 m and 0.935 m, shipped controller, costs 6 runs (~1 h). It bounds the
    lower edge to 50 mm and tests whether §5's balance story predicts the edge as
    well as the retired pitch-gate story did.
-3. **A stepping rung.** `Foot Left Up`/`Foot Right Up` at 2000 on all nine rungs is
+4. **A stepping rung.** `Foot Left Up`/`Foot Right Up` at 2000 on all nine rungs is
    what makes the 63 mm structural. Dropping the weight on rung 1 only, with
    `Right Foot Lift` re-enabled, is a 2-number change to the strategy JSON and
-   needs no rebuild. Kill condition: if the robot lifts a foot and falls at
-   0.985 m, the ladder cannot afford a step and item 1 is the only route.
-4. **`brace_pitch_track` at intermediate gains (2–10) paired with a stance shift.**
-   Pointless alone — §6 settles that — but if the pad reaches the slab from a
-   closer stance, the pitch term may be what holds the brace once it lands. Only
-   run this after item 1 returns a positive pad reach.
+   needs no rebuild. Now a lower priority than when it was written: item 1 shows
+   the stance is not what bounds the window, so a step would fix the keyframe
+   disagreement without widening the height range. Kill condition: if the robot
+   lifts a foot and falls at 0.985 m, the ladder cannot afford a step at all.
+5. **What sets the pad's height at 1.085 m.** The measurement the KILL branch of
+   item 2 names: pad height relative to the left shoulder, medianed over the brace
+   rungs (not maxed — a max picks a mid-fall frame), at 0.985 m against 1.085 m,
+   with the shoulder's own height beside it. The slab rises 100 mm between those
+   two heights while the retarget asks the base for only +18 mm and −8.7°, so the
+   remaining ~80 mm has to come from the arm. This says whether the arm has it.
+   Replays from the existing dumps; no sim time.
 
-Not planned: `brace_erect_target`, `brace_press_depth` and the remaining
-brace-geometry constants fitted at 0.985 m. They are the right family in
-principle, but §4 says the pad is not near the slab at 1.085 m, so a term that
-shapes contact once seated cannot fire.
+Not planned: `brace_erect_target` and the remaining brace-geometry constants
+fitted at 0.985 m — §4 says the pad is not near the slab at 1.085 m, so a term
+that shapes contact once seated cannot fire. `brace_press_depth` is a special
+case and is **already fixed**: it ships at **−0.044** under `brace_target_face` 1,
+i.e. the press target sits 44 mm *above* the face, not the 60 mm below that its
+own comments still describe. The z half of the buried-target defect has been
+repaired; the x half (`brace_target_slab`) has not.
 
 ## 8. Reproducing every number here
 
