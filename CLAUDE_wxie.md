@@ -19,12 +19,19 @@ current, self-contained account: the window, all ten refuted levers with their
 kill conditions, the high-end localisation, and what is still open. This section
 is only the pointer and the standing corrections.
 
-**Answer so far: ten levers run, none widens the window.** The high end is
-localised — the forearm pad's forward reach past the slab's near edge crosses zero
-between 1.035 m and 1.085 m, the feet never leave where `home` puts them, and the
-brace keyframes were authored for a stance 63 mm further forward than `home`
-provides. Strategy 25 pins both feet on all nine rungs. The untested lever is a
-stance shift (bench-only `stance_shift_x`, applied at reset).
+**Answer so far: twelve arms run, none widens the window.** The high end is a
+**shoulder-height deficit of about 90 mm**: the brace posture does not lift with
+the table, so the left shoulder sits 0.405-0.419 m above the face at 0.985 m and
+0.250-0.321 m at 1.085 m, and the forearm pad never gets above the top face at
+all. Every lever tried acts horizontally — stance, aim, caps, base height, reach
+posture — and the short axis is vertical. The next candidate is to command the
+brace keyframe's base z per slab; the retarget only asks for +18 mm and takes the
+rest out of trunk pitch, which a posture cost cannot command.
+
+Refuted by direct test, not inference: the stance shift (`--stance_shift_x
+0.063`, bench-only) put the feet where the brace keyframes assume them and the pad
+did not move; `brace_target_slab` 1 moved the aim 80 mm onto the slab and bought
+27 mm of pad advance with no change in clearance. Both are free at 0.985 m.
 
 ⚠ **Superseded.** Earlier revisions of this file and of `STATUS.md` say the low
 end is bounded by `standback_pitch_release` with a predicted lower edge at
@@ -60,9 +67,11 @@ that the rung-2 tolerance is NOT dead on a `reach_target_table` rung — is in
 | `probe_basin.py` | where `reach_arm_q` aims, against a per-slab solve |
 | `analyze_gates.py` | the two-gate figures |
 | `probe_base_split.py` | how much of the brace retarget lives in the floating base (the part a posture cost cannot command) |
-| `probe_stance.py` | where the robot stands and how far the pad gets over the slab, against what the keyframes assume |
 | `analyze_pitch.py` | the six-arm comparison: shipped, pose_track, the pitch-track gain ladder, the tilt cap |
-| `sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`, `sweep_tol.py`, `sweep_basin.py`, `sweep_pitch.py`, `sweep_tilt.py` | the paired arms |
+| `probe_stance.py` | where the robot stands and how far the pad gets over the slab, against what the keyframes assume |
+| `probe_bracetgt.py` | where `Brace Pos` aims the pad, against where the pad actually gets (`--slab_inset` for a `brace_target_slab` run) |
+| `probe_padheight.py` | whether the arm can get the pad above the face at all, and whether it holds it there |
+| `sweep_ab.py`, `sweep_lead.py`, `sweep_mode2.py`, `sweep_tol.py`, `sweep_basin.py`, `sweep_pitch.py`, `sweep_tilt.py`, `sweep_stance.py`, `sweep_bracetgt.py` | the paired arms |
 | `publish_pose.sh`, `publish_gates.sh` | figures, videos, page and the STATUS section, idempotent |
 
 Everything replays from `--qpos_out`; none of it costs sim time.
@@ -141,7 +150,14 @@ studies/table_height/write_status.py --figs studies/table_height/figs \
 MJPC is CPU-bound and a parallel sweep has stuttered this desktop twice.
 **Serial, `--threads 6`, under `systemd-run --user --scope -p CPUQuota=700%`.**
 `sweep.py` enforces it and refuses to start if the 1-min load is already above
-`nproc/2`. Budget 5-10 min per run at `--total_time 75`. `nice` alone does not
+`nproc/2`.
+
+⚠ **Set `SWEEP_MEM_MAX`.** `lean_bench` at these settings needs about **9.9 GB
+resident**, and `sweep.py`'s default `MemoryMax=6G` silently pages the difference
+to swap — which is why runs used to take 5-10 min and why they SIGKILL outright
+once swap is full (`rc=-9` at 6-8 s, before the sim starts). At `SWEEP_MEM_MAX=11G`
+a run takes **200-360 s**. Keep the cap under `MemAvailable`: its job is to make
+`lean_bench` die before the desktop does. `nice` alone does not
 protect the compositor when the contention is thread count.
 
 ### Rendering needs a display
