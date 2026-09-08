@@ -117,7 +117,8 @@ logged qpos (`probe_padheight.py`). Three seeds per cell, three arms:
 1.085 m runs across three arms did not clear the face at any instant.)
 
 Median forearm load through the brace rungs at 1.085 m is 0.0–2.8 N in every run
-of every arm.
+of every arm. Recomputed 2026-09-08 over all six shipped seeds as the per-run
+peak: four carry exactly 0 N and two brush the slab at 20.9 N and 31.8 N.
 
 **The shoulder is pinned at a fixed absolute height and the clearance falls
 linearly with the slab.** Across every arm that has dumps:
