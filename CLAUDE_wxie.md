@@ -5,54 +5,124 @@ Branch **`wxie/table-height`**, cut from `icra2026` at `3e876d70` on 2026-09-05.
 file holds what is specific to our work. Neither repeats the other — if a fact
 appears in both, one of them is stale.
 
-## 0. The question this branch is answering
+## 0. Start here — current state after the 2026-09-09 controlled study
 
-**Two agents are on this branch. Read and append to §0b before starting anything.**
+**Read this section and `docs/lean/20260909-table_height_robustness.html` before
+starting another experiment.** Sections below preserve the investigation log;
+many early diagnoses were useful hypotheses but are now superseded.
 
-**What is the minimal change that makes table-height generalisation work?**
+The question remains: **what is the smallest change that makes table-height
+generalisation repeatable without regressing the nominal table?** Count
+controller numerics, strategy fields, existing selector activation, and new
+controller code separately. A nearer target is a task relaxation, not a
+controller improvement. Use at least three trials per height, fixed thread count,
+fresh contemporaneous controls, and a predeclared acceptance rule.
 
-Minimal is counted in NUMBERS TOUCHED — an existing model numeric beats a new
-weight, a weight beats a new residual, a new residual beats moving the robot. A
-result counts only if it widens the window on **3 seeds per height at a fixed
-thread count** and costs no completions at the compiled 0.985 m.
+### Current answer
 
-**Read `docs/lean/20260906-table_height_window_bounds.md` first.** It is the
-current, self-contained account: the window, all ten refuted levers with their
-kill conditions, the high-end localisation, and what is still open. This section
-is only the pointer and the standing corrections.
+There is **no validated uniform fix yet**. The latest study completed 51 new
+episodes: a 33-run one-factor ablation followed by an 18-run controlled screen.
+The most promising one-number change, `brace_pitch_track: 0 -> 1`, improved the
+tall-table precise loaded-reach count but regressed the low table, so the frozen
+rule rejected it:
 
-**Answer so far: twelve arms run, none widens the window.** The high end is a
-**shoulder-height deficit of about 90 mm**: the brace posture does not lift with
-the table, so the left shoulder sits 0.405-0.419 m above the face at 0.985 m and
-0.250-0.321 m at 1.085 m, and the forearm pad never gets above the top face at
-all. Every lever tried acts horizontally — stance, aim, caps, base height, reach
-posture — and the short axis is vertical. The next candidate is to command the
-brace keyframe's base z per slab; the retarget only asks for +18 mm and takes the
-rest out of trunk pitch, which a posture cost cannot command.
+| Face | Reference precise loaded reach | Pitch tracking | Reference full task | Pitch tracking full task |
+|---:|---:|---:|---:|---:|
+| 0.785 m | 3/3 | **1/3** | 2/3 | 1/3 |
+| 0.985 m | 3/3 | 3/3 | 2/3 | 3/3 |
+| 1.085 m | 2/3 | **3/3** | 1/3 | 1/3 |
 
-Refuted by direct test, not inference: the stance shift (`--stance_shift_x
-0.063`, bench-only) put the feet where the brace keyframes assume them and the pad
-did not move; `brace_target_slab` 1 moved the aim 80 mm onto the slab and bought
-27 mm of pad advance with no change in clearance. Both are free at 0.985 m.
+Neither screen arm fell. Therefore the hypothesised prevention of tall-table
+backward approach falls was **not demonstrated** by that fresh comparison. The
+two low candidate failures were reach/load-duration failures: one never came
+closer than 37.4 mm; the other reached 14.3 mm but met the combined 30 mm/load
+criterion for only 1.40 s. Do not promote pitch tracking globally, and do not
+construct a height-dependent mixture from the favourable cells without testing
+that policy as a new hypothesis.
 
-⚠ **Superseded.** Earlier revisions of this file and of `STATUS.md` say the low
-end is bounded by `standback_pitch_release` with a predicted lower edge at
-0.958 m. The pitch requirement is real (47.1° at 0.785 m, 36.1° at 0.885 m) but
-**no low-height run ever reaches the release rung**, so the gate cannot be the
-blocker. The low end is a loss of balance during the lean itself. `STATUS.md` is
-generated and still carries the old text in its `GATES` block; the 2026-09-06 page
-is authoritative where they disagree.
+The 33-run ablation is a separate cohort. Its reference counts at
+0.785/0.985/1.085 m were 3/3, 3/3, 1/3 for precise loaded reach and 2/3, 3/3,
+0/3 for the full task. Removing pose retargeting, restoring the farther target,
+and shortening the hold all had mixed or negative conditional effects. The
+farther target was 3/3, 2/3, 2/3, so the nearer target was not shown necessary.
+The two-second reach gate was 0/3 at both extremes under the frozen observed
+two-second endpoint; this mostly removes settling/holding opportunity and is not
+an optimizer improvement. The full tables, Wilson intervals, failure videos,
+and per-run ledger are in the report.
 
-⚠ Strategy 25's ladder has **no manipulation rung**: stand, brace, reach,
-release, stand back up. Rung 2 IS the task, so opening its tolerance is a
-diagnostic and never a fix.
+### Corrections that must survive future handoffs
 
-Numbers live in `studies/table_height/STATUS.md` (generated) and on the pages
-`docs/lean/20260906-table_height_window_bounds.md` (current),
-`docs/lean/20260905-height_window_gates.html` and
-`docs/lean/20260905-brace_posture_retarget.html`. The repo-level correction —
-that the rung-2 tolerance is NOT dead on a `reach_target_table` rung — is in
-`CLAUDE.md` §1c.
+- `lean_bench` originally changed the plant table and brace keys after
+  `Agent::Initialize`, leaving the sampling planner at the nominal 0.985 m
+  model. Always keep `--sync_planning_model=1` for valid height experiments.
+  The deliberately mismatched high-table diagnostic failed 0/3. This is a
+  benchmark-correctness requirement, not evidence that model copying alone
+  solves generalisation.
+- The old "~90 mm shoulder-height deficit", "pad never reaches the wood", and
+  "sampling search is proven to be the limiting cause" conclusions are
+  withdrawn. Correct narrowphase replay shows real bracing contact, and the
+  tall pose is statically/kinematically feasible. `brace_base_z_gain` is not the
+  leading open item.
+- Matching the string "MuJoCo 3.2.3" is insufficient. The benchmark's pinned
+  revision `088079ef` and the PyPI 3.2.3 package have incompatible model ABIs.
+  Score physics/contact with `studies/table_height/robustness/replay.cc`, linked
+  to the exact benchmark library. Python MuJoCo is visualization-only here.
+- Strategy 25 has no separate manipulation rung: rung 2 is the reach task.
+  Loosening its tolerance is a diagnostic or task change, never a controller
+  fix. A passing reach requires continuous observed precision **and** upward
+  left-arm support, with trunk/other table contacts excluded.
+- MJPC sampling is not bit-deterministic across repeated runs. `--seed` controls
+  initial perturbations, not the planner's shared rollout RNG. Never infer a
+  mechanism from one run or call these statistically paired trials.
+- CMPC's earlier 25-second holds use different initialization, controller,
+  engine/model details, and scoring. They motivate the problem but are not a
+  head-to-head optimizer comparison with the MJPC two-second endpoint.
+
+### Canonical evidence and handoff order
+
+1. `docs/lean/20260909-table_height_robustness.html` — final 51-trial report,
+   plots, six success/failure replays, scope, and engineering-cost table.
+2. `studies/table_height/robustness/protocol.md` — frozen conditions and outcome
+   definitions; do not rewrite them around a result.
+3. `studies/table_height/robustness/decisions.md` and
+   `screen1_decision.json` — timestamped hypotheses, selection rule, and
+   rejection.
+4. `studies/table_height/robustness/results.json`, `summary.json`, and
+   `physical_summary.json` — all 51 scored outcomes and physical diagnostics.
+5. `studies/table_height/robustness/final_integrity.json` and `README.md` — hash
+   audit, exact-engine evaluator, reproduction limits, and commands.
+6. `docs/lean/20260908-table_height_skunkworks.html` and
+   `20260908-codex_table_height_handoff.md` — earlier synchronized-model pilots
+   and the bounded CMPC transfer attempt. Treat them as prior exploration.
+
+Raw 50 Hz states and native model snapshots are gitignored and remain in the
+dated isolated worktree if it still exists; the branch carries all scored
+results, manifests, scripts, figures, and videos needed to understand the study.
+
+### Guidance for the next student/agent
+
+Start from the synchronized reference (`sync=1`, `pose_track=1`, target depth
+0.40 m, five-second reach gate, six threads, `spp=3`, home reset). Do not pool
+seeds 0-2, 10-12, and 20-22: they belong to different exploratory blocks. The
+reserved confirmation cohort — seeds 100-102 at 0.785, 0.885, 0.985, 1.035, and
+1.085 m — has **not** been used and must stay out of tuning.
+
+One optional adaptive scalar screen remained unused when the user stopped the
+study. Before spending it, localise a repeated failure in the saved traces and
+write the exact change, immediate parent, heights, fresh tuning seeds, endpoint,
+and kill rule to `decisions.md`. `brace_pose_track=2` is an existing selector
+that also retargets the reaching arm and is a plausible low-height hypothesis,
+but it has not passed a synchronized controlled screen. Alternative contact
+modes suggested by CMPC are also unvalidated in MJPC and cost more engineering.
+Test one alteration at a time; if interactions are studied, name and compare the
+combination explicitly rather than adding effects from separate ablations.
+
+Keep reach success and recovery separate. Report ladder completion, deadline in
+final standing, terminal arm contact, and actual falls separately. Three of
+three successes still has a Wilson 95% lower bound of only about 44%; it does not
+certify high reliability or a continuous height interval. Do not claim a
+reachable hemisphere from this work: only one dynamic target was studied in the
+controlled block, and the 60-cell target map was static.
 
 ## 0a. Tools this line has built
 
@@ -589,3 +659,146 @@ that bite most often: the title is a descriptive noun phrase, and the filename i
 date-prefixed (`20260904-table_height_generalization.html`). Every page is a
 **local file** — the user is explicit that nothing is to live only on claude.ai —
 and `docs/experiments/INDEX.md` carries one row per page.
+
+### 2026-09-08 20:22 — CODEX — delayed simulation investigation [IN FLIGHT]
+
+Read latest state through 355a57ea / Result 7 at actual start. Isolated worktree:
+`/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908`, branch
+`codex/table-height-skunkworks-20260908`. Main checkout and video.mp4 preserved.
+Claim: bounded explicit base-height test (user still requests a dynamic test),
+low-height closer stance, shorter target tests, audit of CMPC rollout dwell/load
+and comparison conditions. Crocoddyl modules/data read-only; new comparison
+scripts/results in the isolated MJPC worktree. No additional agents, DDS,
+hardware, external messages, uploads or push. CPU-heavy runs serial and capped.
+Final report and handoff will be linked here.
+
+### 2026-09-08 20:32 — CODEX — planner-model copy defect [VERIFYING DYNAMICALLY]
+
+`Agent::Initialize` (agent.cc:74) copies mjModel. `lean_bench` then applies
+Table H / brace retarget only via Transition on the PLANT model. SamplingPlanner
+holds agent.GetModel(), and no later bench call synchronizes it. Thus the
+prior height sweeps appear to have planned with the nominal 0.985 m table and
+shipped keyframes even while simulating another face. New bench prints both
+faces/keyframe heights and has `--sync_planning_model` (default 1 in isolated
+worktree; 0 reproduces legacy). First nominal reproduction completed 43.504 s
+with 2.04 s actual jaw-error/load dwell. Direct gain=1 high pilot on legacy
+copy fell at 33.59 s and is NOT evidence refuting a delivered base command.
+Dynamic fixed-model trials are next. Earlier optimizer-only conclusions must
+wait for this check. Also verified old CMPC uses MuJoCo 3.10 vs C++ 3.2.3 and
+a different staged collision/joint-limit model. Matched tests use isolated
+Python MuJoCo 3.2.3, MJPC's assembled model and exact jaw offset
+(0.2254,-0.0118,-0.1062). Croco worktree:
+`/home/humanoid/Programs/crocoddyl_mpc_codex_tableheight_20260908`.
+
+### 2026-09-08 21:24 — CODEX — synchronized runs and comparison calibration
+
+Measured: synchronized shipped-target high (1.085) completes at 40.490 s
+with 2.00 s joint reach/load dwell, minimum error 1.5 mm (n=1). Shorter
+target (0.85,-0.04,face+0.15), five-second dwell: nominal and high each
+complete on seed 0, 4.98 s joint dwell. Low 0.785 succeeds at spp=10
+(50 Hz), 4.98 s dwell / 27 mm best error / no fall / no torso load, but
+return ladder not finished by 75 s. At spp=3 (actually 167 Hz), low stays
+braced but misses the short hand target by at least 374 mm. Repeats pending.
+
+Timing correction: spp multiplies PLANT dt=0.002, not prediction dt=0.010.
+The old notes' spp3=33Hz is wrong. Nominal/high spp10 screening runs fall.
+
+CMPC calibration: current MJPC model rotates ONLY right_magpie_gripper by
+90 deg around x. Four initial CMPC calibration rollouts used the jaw-local
+vector directly in the wrist frame, so they are NOT matched endpoint
+comparisons. Kept and explicitly labeled. Added opt-in REACH_BODY and
+RECONCILE_MJ_FRAMES to compose the welded frame in Pinocchio. Independent
+parity now gives jaw ~1 micrometre, gravity error 1.5e-5 Nm, actuated mass
+matrix 8.3e-7 kg m^2. Proper matched jaw runs are prepared next.
+
+Direct base command is now verified delivered: plant and planner both show
+brace base z=1.0142 at face1.085 with gain0.5 + pose_track1. That run is
+active. Other queued MJPC probes: +60 mm low stance, low pose_track, .885
+short target. Original checkouts still preserved. Live local report:
+`/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/docs/lean/20260908-table_height_skunkworks.html`.
+
+### 2026-09-08 21:46 — CODEX — low retargeting now works in the synchronized bench
+
+Low .785, short target (.85,-.04,face+.15), pose_track=1, spp3=167Hz:
+seed0 gives 2.82 s continuous joint loaded reach (2.10 s at <=30 mm),
+5.4 mm best error, pelvis minimum .881 m, no fall through75s. Internal
+five-second hand gate passes at36.22s, but actual brace load establishes
+later, so do NOT call this five seconds of loaded reach. Recovery stalls
+in phase3. +60 mm stance screen stays upright but misses by>=341 mm.
+
+Retarget repeats and a high DLS pilot take priority over initially proposed
+50Hz low/default-high repeats. Corrected CMPC jaw trials precede those in
+our serial queue. Live counts/report and accurate checkpoint handoff are
+in the isolated worktree docs/lean/20260908-table_height_skunkworks.html
+and 20260908-codex_table_height_handoff.md.
+
+### 2026-09-08 22:22 — CODEX — bounded CMPC comparison closed; MJPC repeats active
+
+Core MJPC implementation committed locally at4398d8a8. Corrected DLS
+high short-target pilot completes43.828s, 4.98s loaded reach /2.56s at
+30mm. Low DLS seeds0/1 both pass: joint dwells2.82/5.18s, strict
+2.10/4.28s, no fall through75s; both recovery sequences stall inphase3.
+Low seed2 active, then nominal/high repeats and .935/1.035 screens.
+
+Correctly mapped current-model CMPC: close jaw target x=.85 at low/nominal/
+high all fell (low uses forearm-only mode); nominal x=1.15 elbow–forearm
+also fell from home and stand_up. Five valid mapped transfer screens,
+zero successful holds. Four earlier calibration failures stay separate.
+Standing-start x=1.15 MJPC50Hz also fell before reaching. This branch is
+closed; no further blind contact/weight sweep. Initial qpos/qvel parity is
+exactly zero for all five mapped CMPC starts. Model bytes unchanged by
+rebuild (same saved MJB SHA). Prior original-model CMPC height holds
+remain separately valid, including3/3 at1.085 with2.9–4.7mm tail p95 error.
+
+Live batch log /tmp/codex-stand-and-repeats.log; current manifest
+studies/table_height/skunkworks/short_repeats.json in the isolated MJPC
+worktree. Report remains a checkpoint pending final repeats. No push,
+upload, DDS, hardware, or other external messages.
+
+### 2026-09-08 23:09 — CODEX — investigation complete, local report and handoff
+
+Report: `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/docs/lean/20260908-table_height_skunkworks.html`
+Handoff: same directory, `20260908-codex_table_height_handoff.md`.
+
+Completed 25 MJPC and 9 CMPC episodes (4 CMPC endpoint-calibration runs
+are explicitly separated). Fixed jaw target (.85, -.04, face + .15):
+loaded holds within 30 mm for >=2 s succeeded in 2/3 trials at EACH of
+.785, .985 and 1.085 m. At 70 mm the counts are 2/3, 3/3, 2/3.
+Recovery counts are 0/3, 3/3, 2/3. Low/high use DLS keys; nominal is
+the identity case. Low misses/recovery stalls and the high approach fall
+remain in the report. Intermediate .885/.935/1.035 screens complete;
+.935 only passes the 70 mm loaded-hold criterion. No envelope is inferred.
+
+Main correction: bench planner model now receives the post-transition
+table geometry AND retargeted keys. Core commit 4398d8a8. Explicit base
+gain .5 + DLS passed one high far-target test, with no independent gain
+advantage established. Synchronized +60 mm low stance missed the target.
+Five correctly mapped current-model CMPC transfer probes all fell; prior
+original-model CMPC height holds remain separately valid. Croco hooks
+are in its isolated worktree at 51d604e / b1040fd.
+
+All simulations ended; strategy file restored. Frozen selection hashes
+442 raw files, and 242 local report links were checked. Build and Python
+syntax checks passed; all five mapped CMPC initial qpos/qvel checks match
+exactly. Original checkouts, video.mp4 and bvs_plots.py edits preserved.
+No hardware, DDS, upload, push or external message was used. No blocker.
+
+
+### 2026-09-09 01:30 — CODEX — controlled robustness study [CLAIMED]
+
+User requests minimal engineering, one-change-at-a-time contributions and scientific validation. Continuing in isolated worktree `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908`, new branch `codex/table-height-robustness-20260909`, parent `1eab9af6`. Claim: MJPC benchmark audit, randomized ablation of sync/retarget/target/hold, one-factor recovery candidate if supported, fresh-state/height validation. Crocoddyl and original code untouched. Serial six-thread CPU/memory-capped simulations; no hardware/push. New protocol/report under `studies/table_height/robustness/` and `docs/lean/20260909-table_height_robustness.html`. Earlier results remain frozen.
+
+
+### 2026-09-09 01:46 — CODEX — exact-engine audit correction
+
+Before new ablations, passive C++ mjb export exposed that the bench library at MuJoCo revision `088079ef` and PyPI `mujoco==3.2.3` have DIFFERENT model ABIs despite both reporting 3.2.3: C++ mjb header has 76 integer fields / 378 pointers, Python has 78 / 382. Prior package-version matching does not certify exact physics-engine parity. New independent evaluator is standalone C++ linked to the SAME library and headers as lean_bench; new full pre-step qpos/qvel/ctrl/warm-start logs reconstruct synchronized contacts. Source/model is unchanged by instrumentation. Frozen one-factor protocol and 33-run randomized ablation are in `studies/table_height/robustness/`, commit `bd682089`, isolated worktree. New results must remain separate from prior analyses; no CMPC reruns.
+
+### 2026-09-09T07:48 — CODEX — 33-run ablation complete; pitch screen claimed
+
+Isolated `codex/table-height-robustness-20260909`: reference strict loaded 30 mm/2 s counts .785/.985/1.085 = 3/3,3/3,1/3; full recovery 2/3,3/3,0/3. Tall failures are BACKWARD in phase 1 before reach. Existing ±60° tilt dead band is zero there. Screen now claimed: only `brace_pitch_track` 0→1, reference controls interleaved, new seeds20–22 × three anchors, 18 runs. Frozen rule and manifests in `studies/table_height/robustness/decisions.md` and `screen1.json`; report `docs/lean/20260909-table_height_robustness.html`. No original controller/Crocoddyl edits. Fresh confirmation still pending.
+
+### 2026-09-09T12:18 — CODEX — FINAL: 51 trials; uniform pitch switch rejected
+
+User requested wrap-up. All33 one-factor ablations and18 fresh pitch-screen trials completed. Screen strict loaded reach at .785/.985/1.085: reference3/3,3/3,2/3; brace_pitch_track1 gives1/3,3/3,3/3. Full-task reference2/3,2/3,1/3; candidate1/3,3/3,1/3. The predeclared rule rejected the low-table regression. Neither screen arm fell, so the hypothesized prevention of backward approach falls was not established in this cohort. No second alteration or fresh confirmation ran; no height-dependent mixture is validated.
+
+Final local page: `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/docs/lean/20260909-table_height_robustness.html`, with all51 outcomes, conditional contributions, physical diagnostics, six replay videos, source/manifests/hashes and explicit limits. Commit `a6b5bce0` on `codex/table-height-robustness-20260909` (preceded by `bd682089`, `a1be9670`). Exact-library native evaluation avoids the pip3.2.3 ABI mismatch. All51 state/model/strategy hashes verified, six protocol tests pass. Original strategy restored; runner/watcher exited; STOP set; nothing queued. No original controller/Crocoddyl/hardware/default changes, no push/publication. Handoff: studies/table_height/robustness/WORK_STATE.md and decisions.md.
