@@ -4419,7 +4419,10 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
           // RtSolveKey for why the shipped poses cannot serve another height.
           const double pose_track =
               GetNumberOrDefault(0.0, model, "brace_pose_track");
-          if (pose_track > 0.5 && brace_face_nominal_ > 0.0) {
+          const double base_z_gain =
+              GetNumberOrDefault(0.0, model, "brace_base_z_gain");
+          if ((pose_track > 0.5 || base_z_gain != 0.0) &&
+              brace_face_nominal_ > 0.0) {
             if (brace_key_ids_.empty()) {
               for (const char *kn : kRtKeys) {
                 int ki = mj_name2id(model, mjOBJ_KEY, kn);
@@ -4438,9 +4441,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
             for (size_t i = 0; i < brace_key_ids_.size(); i++) {
               const int ki = brace_key_ids_[i];
               const mjtNum *ship = brace_key_shipped_.data() + i * model->nq;
-              const double err = RtSolveKey(model, scratch, ship, dface,
-                                            brace_left, pose_track > 1.5,
-                                            qn.data());
+              double err = 0.0;
+              mju_copy(qn.data(), ship, model->nq);
+              if (pose_track > 0.5)
+                err = RtSolveKey(model, scratch, ship, dface,
+                                 brace_left, pose_track > 1.5, qn.data());
               const char *kn = mj_id2name(model, mjOBJ_KEY, ki);
               // 25 mm, not 5: with the reaching arm constrained too
               // (`brace_pose_track` 2) a right-arm joint limit binds at the low
@@ -4455,6 +4460,16 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                              kn ? kn : "?", 1000.0 * err);
                 mju_copy(model->key_qpos + ki * model->nq, ship, model->nq);
                 continue;
+              }
+              // Explicit height-command experiment, independent of the DLS
+              // choice. Default zero preserves the existing retarget exactly.
+              // This changes the base-height cost reference; it is NOT an IK
+              // certificate (the joint/foot geometry is not re-solved after it).
+              // See the 20260908 skunkworks report for measured dynamic limits.
+              if (base_z_gain != 0.0) {
+                qn[2] = ship[2] + base_z_gain * dface;
+                std::printf("[brace-base-z] %s gain %.3f target %.4f\n",
+                            kn ? kn : "?", base_z_gain, qn[2]);
               }
               mju_copy(model->key_qpos + ki * model->nq, qn.data(), model->nq);
               // base z and pitch are printed so a run can be checked against the
