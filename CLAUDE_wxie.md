@@ -244,6 +244,76 @@ should not assume otherwise: MJPC may be measuring the wrong pad.**
 checkout (`$PWD/../CL_Assets`) or `croco_run` exits rc=1 in 0.4 s with "no H1-2
 magpie URDF found" and `solve_plans` reports zero plans without erroring.
 
+**RESULT 3 — the brace load leaves the forearm pad at the tall slab, and the
+report's "the pad never reaches the wood" is wrong.** `studies/table_height/
+probe_padset.py`, replay only, no new runs: logged qpos evaluated with
+**`mj_forward`** (not `mj_kinematics`) so MuJoCo's own narrowphase decides what
+touched, over the brace rungs, table contacts only, body 0 and the free object
+skipped.
+
+Peak normal force and the fraction of brace-rung frames in contact, median
+across shipped seeds:
+
+| face | `left_forearm_pad` | `left_wrist_roll_link` (geom46, unnamed mesh) | `left_gripper_jaw_a` | `left_wrist_pad` |
+|---|---|---|---|---|
+| 0.985 | **52 N, 19%** | 0 N, 0% | 14 N, 6% | 12 N, 3% |
+| 1.035 | **89 N, 50%** | 0 N, 0% | 27 N, 18% | 0 N, 0% |
+| 1.050 | 58 N, 49% | 47 N, <1% | 27 N, 40% | 0 N, 0% |
+| 1.060 | 73 N, 54% | 66 N, <1% | 26 N, 44% | 43 N, 0% |
+| 1.085 | **5 N, 76%** | **51 N, 52%** | 26 N, 35% | 32 N, 24% |
+
+At 1.085 m the forearm pad is in contact for **76% of the brace-rung frames and
+carries 5 N**, while an unnamed mesh geom on `left_wrist_roll_link` carries 51 N
+for half of them. The arm is braced; it is braced on the wrist housing. Two
+statements in the 2026-09-08 report have to be withdrawn: "the pad never reaches
+the wood" (it does, most of the time) and the 0 N median forearm force at 1.085
+read as no contact (it is contact carrying nothing).
+
+**Why this may be the whole high-end story.** `lean.cc:5583` — the
+brace-contact-gated advance — scans for contacts on **`left_forearm_pad` only**.
+The escape hatch, `wrist_brace_gate` (lean.cc:5595, "a WRIST-on-rail brace never
+triggers the `left_forearm_pad` contact scan above, so the reach rungs could only
+advance by blind TIMEOUT"), is a numeric that **ships at 0 = OFF**. So at the
+tall slab the robot is loaded through the wrist, the gate is looking at a pad
+that is touching but unloaded, and the rung advances on a timer. That is a
+one-numeric change by the branch's own minimality metric, and it is now the top
+MJPC candidate — ahead of `brace_base_z_gain`, which Result 2 predicts dead.
+
+**Caveat, and it is a real one.** n = 2 shipped runs with qpos dumps at 1.085 m
+and n = 1 at 1.050, 1.060 and 0.885. The 0.985 and 1.035 rows are n = 2. This
+is enough to reverse a claim I made from a clearance metric on the same runs; it
+is not enough to certify `wrist_brace_gate` as the fix. The measurement that
+would settle it: set `wrist_brace_gate` to the ~30 N the wrist actually carries
+and run 3 seeds at 1.050, 1.060 and 1.085, with the 0.985 control. **Codex: this
+is unclaimed and is the highest-value MJPC run on the board.** Say so here before
+you start it.
+
+Two earlier metrics were wrong before this one was right, and both errors are
+worth not repeating: a purely geometric clearance test scores an arm hanging
+BESIDE the table as having reached the wood (median closest approach −748 mm at
+0.885 m, an arm on the floor next to a slab it never touched), and restricting
+to the slab footprint then scores the arm swinging UNDER the overhang as 16 mm
+of penetration. Only the narrowphase distinguishes these.
+
+**RESULT 4 — crocoddyl completes at 0.885 m, where MJPC is 0/6.** Dynamic, not
+static: `crocoddyl_mpc/studies/height_dynamic.py`, plan + closed-loop MuJoCo,
+25 s episodes, 3 seeds, contact Kp = 50, reach target x = 1.06 held 113 mm above
+the face. Partial — the sweep is still running at the time of writing.
+
+| face | MJPC (shipped) | CMPC braced, upright and loaded | CMPC brace force | CMPC reach err | CMPC standing reach err |
+|---|---|---|---|---|---|
+| 0.785 | 0/6 | **1/3** | 146 N | 15 mm | 44 mm (3/3 upright) |
+| 0.885 | **0/6** | **3/3** | 150–157 N | 12–15 mm | 39–41 mm (3/3 upright) |
+| 0.985 | 6/6 | 1/1 so far | 144 N | 10 mm | 33 mm |
+
+At 0.885 m the gradient planner establishes and holds the brace on every seed and
+lands the hand 12–15 mm from target, against 39–41 mm standing — so the brace is
+buying accuracy there, not just surviving. The sampling planner completes none of
+six at the same slab. The two differ in what a contact mode IS (MJPC's is three
+cost weights over a contact-implicit planner; CMPC's is a contact schedule baked
+into the action models, and no weight can add a contact), which makes this a
+planner-architecture result rather than a robot limit — consistent with Result 1.
+
 **Tooling added** (crocoddyl_mpc, uncommitted at the time of writing):
 `contact_select.TABLE_H` + `set_table_face()` -- env knob, default unset =
 byte-identical, moves the slab and the object together and every table query
