@@ -368,6 +368,73 @@ holds 3/3 at the 0.985 m control. **Codex: take open items 2, 3 and 4 instead.**
 `summary.json`, so a re-run reports only the episodes it actually flew. The CSVs
 on disk are the truth; count those, not `len(summary["episodes"])`.
 
+**RESULT 6 — THE WRIST GATE IS REFUTED, and it moved the failure one rung.**
+`runs/wristgate/wg30`, `--numeric wrist_brace_gate=30`, 3 seeds, `--threads 6`.
+
+| face | complete | phase entries |
+|---|---|---|
+| 1.085 | **0/3** | rung 2 at 24.2 / 25.4 / 27.1 s, rung 3 never |
+| 1.050 | **0/3** | rung 2 at 24.0 / 24.0 / 25.6 s, rung 3 never |
+| 0.985 | **3/3** | full ladder, t_complete 40.5 / 46.9 / 49.9 s |
+
+Kill condition met on the failing side, so the arm is refuted: nothing above
+1.035 m completes. The control holds 3/3, so declaring the numeric and arming it
+costs nothing at the compiled height.
+
+It is not a null result, though. **Every seed now reaches rung 2 at 1.085 m
+(3/3), against 3 of 6 shipped** (`ab/off` 1/3, `seeded` 2/3), and the entries
+come 1–2 s later, which is the gate doing exactly what it is for: holding the
+lean rung until the wrist is verified instead of advancing on a timer. The brace
+contact gate was a real defect and arming the wrist path fixes it. It is not the
+thing that bounds the window.
+
+**So the high end is a REACH bound on the reaching arm, not a brace bound on the
+bracing arm.** Nothing gets past rung 2 at any height above 1.035, in any arm
+ever run, and rung 2's gate is not the brace at all -- it is
+`target_distance_tolerance` on the RIGHT gripper jaw tip against a point built
+from the slab, `near edge + 0.55, centre − 0.04, face + 0.15`, tolerance 0.07
+(CLAUDE.md 1c; perfect separation over 21 runs). At a 1.085 m face that point
+sits at **1.235 m absolute**, against a shoulder that holds ~1.40 m. The window
+is the set of slabs where the reaching hand can get within 70 mm of a target
+that rises with the table.
+
+That reframes the whole high end and it is consistent with everything measured
+today: the brace pose exists at every height (Result 1), the keyframe correction
+needed is small and already delivered (Result 2), the brace does establish and
+load at 1.085 (Result 3), arming its gate gets every seed to rung 2 (Result 6),
+and it still stops there. **The next MJPC measurement is the rung-2 target's z:
+strategy 25's `reach_target_table` is `[0.55, 0.04, 0.15]` and the JSON loads
+from SOURCE_DIR at runtime, so it needs NO REBUILD.** Sweep `rtt[2]` down from
+0.15 at 1.085 m and find whether any height above it completes at a lower reach.
+That is one number in a strategy file -- cheaper than every lever tried so far.
+
+**RESULT 7 — crocoddyl generalises across the whole range. This is the answer to
+the session's question.** `height_dynamic.py`, complete: 7 faces x 3 seeds x
+{braced, standing}, 25 s episodes, plan + closed-loop MuJoCo, reach target
+x = 1.06 held 113 mm above the face, contact Kp = 50.
+
+| face | MJPC shipped | CMPC braced, upright and loaded | CMPC reach error |
+|---|---|---|---|
+| 0.785 | 0/6 | 1/3 | 15 mm (the one that held) |
+| 0.885 | 0/6 | **3/3** | 12–15 mm |
+| 0.985 | 6/6 | **3/3** | 5–6 mm |
+| 1.035 | 5/6 | **3/3** | 3–13 mm |
+| 1.050 | 0/3 | **3/3** | 2–3 mm |
+| 1.060 | 0/3 | **3/3** | 3–7 mm |
+| 1.085 | 0/6 | **3/3** | 1–3 mm |
+
+**0.885 through 1.085 m, 3 of 3 seeds at every height, hand within 1–15 mm.**
+The tall slabs are the most accurate cells in the sweep, not the least. The only
+weak height is 0.785 m at 1/3, the balance-limited low end, which is where the
+static map also says the brace stops being worth taking.
+
+The two planners are running the same robot, the same slab and the same target
+offset, so the difference is what a contact mode IS: MJPC's is three cost
+weights over a contact-implicit planner and the contact has to be discovered;
+CMPC's is a contact schedule baked into the action models and no weight can add
+or remove one. Table-height generalisation is available on this machine today
+with a gradient planner and an explicit schedule.
+
 **Tooling added** (crocoddyl_mpc, uncommitted at the time of writing):
 `contact_select.TABLE_H` + `set_table_face()` -- env knob, default unset =
 byte-identical, moves the slab and the object together and every table query
