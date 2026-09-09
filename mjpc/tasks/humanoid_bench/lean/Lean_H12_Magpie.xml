@@ -800,6 +800,26 @@
              sit at 3-8 deg. Requires the yaw preflight (believed heading
              table-aligned). 0 = off. -->
         <numeric name="reach_yaw_gate" data="0.26"/>
+
+        <!-- ★ 2026-09-08 wrist_brace_gate [N]: count the brace as ON when the
+             MEASURED left-wrist brace force is at least this, in addition to
+             the `left_forearm_pad` contact scan the gated advance already does.
+             SHIPS AT 0 = OFF = byte-identical; `Lean_H12_Magpie_battery_hip.xml`
+             already carries it at 30.0.  The implementation has been in
+             lean.cc since 2026-09-01 (search wrist_brace_gate) and this model
+             simply never declared the numeric, so on this task the wrist path
+             could not be armed at all.
+             Why it is declared here now: replaying the height sweep's own qpos
+             through MuJoCo's narrowphase (studies/table_height/probe_padset.py)
+             shows the load leaving the forearm pad as the slab rises.  At a
+             face of 0.985 m the pad carries 52 N over 19% of the brace-rung
+             frames and at 1.035 m it carries 89 N over 50%; at 1.085 m it is
+             still touching for 76% of them and carries 5 N, while an unnamed
+             mesh geom on `left_wrist_roll_link` carries 51 N for half of them.
+             The gate is watching a pad that touches and holds nothing, so the
+             reach rungs advance on a blind timer -- which is the failure mode
+             the 2026-09-01 comment in lean.cc describes. -->
+        <numeric name="wrist_brace_gate" data="0.0"/>
         <!-- ★ 2026-08-17 reach_fwd_cap [m]: during the forearm_brace_lean rung,
              cap the heading-frame FORWARD component (from torso_pos) of BOTH the
              reach air target and ideal_brace at this value. newtags_2 FK: hand

@@ -314,6 +314,60 @@ cost weights over a contact-implicit planner; CMPC's is a contact schedule baked
 into the action models, and no weight can add a contact), which makes this a
 planner-architecture result rather than a robot limit — consistent with Result 1.
 
+**RESULT 5 — the reachable set, and why a tall table is where bracing matters
+most.** `height_reach.py` over 5 faces x 12 reach distances (`xmap` run, 60
+cells, 371 s). The reach target keeps its 113 mm offset above the face and its
+shipped y; x runs 0.75 to 1.30 m. Legs-only is enumerated in every cell as the
+control, so each cell says both "can it be reached" and "does the brace buy
+anything".
+
+Unbraced reach limit — the largest x at which `legs_only` still certifies:
+
+| face | unbraced limit | braced limit | what the brace buys |
+|---|---|---|---|
+| 0.785 | 1.10 m | 1.30 m | 200 mm |
+| 0.885 | 1.10 | 1.30 | 200 |
+| 0.985 | 1.15 | 1.30 | 150 |
+| 1.035 | 1.15 | 1.25 | 100 |
+| 1.085 | **1.00** | 1.25 | **250** |
+
+At 1.085 m the unbraced envelope collapses by 150 mm while the braced envelope
+barely moves, so the brace is worth 250 mm there against 150 mm at the compiled
+height. The support-margin gain says the same thing: braced minus legs-only
+margin runs from ~0 at x = 0.75-0.90 to +200 to +260 mm at x = 1.20-1.30, at
+every height. **A taller table is the case where bracing earns the most, which
+is the opposite of how the MJPC window reads.**
+
+The near end has its own bound and it is not reach. At x = 0.75-0.85 on the low
+slabs the ranked pick is `legs_only` -- the brace never wins -- and the margin
+gain is 0 or slightly negative (−6 mm at 0.90/0.785, −9 mm at 0.90/0.885). That
+is the same near-target pathology that put the robot on the floor in the trap
+above, now visible statically. At 1.085 m / x = 0.75 nothing certifies at all
+(0 of 8 modes).
+
+**And the winning posture moves distally as the slab rises.** Low tables rank
+`elbow+wrist` and `elbow+forearm`; at 1.085 m the ranked pick is `forearm+palm`
+across x = 0.95-1.15. That is the same conclusion the MJPC narrowphase reached
+from the other direction in Result 3 -- at the tall slab the load leaves the
+forearm and goes to the wrist and hand. Two independent methods, one static and
+one a replay of real rollouts, agree that the tall-slab brace should be distal.
+
+**CLAIMED AND RUNNING — the wrist gate.** I am running the Result 3 experiment
+rather than leaving it: `studies/table_height/sweep_wristgate.py`, arm `wg30`,
+heights 1.085 / 1.050 / 0.985, 3 seeds, `--threads 6`, `SWEEP_MEM_MAX=11G`.
+`wrist_brace_gate` is now declared in `Lean_H12_Magpie.xml` at **data="0.0" =
+OFF = byte-identical** (it was implemented in lean.cc on 2026-09-01 and this
+model simply never declared it, so the wrist path could not be armed at all);
+the arm moves it to 30, the value Allen already ships on
+`Lean_H12_Magpie_battery_hip.xml`. Kill condition, stated before the runs: the
+arm is refuted unless it completes some height above 1.035 m on 2 of 3 seeds AND
+holds 3/3 at the 0.985 m control. **Codex: take open items 2, 3 and 4 instead.**
+
+**Bookkeeping defect in my own harness, noted so a count is not misread.**
+`height_dynamic.py` skips cached episodes but does not add them back to
+`summary.json`, so a re-run reports only the episodes it actually flew. The CSVs
+on disk are the truth; count those, not `len(summary["episodes"])`.
+
 **Tooling added** (crocoddyl_mpc, uncommitted at the time of writing):
 `contact_select.TABLE_H` + `set_table_face()` -- env knob, default unset =
 byte-identical, moves the slab and the object together and every table query
