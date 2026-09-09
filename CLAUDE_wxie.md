@@ -398,15 +398,33 @@ sits at **1.235 m absolute**, against a shoulder that holds ~1.40 m. The window
 is the set of slabs where the reaching hand can get within 70 mm of a target
 that rises with the table.
 
-That reframes the whole high end and it is consistent with everything measured
-today: the brace pose exists at every height (Result 1), the keyframe correction
-needed is small and already delivered (Result 2), the brace does establish and
-load at 1.085 (Result 3), arming its gate gets every seed to rung 2 (Result 6),
-and it still stops there. **The next MJPC measurement is the rung-2 target's z:
-strategy 25's `reach_target_table` is `[0.55, 0.04, 0.15]` and the JSON loads
-from SOURCE_DIR at runtime, so it needs NO REBUILD.** Sweep `rtt[2]` down from
-0.15 at 1.085 m and find whether any height above it completes at a lower reach.
-That is one number in a strategy file -- cheaper than every lever tried so far.
+That reframes the high end, and I then checked the obvious follow-up and it is
+dead too. **`probe_reachset.py --tol 0.07` (the gate's own tolerance): the
+rung-2 waypoint is reachable at EVERY height and at every cell of the grid**,
+0.30-0.75 m in from the near edge by 0.00-0.30 m above the face, with both brace
+pads seated to 0.1 mm and the feet planted. At 1.085 m the SHIPPED cell
+(0.550, 0.150) solves with a tip error of **0.0 mm**. So lowering `rtt[2]` in
+the strategy JSON cannot be the fix -- the arm can already reach where it is
+being sent. Do not spend runs on it.
+
+**Which closes the argument.** At 1.085 m: a statically valid, torque- and
+balance-feasible braced pose exists (Result 1); the keyframe change it needs is
++15 mm and −9 deg and `brace_pose_track` already delivers it (Result 2); the
+brace does establish and carry ~50 N through the wrist (Result 3); arming the
+wrist gate gets 3 of 3 seeds to rung 2 (Result 6); and the rung-2 waypoint is
+kinematically reachable from the braced pose with 0.0 mm of error (this probe).
+Every static, kinematic and contact precondition is satisfied and no run
+completes. **What is left is the planner.** The MJPC height window is a property
+of the sampling search, not of the robot, the pose, the brace or the gates --
+and Result 7 is the constructive proof, because the same robot on the same slab
+does all seven heights under a gradient planner with an explicit contact
+schedule.
+
+Caveat on the probe, from its own docstring: feet planted and pads seated is a
+strict SUBSET of what the controller must do, so a reachable cell is necessary
+and not sufficient. It cannot show the arm can get there dynamically while
+staying inside its cost caps. It can and does show that no amount of cost tuning
+makes an unreachable cell reachable -- and none of these cells is unreachable.
 
 **RESULT 7 — crocoddyl generalises across the whole range. This is the answer to
 the session's question.** `height_dynamic.py`, complete: 7 faces x 3 seeds x
