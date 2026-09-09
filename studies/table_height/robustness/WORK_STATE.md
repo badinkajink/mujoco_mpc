@@ -4,9 +4,10 @@ User requested wrap-up. All 33 randomized ablation trials and all 18 pitch
 screen trials completed: 51 episodes, 5.13 hours of simulation-run wall time.
 No further simulations are authorized by the current wrap-up request.
 
-Worktree: /home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908
-Branch: codex/table-height-robustness-20260909
-Prior commits: bd682089 protocol/exact-engine audit; a1be9670 ablation/screen.
+Worktree: /home/humanoid/Programs/Humanoid_Simulation/mujoco_mpc
+Branch: wxie/table-height (study merged by 463e782f)
+Study commits: bd682089 protocol/exact-engine audit; a1be9670 ablation/screen;
+a6b5bce0 final report.
 Final report: docs/lean/20260909-table_height_robustness.html
 
 The screen rejected brace_pitch_track=1. Strict low/nominal/high counts:

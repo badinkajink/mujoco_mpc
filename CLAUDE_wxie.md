@@ -95,9 +95,11 @@ and per-run ledger are in the report.
    `20260908-codex_table_height_handoff.md` — earlier synchronized-model pilots
    and the bounded CMPC transfer attempt. Treat them as prior exploration.
 
-Raw 50 Hz states and native model snapshots are gitignored and remain in the
-dated isolated worktree if it still exists; the branch carries all scored
-results, manifests, scripts, figures, and videos needed to understand the study.
+Raw 50 Hz states and native model snapshots are gitignored, so they are not in
+branch history. They were hard-linked into this checkout under
+`studies/table_height/runs/{codex_skunkworks,robustness_20260909}` during the
+documentation consolidation. The branch carries all scored results, manifests,
+scripts, figures, and videos needed to understand the study.
 
 ### Guidance for the next student/agent
 
@@ -800,3 +802,15 @@ Isolated `codex/table-height-robustness-20260909`: reference strict loaded 30 mm
 User requested wrap-up. All33 one-factor ablations and18 fresh pitch-screen trials completed. Screen strict loaded reach at .785/.985/1.085: reference3/3,3/3,2/3; brace_pitch_track1 gives1/3,3/3,3/3. Full-task reference2/3,2/3,1/3; candidate1/3,3/3,1/3. The predeclared rule rejected the low-table regression. Neither screen arm fell, so the hypothesized prevention of backward approach falls was not established in this cohort. No second alteration or fresh confirmation ran; no height-dependent mixture is validated.
 
 Final local page: `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/docs/lean/20260909-table_height_robustness.html`, with all51 outcomes, conditional contributions, physical diagnostics, six replay videos, source/manifests/hashes and explicit limits. Commit `a6b5bce0` on `codex/table-height-robustness-20260909` (preceded by `bd682089`, `a1be9670`). Exact-library native evaluation avoids the pip3.2.3 ABI mismatch. All51 state/model/strategy hashes verified, six protocol tests pass. Original strategy restored; runner/watcher exited; STOP set; nothing queued. No original controller/Crocoddyl/hardware/default changes, no push/publication. Handoff: studies/table_height/robustness/WORK_STATE.md and decisions.md.
+
+### 2026-09-09 — CODEX — documentation consolidated onto `wxie/table-height`
+
+The synchronized-model implementation, both Codex reports, robustness protocol,
+decision log, all 51 scored outcomes, plots, and replay videos are now in this
+checkout and branch. Student-facing current guidance is at the top of this file;
+the entries below it are historical evidence, not the current conclusion.
+Ignored raw data for both Codex studies were hard-linked locally into
+`studies/table_height/runs/`, so report drill-down links work without another
+17 GB copy. Those raw files are local and will not travel with a clone; the
+tracked `results.json`, summaries, manifests, media, and integrity records do.
+Merge commit `463e782f`; guidance commit `8cf91c1f`. No results were changed.

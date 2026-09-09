@@ -19,6 +19,7 @@ copy and the artifact column is empty unless a page was explicitly published.
 
 | Page | Harness | Study scripts |
 |---|---|---|
+| Controlled robustness study (2026-09-09) | `mjpc/lean_bench.cc` (`--state_out`, `--model_out`, synchronized planner model) | `studies/table_height/robustness/` |
 | Synchronized planning models (2026-09-08) | `mjpc/lean_bench.cc` (`--sync_planning_model`, `--start_key`, load logging) | `studies/table_height/skunkworks/` |
 | Full report (2026-09-08) | `mjpc/lean_bench.cc` (`--numeric`, `--pose_track`, `--stance_shift_x`) | `studies/table_height/{make_report_figs,probe_standoff,probe_padheight,probe_bracetgt,sweep_stance,sweep_bracetgt}.py` |
 | Height window bounds (2026-09-06) | `mjpc/lean_bench.cc` (`--numeric`, `--pose_track`) | `studies/table_height/{probe_stance,probe_base_split,sweep_pitch,sweep_tilt,analyze_pitch}.py` |

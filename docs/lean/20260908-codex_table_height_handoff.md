@@ -4,10 +4,14 @@ Status: completed local investigation. All simulation processes have ended.
 
 Report: [Table-height generalization with synchronized planning models](20260908-table_height_skunkworks.html).
 
-Worktrees:
+Original experiment worktrees:
 
 - MJPC: `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908`
 - Crocoddyl: `/home/humanoid/Programs/crocoddyl_mpc_codex_tableheight_20260908`
+
+The complete MJPC documentation, scripts, media, and ignored raw runs were
+consolidated into `/home/humanoid/Programs/Humanoid_Simulation/mujoco_mpc` on
+`wxie/table-height` on 2026-09-09. Use that checkout for the current handoff.
 
 Both use branch `codex/table-height-skunkworks-20260908`. Parents are MJPC
 `355a57ea` (newer than baseline report `299f54b7`) and CMPC `aba958e`.
@@ -100,7 +104,7 @@ model provenance, failed attempts, plots and replay media are linked from the
 report. The raw data is gitignored; preserve it locally.
 
 ```sh
-cd /home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908
+cd /home/humanoid/Programs/Humanoid_Simulation/mujoco_mpc
 # Inspect processes before starting any new simulations.
 ps -eo pid,etime,args | rg 'lean_bench|run_mjpc.py|croco_batch.py|run_croco.py'
 # Existing IDs are cached. Copy the manifest and assign fresh tags for new trials.

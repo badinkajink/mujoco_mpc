@@ -9,8 +9,8 @@ and the baseline strategy is restored. Read the final HTML findings and
 promoted.
 
 Read `protocol.md` and the dated HTML report before interpreting results.
-Parent: `1eab9af6`; isolated branch `codex/table-height-robustness-20260909`.
-No original source checkout edits except append-only coordination notes.
+The study was run on `codex/table-height-robustness-20260909` from parent
+`1eab9af6` and consolidated onto `wxie/table-height` on 2026-09-09.
 
 ## Exact engine, not just matching version strings
 
@@ -28,8 +28,8 @@ ninja -C build_cmake -j4 lean_bench
 g++ -std=c++17 -O2 \
   -I /home/humanoid/Programs/mjpc_icra2026/build/_deps/mujoco-src/include \
   studies/table_height/robustness/replay.cc \
-  -L /home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/build_cmake/lib \
-  -Wl,-rpath,/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/build_cmake/lib \
+  -L "$PWD/build_cmake/lib" \
+  -Wl,-rpath,"$PWD/build_cmake/lib" \
   -lmujoco -o studies/table_height/robustness/replay
 python3 studies/table_height/robustness/test_protocol.py
 ```
@@ -52,7 +52,7 @@ python3 studies/table_height/robustness/summarize.py --plots
 
 The runner holds an exclusive lock, runs serially under CPUQuota=700% and
 MemoryMax=11G, refuses busy/low-memory conditions, saves immutable command,
-strategy and binary provenance, and restores the isolated strategy in `finally`.
+strategy and binary provenance, and restores the checked-out strategy in `finally`.
 Do not run another job or modify that strategy while a batch is active.
 Creating `studies/table_height/robustness/STOP` stops at the next episode
 boundary. A completed evaluation is cached only if its exact job matches.
@@ -73,8 +73,8 @@ one factor does not establish all interactions or additive contributions.
 A shorter target is a task relaxation; a longer hold gate provides more time
 for reaching. The legacy-model arm is a diagnostic of benchmark validity,
 not a candidate controller. Three initial-state seeds plus uncontrolled sampler
-noise are limited repeatability evidence. New confirmation uses fresh seeds
-and heights withheld from this session's tuning; prior data are never pooled.
+noise are limited repeatability evidence. The unused confirmation design reserves
+fresh seeds and heights withheld from tuning; prior data must never be pooled.
 All thresholds, censoring and recipe-selection rules are in `protocol.md`.
 
 The physical diagnostics include unintended table contacts, upward brace load,
@@ -84,20 +84,19 @@ rolling and possible sliding; model torque limits do not certify hardware.
 167 Hz is simulated planner frequency; the runs are slower than real time.
 
 The 33-run ablation is complete. Its hashes and invariant checks are recorded in
-`ablation_integrity.json`. Screen 1 tests one existing numeric,
+`ablation_integrity.json`. Screen 1 tested one existing numeric,
 `brace_pitch_track=1`, against fresh reference controls: seeds 20–22 at the
 three anchor heights, 18 trials. `screen1.json` fixes the randomized order;
 `decisions.md` records the hypothesis and selection rule before the first trial.
 
-`after_screen1.py` waits for every screen result and the runner lock. It applies
-only the frozen rule. If accepted, it writes `screen1_decision.json`, freezes
-`confirmation.json` and the decision-log entry, then serially launches 15 fresh
-confirmation episodes. If rejected, it exits without using the holdout. Do not
-start a second copy of the watcher or confirmation runner. `STOP` prevents new
-episodes; the running episode finishes and its result is retained.
+`after_screen1.py` applied only the frozen rule after every screen result. It
+wrote `screen1_decision.json` and rejected the candidate, so it did not create
+or launch the confirmation manifest. Do not rerun that watcher as a new study.
+For future batches, `STOP` prevents new episodes; the running episode finishes
+and its result is retained.
 
-The report stays explicitly provisional until confirmation and interpretation
-are complete. `physical_summary.py` computes descriptive diagnostics during
+The report is final for the 51 completed episodes and explicitly states that
+fresh confirmation was not performed. `physical_summary.py` computes descriptive diagnostics during
 successful precise intervals; it never changes pass/fail scoring. The near-limit
 fraction means samples with ANY actuator at >=99.5% of its modeled force limit,
 not the fraction of all actuators saturated. Foot displacement in the main
