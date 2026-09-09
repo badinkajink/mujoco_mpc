@@ -93,6 +93,10 @@ int main(int argc, char** argv) {
       std::atof(Arg(argc, argv, "--hold_after_final", "3.0").c_str());
   const std::string out      = Arg(argc, argv, "--out", "");
   const std::string qpos_out = Arg(argc, argv, "--qpos_out", "");
+  // Passive provenance for independent, time-aligned evaluation. These do not
+  // change the state, controller, sampling distribution or stopping condition.
+  const std::string state_out = Arg(argc, argv, "--state_out", "");
+  const std::string model_out = Arg(argc, argv, "--model_out", "");
   // ★ 2026-09-06 STANCE SHIFT (`--stance_shift_x`, m forward; 0 = OFF =
   // byte-identical). BENCH-ONLY on purpose: it moves the reset pose, not the
   // task, so `lean.cc` and the XMLs stay untouched and the shipped controller is
@@ -249,6 +253,19 @@ int main(int argc, char** argv) {
 
   FILE* fo = out.empty() ? stdout : std::fopen(out.c_str(), "w");
   FILE* fq = qpos_out.empty() ? nullptr : std::fopen(qpos_out.c_str(), "w");
+  FILE* fs = state_out.empty() ? nullptr : std::fopen(state_out.c_str(), "w");
+  if ((!state_out.empty() && !fs) || !fo || (!qpos_out.empty() && !fq)) {
+    std::fprintf(stderr, "[bench] failed to open requested output file\n");
+    return 2;
+  }
+  if (fs) {
+    std::fprintf(fs, "t,phase");
+    for (int k = 0; k < model->nq; ++k) std::fprintf(fs, ",q%d", k);
+    for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",v%d", k);
+    for (int k = 0; k < model->nu; ++k) std::fprintf(fs, ",u%d", k);
+    for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",warm%d", k);
+    std::fprintf(fs, "\n");
+  }
   std::fprintf(fo, "t,phase,phase_name,pelvis_z,torso_tilt_deg,face_z,pad_clear,"
                    "f_shoulder,f_forearm,f_wrist,f_gripper,"
                    "f_r_elbow,f_r_wrist,f_r_gripper,f_torso,f_pelvis,"
@@ -301,10 +318,25 @@ int main(int argc, char** argv) {
             face(model), face(pm), model->key_qpos[key * model->nq + 2],
             pm->key_qpos[key * pm->nq + 2]);
       }
+      if (!model_out.empty()) {
+        mj_saveModel(model, model_out.c_str(), nullptr, 0);
+        mj_saveModel(pm, (model_out + ".planner").c_str(), nullptr, 0);
+      }
     }
     agent.state.Set(model, data);
     agent.ActivePlanner().ActionFromPolicy(data->ctrl, agent.state.state().data(),
                                            agent.state.time(), /*use_previous=*/false);
+    if (fs && i % log_every == 0) {
+      // Capture BEFORE integration: qpos, qvel, control and warm-start all refer
+      // to precisely this time. Offline mj_forward reconstructs its contacts.
+      std::fprintf(fs, "%.9g,%d", data->time,
+                   lean_task ? lean_task->BenchPhaseIndex() : 0);
+      for (int k = 0; k < model->nq; ++k) std::fprintf(fs, ",%.17g", data->qpos[k]);
+      for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",%.17g", data->qvel[k]);
+      for (int k = 0; k < model->nu; ++k) std::fprintf(fs, ",%.17g", data->ctrl[k]);
+      for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",%.17g", data->qacc_warmstart[k]);
+      std::fprintf(fs, "\n");
+    }
     mj_step(model, data);
     if (i % spp == 0) agent.PlanIteration(&pool);
 
@@ -446,6 +478,7 @@ int main(int argc, char** argv) {
 
   if (fo != stdout) std::fclose(fo);
   if (fq) std::fclose(fq);
+  if (fs) std::fclose(fs);
   mj_deleteData(data);
   mjcb_sensor = nullptr;
   return fell ? 1 : 0;

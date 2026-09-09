@@ -1,0 +1,18 @@
+[
+  {
+    "sync": 1,
+    "pose": 1,
+    "depth": 0.4,
+    "dwell": 5.0,
+    "spp": 3,
+    "seconds": 0.08,
+    "perturb": 0.003,
+    "numeric": {},
+    "edits": [],
+    "tag": "audit_smoke",
+    "stage": "verification",
+    "arm": "reference",
+    "h": 1.085,
+    "seed": 999
+  }
+]
