@@ -1,0 +1,96 @@
+diff --git a/studies/cmpc_brace_vs_stand.py b/studies/cmpc_brace_vs_stand.py
+index 0b97500..48cc58c 100755
+--- a/studies/cmpc_brace_vs_stand.py
++++ b/studies/cmpc_brace_vs_stand.py
+@@ -412,7 +412,7 @@ class Flight:
+ 
+ def run_episode(flight, plant, seconds, seed=0, disturb=None,
+                 q_jitter=Q_JITTER, base_jitter=BASE_JITTER,
+-                resume=False, k0=0):
++                resume=False, k0=0, initial_qpos=None, initial_qvel=None):
+     """Fly one episode and return (rows, summary).
+ 
+     The plan is 4 s and the stages are 16-25 s, so every episode HOLDS: past the
+@@ -434,8 +434,10 @@ def run_episode(flight, plant, seconds, seed=0, disturb=None,
+         if seed:
+             q0[7:34] += rng.normal(0.0, q_jitter, 27)
+             q0[0:3] += rng.normal(0.0, base_jitter, 3)
++        if initial_qpos is not None:
++            q0 = np.asarray(initial_qpos).copy()
+         plant.d.qpos[:] = q0
+-        plant.d.qvel[:] = 0.0
++        plant.d.qvel[:] = 0.0 if initial_qvel is None else initial_qvel
+         plant.d.ctrl[:] = q0[7:34]
+         plant.d.xfrc_applied[:] = 0.0
+         # THE SIM CLOCK RESTARTS WITH THE EPISODE. mjData.time is not touched
+diff --git a/studies/contact_select.py b/studies/contact_select.py
+index f75858a..89ecccf 100755
+--- a/studies/contact_select.py
++++ b/studies/contact_select.py
+@@ -234,8 +234,11 @@ def _resolve_palm(m):
+ # existing record counts would rewrite the meaning of every certified cell.
+ ARM_SITES = ("elbow", "forearm", "palm")
+ TRUNK_SITES = ("hip", "torso")
+-REACH_BODY = "%s_wrist_yaw_link" % _OTHER
+-REACH_OFF = np.array([0.13, 0.0, 0.0])
++REACH_BODY = os.environ.get("REACH_BODY", "%s_wrist_yaw_link" % _OTHER)
++# Bench-only endpoint override, inherited by offline solve and live MPC.
++# 0.2254 matches lean.cc's right gripper jaw tip; default preserves old cells.
++REACH_OFF = np.array([float(v) for v in os.environ.get("REACH_OFFSET", "0.13,0,0").split(",")])
++assert REACH_OFF.shape == (3,)
+ FEET = ["left_ankle_roll_link", "right_ankle_roll_link"]
+ 
+ IK_MARGIN = 0.025   # collision look-ahead for the IK [m]
+@@ -320,6 +323,17 @@ def set_table_face(m, d, face_z):
+     cur = float(d.geom_xpos[g][2] + m.geom_size[g][2])
+     dz = face_z - cur
+     m.body_pos[b][2] += dz
++    # Optional matched-bench geometry: mirror lean.cc's floor-to-slab legs.
++    # Existing certified cells retain their original translation-only behavior.
++    if os.environ.get("MATCH_MJPC_TABLE", "0") == "1":
++        under = m.geom_pos[g][2] - m.geom_size[g][2]
++        for name in ["table_leg_%d%s" % (i, suffix)
++                     for i in range(1, 5) for suffix in ("", "_collision")]:
++            lg = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, name)
++            if lg >= 0:
++                half = max(0.01, 0.5 * (under + m.body_pos[b][2]))
++                m.geom_size[lg][2] = half
++                m.geom_pos[lg][2] = under - half
+     # The object rides with the slab.  It is a FREE body, so its height lives in
+     # qpos, not body_pos, and leaving it behind buries it: at the shipped
+     # keyframe its base already sits 30 mm inside the wood, and at a face of
+diff --git a/studies/croco_bridge.py b/studies/croco_bridge.py
+index a0ee2cf..15ea364 100755
+--- a/studies/croco_bridge.py
++++ b/studies/croco_bridge.py
+@@ -382,7 +382,19 @@ def mj_site_frames(model):
+     for name, (body, off) in spec.items():
+         fid = model.getFrameId(BODY_ALIAS.get(body, body))
+         parent = model.frames[fid].parentJoint
+-        pl = model.frames[fid].placement * pin.SE3(np.eye(3), np.asarray(off, float))
++        alias_placement = pin.SE3.Identity()
++        if body in BODY_ALIAS and os.environ.get("RECONCILE_MJ_FRAMES", "0") == "1":
++            # Current MJPC rotates the right gripper 90 degrees about x.
++            # A gripper-local jaw point must be transformed into the wrist
++            # frame before adding it to Pinocchio. Old cells default off.
++            m, _ = mj_model()
++            b = cs.bid(m, body)
++            parent_name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY,
++                                           m.body_parentid[b])
++            if parent_name != BODY_ALIAS[body]:
++                raise RuntimeError("unsupported welded alias parent: " + body)
++            alias_placement = pin.SE3(_quat_mat(m.body_quat[b]), m.body_pos[b].copy())
++        pl = model.frames[fid].placement * alias_placement * pin.SE3(np.eye(3), np.asarray(off, float))
+         added[name] = model.addFrame(
+             pin.Frame(f"site_{name}", parent, fid, pl, pin.FrameType.OP_FRAME))
+     return added
+@@ -403,7 +415,8 @@ def parity(qpos=None, verbose=True):
+         par = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.body_parentid[b])
+         off = np.linalg.norm(m.body_pos[b])
+         rot = np.linalg.norm(m.body_quat[b] - np.array([1.0, 0, 0, 0]))
+-        if par != urdf_link or off > 1e-9 or rot > 1e-9:
++        mapped = os.environ.get("RECONCILE_MJ_FRAMES", "0") == "1"
++        if par != urdf_link or (not mapped and (off > 1e-9 or rot > 1e-9)):
+             raise RuntimeError(
+                 f"BODY_ALIAS[{mj_body}] -> {urdf_link} is stale: parent={par}, "
+                 f"|pos|={off:.2e}, |dquat|={rot:.2e}")

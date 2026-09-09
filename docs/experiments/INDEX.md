@@ -6,6 +6,7 @@ copy and the artifact column is empty unless a page was explicitly published.
 
 | Date | Page | Local file | Artifact URL |
 |---|---|---|---|
+| 2026-09-08 | Table-height generalization with synchronized planning models | `docs/lean/20260908-table_height_skunkworks.html` | — (local only) |
 | 2026-09-08 | Braced-lean table-height generalisation: what has been tried, and what bounds the window | `docs/lean/20260908-table_height_full_report.html` | — (local only) |
 | 2026-09-06 | Table-height generalisation in the braced lean: what bounds the window | `docs/lean/20260906-table_height_window_bounds.md` | — (local only, by request) |
 | 2026-09-05 | Pitch and reach gates on the braced-lean height window | `docs/lean/20260905-height_window_gates.html` | — (local only, by request) |
@@ -17,6 +18,7 @@ copy and the artifact column is empty unless a page was explicitly published.
 
 | Page | Harness | Study scripts |
 |---|---|---|
+| Synchronized planning models (2026-09-08) | `mjpc/lean_bench.cc` (`--sync_planning_model`, `--start_key`, load logging) | `studies/table_height/skunkworks/` |
 | Full report (2026-09-08) | `mjpc/lean_bench.cc` (`--numeric`, `--pose_track`, `--stance_shift_x`) | `studies/table_height/{make_report_figs,probe_standoff,probe_padheight,probe_bracetgt,sweep_stance,sweep_bracetgt}.py` |
 | Height window bounds (2026-09-06) | `mjpc/lean_bench.cc` (`--numeric`, `--pose_track`) | `studies/table_height/{probe_stance,probe_base_split,sweep_pitch,sweep_tilt,analyze_pitch}.py` |
 | Height window gates | `mjpc/lean_bench.cc` (`--numeric`) | `studies/table_height/{probe_pitch,probe_reachset,probe_basin,analyze_gates,sweep_basin,make_page_gates}.py`, `publish_gates.sh` |

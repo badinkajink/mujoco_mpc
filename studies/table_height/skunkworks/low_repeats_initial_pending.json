@@ -1,0 +1,34 @@
+[
+ {
+  "tag": "hz50_short_h0785_s1",
+  "h": 0.785,
+  "seed": 1,
+  "spp": 10,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "hz50_short_h0785_s2",
+  "h": 0.785,
+  "seed": 2,
+  "spp": 10,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ }
+]

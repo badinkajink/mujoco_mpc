@@ -1,0 +1,19 @@
+[
+ {
+  "tag": "stand_hz50_far_h0985_s0",
+  "h": 0.985,
+  "spp": 10,
+  "rtt": [
+   0.7,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--start_key",
+   "stand_up"
+  ]
+ }
+]

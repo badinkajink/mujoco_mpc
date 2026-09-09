@@ -1,0 +1,2471 @@
+{
+  "mjpc": [
+    {
+      "job": {
+        "tag": "base1_pose1_h1085_s0",
+        "h": 1.085,
+        "extra": [
+          "--pose_track",
+          "1",
+          "--numeric",
+          "brace_base_z_gain=1"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 237.68948435783386,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=33.590 phases=9 wall_s=232.4 enter=0.00:12.00:24.01:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        1.0,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.5118,
+      "max_phase": 2,
+      "reach_min_mm": 172.52864277636823,
+      "reach_p95_mm": 612.9889537410106,
+      "brace_peak_N": 38.141,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": 8.299,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 1.6,
+      "planning_sync": false
+    },
+    {
+      "job": {
+        "tag": "baseline_h0985_s0",
+        "h": 0.985
+      },
+      "rc": 0,
+      "wall_s": 314.5036242008209,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=0 fell=0 complete=1 t_complete=43.504 t_end=43.504 phases=9 wall_s=309.2 enter=0.00:12.00:24.01:27.74:31.13:34.50:36.50:38.50:40.50",
+      "target": [
+        1.0,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.9576,
+      "max_phase": 8,
+      "reach_min_mm": 13.943157923317072,
+      "reach_p95_mm": 124.91472285958676,
+      "brace_peak_N": 290.756,
+      "joint_dwell_s": 2.0400000000000027,
+      "strict_dwell_s": 0.9400000000000013,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 88.55,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 28.329,
+      "loaded_brace_p05_N": 73.0524,
+      "loaded_reach_p95_mm": 59.586414369445784,
+      "phase2_brace_p50_N": 80.2045,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 79.9,
+      "planning_sync": false
+    },
+    {
+      "job": {
+        "tag": "hz50_short_h0785_s0",
+        "h": 0.785,
+        "spp": 10,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 176.37921237945557,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=0 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=171.3 enter=0.00:12.00:31.30:53.85:74.89:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.874,
+      "max_phase": 4,
+      "reach_min_mm": 27.05524548687932,
+      "reach_p95_mm": 660.2583044603124,
+      "brace_peak_N": 236.807,
+      "joint_dwell_s": 4.979999999999997,
+      "strict_dwell_s": 0.3200000000000003,
+      "dynamic_success": true,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 134.54,
+        "f_wrist": 17.945,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 56.638999999999996,
+      "loaded_brace_p05_N": 138.01219999999998,
+      "loaded_reach_p95_mm": 65.54910378375679,
+      "phase2_brace_p50_N": 150.56900000000002,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 279.9,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "hz50_short_h0985_s0",
+        "h": 0.985,
+        "spp": 10,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 39.09729194641113,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=14.902 phases=9 wall_s=33.9 enter=0.00:12.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.543,
+      "max_phase": 1,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 24.919,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": 69.7,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "hz50_short_h1085_s0",
+        "h": 1.085,
+        "spp": 10,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 36.82518005371094,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=14.388 phases=9 wall_s=31.7 enter=0.00:12.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.5111,
+      "max_phase": 1,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 24.406,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": -10.9,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h0785_s0",
+        "h": 0.785,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 539.6724190711975,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=0 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=534.5 enter=0.00:12.00:28.51:36.22:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.881,
+      "max_phase": 3,
+      "reach_min_mm": 5.422533376978362,
+      "reach_p95_mm": 312.28550127526256,
+      "brace_peak_N": 98.273,
+      "joint_dwell_s": 2.8200000000000003,
+      "strict_dwell_s": 2.1000000000000014,
+      "dynamic_success": true,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 67.845,
+        "f_wrist": 2.42,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 49.967,
+      "loaded_brace_p05_N": 63.002900000000004,
+      "loaded_reach_p95_mm": 45.08418205599445,
+      "phase2_brace_p50_N": 0.0,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 279.7,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h0785_s1",
+        "h": 0.785,
+        "seed": 1,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 544.7391731739044,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=1 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=539.6 enter=0.00:12.00:27.14:37.22:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.8918,
+      "max_phase": 3,
+      "reach_min_mm": 11.18706567090446,
+      "reach_p95_mm": 302.97896652704856,
+      "brace_peak_N": 212.263,
+      "joint_dwell_s": 5.18,
+      "strict_dwell_s": 4.280000000000001,
+      "dynamic_success": true,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 113.72,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 53.976,
+      "loaded_brace_p05_N": 72.398,
+      "loaded_reach_p95_mm": 55.10510618290056,
+      "phase2_brace_p50_N": 72.41,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 279.9,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h0785_s2",
+        "h": 0.785,
+        "seed": 2,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 563.1683390140533,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=2 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=558.1 enter=0.00:12.00:32.76:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.8928,
+      "max_phase": 2,
+      "reach_min_mm": 345.95987897006427,
+      "reach_p95_mm": 427.9518730537957,
+      "brace_peak_N": 214.908,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": 84.247,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 278.5,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h0935_s0",
+        "h": 0.935,
+        "seed": 0,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 459.84177017211914,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9350 face_z=0.9350 seed=0 fell=0 complete=1 t_complete=63.422 t_end=63.422 phases=9 wall_s=454.6 enter=0.00:12.00:24.07:32.95:48.86:54.42:56.42:58.42:60.42",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.085
+      ],
+      "pelvis_min": 0.9314,
+      "max_phase": 8,
+      "reach_min_mm": 12.339838330929485,
+      "reach_p95_mm": 245.01225386609113,
+      "brace_peak_N": 345.768,
+      "joint_dwell_s": 2.460000000000001,
+      "strict_dwell_s": 1.8599999999999994,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 96.45500000000001,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 31.6925,
+      "loaded_brace_p05_N": 65.29485,
+      "loaded_reach_p95_mm": 39.732240233690646,
+      "phase2_brace_p50_N": 0.0,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 137.3,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h1035_s0",
+        "h": 1.035,
+        "seed": 0,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 353.34003806114197,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0350 face_z=1.0350 seed=0 fell=0 complete=1 t_complete=46.648 t_end=46.648 phases=9 wall_s=348.1 enter=0.00:12.00:24.12:31.05:33.05:37.65:39.65:41.65:43.65",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.1849999999999998
+      ],
+      "pelvis_min": 0.9579,
+      "max_phase": 8,
+      "reach_min_mm": 6.602617484429633,
+      "reach_p95_mm": 232.50841740061688,
+      "brace_peak_N": 249.99,
+      "joint_dwell_s": 4.98,
+      "strict_dwell_s": 3.6800000000000033,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 118.995,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 21.464,
+      "loaded_brace_p05_N": 69.7179,
+      "loaded_reach_p95_mm": 49.86699994643859,
+      "phase2_brace_p50_N": 112.323,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 33.4,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h1085_s0",
+        "h": 1.085,
+        "seed": 0,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 327.77868580818176,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=0 complete=1 t_complete=43.828 t_end=43.828 phases=9 wall_s=322.7 enter=0.00:12.00:24.01:30.70:32.74:34.83:36.83:38.83:40.83",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.9597,
+      "max_phase": 8,
+      "reach_min_mm": 23.894164232896767,
+      "reach_p95_mm": 135.65739104625064,
+      "brace_peak_N": 177.903,
+      "joint_dwell_s": 4.979999999999997,
+      "strict_dwell_s": 2.5599999999999987,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 63.625,
+        "f_wrist": 13.364999999999998,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 13.783000000000001,
+      "loaded_brace_p05_N": 59.867549999999994,
+      "loaded_reach_p95_mm": 59.36249689815476,
+      "phase2_brace_p50_N": 70.1495,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 0.7,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h1085_s1",
+        "h": 1.085,
+        "seed": 1,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 107.13025951385498,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=1 fell=1 complete=0 t_complete=-1.000 t_end=14.226 phases=9 wall_s=101.9 enter=0.00:12.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.5044,
+      "max_phase": 1,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 41.475,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": -6.5,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "pose1_short_h1085_s2",
+        "h": 1.085,
+        "seed": 2,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 340.754634141922,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=2 fell=0 complete=1 t_complete=44.972 t_end=44.972 phases=9 wall_s=335.6 enter=0.00:12.00:24.01:30.75:32.75:35.97:37.97:39.97:41.97",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.9614,
+      "max_phase": 8,
+      "reach_min_mm": 11.580545548259712,
+      "reach_p95_mm": 150.95812179667425,
+      "brace_peak_N": 212.317,
+      "joint_dwell_s": 4.98,
+      "strict_dwell_s": 3.5,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 78.4,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 13.2905,
+      "loaded_brace_p05_N": 64.3436,
+      "loaded_reach_p95_mm": 51.449900540751216,
+      "phase2_brace_p50_N": 75.104,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 3.4,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h0785_s0",
+        "h": 0.785,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 566.9593732357025,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=0 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=561.8 enter=0.00:12.00:32.55:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.857,
+      "max_phase": 2,
+      "reach_min_mm": 373.7066135342588,
+      "reach_p95_mm": 433.1364600820289,
+      "brace_peak_N": 187.527,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": 80.7175,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 284.4,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h0885_s0",
+        "h": 0.885,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 391.6638991832733,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.8850 face_z=0.8850 seed=0 fell=0 complete=1 t_complete=53.476 t_end=53.476 phases=9 wall_s=386.5 enter=0.00:12.00:29.51:36.88:42.48:44.48:46.48:48.48:50.48",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.035
+      ],
+      "pelvis_min": 0.9102,
+      "max_phase": 8,
+      "reach_min_mm": 8.970505171270993,
+      "reach_p95_mm": 377.1224381453934,
+      "brace_peak_N": 172.525,
+      "joint_dwell_s": 4.98,
+      "strict_dwell_s": 3.8000000000000043,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 0.0,
+        "f_wrist": 57.365,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 40.3845,
+      "loaded_brace_p05_N": 56.8841,
+      "loaded_reach_p95_mm": 50.50894796379956,
+      "phase2_brace_p50_N": 70.30850000000001,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 185.6,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h0985_s0",
+        "h": 0.985,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5
+      },
+      "rc": 0,
+      "wall_s": 363.1914656162262,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=0 fell=0 complete=1 t_complete=49.580 t_end=49.580 phases=9 wall_s=358.1 enter=0.00:12.00:24.01:32.36:36.33:40.58:42.58:44.58:46.58",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.9465,
+      "max_phase": 8,
+      "reach_min_mm": 7.832733348716462,
+      "reach_p95_mm": 219.57937453711503,
+      "brace_peak_N": 205.945,
+      "joint_dwell_s": 4.98,
+      "strict_dwell_s": 3.8200000000000003,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 82.475,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 27.052999999999997,
+      "loaded_brace_p05_N": 62.135,
+      "loaded_reach_p95_mm": 59.39614937269283,
+      "phase2_brace_p50_N": 71.555,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 78.60000000000001,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h0985_s1",
+        "h": 0.985,
+        "seed": 1,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 394.89014863967896,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=1 fell=0 complete=1 t_complete=53.266 t_end=53.266 phases=9 wall_s=389.7 enter=0.00:12.00:24.54:32.24:40.35:44.27:46.27:48.27:50.27",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.953,
+      "max_phase": 8,
+      "reach_min_mm": 12.840917899379885,
+      "reach_p95_mm": 288.02495083857855,
+      "brace_peak_N": 240.666,
+      "joint_dwell_s": 4.98,
+      "strict_dwell_s": 2.700000000000003,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 124.57,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 27.412,
+      "loaded_brace_p05_N": 95.1952,
+      "loaded_reach_p95_mm": 62.36448388570829,
+      "phase2_brace_p50_N": 113.957,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 79.2,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h0985_s2",
+        "h": 0.985,
+        "seed": 2,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 385.36676812171936,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=2 fell=0 complete=1 t_complete=52.480 t_end=52.480 phases=9 wall_s=380.1 enter=0.00:12.00:24.01:38.15:40.72:43.48:45.48:47.48:49.48",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.9554,
+      "max_phase": 8,
+      "reach_min_mm": 20.265673225728126,
+      "reach_p95_mm": 240.20651369841272,
+      "brace_peak_N": 218.133,
+      "joint_dwell_s": 2.5400000000000063,
+      "strict_dwell_s": 0.9400000000000048,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 87.6,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 25.102,
+      "loaded_brace_p05_N": 68.76610000000001,
+      "loaded_reach_p95_mm": 61.20447091940378,
+      "phase2_brace_p50_N": 2.413,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 79.2,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "short_h1085_s0",
+        "h": 1.085,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5
+      },
+      "rc": 0,
+      "wall_s": 325.4735326766968,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=0 complete=1 t_complete=44.088 t_end=44.088 phases=9 wall_s=320.3 enter=0.00:12.00:24.01:29.70:31.88:35.09:37.09:39.09:41.09",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.9608,
+      "max_phase": 8,
+      "reach_min_mm": 13.376463481722878,
+      "reach_p95_mm": 95.37467892078078,
+      "brace_peak_N": 197.986,
+      "joint_dwell_s": 4.979999999999997,
+      "strict_dwell_s": 4.16,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 70.29499999999999,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 11.123999999999999,
+      "loaded_brace_p05_N": 61.78495,
+      "loaded_reach_p95_mm": 48.11396515742564,
+      "phase2_brace_p50_N": 67.2465,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": -6.3,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "stance060_short_h0785_s0",
+        "h": 0.785,
+        "rtt": [
+          0.4,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--stance_shift_x",
+          "0.06"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 565.1345818042755,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=0 fell=0 complete=0 t_complete=-1.000 t_end=75.000 phases=9 wall_s=560.0 enter=0.00:12.00:42.53:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        0.8500000000000001,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.8695,
+      "max_phase": 2,
+      "reach_min_mm": 341.28805722185837,
+      "reach_p95_mm": 501.1013497262977,
+      "brace_peak_N": 216.796,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": 159.962,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 280.8,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "stance120_h0785_s0",
+        "h": 0.785,
+        "extra": [
+          "--stance_shift_x",
+          "0.12"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 31.172698259353638,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.7850 face_z=0.7850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=3.756 phases=9 wall_s=25.9 enter=0.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        1.0,
+        -0.04,
+        0.935
+      ],
+      "pelvis_min": 0.5297,
+      "max_phase": 0,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 0.0,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": null,
+      "planning_sync": false
+    },
+    {
+      "job": {
+        "tag": "stance120_h0885_s0",
+        "h": 0.885,
+        "extra": [
+          "--stance_shift_x",
+          "0.12"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 253.47136569023132,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.8850 face_z=0.8850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=33.114 phases=9 wall_s=248.3 enter=0.00:12.74:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        1.0,
+        -0.04,
+        1.035
+      ],
+      "pelvis_min": 0.5212,
+      "max_phase": 1,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 157.441,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": 217.4,
+      "planning_sync": false
+    },
+    {
+      "job": {
+        "tag": "stand_hz50_far_h0985_s0",
+        "h": 0.985,
+        "spp": 10,
+        "rtt": [
+          0.7,
+          0.04,
+          0.15
+        ],
+        "dwell": 5,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--start_key",
+          "stand_up"
+        ]
+      },
+      "rc": 1,
+      "wall_s": 38.834561586380005,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=0.9850 face_z=0.9850 seed=0 fell=1 complete=0 t_complete=-1.000 t_end=15.092 phases=9 wall_s=33.6 enter=0.00:12.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00:-1.00",
+      "target": [
+        1.15,
+        -0.04,
+        1.135
+      ],
+      "pelvis_min": 0.5205,
+      "max_phase": 1,
+      "reach_min_mm": null,
+      "reach_p95_mm": null,
+      "brace_peak_N": 21.159,
+      "joint_dwell_s": 0.0,
+      "strict_dwell_s": 0.0,
+      "dynamic_success": false,
+      "ladder_complete": false,
+      "loaded_right_other_peak_N": null,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": null,
+        "f_forearm": null,
+        "f_wrist": null,
+        "f_gripper": null,
+        "f_r_elbow": null,
+        "f_r_wrist": null,
+        "f_r_gripper": null,
+        "f_other": null
+      },
+      "loaded_tilt_p50_deg": null,
+      "loaded_brace_p05_N": null,
+      "loaded_reach_p95_mm": null,
+      "phase2_brace_p50_N": null,
+      "phase2_trunk_peak_N": null,
+      "max_pad_clear_brace_mm": 69.7,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "sync_base05_pose1_h1085_s0",
+        "h": 1.085,
+        "extra": [
+          "--sync_planning_model",
+          "1",
+          "--pose_track",
+          "1",
+          "--numeric",
+          "brace_base_z_gain=0.5"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 287.56789088249207,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=0 complete=1 t_complete=39.146 t_end=39.146 phases=9 wall_s=282.4 enter=0.00:12.00:24.01:26.05:28.05:30.14:32.15:34.15:36.15",
+      "target": [
+        1.0,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.9607,
+      "max_phase": 8,
+      "reach_min_mm": 3.905598348956335,
+      "reach_p95_mm": 68.0702048370429,
+      "brace_peak_N": 186.489,
+      "joint_dwell_s": 2.020000000000003,
+      "strict_dwell_s": 1.2200000000000024,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 84.38499999999999,
+        "f_wrist": 0.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 11.5855,
+      "loaded_brace_p05_N": 71.12095,
+      "loaded_reach_p95_mm": 68.0702048370429,
+      "phase2_brace_p50_N": 77.848,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": 0.4,
+      "planning_sync": true
+    },
+    {
+      "job": {
+        "tag": "sync_h1085_s0",
+        "h": 1.085,
+        "extra": [
+          "--sync_planning_model",
+          "1"
+        ]
+      },
+      "rc": 0,
+      "wall_s": 297.5338625907898,
+      "summary": "task=Lean H12 Magpie strategy=25 table_h=1.0850 face_z=1.0850 seed=0 fell=0 complete=1 t_complete=40.490 t_end=40.490 phases=9 wall_s=292.4 enter=0.00:12.00:24.01:26.70:28.75:31.49:33.49:35.49:37.49",
+      "target": [
+        1.0,
+        -0.04,
+        1.2349999999999999
+      ],
+      "pelvis_min": 0.9604,
+      "max_phase": 8,
+      "reach_min_mm": 1.4761777627648158,
+      "reach_p95_mm": 106.67437045402568,
+      "brace_peak_N": 190.449,
+      "joint_dwell_s": 2.0,
+      "strict_dwell_s": 1.6000000000000014,
+      "dynamic_success": true,
+      "ladder_complete": true,
+      "loaded_right_other_peak_N": 0.0,
+      "loaded_body_resultant_median_N": {
+        "f_shoulder": 0.0,
+        "f_forearm": 71.12,
+        "f_wrist": 13.0,
+        "f_gripper": 0.0,
+        "f_r_elbow": 0.0,
+        "f_r_wrist": 0.0,
+        "f_r_gripper": 0.0,
+        "f_other": 0.0
+      },
+      "loaded_tilt_p50_deg": 12.878,
+      "loaded_brace_p05_N": 65.618,
+      "loaded_reach_p95_mm": 56.26832089611485,
+      "phase2_brace_p50_N": 70.169,
+      "phase2_trunk_peak_N": 0.0,
+      "max_pad_clear_brace_mm": -0.5,
+      "planning_sync": true
+    }
+  ],
+  "croco": [
+    {
+      "face": 0.785,
+      "target": [
+        1.0,
+        -0.04,
+        0.935
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06602752512015232,
+      "tail_reach_p95_mm": 1716.5329326480585,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "wall_s": 137.77224718199977,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 22882,
+      "q_clipped": 9902,
+      "solve_ms_mean": 108.92285540815672,
+      "solve_ms_p95": 133.43662780025625,
+      "pelvis_z": 0.07892721036230363,
+      "seed": 0,
+      "tag": "common_h0785_x1000_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/common_h0785_x1000_ef/s0.json",
+      "matched_jaw": false,
+      "start": "home"
+    },
+    {
+      "face": 0.785,
+      "target": [
+        1.0,
+        -0.04,
+        0.935
+      ],
+      "mode": "elbow+wrist",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06114550103254824,
+      "tail_reach_p95_mm": 2881.465276503749,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "wall_s": 164.2842846019994,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 14585,
+      "q_clipped": 2570,
+      "solve_ms_mean": 130.26472080349276,
+      "solve_ms_p95": 139.13108804981675,
+      "pelvis_z": 0.06999811970595965,
+      "seed": 0,
+      "tag": "common_h0785_x1000_ew",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/common_h0785_x1000_ew/s0.json",
+      "matched_jaw": false,
+      "start": "home"
+    },
+    {
+      "face": 0.985,
+      "target": [
+        1.0,
+        -0.04,
+        1.135
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06933812000565133,
+      "tail_reach_p95_mm": 2677.9924054037983,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.029999999999996696,
+      "success": false,
+      "wall_s": 156.0441005490011,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 15952,
+      "q_clipped": 9502,
+      "solve_ms_mean": 123.54083836341485,
+      "solve_ms_p95": 136.3560307494481,
+      "pelvis_z": 0.10751529994777312,
+      "seed": 0,
+      "tag": "common_h0985_x1000_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/common_h0985_x1000_ef/s0.json",
+      "matched_jaw": false,
+      "start": "home"
+    },
+    {
+      "face": 1.085,
+      "target": [
+        1.0,
+        -0.04,
+        1.2349999999999999
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.12821549515359568,
+      "tail_reach_p95_mm": 2063.322061342295,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.11999999999998678,
+      "success": false,
+      "wall_s": 152.71643972499987,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 13146,
+      "q_clipped": 13069,
+      "solve_ms_mean": 120.82146013018354,
+      "solve_ms_p95": 139.75591530024758,
+      "pelvis_z": 0.17441611059338238,
+      "seed": 0,
+      "tag": "common_h1085_x1000_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/common_h1085_x1000_ef/s0.json",
+      "matched_jaw": false,
+      "start": "home"
+    },
+    {
+      "face": 0.785,
+      "target": [
+        0.85,
+        -0.04,
+        0.935
+      ],
+      "mode": "forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.22023780225561534,
+      "tail_reach_p95_mm": 2282.4924316283896,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "wall_s": 158.51593953100019,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 9338,
+      "q_clipped": 2144,
+      "solve_ms_mean": 125.60455721803463,
+      "solve_ms_p95": 136.67653765114665,
+      "pelvis_z": 0.23448797592389622,
+      "seed": 0,
+      "tag": "jaw_h0785_x0850_f",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/jaw_h0785_x0850_f/s0.json",
+      "matched_jaw": true,
+      "start": "home"
+    },
+    {
+      "face": 0.985,
+      "target": [
+        0.85,
+        -0.04,
+        1.135
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06845794991110575,
+      "tail_reach_p95_mm": 2637.0374842087895,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.030000000000000027,
+      "success": false,
+      "wall_s": 160.73449991000234,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 23460,
+      "q_clipped": 9648,
+      "solve_ms_mean": 127.29631176675241,
+      "solve_ms_p95": 139.295148148085,
+      "pelvis_z": 0.07312312343931769,
+      "seed": 0,
+      "tag": "jaw_h0985_x0850_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/jaw_h0985_x0850_ef/s0.json",
+      "matched_jaw": true,
+      "start": "home"
+    },
+    {
+      "face": 0.985,
+      "target": [
+        1.15,
+        -0.04,
+        1.135
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.11700629296847073,
+      "tail_reach_p95_mm": 1433.5496039215966,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.11999999999998678,
+      "success": false,
+      "wall_s": 102.32181864299855,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 25319,
+      "q_clipped": 12313,
+      "solve_ms_mean": 80.52657270043699,
+      "solve_ms_p95": 108.07843174952725,
+      "pelvis_z": 0.19681979638222105,
+      "seed": 0,
+      "tag": "jaw_h0985_x1150_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/jaw_h0985_x1150_ef/s0.json",
+      "matched_jaw": true,
+      "start": "home"
+    },
+    {
+      "face": 1.085,
+      "target": [
+        0.85,
+        -0.04,
+        1.2349999999999999
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06805298702699085,
+      "tail_reach_p95_mm": 2774.9058835522824,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "wall_s": 133.83421846200145,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 28100,
+      "q_clipped": 11764,
+      "solve_ms_mean": 105.80953209265222,
+      "solve_ms_p95": 125.16216970088864,
+      "pelvis_z": 0.08453222613040967,
+      "seed": 0,
+      "tag": "jaw_h1085_x0850_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/jaw_h1085_x0850_ef/s0.json",
+      "matched_jaw": true,
+      "start": "home"
+    },
+    {
+      "face": 0.985,
+      "target": [
+        1.15,
+        -0.04,
+        1.135
+      ],
+      "mode": "elbow+forearm",
+      "seconds": 25,
+      "mujoco": "3.2.3",
+      "pelvis_min": 0.06417921228137359,
+      "tail_reach_p95_mm": 2121.9993780433197,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.05999999999999339,
+      "success": false,
+      "wall_s": 102.84553952699935,
+      "periods": 1252,
+      "mpc_steps": 1252,
+      "mpc_none": 0,
+      "overruns": 0,
+      "watchdog_trips": 0,
+      "tau_saturated": 22714,
+      "q_clipped": 10401,
+      "solve_ms_mean": 81.0310141973685,
+      "solve_ms_p95": 125.9852457502348,
+      "pelvis_z": 0.09742233904754943,
+      "seed": 0,
+      "tag": "jaw_stand_h0985_x1150_ef",
+      "path": "../../studies/table_height/runs/codex_skunkworks/croco/jaw_stand_h0985_x1150_ef/s0.json",
+      "matched_jaw": true,
+      "start": "stand_up"
+    }
+  ],
+  "prior_croco": [
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_brace_r0.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.0688444069803874,
+      "tail_reach_p95_mm": 2722.1875888685513,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": -86.1344130551764
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_brace_r1.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.06103559129981604,
+      "tail_reach_p95_mm": 2314.450812680954,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": -71.98589903979595
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_brace_r2.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.8603515191107822,
+      "tail_reach_p95_mm": 18.214191187148494,
+      "tail_brace_p05_N": 170.21440118858018,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.54999999999707,
+      "success": true,
+      "tail_pitch_deg": 45.17026960746938
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_stand_r0.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.936876532067181,
+      "tail_reach_p95_mm": 43.63855644187572,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 24.613858481477763
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_stand_r1.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9372282320445683,
+      "tail_reach_p95_mm": 44.12903175606891,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 24.66041387221314
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0785_x1060/h0785_x1060_stand_r2.csv",
+      "face": 0.785,
+      "target": [
+        1.06,
+        -0.2348,
+        0.8982
+      ],
+      "tag": "h0785_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.935638547730116,
+      "tail_reach_p95_mm": 45.88347940620822,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 25.221826805698743
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_brace_r0.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.8891251857355805,
+      "tail_reach_p95_mm": 14.495969037962006,
+      "tail_brace_p05_N": 190.3610576786215,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 35.926795379735694
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_brace_r1.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.8943394769072459,
+      "tail_reach_p95_mm": 15.852139174055969,
+      "tail_brace_p05_N": 185.57808971338127,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 36.0389030828315
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_brace_r2.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.8994750043828232,
+      "tail_reach_p95_mm": 12.276964171600417,
+      "tail_brace_p05_N": 203.7749709673243,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 35.751709488205584
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_stand_r0.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.9508565796505241,
+      "tail_reach_p95_mm": 38.82753494979581,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 21.411948327993237
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_stand_r1.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9508195686667705,
+      "tail_reach_p95_mm": 39.17630462770789,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 21.45655935613506
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0885_x1060/h0885_x1060_stand_r2.csv",
+      "face": 0.885,
+      "target": [
+        1.06,
+        -0.2348,
+        0.9982
+      ],
+      "tag": "h0885_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.9498536721905865,
+      "tail_reach_p95_mm": 40.53960148135392,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 22.31619951813805
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_brace_r0.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.950844742969051,
+      "tail_reach_p95_mm": 9.435599239682732,
+      "tail_brace_p05_N": 171.6834031912698,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 25.60663197038853
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_brace_r1.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.9553083535481972,
+      "tail_reach_p95_mm": 5.74242578072313,
+      "tail_brace_p05_N": 168.1798912185135,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 26.160175317370342
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_brace_r2.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.947395740446953,
+      "tail_reach_p95_mm": 5.203789936485471,
+      "tail_brace_p05_N": 157.73971288438338,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 24.306483028092888
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_stand_r0.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.9571790160370923,
+      "tail_reach_p95_mm": 32.73193768900766,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 18.913198687558626
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_stand_r1.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9572126777194181,
+      "tail_reach_p95_mm": 33.001321259109446,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 18.940951591111705
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h0985_x1060/h0985_x1060_stand_r2.csv",
+      "face": 0.985,
+      "target": [
+        1.06,
+        -0.2348,
+        1.0982
+      ],
+      "tag": "h0985_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.9571984654635085,
+      "tail_reach_p95_mm": 34.87539990968715,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 19.355606196869875
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_brace_r0.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.9573001049992415,
+      "tail_reach_p95_mm": 6.727151664807225,
+      "tail_brace_p05_N": 144.2622963679734,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 21.302259688726593
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_brace_r1.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.9613998009249952,
+      "tail_reach_p95_mm": 6.549858094622347,
+      "tail_brace_p05_N": 146.22144901173394,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 20.93455694281739
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_brace_r2.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.9553543745547801,
+      "tail_reach_p95_mm": 12.844984837340313,
+      "tail_brace_p05_N": 148.22619070223786,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 22.131493207495023
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_stand_r0.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.9594608420697261,
+      "tail_reach_p95_mm": 32.57621182896024,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 17.39150882234921
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_stand_r1.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9591106369494035,
+      "tail_reach_p95_mm": 25.400529277209035,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 16.520299615380875
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1035_x1060/h1035_x1060_stand_r2.csv",
+      "face": 1.035,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1482
+      ],
+      "tag": "h1035_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.9592654715147854,
+      "tail_reach_p95_mm": 27.705355350412773,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 17.11601227740707
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_brace_r0.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.9601684977466304,
+      "tail_reach_p95_mm": 2.7107124157582514,
+      "tail_brace_p05_N": 126.2837687877042,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 21.746868416014895
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_brace_r1.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.9548060705745967,
+      "tail_reach_p95_mm": 6.535458967154886,
+      "tail_brace_p05_N": 110.21354685896443,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 20.05236556886429
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_brace_r2.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.957642178630702,
+      "tail_reach_p95_mm": 5.911309643949404,
+      "tail_brace_p05_N": 112.58047126885242,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 21.147943899701033
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_stand_r0.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.9595991888738703,
+      "tail_reach_p95_mm": 26.56987150466148,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 16.094285443994842
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_stand_r1.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9595021454688254,
+      "tail_reach_p95_mm": 27.014854900166736,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 16.073086843171236
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1050_x1060/h1050_x1060_stand_r2.csv",
+      "face": 1.05,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1632
+      ],
+      "tag": "h1050_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.9598161996255674,
+      "tail_reach_p95_mm": 29.07514188871146,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 16.65201207147497
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_brace_r0.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.9620013688560707,
+      "tail_reach_p95_mm": 7.110487525396133,
+      "tail_brace_p05_N": 121.12850980689163,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 22.201895673313885
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_brace_r1.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.9612217787688071,
+      "tail_reach_p95_mm": 4.747229614344126,
+      "tail_brace_p05_N": 121.40092823633677,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 21.531095915525988
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_brace_r2.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.9593128154666252,
+      "tail_reach_p95_mm": 6.4813500090897875,
+      "tail_brace_p05_N": 124.58276423579055,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 22.420770847273946
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_stand_r0.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.9593346695076291,
+      "tail_reach_p95_mm": 25.350644328223176,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 15.800362556086904
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_stand_r1.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9593378379863634,
+      "tail_reach_p95_mm": 25.760729326518717,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 15.790521230330203
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1060_x1060/h1060_x1060_stand_r2.csv",
+      "face": 1.06,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1732
+      ],
+      "tag": "h1060_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.9595193448762076,
+      "tail_reach_p95_mm": 27.95612464851886,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": 16.369075000705443
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_brace_r0.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_brace_r0",
+      "arm": "brace",
+      "seed": 0,
+      "pelvis_min": 0.9545560991017027,
+      "tail_reach_p95_mm": 3.1387324470185756,
+      "tail_brace_p05_N": 112.93969251424016,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 21.134856518843385
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_brace_r1.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_brace_r1",
+      "arm": "brace",
+      "seed": 1,
+      "pelvis_min": 0.9541169824358053,
+      "tail_reach_p95_mm": 2.901044821001848,
+      "tail_brace_p05_N": 111.84940620612352,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.599999999997067,
+      "success": true,
+      "tail_pitch_deg": 20.164948295372305
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_brace_r2.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_brace_r2",
+      "arm": "brace",
+      "seed": 2,
+      "pelvis_min": 0.956290944433707,
+      "tail_reach_p95_mm": 4.669667619780921,
+      "tail_brace_p05_N": 116.91397464281468,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 1.0,
+      "longest_joint_dwell_s": 22.64999999999706,
+      "success": true,
+      "tail_pitch_deg": 21.590578590637865
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_stand_r0.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_stand_r0",
+      "arm": "stand",
+      "seed": 0,
+      "pelvis_min": 0.06771767659370073,
+      "tail_reach_p95_mm": 2921.468333733487,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 1.1499999999998733,
+      "success": false,
+      "tail_pitch_deg": -76.15021198272959
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_stand_r1.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_stand_r1",
+      "arm": "stand",
+      "seed": 1,
+      "pelvis_min": 0.9580778239147831,
+      "tail_reach_p95_mm": 33.11181178233983,
+      "tail_brace_p05_N": 27.9201072858833,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 1.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 21.799999999997155,
+      "success": true,
+      "tail_pitch_deg": 15.535053511091572
+    },
+    {
+      "path": "/home/humanoid/Programs/Humanoid_Simulation/crocoddyl_mpc/studies/runs/2026-09-08_height_dyn/h1085_x1060/h1085_x1060_stand_r2.csv",
+      "face": 1.085,
+      "target": [
+        1.06,
+        -0.2348,
+        1.1982
+      ],
+      "tag": "h1085_x1060_stand_r2",
+      "arm": "stand",
+      "seed": 2,
+      "pelvis_min": 0.06837930127962306,
+      "tail_reach_p95_mm": 2855.4879435948733,
+      "tail_brace_p05_N": 0.0,
+      "tail_trunk_peak_N": 0.0,
+      "tail_joint_fraction": 0.0,
+      "tail_strict_fraction": 0.0,
+      "longest_joint_dwell_s": 0.0,
+      "success": false,
+      "tail_pitch_deg": -75.29331576608072
+    }
+  ]
+}

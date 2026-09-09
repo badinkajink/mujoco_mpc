@@ -1,0 +1,26 @@
+[
+ {
+  "tag": "jaw_h0985_x0850_ef",
+  "h": 0.985,
+  "tx": 0.85,
+  "mode": "elbow+forearm"
+ },
+ {
+  "tag": "jaw_h1085_x0850_ef",
+  "h": 1.085,
+  "tx": 0.85,
+  "mode": "elbow+forearm"
+ },
+ {
+  "tag": "jaw_h0785_x0850_f",
+  "h": 0.785,
+  "tx": 0.85,
+  "mode": "forearm"
+ },
+ {
+  "tag": "jaw_h0985_x1150_ef",
+  "h": 0.985,
+  "tx": 1.15,
+  "mode": "elbow+forearm"
+ }
+]

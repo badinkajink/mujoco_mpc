@@ -1,0 +1,44 @@
+[
+ {
+  "tag": "sync_h1085_s0",
+  "h": 1.085,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0785_s0",
+  "h": 0.785,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "sync_h0985_s0",
+  "h": 0.985,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "sync_base05_pose1_h1085_s0",
+  "h": 1.085,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1",
+   "--numeric",
+   "brace_base_z_gain=0.5"
+  ]
+ }
+]
