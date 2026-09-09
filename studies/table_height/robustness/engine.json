@@ -1,0 +1,7 @@
+{
+  "engine_git": "088079eff0450e32b98ee743141780ed68307506",
+  "lib_path": "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/build_cmake/lib/libmujoco.so.3.2.3",
+  "lib_sha256": "bd8e75dd9ee531758f8d71a9c5b5b26b8b5b0097235f9719f21a38879b889792",
+  "replay_sha256": "c08fbc03802df3dc137ad07ea4e41707df9b28630dfbda1ab3c0a1e90c2cd48a",
+  "bench_sha256": "2c08efd68692936d8356f1507466ed34ad99c42d418147cf1d9953e0a7955a8d"
+}

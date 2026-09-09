@@ -1,0 +1,6 @@
+[
+ {"tag":"common_h0985_x1000_ef","h":0.985},
+ {"tag":"common_h1085_x1000_ef","h":1.085},
+ {"tag":"common_h0785_x1000_ef","h":0.785},
+ {"tag":"common_h0785_x1000_ew","h":0.785,"mode":"elbow+wrist"}
+]

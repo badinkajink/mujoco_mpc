@@ -1,0 +1,55 @@
+{
+  "time": "2026-09-09T09:46:57",
+  "eligible": false,
+  "cells": [
+    {
+      "arm": "pitch_track",
+      "h": 0.785,
+      "n": 3,
+      "strict": 1,
+      "ladder": 2,
+      "full": 1
+    },
+    {
+      "arm": "pitch_track",
+      "h": 0.985,
+      "n": 3,
+      "strict": 3,
+      "ladder": 3,
+      "full": 3
+    },
+    {
+      "arm": "pitch_track",
+      "h": 1.085,
+      "n": 3,
+      "strict": 3,
+      "ladder": 3,
+      "full": 1
+    },
+    {
+      "arm": "reference",
+      "h": 0.785,
+      "n": 3,
+      "strict": 3,
+      "ladder": 2,
+      "full": 2
+    },
+    {
+      "arm": "reference",
+      "h": 0.985,
+      "n": 3,
+      "strict": 3,
+      "ladder": 2,
+      "full": 2
+    },
+    {
+      "arm": "reference",
+      "h": 1.085,
+      "n": 3,
+      "strict": 2,
+      "ladder": 3,
+      "full": 1
+    }
+  ],
+  "rule": "High strict count improves; low strict and nominal strict/ladder do not decrease, versus contemporaneous controls."
+}

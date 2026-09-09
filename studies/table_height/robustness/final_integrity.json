@@ -1,0 +1,9 @@
+{
+  "episodes": 51,
+  "state_model_strategy_hashes_verified": true,
+  "binary_matches_frozen_engine": true,
+  "max_fk_difference_m": 8.164226137918895e-07,
+  "max_force_p95_difference_N": 0.0004755399999986309,
+  "confirmation_trials": 0,
+  "stop_reason": "User requested wrap-up after completed screen was rejected"
+}

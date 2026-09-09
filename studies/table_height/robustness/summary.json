@@ -1,0 +1,359 @@
+[
+  {
+    "stage": "ablation",
+    "arm": "far_target",
+    "h": 0.785,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 3,
+    "ladder": 3,
+    "recovered": 3,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "ablate_far_target_h0785_s10",
+      "ablate_far_target_h0785_s11",
+      "ablate_far_target_h0785_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "far_target",
+    "h": 0.985,
+    "n": 3,
+    "strict": 2,
+    "loaded70": 3,
+    "full": 2,
+    "ladder": 3,
+    "recovered": 3,
+    "falls": 0,
+    "ci95": [
+      0.2076596008020477,
+      0.9385080552796037
+    ],
+    "tags": [
+      "ablate_far_target_h0985_s10",
+      "ablate_far_target_h0985_s11",
+      "ablate_far_target_h0985_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "far_target",
+    "h": 1.085,
+    "n": 3,
+    "strict": 2,
+    "loaded70": 2,
+    "full": 0,
+    "ladder": 2,
+    "recovered": 0,
+    "falls": 1,
+    "ci95": [
+      0.2076596008020477,
+      0.9385080552796037
+    ],
+    "tags": [
+      "ablate_far_target_h1085_s10",
+      "ablate_far_target_h1085_s11",
+      "ablate_far_target_h1085_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "legacy_model",
+    "h": 1.085,
+    "n": 3,
+    "strict": 0,
+    "loaded70": 0,
+    "full": 0,
+    "ladder": 0,
+    "recovered": 0,
+    "falls": 3,
+    "ci95": [
+      5.551115123125783e-17,
+      0.5614970317550454
+    ],
+    "tags": [
+      "ablate_legacy_model_h1085_s10",
+      "ablate_legacy_model_h1085_s11",
+      "ablate_legacy_model_h1085_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "no_pose",
+    "h": 0.785,
+    "n": 3,
+    "strict": 2,
+    "loaded70": 2,
+    "full": 1,
+    "ladder": 1,
+    "recovered": 1,
+    "falls": 0,
+    "ci95": [
+      0.2076596008020477,
+      0.9385080552796037
+    ],
+    "tags": [
+      "ablate_no_pose_h0785_s10",
+      "ablate_no_pose_h0785_s11",
+      "ablate_no_pose_h0785_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "no_pose",
+    "h": 1.085,
+    "n": 3,
+    "strict": 2,
+    "loaded70": 2,
+    "full": 0,
+    "ladder": 2,
+    "recovered": 0,
+    "falls": 1,
+    "ci95": [
+      0.2076596008020477,
+      0.9385080552796037
+    ],
+    "tags": [
+      "ablate_no_pose_h1085_s10",
+      "ablate_no_pose_h1085_s11",
+      "ablate_no_pose_h1085_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "reference",
+    "h": 0.785,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 2,
+    "ladder": 2,
+    "recovered": 2,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "ablate_reference_h0785_s10",
+      "ablate_reference_h0785_s11",
+      "ablate_reference_h0785_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "reference",
+    "h": 0.985,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 3,
+    "ladder": 3,
+    "recovered": 3,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "ablate_reference_h0985_s10",
+      "ablate_reference_h0985_s11",
+      "ablate_reference_h0985_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "reference",
+    "h": 1.085,
+    "n": 3,
+    "strict": 1,
+    "loaded70": 1,
+    "full": 0,
+    "ladder": 1,
+    "recovered": 0,
+    "falls": 2,
+    "ci95": [
+      0.06149194472039621,
+      0.7923403991979522
+    ],
+    "tags": [
+      "ablate_reference_h1085_s10",
+      "ablate_reference_h1085_s11",
+      "ablate_reference_h1085_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "short_hold",
+    "h": 0.785,
+    "n": 3,
+    "strict": 0,
+    "loaded70": 0,
+    "full": 0,
+    "ladder": 2,
+    "recovered": 2,
+    "falls": 0,
+    "ci95": [
+      5.551115123125783e-17,
+      0.5614970317550454
+    ],
+    "tags": [
+      "ablate_short_hold_h0785_s10",
+      "ablate_short_hold_h0785_s11",
+      "ablate_short_hold_h0785_s12"
+    ]
+  },
+  {
+    "stage": "ablation",
+    "arm": "short_hold",
+    "h": 1.085,
+    "n": 3,
+    "strict": 0,
+    "loaded70": 0,
+    "full": 0,
+    "ladder": 2,
+    "recovered": 1,
+    "falls": 1,
+    "ci95": [
+      5.551115123125783e-17,
+      0.5614970317550454
+    ],
+    "tags": [
+      "ablate_short_hold_h1085_s10",
+      "ablate_short_hold_h1085_s11",
+      "ablate_short_hold_h1085_s12"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "pitch_track",
+    "h": 0.785,
+    "n": 3,
+    "strict": 1,
+    "loaded70": 1,
+    "full": 1,
+    "ladder": 2,
+    "recovered": 2,
+    "falls": 0,
+    "ci95": [
+      0.06149194472039621,
+      0.7923403991979522
+    ],
+    "tags": [
+      "screen1_pitch_track_h0785_s20",
+      "screen1_pitch_track_h0785_s21",
+      "screen1_pitch_track_h0785_s22"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "pitch_track",
+    "h": 0.985,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 3,
+    "ladder": 3,
+    "recovered": 3,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "screen1_pitch_track_h0985_s20",
+      "screen1_pitch_track_h0985_s21",
+      "screen1_pitch_track_h0985_s22"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "pitch_track",
+    "h": 1.085,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 1,
+    "ladder": 3,
+    "recovered": 1,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "screen1_pitch_track_h1085_s20",
+      "screen1_pitch_track_h1085_s21",
+      "screen1_pitch_track_h1085_s22"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "reference",
+    "h": 0.785,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 2,
+    "ladder": 2,
+    "recovered": 2,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "screen1_reference_h0785_s20",
+      "screen1_reference_h0785_s21",
+      "screen1_reference_h0785_s22"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "reference",
+    "h": 0.985,
+    "n": 3,
+    "strict": 3,
+    "loaded70": 3,
+    "full": 2,
+    "ladder": 2,
+    "recovered": 2,
+    "falls": 0,
+    "ci95": [
+      0.4385029682449546,
+      1.0
+    ],
+    "tags": [
+      "screen1_reference_h0985_s20",
+      "screen1_reference_h0985_s21",
+      "screen1_reference_h0985_s22"
+    ]
+  },
+  {
+    "stage": "screen1",
+    "arm": "reference",
+    "h": 1.085,
+    "n": 3,
+    "strict": 2,
+    "loaded70": 3,
+    "full": 1,
+    "ladder": 3,
+    "recovered": 1,
+    "falls": 0,
+    "ci95": [
+      0.2076596008020477,
+      0.9385080552796037
+    ],
+    "tags": [
+      "screen1_reference_h1085_s20",
+      "screen1_reference_h1085_s21",
+      "screen1_reference_h1085_s22"
+    ]
+  }
+]

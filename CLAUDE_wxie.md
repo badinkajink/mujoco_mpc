@@ -782,8 +782,6 @@ All simulations ended; strategy file restored. Frozen selection hashes
 syntax checks passed; all five mapped CMPC initial qpos/qvel checks match
 exactly. Original checkouts, video.mp4 and bvs_plots.py edits preserved.
 No hardware, DDS, upload, push or external message was used. No blocker.
-
-
 ### 2026-09-09 01:30 — CODEX — controlled robustness study [CLAIMED]
 
 User requests minimal engineering, one-change-at-a-time contributions and scientific validation. Continuing in isolated worktree `/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908`, new branch `codex/table-height-robustness-20260909`, parent `1eab9af6`. Claim: MJPC benchmark audit, randomized ablation of sync/retarget/target/hold, one-factor recovery candidate if supported, fresh-state/height validation. Crocoddyl and original code untouched. Serial six-thread CPU/memory-capped simulations; no hardware/push. New protocol/report under `studies/table_height/robustness/` and `docs/lean/20260909-table_height_robustness.html`. Earlier results remain frozen.

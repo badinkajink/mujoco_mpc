@@ -1,0 +1,12 @@
+[
+ {
+  "tag": "jaw_stand_h0985_x1150_ef",
+  "h": 0.985,
+  "tx": 1.15,
+  "mode": "elbow+forearm",
+  "extra": [
+   "--start",
+   "stand_up"
+  ]
+ }
+]

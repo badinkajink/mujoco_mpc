@@ -1,0 +1,151 @@
+[
+ {
+  "tag": "pose1_short_h1085_s0",
+  "h": 1.085,
+  "seed": 0,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h0785_s1",
+  "h": 0.785,
+  "seed": 1,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h0785_s2",
+  "h": 0.785,
+  "seed": 2,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0985_s1",
+  "h": 0.985,
+  "seed": 1,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0985_s2",
+  "h": 0.985,
+  "seed": 2,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h1085_s1",
+  "h": 1.085,
+  "seed": 1,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h1085_s2",
+  "h": 1.085,
+  "seed": 2,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h0935_s0",
+  "h": 0.935,
+  "seed": 0,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "pose1_short_h1035_s0",
+  "h": 1.035,
+  "seed": 0,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ }
+]

@@ -1264,6 +1264,7 @@
              shift returns the shipped pose bit for bit, so this is free at the
              compiled height. ⚠ must stay BEFORE the first `residual_*` numeric.
              Offline twin: studies/table_height/retarget.py. -->
+        <numeric name="brace_base_z_gain" data="0.0"/>
         <numeric name="brace_pose_track" data="0"/>
 
         <!-- pelvis_tilt_max_deg (2026-08-29, deg): caps the free forward bow

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "low_reference_seed10.mp4",
+    "caption": "Exploratory reference, 0.785 m, initial-state seed 10. Loaded reach within 30 mm for 3.9 s, followed by independently verified recovery. One trial; not a reliability claim. Orange sphere is the fixed target. Geometry-only renderer FK agrees with native evaluation to <1 micrometre."
+  },
+  {
+    "file": "low_no_pose_seed10.mp4",
+    "caption": "Exploratory low-table failure, seed 10. Only retargeting is disabled relative to the reference. The robot stays braced but its hand remains far from the same target through 75 s. Sampling noise is independently randomized; the full three-trial contrast is required for a contribution claim."
+  },
+  {
+    "file": "high_reference_fall_seed12.mp4",
+    "caption": "Tall-table reference, seed 12: backward approach fall before reaching. Recorded poses rendered over the actual 1.085 m face; the orange goal is unchanged."
+  },
+  {
+    "file": "low_pitch_track_seed20.mp4",
+    "caption": "Screen 1, low table, pitch tracking, seed 20: the sole precise loaded success among its three low-table trials (2.92 s), with full recovery. The failed repeat is included alongside it."
+  },
+  {
+    "file": "low_pitch_track_failure_seed21.mp4",
+    "caption": "Screen 1, low table, pitch tracking, seed 21: completes the ladder but never gets within 30 mm; closest reach is 37.4 mm. Upward brace loading also establishes late. This repeat is retained as a failure."
+  },
+  {
+    "file": "high_pitch_track_seed21.mp4",
+    "caption": "Screen 1, high table, pitch tracking, seed 21: 3.30 s precise loaded reach and full recovery. All three high-table candidate trials passed reaching; only this one passed strict unloaded recovery."
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "prior_compiled_sha256": "dac6d1a8a57229c0180666cad6c9c13923853a4df5183d248de3dd924eb6b8d7",
+  "current_compiled_sha256": "dac6d1a8a57229c0180666cad6c9c13923853a4df5183d248de3dd924eb6b8d7",
+  "identical": true,
+  "note": "Initial check mistakenly compared binary hash with XML; corrected here to binary/binary before any trial."
+}

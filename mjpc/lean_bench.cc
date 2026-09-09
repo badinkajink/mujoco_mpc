@@ -93,6 +93,10 @@ int main(int argc, char** argv) {
       std::atof(Arg(argc, argv, "--hold_after_final", "3.0").c_str());
   const std::string out      = Arg(argc, argv, "--out", "");
   const std::string qpos_out = Arg(argc, argv, "--qpos_out", "");
+  // Passive provenance for independent, time-aligned evaluation. These do not
+  // change the state, controller, sampling distribution or stopping condition.
+  const std::string state_out = Arg(argc, argv, "--state_out", "");
+  const std::string model_out = Arg(argc, argv, "--model_out", "");
   // ★ 2026-09-06 STANCE SHIFT (`--stance_shift_x`, m forward; 0 = OFF =
   // byte-identical). BENCH-ONLY on purpose: it moves the reset pose, not the
   // task, so `lean.cc` and the XMLs stay untouched and the shipped controller is
@@ -135,6 +139,13 @@ int main(int argc, char** argv) {
     numeric_over.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1));
   }
 
+  // Diagnostic compatibility switch: 0 reproduces the historical bench.
+  // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
+  // Synchronize once after the first Transition so rollout physics and posture
+  // references see the same environment as the plant (fixed-height bench).
+  const bool sync_planning_model =
+      std::atoi(Arg(argc, argv, "--sync_planning_model", "1").c_str()) != 0;
+
   mjpc::Agent agent;
   agent.SetTaskList(mjpc::GetTasks());
   agent.gui_task_id = agent.GetTaskIdByName(task_name);
@@ -167,7 +178,13 @@ int main(int argc, char** argv) {
   }
   mjData* data = mj_makeData(model);
 
-  int home_id = mj_name2id(model, mjOBJ_KEY, "home");
+  const std::string start_key = Arg(argc, argv, "--start_key", "home");
+  int home_id = mj_name2id(model, mjOBJ_KEY, start_key.c_str());
+  if (home_id < 0) {
+    std::fprintf(stderr, "[bench] unknown --start_key '%s'\n", start_key.c_str());
+    return 2;
+  }
+  std::fprintf(stderr, "[bench] start_key = %s\n", start_key.c_str());
   if (home_id >= 0) mj_resetDataKeyframe(model, data, home_id);
   // qpos[0..6] is the pelvis free joint; the legs follow by kinematics, so this
   // translates the whole robot. The free `object` lives further down qpos and is
@@ -236,11 +253,25 @@ int main(int argc, char** argv) {
 
   FILE* fo = out.empty() ? stdout : std::fopen(out.c_str(), "w");
   FILE* fq = qpos_out.empty() ? nullptr : std::fopen(qpos_out.c_str(), "w");
+  FILE* fs = state_out.empty() ? nullptr : std::fopen(state_out.c_str(), "w");
+  if ((!state_out.empty() && !fs) || !fo || (!qpos_out.empty() && !fq)) {
+    std::fprintf(stderr, "[bench] failed to open requested output file\n");
+    return 2;
+  }
+  if (fs) {
+    std::fprintf(fs, "t,phase");
+    for (int k = 0; k < model->nq; ++k) std::fprintf(fs, ",q%d", k);
+    for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",v%d", k);
+    for (int k = 0; k < model->nu; ++k) std::fprintf(fs, ",u%d", k);
+    for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",warm%d", k);
+    std::fprintf(fs, "\n");
+  }
   std::fprintf(fo, "t,phase,phase_name,pelvis_z,torso_tilt_deg,face_z,pad_clear,"
                    "f_shoulder,f_forearm,f_wrist,f_gripper,"
                    "f_r_elbow,f_r_wrist,f_r_gripper,f_torso,f_pelvis,"
                    "f_other,f_robot_total,cost,"
                    "rhand_x,rhand_y,rhand_z,tgt_x,tgt_y,tgt_z");
+  std::fprintf(fo, ",jaw_x,jaw_y,jaw_z,brace_normal_N,trunk_normal_N");
   for (int k = 0; k < kNMetric; k++) std::fprintf(fo, ",%s", kMetricKeys[k]);
   std::fprintf(fo, "\n");
   if (fq) {
@@ -265,9 +296,47 @@ int main(int argc, char** argv) {
 
   for (int i = 0; i < total_steps; i++) {
     g_task->Transition(model, data);
+    if (i == 0) {
+      mjModel* pm = agent.GetModel();
+      const int key = mj_name2id(model, mjOBJ_KEY, "forearm_brace_lean");
+      auto face = [table_body, tt_gid](const mjModel* m) {
+        return m->body_pos[3 * table_body + 2] + m->geom_pos[3 * tt_gid + 2] +
+               m->geom_size[3 * tt_gid + 2];
+      };
+      if (key >= 0 && table_body >= 0 && tt_gid >= 0) std::fprintf(stderr,
+          "[bench-model-before] plant_face=%.4f planner_face=%.4f "
+          "plant_brace_z=%.4f planner_brace_z=%.4f sync=%d\n",
+          face(model), face(pm), model->key_qpos[key * model->nq + 2],
+          pm->key_qpos[key * pm->nq + 2], int(sync_planning_model));
+      if (sync_planning_model) {
+        // Same model layout; keep the pointer held by the planners and their
+        // allocated mjData. PlanIteration sets the planning timestep itself.
+        mj_copyModel(pm, model);
+        if (key >= 0 && table_body >= 0 && tt_gid >= 0) std::fprintf(stderr,
+            "[bench-model-after] plant_face=%.4f planner_face=%.4f "
+            "plant_brace_z=%.4f planner_brace_z=%.4f\n",
+            face(model), face(pm), model->key_qpos[key * model->nq + 2],
+            pm->key_qpos[key * pm->nq + 2]);
+      }
+      if (!model_out.empty()) {
+        mj_saveModel(model, model_out.c_str(), nullptr, 0);
+        mj_saveModel(pm, (model_out + ".planner").c_str(), nullptr, 0);
+      }
+    }
     agent.state.Set(model, data);
     agent.ActivePlanner().ActionFromPolicy(data->ctrl, agent.state.state().data(),
                                            agent.state.time(), /*use_previous=*/false);
+    if (fs && i % log_every == 0) {
+      // Capture BEFORE integration: qpos, qvel, control and warm-start all refer
+      // to precisely this time. Offline mj_forward reconstructs its contacts.
+      std::fprintf(fs, "%.9g,%d", data->time,
+                   lean_task ? lean_task->BenchPhaseIndex() : 0);
+      for (int k = 0; k < model->nq; ++k) std::fprintf(fs, ",%.17g", data->qpos[k]);
+      for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",%.17g", data->qvel[k]);
+      for (int k = 0; k < model->nu; ++k) std::fprintf(fs, ",%.17g", data->ctrl[k]);
+      for (int k = 0; k < model->nv; ++k) std::fprintf(fs, ",%.17g", data->qacc_warmstart[k]);
+      std::fprintf(fs, "\n");
+    }
     mj_step(model, data);
     if (i % spp == 0) agent.PlanIteration(&pool);
 
@@ -297,7 +366,8 @@ int main(int argc, char** argv) {
 
     if (i % log_every == 0) {
       double f[kNBrace] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-      double f_total = 0.0;                           // ROBOT-on-table only
+      double f_total = 0.0;
+      double brace_normal = 0.0, trunk_normal = 0.0;                           // ROBOT-on-table only
       mjtNum ft[6];
       for (int c = 0; c < data->ncon; c++) {
         const mjContact& con = data->contact[c];
@@ -318,6 +388,17 @@ int main(int argc, char** argv) {
         mj_contactForce(model, data, c, ft);
         double mag = std::sqrt(ft[0] * ft[0] + ft[1] * ft[1] + ft[2] * ft[2]);
         f_total += mag;
+        const char* bn = mj_id2name(model, mjOBJ_BODY, other);
+        const std::string body_name = bn ? bn : "";
+        if (body_name.rfind("left_", 0) == 0 &&
+            (body_name.find("shoulder") != std::string::npos ||
+             body_name.find("elbow") != std::string::npos ||
+             body_name.find("wrist") != std::string::npos ||
+             body_name.find("gripper") != std::string::npos ||
+             body_name.find("magpie") != std::string::npos))
+          brace_normal += std::max(0.0, ft[0]);
+        if (body_name == "torso_link" || body_name == "pelvis")
+          trunk_normal += std::max(0.0, ft[0]);
         for (int k = 0; k < kNBrace; k++) if (other == brace_id[k]) f[k] += mag;
       }
       // Load the named bodies did not account for: any OTHER robot link that is
@@ -360,6 +441,14 @@ int main(int argc, char** argv) {
                    f_other, f_total,
                    g_task->CostValue(data->sensordata),
                    rhand[0], rhand[1], rhand[2], tgtp[0], tgtp[1], tgtp[2]);
+      // Match lean.cc kGripperTipLocal, including its lateral/vertical offsets.
+      mjtNum jaw[3] = {0, 0, 0}, jaw_local[3] = {0.2254, -0.0118, -0.1062};
+      if (rgrip_body >= 0) {
+        mju_mulMatVec3(jaw, data->xmat + 9 * rgrip_body, jaw_local);
+        mju_addTo3(jaw, data->xpos + 3 * rgrip_body);
+      }
+      std::fprintf(fo, ",%.6f,%.6f,%.6f,%.3f,%.3f", jaw[0], jaw[1], jaw[2],
+                   brace_normal, trunk_normal);
       metrics.clear();
       g_task->ComputeMetrics(model, data, &metrics, &phase_name_m);
       for (int k = 0; k < kNMetric; k++) {
@@ -389,6 +478,7 @@ int main(int argc, char** argv) {
 
   if (fo != stdout) std::fclose(fo);
   if (fq) std::fclose(fq);
+  if (fs) std::fclose(fs);
   mj_deleteData(data);
   mjcb_sensor = nullptr;
   return fell ? 1 : 0;

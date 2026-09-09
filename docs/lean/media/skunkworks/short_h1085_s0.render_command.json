@@ -1,0 +1,18 @@
+[
+ "/home/humanoid/miniconda3/envs/croco/bin/python",
+ "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/studies/table_height/skunkworks/render.py",
+ "--model",
+ "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/build_cmake/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml",
+ "--qpos",
+ "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/studies/table_height/runs/codex_skunkworks/mjpc/short_h1085_s0/run.qpos.csv",
+ "--metrics",
+ "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/studies/table_height/runs/codex_skunkworks/mjpc/short_h1085_s0/metrics.csv",
+ "--out",
+ "/home/humanoid/Programs/mujoco_mpc_codex_tableheight_20260908/docs/lean/media/skunkworks/short_h1085_s0.mp4",
+ "--title",
+ "MJPC high-table loaded reach | 167 Hz | seed 0",
+ "--face",
+ "1.085",
+ "--target",
+ "0.8500000000000001,-0.04,1.2349999999999999"
+]

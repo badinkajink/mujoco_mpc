@@ -1,0 +1,74 @@
+[
+ {
+  "tag": "short_h0785_s0",
+  "h": 0.785,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "sync_base05_pose1_h1085_s0",
+  "h": 1.085,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1",
+   "--numeric",
+   "brace_base_z_gain=0.5"
+  ]
+ },
+ {
+  "tag": "stance060_short_h0785_s0",
+  "h": 0.785,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--stance_shift_x",
+   "0.06"
+  ]
+ },
+ {
+  "tag": "pose1_short_h0785_s0",
+  "h": 0.785,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1",
+   "--pose_track",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0885_s0",
+  "h": 0.885,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ }
+]

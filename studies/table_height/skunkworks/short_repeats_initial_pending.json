@@ -1,0 +1,62 @@
+[
+ {
+  "tag": "short_h1085_s1",
+  "h": 1.085,
+  "seed": 1,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h1085_s2",
+  "h": 1.085,
+  "seed": 2,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0985_s1",
+  "h": 0.985,
+  "seed": 1,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ },
+ {
+  "tag": "short_h0985_s2",
+  "h": 0.985,
+  "seed": 2,
+  "rtt": [
+   0.4,
+   0.04,
+   0.15
+  ],
+  "dwell": 5,
+  "extra": [
+   "--sync_planning_model",
+   "1"
+  ]
+ }
+]
