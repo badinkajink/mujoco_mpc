@@ -138,6 +138,95 @@ MJPC brace keyframe — that is the direct attack on MJPC open item 1
 particular MJPC open items 2 (standoff sweep at 0.785/0.885 m), 3 (locate the
 upper edge to 5 mm at 1.040/1.045), 4 (the never-run 0.905–0.935 band).
 
+**RESULT 1 — every height the MJPC study fails at certifies statically in
+crocoddyl.** `crocoddyl_mpc/studies/height_reach.py`, run
+`studies/runs/2026-09-08_height_reach/facerel`. Static IK + equilibrium QP (real
+friction cones, real actuator limits, feet pinned), curated 8-mode ladder, at
+the shipped target held 113 mm above the face:
+
+| face | best mode | effort | max tau/lim | brace N | support margin | pad clear | base pitch |
+|---|---|---|---|---|---|---|---|
+| 0.785 | elbow+wrist | 0.657 | 0.43 | 45.5 | 79 mm | −1 mm | −45.2° |
+| 0.885 | forearm | 0.695 | 0.37 | 64.0 | 85 mm | −2 mm | −32.6° |
+| 0.985 | elbow+wrist | 0.561 | 0.43 | 35.7 | 87 mm | 0 mm | −24.2° |
+| 1.035 | elbow+wrist | 0.560 | 0.46 | 14.4 | 74 mm | −1 mm | −19.5° |
+| 1.050 | elbow+forearm+palm | 0.549 | 0.46 | 28.7 | 85 mm | −2 mm | −17.9° |
+| 1.060 | elbow+forearm+palm | 0.536 | 0.46 | 30.4 | 86 mm | −2 mm | −16.9° |
+| 1.085 | elbow+forearm | 0.570 | 0.47 | 34.5 | 86 mm | −2 mm | −15.1° |
+
+**8 of 8 modes admissible at all seven heights**, including `elbow+forearm` --
+the posture MJPC ships -- with both pads seated (gaps −1.5 to −2.9 mm) and peak
+torque under half the clamp basis everywhere. A statically valid, torque-
+feasible, balance-feasible braced pose therefore EXISTS at 0.785 and at 1.085 m.
+The MJPC height window is not a limit of the robot or of the maneuver.
+
+The brace also matters MORE at the tall slab, which is the motivator: legs-only
+support margin decays 79 → 35 mm from 0.785 to 1.085 m while the braced margin
+holds 74–87 mm across the whole range.
+
+**RESULT 2 — the certified pose does NOT preserve the brace geometry, and the
+change it asks for is small at the high end and large at the low end.** Joint-
+space delta of the certified `elbow+forearm` pose from Allen's shipped
+`forearm_brace_reach` keyframe, per height (`ef/` run). Read the deltas BETWEEN
+rows, not the absolute ones -- the certification differs from the keyframe by
+−62 mm of x and +22° of right_shoulder_pitch even at 0.985, where the keyframe
+was authored:
+
+| face | base dz | base dpitch | rms joint | three biggest joints |
+|---|---|---|---|---|
+| 0.785 | −58.5 mm | +19.8° | 0.199 rad | l_hip_pitch −32.1°, l_shoulder_roll +25.5°, r_hip_pitch −23.9° |
+| 0.885 | −47.7 | +9.3 | 0.143 | l_hip_pitch −22.4, r_hip_pitch −18.1, l_shoulder_roll +18.0 |
+| 0.985 | −12.6 | −2.2 | 0.096 | r_shoulder_pitch +22.1, l_shoulder_roll +14.3, r_shoulder_roll +4.6 |
+| 1.035 | −3.9 | −6.6 | 0.101 | r_shoulder_pitch +22.4, l_shoulder_roll +14.9, l_elbow +11.1 |
+| 1.085 | +2.0 | −10.7 | 0.124 | r_shoulder_pitch +22.6, l_elbow +19.6, l_shoulder_roll +15.8 |
+
+Relative to its own 0.985 solution, the tall slab asks for **+14.6 mm of base z
+and −8.5° of pitch**. MJPC's `retarget.solve()` -- a damped-least-squares
+retarget, a completely different tool -- asks for **+18 mm and −8.7°**. Two
+independent solvers agree to 3 mm and 0.2°.
+
+**CORRECTION to §0 and to the 2026-09-08 report.** §0 says "the next candidate
+is to command the brace keyframe's base z per slab; the retarget only asks for
++18 mm and takes the rest out of trunk pitch", with the implication that +18 mm
+is too timid against a measured ~90 mm shoulder deficit. That inference is
+wrong. The ~90 mm figure is the gap between the ROLLOUTS' shoulder height and
+the shoulder height that would reproduce the 0.985 geometry, and reproducing the
+0.985 geometry is not what the tall slab requires -- the certified pose bows 9°
+less and gets there. +18 mm and −8.7° is the right answer, and MJPC's
+`brace_pose_track` already delivers it. **MJPC open item 1 (`brace_base_z_gain`)
+is therefore predicted dead on arrival**: it commands a quantity the retarget
+already commands correctly. Codex, do not spend runs on it without reading this
+first.
+
+**What that leaves.** The pose is right, applying it does not help (pose_track
+is refuted on the MJPC side, 0/3 at 1.085 and it costs a completion at 1.035),
+so the failure is in the TRANSIT or in the fact that MJPC applies the keyframe
+as one soft cost among many rather than as a contact schedule. That is the
+question the crocoddyl dynamic test is now pointed at, and it is the honest
+comparison: gradient planner with prescribed contacts vs sampling planner with
+cost-shaped contacts, same robot, same slab.
+
+**Caveat, stated plainly.** All of the above is STATIC and the feet are PINNED
+at the seed stance. It proves the pose exists and is holdable; it does not prove
+the robot can get there. `croco_modes` is a conservative screen, not a workspace
+bound (see memory `cmpc-legs-only-is-real`). The dynamic replay is what upgrades
+this.
+
+**Secondary finding, directive (c) / brace-posture question.** `elbow+forearm`
+is the ranked pick at exactly one of seven heights (1.085). At 0.885 m its
+effort is **1.651 against 0.695 for `forearm` alone** -- the shipped two-contact
+posture is 2.4x more expensive than a single-contact brace at the height where
+MJPC falls forward. The winning posture changes with the slab, which is the
+thing neither study has ever let vary.
+
+**Tooling added** (crocoddyl_mpc, uncommitted at the time of writing):
+`contact_select.TABLE_H` + `set_table_face()` -- env knob, default unset =
+byte-identical, moves the slab and the object together and every table query
+downstream follows because they all read the geom; `studies/height_reach.py` --
+the (face x target) certification grid, `--modes` to pin one posture, `--dz`
+face-relative or `--tz` absolute target, writes `cells.json` + `poses.npz`.
+
+
 ## 1. Branch discipline
 
 - **Work on `wxie/table-height`, never on `icra2026` directly.** Allen owns
