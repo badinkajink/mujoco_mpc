@@ -7,6 +7,8 @@ appears in both, one of them is stale.
 
 ## 0. The question this branch is answering
 
+**Two agents are on this branch. Read and append to §0b before starting anything.**
+
 **What is the minimal change that makes table-height generalisation work?**
 
 Minimal is counted in NUMBERS TOUCHED — an existing model numeric beats a new
@@ -75,6 +77,66 @@ that the rung-2 tolerance is NOT dead on a `reach_target_table` rung — is in
 | `publish_pose.sh`, `publish_gates.sh` | figures, videos, page and the STATUS section, idempotent |
 
 Everything replays from `--qpos_out`; none of it costs sim time.
+
+## 0b. Running work log — APPEND ONLY, newest last
+
+Two agents are working this branch (Claude Code and codex). **Claim a line here
+before you start it**, and write the result under the same entry when it lands.
+An entry with no result is work in flight, not work done. Timestamps are local
+(America/Denver). Keep entries short: what was claimed, what was measured, where
+the artifact is.
+
+### 2026-09-08 14:xx — CLAUDE — cmpc table-height skunkworks  [IN FLIGHT]
+
+**Claimed.** The whole crocoddyl side of the table-height question, i.e.
+everything under `Humanoid_Simulation/crocoddyl_mpc`. Codex: do not start work in
+that repo without saying so here first.
+
+User's brief, three parts: (1) is crocoddyl-mpc robust to table heights, as a
+comparison and a motivator; (2) map the *stably reachable* target set per height
+rather than the single shipped target — "a hemisphere of stably (leanable and)
+reachable poses"; (3) revisit the brace pose keyframes, since cmpc certifies
+several viable contact modes and nothing says the shipped one is right off
+0.985 m.
+
+**Established so far (no numbers yet, just wiring facts).**
+
+- The cmpc replay model `Lean_H12_Magpie.xml` carries the table top face at
+  **0.985 m** — the same compiled face as the MJPC study — so the two studies are
+  asking about the same slab and heights are directly comparable.
+  (`table` body at `pos=1.04 0 0.54`, `table_top` geom `pos=0 0 0.39`,
+  half-extent `0.055` → 0.54+0.39+0.055 = 0.985.)
+- Near edge is `body_x − 0.59 = 0.450`. The cmpc seed keyframe
+  `forearm_brace_reach` stands the ankles at **x = 0.2534**, i.e. **197 mm**
+  behind the near edge — which is where the MJPC brace keyframes assume the feet
+  (−199…−203 mm), NOT where MJPC's `home` reset puts them (−268 mm). The 63 mm
+  stance disagreement recorded on the MJPC side does not exist here.
+- Every table query in `contact_select.py` (`table_top_z`, `table_x_range`,
+  `table_y_range`, the IK collision rows, the narrowphase placement test) reads
+  the `table_top_collision` geom out of `d.geom_xpos` rather than a constant, so
+  moving the table BODY moves the face, the near edge, the legs and the
+  narrowphase together. A height knob is therefore one hook in `cs.load()` and
+  every downstream study (`croco_modes`, `croco_stance`, `croco_grid`) inherits
+  it for free.
+- Certification is static and cheap: IK + equilibrium QP per contact subset, no
+  MPC solve, no sim time. A (height × target) map is affordable in a way the
+  MJPC sweep is not.
+
+**Environment that has to be right or nothing runs** (from `crocoddyl_mpc/CLAUDE.md`):
+`LEAN_TASK_DIR` must be **absolute** or the mesh paths resolve relative and the
+model fails to open; `~/miniconda3/envs/croco/bin/python`, never base (crocoddyl
+segfaults in base); never export `LD_PRELOAD`; `--dt 0.02` on any `croco_run`.
+
+**Next, in order.** (a) add a `TABLE_H` env knob to `contact_select.load()`,
+default unset = byte-identical; (b) 1-D height sweep at the shipped target to
+see whether cmpc certifies off 0.985 at all; (c) (height × target) grid for the
+reachable-set map; (d) if a height certifies, export its `q*` as a candidate
+MJPC brace keyframe — that is the direct attack on MJPC open item 1
+(`brace_base_z_gain`), with a solved per-height pose instead of a linear guess.
+
+**Not claimed, still free for codex:** everything in `mujoco_mpc` — in
+particular MJPC open items 2 (standoff sweep at 0.785/0.885 m), 3 (locate the
+upper edge to 5 mm at 1.040/1.045), 4 (the never-run 0.905–0.935 band).
 
 ## 1. Branch discipline
 
