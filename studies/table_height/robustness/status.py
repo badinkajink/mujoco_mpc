@@ -10,6 +10,8 @@ for p in runs.glob('*/job.json'):
 print('Completed',len(complete),'strict',sum(r['strict_success'] for r in complete),'full',sum(r['full_success'] for r in complete),'falls',sum(not r['safe'] for r in complete))
 for p in active:
  latest=None
+ if not (p/'run.csv').exists():
+  print('Starting',p.name);continue
  with (p/'run.csv').open() as f:
   for row in csv.DictReader(f):
    if row.get('brace_normal_N') is not None:latest=row

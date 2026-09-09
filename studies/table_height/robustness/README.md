@@ -1,5 +1,13 @@
 # Controlled table-height robustness study
 
+**Finished at the user’s request after 51 completed trials.** The uniform
+pitch-tracking change was rejected by the predeclared screen rule. No second
+adaptive candidate or fresh confirmation trial was run. The queue is stopped
+and the baseline strategy is restored. Read the final HTML findings and
+`screen1_decision.json`; `results.json` preserves all 51 scores and
+`final_integrity.json` records their hash checks. No controller defaults were
+promoted.
+
 Read `protocol.md` and the dated HTML report before interpreting results.
 Parent: `1eab9af6`; isolated branch `codex/table-height-robustness-20260909`.
 No original source checkout edits except append-only coordination notes.
@@ -75,5 +83,32 @@ maximum foot displacement and contact penetration. Foot displacement includes
 rolling and possible sliding; model torque limits do not certify hardware.
 167 Hz is simulated planner frequency; the runs are slower than real time.
 
-The final recipe and adaptive decision log will be added once the frozen
-ablation finishes. Until then the HTML report explicitly labels counts partial.
+The 33-run ablation is complete. Its hashes and invariant checks are recorded in
+`ablation_integrity.json`. Screen 1 tests one existing numeric,
+`brace_pitch_track=1`, against fresh reference controls: seeds 20–22 at the
+three anchor heights, 18 trials. `screen1.json` fixes the randomized order;
+`decisions.md` records the hypothesis and selection rule before the first trial.
+
+`after_screen1.py` waits for every screen result and the runner lock. It applies
+only the frozen rule. If accepted, it writes `screen1_decision.json`, freezes
+`confirmation.json` and the decision-log entry, then serially launches 15 fresh
+confirmation episodes. If rejected, it exits without using the holdout. Do not
+start a second copy of the watcher or confirmation runner. `STOP` prevents new
+episodes; the running episode finishes and its result is retained.
+
+The report stays explicitly provisional until confirmation and interpretation
+are complete. `physical_summary.py` computes descriptive diagnostics during
+successful precise intervals; it never changes pass/fail scoring. The near-limit
+fraction means samples with ANY actuator at >=99.5% of its modeled force limit,
+not the fraction of all actuators saturated. Foot displacement in the main
+ledger is measured from episode start, not motion within the precise hold.
+
+The benchmark declares completion after three seconds in its final phase.
+A trial reaching final standing near the 75-second deadline can therefore miss
+completion despite being upright. Such cases are labeled separately from
+braced release stalls; the frozen full-task flag remains unchanged.
+
+There is no new CMPC experiment in this study. These MJPC two-second observed
+precision holds are not directly comparable to the earlier CMPC 25-second holds.
+Differences in initialization, task, engines, and scoring prevent attributing
+the old cross-controller counts solely to the optimizers.

@@ -6,6 +6,7 @@ copy and the artifact column is empty unless a page was explicitly published.
 
 | Date | Page | Local file | Artifact URL |
 |---|---|---|---|
+| 2026-09-09 | Table-height robustness: 51 controlled trials and a rejected pitch-tracking screen | `docs/lean/20260909-table_height_robustness.html` | — (local only) |
 | 2026-09-08 | Table-height generalization with synchronized planning models | `docs/lean/20260908-table_height_skunkworks.html` | — (local only) |
 | 2026-09-08 | Braced-lean table-height generalisation: what has been tried, and what bounds the window | `docs/lean/20260908-table_height_full_report.html` | — (local only) |
 | 2026-09-06 | Table-height generalisation in the braced lean: what bounds the window | `docs/lean/20260906-table_height_window_bounds.md` | — (local only, by request) |

@@ -1,0 +1,66 @@
+{
+  "completed_episodes": 33,
+  "binary_matches_frozen_engine": true,
+  "strategies_match_saved_hashes": true,
+  "state_and_model_hashes_match_scores": true,
+  "fixed_threads": 6,
+  "model_deterministic_within_conditions": true,
+  "max_fk_difference_m": 8.09249001643142e-07,
+  "model_hashes": [
+    {
+      "arm": "far_target",
+      "h": 0.785,
+      "sha256": "c03a36d5899b8216c12948759dd16d800bd63e9628d279d8a95dc77c8c14affe"
+    },
+    {
+      "arm": "far_target",
+      "h": 0.985,
+      "sha256": "b7d562e15ce56fd7aad4b4ab1af817fc532f5dd3cd04f661b8b330e7e61b0f98"
+    },
+    {
+      "arm": "far_target",
+      "h": 1.085,
+      "sha256": "a92940c9fff90461959ab145cca12070921ae7505a20af592fffe398bc4e3c2c"
+    },
+    {
+      "arm": "legacy_model",
+      "h": 1.085,
+      "sha256": "a92940c9fff90461959ab145cca12070921ae7505a20af592fffe398bc4e3c2c"
+    },
+    {
+      "arm": "no_pose",
+      "h": 0.785,
+      "sha256": "6195a30d1f2bfc1688cef86306cda25378a3fca5e9290553cbe55da9ac1b680f"
+    },
+    {
+      "arm": "no_pose",
+      "h": 1.085,
+      "sha256": "605ab3bcf3966668ab38b3c127eff9e69eded2f57dfb948c4f144298b76c46b9"
+    },
+    {
+      "arm": "reference",
+      "h": 0.785,
+      "sha256": "c03a36d5899b8216c12948759dd16d800bd63e9628d279d8a95dc77c8c14affe"
+    },
+    {
+      "arm": "reference",
+      "h": 0.985,
+      "sha256": "b7d562e15ce56fd7aad4b4ab1af817fc532f5dd3cd04f661b8b330e7e61b0f98"
+    },
+    {
+      "arm": "reference",
+      "h": 1.085,
+      "sha256": "a92940c9fff90461959ab145cca12070921ae7505a20af592fffe398bc4e3c2c"
+    },
+    {
+      "arm": "short_hold",
+      "h": 0.785,
+      "sha256": "c03a36d5899b8216c12948759dd16d800bd63e9628d279d8a95dc77c8c14affe"
+    },
+    {
+      "arm": "short_hold",
+      "h": 1.085,
+      "sha256": "a92940c9fff90461959ab145cca12070921ae7505a20af592fffe398bc4e3c2c"
+    }
+  ]
+}

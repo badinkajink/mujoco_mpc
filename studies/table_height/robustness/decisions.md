@@ -67,3 +67,19 @@ controls, with no lower strict or ladder count at nominal, and no lower
 strict count at low. Otherwise reject. Report full recovery and falls
 separately; no stopping after favorable individual outcomes. At most one
 further scalar hypothesis remains after this screen.
+
+Screen1 reference low seed20 reached phase8 at73.48s and ended at75s,
+upright, before the final hold/completion requirement. Primary reach passes;
+full-task flag remains false. Report display now distinguishes deadline in
+final standing from a sustained braced release stall. No scoring threshold,
+stop rule or run is changed.
+
+A durable after_screen1.py watcher applies only the already-frozen selection
+rule after all18 trials, waits for the runner lock, and launches the15 fresh
+confirmation trials only if that rule passes. Otherwise it returns for further
+failure analysis. This automates a predeclared decision; it does not inspect
+or tune on confirmation outcomes.
+
+## 2026-09-09T12:15:47 — final wrap-up requested by user
+
+All33 ablations and18 screen trials had completed. The frozen rule rejected pitch tracking: strict low/nominal/high 1/3,3/3,3/3 versus fresh controls3/3,3/3,2/3. Both screen arms had zero falls, so the hypothesized reduction in backward approach falls was NOT established in this cohort. Low failures were insufficient precision/loading duration. No second candidate or confirmation trial was run. STOP is set; both runner and watcher exited. User-requested stopping supersedes the originally planned remaining work. All51 scores and hashes exported in results.json/final_integrity.json.
