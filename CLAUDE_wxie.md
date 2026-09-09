@@ -219,6 +219,31 @@ posture is 2.4x more expensive than a single-contact brace at the height where
 MJPC falls forward. The winning posture changes with the slab, which is the
 thing neither study has ever let vary.
 
+**TRAP, cost me a run and would cost anyone else one.** Do NOT run a crocoddyl
+height study at the paper's nominal reach target **x = 0.9047**. It is the one
+target on the whole ladder where the CMPC brace does not survive a hold --
+measured 2026-08-22: elbow+forearm at contact Kp = 50 falls at 10.2 s while
+legs_only holds indefinitely, because the certified brace force there is 51.5 N
+against 80.9 N at 1.05 and the declared contact is a light touch. Bracing at the
+near target is harmful in EVERY contact mode (least-effort mode selection only
+halves the fall rate 2/2 → 1/2). I ran it and got pelvis 0.076 m -- the robot on
+the floor -- and it is not a height result, it is that pathology reproduced at
+every height. `brace_vs_stand.NOMINAL2_X = 1.06` is the settled condition and is
+now `height_dynamic.DEFAULT_TX`. Control at 0.985 m / x = 1.06: braced run
+upright at pelvis 0.952 with 9.5 mm of reach error and 143.9 N through the
+table, standing run upright with 32.7 mm of error.
+
+The load path is the one `croco-brace-load-path` records, unchanged at this
+target: the force arrives through `left_shoulder_yaw_link` (the "elbow" site's
+body) and `left_wrist_yaw_link` (the wrist pad). The forearm pad -- the geom the
+MJPC study measures clearance against and names its brace after -- carries
+nothing. **That is a live hypothesis for the MJPC high-end failure and codex
+should not assume otherwise: MJPC may be measuring the wrong pad.**
+
+**Also needed or nothing runs:** `CL_ASSETS_DIR` must point at the CL_Assets
+checkout (`$PWD/../CL_Assets`) or `croco_run` exits rc=1 in 0.4 s with "no H1-2
+magpie URDF found" and `solve_plans` reports zero plans without erroring.
+
 **Tooling added** (crocoddyl_mpc, uncommitted at the time of writing):
 `contact_select.TABLE_H` + `set_table_face()` -- env knob, default unset =
 byte-identical, moves the slab and the object together and every table query
