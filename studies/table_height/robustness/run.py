@@ -11,8 +11,9 @@ def main():
  RUNS.mkdir(parents=True,exist_ok=True)
  with (STUDY/'run.lock').open('w') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-  original=STRATEGY.read_bytes();binary=ROOT/'build_cmake/bin/lean_bench';binary_hash=sha(binary)
-  base=json.loads(original);(STUDY/'baseline_strategy.json').write_bytes(original)
+  original=(STUDY/'baseline_strategy.json').read_bytes()
+  if STRATEGY.read_bytes()!=original:raise RuntimeError('strategy differs from frozen baseline; inspect interrupted/external edits before resuming')
+  binary=ROOT/'build_cmake/bin/lean_bench';binary_hash=sha(binary)
   for job in jobs:
    if (STUDY/'STOP').exists():print('STOP requested',flush=True);break
    out=RUNS/job['tag']

@@ -40,16 +40,20 @@ def evaluate(folder):
     safe=('fell=0' in result['summary']) and bool((z[:,7]>=.65).all())
     d30,i30=longest(t,base&(z[:,2]<=.03));d70,i70=longest(t,base&(z[:,2]<=.07))
     complete='complete=1' in result['summary'];terminal=(phase==8)&(t>=t[-1]-2.02)
-    recovered=bool(complete and terminal.sum()>=100 and (z[terminal,7]>.8).all() and (z[terminal,8]<=15).all() and (z[terminal,3]<10).all())
+    recovery_mask=terminal&(z[:,7]>.8)&(z[:,8]<=15)&(z[:,3]<10)
+    recovery_dwell,_=longest(t,recovery_mask)
+    recovered=bool(complete and recovery_mask[-1] and recovery_dwell>=2-1e-8)
     # Cross-check the cached C++ FK against independent FK at pre-step times.
     # run.csv is labeled post-step but its jaw/contact cache belongs pre-step.
     live=np.genfromtxt(p/'run.csv',names=True,delimiter=',');live=np.atleast_1d(live)
     live_error=np.linalg.norm(np.column_stack([live['jaw_x'],live['jaw_y'],live['jaw_z']])-target,axis=1)
     nn=min(len(z),len(live));cache_error=float(np.max(abs(live_error[:nn]-z[:nn,2])))
     contact_delta=float(np.percentile(abs(live['brace_normal_N'][:nn]-z[:nn,3]),95))
+    assert cache_error<5e-6,('FK replay/live mismatch',cache_error)
+    assert contact_delta<.01,('force replay/live mismatch',contact_delta)
     maxphase=int(phase.max());success30=bool(safe and d30>=2-1e-8);success70=bool(safe and d70>=2-1e-8)
     kind='complete' if recovered and success30 else ('fall' if not safe else ('approach' if maxphase<2 else ('reach_miss' if not success30 else 'recovery_stall')))
-    out={**result,'target':target.tolist(),'strict_success':success30,'loaded70_success':success70,'safe':safe,'dwell30_s':d30,'dwell70_s':d70,'interval30':i30,'interval70':i70,'ladder_complete':complete,'recovered':recovered,'full_success':bool(success30 and recovered),'failure_class':kind,'max_phase':maxphase,'pelvis_min':float(z[:,7].min()),'max_joint_velocity_rad_s':float(z[:,9].max()),'max_joint_limit_violation_deg':math.degrees(float(z[:,10].max())),'max_actuator_force_fraction':float(z[:,11].max()),'max_foot_displacement_m':float(z[:,12].max()),'max_penetration_m':float(z[:,13].max()),'ctrl_range_violation':max(0.,ctrl_viol),'cache_fk_max_error_m':cache_error,'cache_brace_delta_p95_N':contact_delta,'plant_face':face,'planner_face':planner_face,'planner_different_arrays':diff,'contact_body_peak_N':contact_names,'sample_dt':float(np.median(np.diff(t))),'state_sha256':sha(p/'state.csv'),'model_sha256':sha(p/'plant.mjb')}
+    out={**result,'target':target.tolist(),'strict_success':success30,'loaded70_success':success70,'safe':safe,'dwell30_s':d30,'dwell70_s':d70,'interval30':i30,'interval70':i70,'ladder_complete':complete,'recovered':recovered,'recovery_dwell_s':recovery_dwell,'full_success':bool(success30 and recovered),'failure_class':kind,'max_phase':maxphase,'pelvis_min':float(z[:,7].min()),'max_joint_velocity_rad_s':float(z[:,9].max()),'max_joint_limit_violation_deg':math.degrees(float(z[:,10].max())),'max_actuator_force_fraction':float(z[:,11].max()),'max_foot_displacement_m':float(z[:,12].max()),'max_penetration_m':float(z[:,13].max()),'ctrl_range_violation':max(0.,ctrl_viol),'cache_fk_max_error_m':cache_error,'cache_brace_delta_p95_N':contact_delta,'plant_face':face,'planner_face':planner_face,'planner_different_arrays':diff,'contact_body_peak_N':contact_names,'sample_dt':float(np.median(np.diff(t))),'state_sha256':sha(p/'state.csv'),'model_sha256':sha(p/'plant.mjb')}
     if (phase==2).any():out['reach_min_mm']=float(z[phase==2,2].min()*1000)
     if i30:
         use=(t>=i30[0])&(t<=i30[1]);out['strict_interval']={k:float(v) for k,v in {'error_p95_mm':np.percentile(z[use,2],95)*1000,'brace_up_p05_N':np.percentile(z[use,4],5),'tilt_median_deg':np.median(z[use,8]),'joint_limit_peak_deg':math.degrees(z[use,10].max()),'foot_displacement_peak_m':z[use,12].max()}.items()}

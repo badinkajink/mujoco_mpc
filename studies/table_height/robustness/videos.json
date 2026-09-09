@@ -1,0 +1,14 @@
+[
+  {
+    "file": "low_reference_seed10.mp4",
+    "caption": "Exploratory reference, 0.785 m, initial-state seed 10. Loaded reach within 30 mm for 3.9 s, followed by independently verified recovery. One trial; not a reliability claim. Orange sphere is the fixed target. Geometry-only renderer FK agrees with native evaluation to <1 micrometre."
+  },
+  {
+    "file": "low_no_pose_seed10.mp4",
+    "caption": "Exploratory low-table failure, seed 10. Only retargeting is disabled relative to the reference. The robot stays braced but its hand remains far from the same target through 75 s. Sampling noise is independently randomized; the full three-trial contrast is required for a contribution claim."
+  },
+  {
+    "file": "high_reference_fall_seed12.mp4",
+    "caption": "Tall-table reference, seed 12: backward approach fall before reaching. Recorded poses rendered over the actual 1.085 m face; the orange goal is unchanged."
+  }
+]

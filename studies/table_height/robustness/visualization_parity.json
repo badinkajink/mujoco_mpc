@@ -1,0 +1,5 @@
+{
+  "purpose": "Visualization-only FK check; Python engine NEVER evaluates new dynamics/forces",
+  "samples": 175,
+  "max_jaw_difference_m": 4.946612513547039e-09
+}
