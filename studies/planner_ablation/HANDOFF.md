@@ -85,25 +85,44 @@ lean; completing median −0.174, lean-onset falls median −0.244, 44/61 falls 
 the completing p10 of −0.222) and `lean_onset_cop_sat_frac`. These are the dense
 signals for §5.
 
-## 2d. Deploy plant, 33 Hz: the spline is a component (2026-09-11 15:20, `runs/gains_spp15`)
-Predictive sampling at σ = 0.01 rad, argmin, 6 seeds: **zero-order hold 6/6,
-cubic 0/6** (cubic: 4 falls at rung 1, 1 at rung 2, 1 stall). The executed
-step per plan is the same (8.3 vs 9.4 mrad in the lean), so the step-size
-window does not explain it; on the XML plant at 50 Hz the same split was 5/6
-vs 1/6, and at 167 Hz cubic completes (3/3), so it is a stale-plan effect of
-the representation. CEM/iCEM hard-code the zero-order hold. Shipped PS
-(cubic, 0.03–0.36 rad) 0/6 and shipped MPPI 0/5 fall in the stand within
-10–45 s. Hypothesis to test on the traces: between plans the cubic command
-moves along the curve toward knot 1 (0.5 s ahead, chosen under the previous
-state) while the hold stays at knot 0; log one seed of each at 500 Hz
-(`--log_hz 500`) and compare the within-plan command velocity. The 2 × 3
-(spline × update rule) at σ = 0.01 is queued in batch X (`cem_cubic`,
-`icem_cubic`, `mppi_raw01_cubic_l1`, `mppi_raw01_cubic_l0.1`, plus the
-one-knob `ps_scaled01_cubic`, `mppi_scaled01_cubic`) at 33/50/167 Hz.
-Reading so far: the components that make CEM work on the robot's plant at the
-robot's rate are the noise floor in radians (0.01) and the hold spline; the
-update rule is second order (argmin 6/6, elite mean 5/6–6/6, softmax 4/6 with
-stalls). `cem_ne1` (argmin of 20 with the adaptive variance) is in batch K.
+## 2d. Deploy plant, 33 Hz: the spline is a component (`runs/gains_spp15`, complete 258/258 at 17:18)
+Spline × update rule at σ = 0.01 rad, 6 seeds:
+
+| update rule | cubic | hold |
+|---|---|---|
+| argmin (PS) | 0/6 | 6/6 |
+| softmax λ = 0.1 (MPPI) | 0/6 | 6/6 |
+| softmax λ = 1 (MPPI) | 1/6 | 4/6 (2 stalls) |
+| elite mean k = 6 (CEM) | 1/6 | 5/6 |
+| iCEM (AR(1) α 0.7 + 2 kept elites) | **6/6** | 6/6 |
+
+Shipped PS (cubic, 0.03–0.36 rad) 0/6 and MPPI 0/6 fall in the stand within
+10–45 s; the one-knob "exploration 0.01" versions (0.003–0.03 rad, cubic) 0/6.
+Every cubic failure is the backward drift at the lean onset: `com_beyond_foot_edge`
+−0.13 → −0.28 m over 1.2 s, CoP pinned at the heel (−0.21), ICP behind the foot
+by 14.0 s, fall at 14.4–14.9 s (traces of ps_raw01_cubic s1, cem_cubic s2; the one
+hold-CEM failure, cem s0, is the same trace). The executed step per plan does
+not separate cubic from hold (settled stand 6–12 s: PS cubic 7.3 vs hold 3.9 mrad,
+CEM 6.3 vs 5.6, iCEM 2.6 vs 2.7; cem_ne2 at 9.9 completes 6/6).
+500 Hz probe (`runs/probe500`, PS seed 1, cubic vs hold): the cubic command moves
+within the plan interval at 70–90 mrad/s RMS over joints (2–2.5 mrad per 30 ms)
+plus a 6–10 mrad jump at each plan; the hold has no within-plan motion and a
+1.9 mrad jump in the stand. The ramp is not undone by the next jump
+(corr +0.01…+0.03), so it is not a sawtooth. Working mechanism: with a hold
+the perturbation of the first knot is executed for 0.5 s in the rollout, so
+the immediate action is selected on; with a cubic and white knot noise the
+first-knot perturbation is transient and the immediate action follows a curve
+set by knots chosen for 0.5–1 s ahead. iCEM's colored noise ties the first
+knot to the later ones, which would explain its immunity; batch Y
+(`icem_a0_cubic` white noise + memory, `icem_keep0_cubic` colored noise, no
+memory, and their hold versions) splits that, queued at 33 Hz in campaign8.
+The knot-spacing test (6 knots, or horizon 0.5 s with 3 knots, cubic PS) is
+the next falsifier: if the cubic failure is the transient first knot, denser
+knots should rescue it.
+Update-rule reading at the hold and 0.01 rad: every rule completes; the σ
+basin is CEM 0.005–0.05 all ≥ 4/6, PS-hold 0.01–0.02, MPPI-hold 0.01–0.02;
+k = 1, 2, 6, 10 all ≥ 5/6, k = 20 (no selection) 0/6; N = 8 hurts CEM (2/6)
+and PS (2/6), not MPPI (4/6).
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

@@ -105,6 +105,7 @@ def main():
     arms = [x for x in a.arms.split(",") if x]
     for b in [x for x in a.batch.split(",") if x]:
         arms += BATCHES[b]
+    arms = list(dict.fromkeys(arms))  # batches overlap; keep the first occurrence
     seeds = [int(s) for s in a.seeds.split(",")]
     unknown = [x for x in arms if x not in ARMS]
     if unknown:

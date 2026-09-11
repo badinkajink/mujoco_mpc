@@ -147,6 +147,11 @@ ARMS = {
                             "sampling_representation": 0}),
     "ps_raw05_zero":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.05,
                             "sampling_representation": 0}),
+    # ---- why is iCEM immune to the cubic spline (icem_cubic 6/6 at 33 Hz on
+    #      the deploy plant, cem_cubic 1/6, ps cubic 0/6)? Split its two
+    #      differences from CEM under the cubic: colored noise vs elite memory.
+    "icem_a0_cubic":    (ICEM, {"cem_representation": 2, "icem_alpha": 0.0}),      # white noise, memory
+    "icem_keep0_cubic": (ICEM, {"cem_representation": 2, "icem_elite_keep": 0}),   # colored noise, no memory
 }
 
 BATCHES = {
@@ -184,4 +189,6 @@ BATCHES = {
           "mppi_scaled01_cubic", "mppi_raw01_cubic_l0.1"],
     # S2 = the PS sigma axis with the hold spline
     "S2": ["ps_raw005_zero", "ps_raw01_zero", "ps_raw02_zero", "ps_raw03_zero", "ps_raw05_zero"],
+    # Y = the iCEM-under-cubic split (plus the hold versions of the same two)
+    "Y": ["icem_a0_cubic", "icem_keep0_cubic", "icem_a0", "icem_keep0"],
 }
