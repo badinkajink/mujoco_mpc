@@ -2,7 +2,7 @@
 """Assemble docs/lean/<date>-planner_ablation.html from page_body.html (the
 prose, with {{TABLE:arm1,arm2,...}} and {{FIG:name.png}} markers), analyze.py's
 summary.json and the figures under docs/lean/media/planner_ablation/."""
-import argparse, os, re, subprocess, sys
+import argparse, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STYLE = ("body{font:17px/1.55 system-ui,sans-serif;max-width:1180px;margin:40px auto;padding:0 24px;"
@@ -13,6 +13,7 @@ STYLE = ("body{font:17px/1.55 system-ui,sans-serif;max-width:1180px;margin:40px 
          ".scroll{overflow-x:auto;margin:12px 0}code,pre{background:#eef1f5;font-size:13.5px}pre{padding:14px;white-space:pre-wrap}"
          "img{max-width:100%;display:block;margin:8px auto}a{color:#075eaa}.muted{color:#546474}"
          "figure{margin:18px 0}figcaption{font-size:14px;color:#546474}"
+         "figure.paper img{max-width:min(100%,760px)}figure.paper{background:white;padding:12px 12px 4px;border:1px solid #e3e8ee}"
          "tr.icem td:first-child{border-left:4px solid #1f77b4}tr.cem td:first-child{border-left:4px solid #2ca02c}"
          "tr.ps td:first-child{border-left:4px solid #d62728}tr.mppi td:first-child{border-left:4px solid #ff7f0e}"
          "td b{color:#1b5e20}")
@@ -25,6 +26,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--media_rel", default="media/planner_ablation")
     ap.add_argument("--title", required=True)
+    ap.add_argument("--nruns", type=int, default=0, help="scored runs across every rate, for the header")
     a = ap.parse_args()
     body = open(a.body).read()
 
@@ -57,6 +59,15 @@ def main():
     body = re.sub(r"\{\{FIG:([^}|]+)(?:\|([^}]*))?\}\}",
                   lambda m: '<figure><img src="%s/%s" alt="%s"><figcaption>%s</figcaption></figure>'
                   % (a.media_rel, m.group(1), m.group(1), m.group(2) or ""), body)
+    # paper figures (IEEE column width): shown at a fixed width so they read as in print
+    body = re.sub(r"\{\{PFIG:([^}|]+)(?:\|([^}]*))?\}\}",
+                  lambda m: '<figure class=paper><img src="%s/%s" alt="%s"><figcaption>%s</figcaption></figure>'
+                  % (a.media_rel, m.group(1), m.group(1), m.group(2) or ""), body)
+    S = json.load(open(a.summary))
+    body = body.replace("{{NRUNS}}", str(a.nruns or len(S["runs"])))
+    left = sorted(set(re.findall(r"\{\{[A-Z_]+\}\}", body)))
+    if left:
+        print("unresolved markers:", ", ".join(left), file=sys.stderr)
     html = ("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<title>%s</title><style>%s</style>\n%s\n</html>\n" % (a.title, STYLE, body))
