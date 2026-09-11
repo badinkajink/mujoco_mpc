@@ -229,7 +229,7 @@
              z=1.020) -- the Posture cost holds this stance at LOW weight while
              the Gait cost overrides the swing leg's vertical motion each cycle.
              The phase name must begin with "stumble" (the beginning.cc name-gate). -->
-        <key name="stumble_march" qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
+        <key name="stumble_march" qpos="0.19 0 1.02 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <key name="stumble_trot"  qpos="0.19 0 1.020 1 0 0 0 0 -0.25 0.12 0.35 -0.21 0 0 -0.25 -0.12 0.35 -0.21 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.5 0 0.75 1 0 0 0"/>
         <!-- WSS drive (strat 24): posture keyframe for the stand<->trot teleop FSM. Byte-copy of
              stumble_trot; the "drive" token makes is_drive detectable while "stumble"+"trot" keep
@@ -1027,7 +1027,23 @@
         <!-- stance_off_x (2026-06-20, strategy 20): feet planted this far AHEAD of
              the CoM (m). LOWER -> CoM more centred -> better BACKWARD margin; HIGHER
              -> more forward margin. XML-tunable, no rebuild. -->
-        <numeric name="stance_off_x" data="0.13"/>
+        <numeric name="stance_off_x" data="0.06"/>
+        <numeric name="stance_off_y" data="0.26"/>
+        <numeric name="step_place_gated" data="0"/>
+        <numeric name="stance_regulate" data="0"/>
+        <numeric name="stance_nominal_w" data="0.38"/>
+        <numeric name="stance_regulate_tol" data="0.05"/>
+        <numeric name="balance_fore_bias" data="0.0"/>
+        <numeric name="balance_sole_fore" data="0.0"/>
+        <numeric name="balance_sole_aft" data="0.0"/>
+        <numeric name="catch_swing_scale" data="1.0"/>
+        <numeric name="catch_gait_boost" data="1.0"/>
+        <numeric name="catch_place_hip" data="0.0"/>
+        <numeric name="catch_rate_lead" data="0.0"/>
+        <numeric name="catch_rate_lp" data="0.10"/>
+        <numeric name="catch_prep_trig" data="0.0"/>
+        <numeric name="catch_prep_rock" data="0.0"/>
+        <numeric name="stumble_stagger" data="0.0"/>
         <!-- lean_nominal_x (2026-06-20, strategy 20): the steady forward-lean
              torso_up[0] at rest (~sin(3-4deg)). Subtracted from tilt so the catch-step
              is SYMMETRIC about equilibrium (fixes late/wrong-way BACKWARD catch). -->
@@ -1038,6 +1054,78 @@
              is hauled back flat-footed BEFORE a step. 0 = off. XML-tunable, no rebuild. -->
         <numeric name="recover_pitch_gain" data="0.0"/> <!-- PHASE 1 2026-06-26: tested +10 (2/6=33%) and +30 (6/12=50% on twin) = NO robust catch-step fix (the 4/4@30 was variance). Reverted to 0. Frontier needs concurrent lateral-CoM + recovery, not pitch gain alone. -->
         <numeric name="recover_roll_gain" data="0.0"/>
+        <!-- stumble_angmom_w (2026-09-08): the WEIGHT CARRIER for the two gains
+             above. Until now angmom_w was set only for trot-WALK and jump, so for
+             strategy 20 the Angular Momentum residual was identically zero and the
+             recover_*_gain sweep of 2026-06-26 could not reach the cost function
+             (an achieved-zero null -- see beginning.cc). 0.0 = OFF = byte-identical.
+             ~3 matches the trot-walk carrier; the JSON "Angular Momentum" weight
+             (8.0 in h12_simple_stumble) multiplies it on top. Scoped so strat 23/24
+             in-place trot is untouched. -->
+        <numeric name="stumble_angmom_w" data="0.0"/>
+        <!-- stumble_swing_force (2026-09-08): amplitude of the OPEN-LOOP swing
+             writer (beginning::ModifyControl) for strategy 20. That writer drives
+             the swing leg's hip/knee/ankle targets directly; it was gated `is_trot`
+             and strat 20's keyframe is `stumble_march`, so strat 20 has never had
+             it -- its catch-step was cost-only, asking a weight-6 Step Place to
+             out-argue Foot-Up 2000, and in 94 recorded runs it produced 2 steps.
+             Gated by the same smoothstep `recov` the cost uses, so 0 danger =>
+             0 amplitude => early return => the quiet stand and the validated
+             2026-09-06 push numbers are untouched. 0.0 = OFF = byte-identical;
+             1.0 = the full trot swing amplitude. -->
+        <numeric name="stumble_swing_force" data="0.0"/>
+        <!-- stumble_phase_reset (2026-09-08): 1 = on the rising edge of the catch
+             gate, slew the gait clock so the CHOSEN catch foot is at swing start
+             immediately. Without it the swing window (0.36 s) opens on a free-
+             running 1.1 Hz clock while `danger` stays above catch_trig for only
+             0.5-0.9 s -- an expected 0.28 s and worst-case 0.55 s of pure waiting,
+             which can consume the whole budget. Same field trot_contact_switch
+             writes; strat 20 just never had a trigger wired to it. 0 = OFF. -->
+        <numeric name="stumble_phase_reset" data="0"/>
+        <!-- stumble_phase_debounce [s]: minimum interval between phase resets, so
+             a danger signal hovering at catch_trig cannot re-slam the clock every
+             tick and prevent any swing from ever completing. -->
+        <numeric name="stumble_phase_debounce" data="0.60"/>
+        <!-- catch_bias_trig / catch_bias_dwell (2026-09-08): arm the catch when
+             `danger` has held above this LOW threshold CONTINUOUSLY for the dwell,
+             in addition to the fast catch_trig path. The dwell is what makes a low
+             threshold safe against quiet-stand wobble. 0 = OFF. -->
+        <numeric name="catch_bias_trig" data="0.0"/>
+        <numeric name="catch_bias_dwell" data="0.40"/>
+        <!-- stumble_lean_nominal (2026-09-08): strat-20-only override of
+             lean_nominal_x. MEASURED resting torso_up[0] = 0.0197 over 24 quiet
+             stands (spread 0.0010); lean_nominal_x says 0.06, so `danger` idles at
+             0.041 = 4.4x its own jitter, which pins the trigger floor and makes the
+             catch 2x more sensitive backward than forward. -1 = use lean_nominal_x
+             = byte-identical. Scoped because the right value is a property of the
+             keyframe's resting posture and trot/drive rest in a different pose. -->
+        <numeric name="stumble_lean_nominal" data="-1.0"/>
+        <!-- catch_unweight [rad] / catch_unweight_dur [s] (2026-09-08): half-sine
+             flexion pulse on BOTH knees at catch onset. Drops the CoM so foot load
+             falls by (1 - a/g), which cuts the lateral weight transfer a fore/aft
+             step needs. The only lever here not bound by sqrt(z/g). 0 = OFF. -->
+        <numeric name="catch_unweight" data="0.0"/>
+        <numeric name="catch_unweight_dur" data="0.20"/>
+        <!-- stumble_sep_hold [m] / stumble_sep_gain (2026-09-09): hold the
+             ankle-to-ankle LATERAL separation across a catch-step. MEASURED
+             without it, three lateral drift runs scissored 0.382->0.216,
+             0.407->0.163 and 0.330->0.106 m, every step on the same foot,
+             because `step_y` is one capture term applied with the SAME sign to
+             both legs while the foot that can actually lift is the UNLOADED one
+             (opposite the fall). The regulator places the swing foot relative to
+             the measured separation instead. ~0.38 = the home stance.
+             0 = OFF = byte-identical. -->
+        <numeric name="stumble_sep_hold" data="0.0"/>
+        <numeric name="stumble_sep_gain" data="1.0"/>
+        <!-- stumble_step_pair [gait cycles] (2026-09-09): once a catch-step has
+             fired, hold the catch armed this many cycles even as `danger` falls
+             back, so the TRAILING foot gets its own swing and the stance moves as
+             a PAIR. Measured need: the catch stays armed 0.36-0.9 s against a
+             0.91 s cycle, so today only one foot can ever swing and the stance
+             translates by one leg (separation 0.358->0.401 and 0.338->0.432 m in
+             the two runs that stepped, vs +0.002 m in one that did not).
+             1.0 = one full cycle = both feet. 0 = OFF = byte-identical. -->
+        <numeric name="stumble_step_pair" data="0.0"/>
         <!-- Default 1.70 matches the actual head-feet error at the home
              pose: head site z=1.728, foot COM z=0.029 → head_feet=1.699.
              The old 1.65 made the Height residual +0.05 at home with cost

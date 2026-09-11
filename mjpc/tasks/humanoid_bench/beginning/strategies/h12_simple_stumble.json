@@ -128,7 +128,7 @@
             "Knees Straight": 200.0,
             "Gait": 80.0,
             "Step Place": 6.0,
-            "Foot Slip": 25.0
+            "Foot Slip": 600.0
         },
         "brace_force_target": 0.0
     }

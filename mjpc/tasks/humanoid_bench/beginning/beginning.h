@@ -257,6 +257,53 @@ class beginning : public Task {
     double com_acc_filt_[2] = {0.0, 0.0};
     double com_vel_prev_[2] = {0.0, 0.0};
     double com_acc_prev_time_ = -1.0;
+    // ---- ★ CAPTURE-POINT DIVERGENCE RATE (catch_rate_lead input) ---------
+    // MEASURED 2026-09-07: lowering catch_trig/catch_full barely lengthens the
+    // window in which the catch-step is at full amplitude -- 0.31 s at
+    // 0.12/0.24 vs 0.50 s at 0.07/0.11. That is not a tuning failure, it is the
+    // inverted pendulum: the capture point diverges with time constant
+    // tau = sqrt(z/g) ~ 0.30 s, so halving the threshold buys only
+    // tau*ln(2) ~ 0.2 s. A humanoid swing needs 0.3-0.5 s, and the trigger
+    // cannot fire below the gait's own wobble (quiet-stand danger peaks 0.057).
+    // Level alone therefore CANNOT buy step time. The rate can: a fatal
+    // disturbance ramps `danger` monotonically for ~1 s before it crosses any
+    // level, while an absorbed one peaks ~0.07 and turns over.
+    // Low-passed here, once per real control tick (rollouts see it frozen),
+    // exactly as com_acc_filt_ is -- a raw per-rollout derivative would be
+    // noise.
+    double danger_prev_ = 0.0;
+    double danger_rate_ = 0.0;
+    double danger_prev_time_ = -1.0;
+    // ★ CATCH PHASE RESET (stumble_phase_reset). catch_armed_ is the rising-edge
+    // latch on danger > catch_trig; catch_reset_time_ debounces it so a danger
+    // signal hovering at the threshold cannot re-slam the gait clock every tick.
+    bool catch_armed_ = false;
+    double catch_reset_time_ = -1.0;
+    // ★ SUSTAINED-BIAS ARM (catch_bias_trig / catch_bias_dwell). bias_since_ is
+    // the time `danger` first rose above the LOW bias threshold and stayed there;
+    // catch_bias_on_ latches once it has held for the dwell. Computed once per
+    // real tick in TransitionLocked and copied into every rollout snapshot, like
+    // danger_rate_ -- a rollout must not re-derive a latch from its own clock.
+    bool catch_bias_on_ = false;
+    double bias_since_ = -1.0;
+    // Time the catch gate last went from closed to open. Latched unconditionally
+    // (not only when the phase reset is enabled) because the UNWEIGHT pulse
+    // needs the onset instant too.
+    double catch_onset_time_ = -1.0;
+    // ★ STANCE SEPARATION (stumble_sep_hold). Lateral ankle-to-ankle distance in
+    // the BASE-YAW frame, latched once per real tick in TransitionLocked.
+    // ModifyControl has no mjData and cannot read foot sensors, so the measured
+    // separation has to be carried across like com_acc_filt_ / step_frozen_.
+    // -1 = not yet measured.
+    double stance_sep_y_ = -1.0;
+    // ★ COMMITTED STEP PAIR (stumble_step_pair). A catch is armed for a measured
+    // 0.36-0.9 s while ONE gait cycle is 1/cadence = 0.91 s, so only one foot
+    // ever gets a swing window and the stance ends up translated by one leg
+    // instead of both. These hold the catch alive for a whole cycle once a step
+    // has actually been committed, so the trailing foot follows and the pair
+    // ends up back at its nominal separation.
+    double catch_hold_until_ = -1.0;
+    double catch_hold_recov_ = 0.0;
     // Per-step exponential DCM target [m], world xy: the closed-form LIPM
     // solution x_target = p0 + (xi0 - p0) e^{omega T} with
     // p0 = (xi_des - xi0 e^{omega T})/(1 - e^{omega T}). Latched at swing start.
@@ -541,6 +588,19 @@ class beginning : public Task {
       rfn->gait_overrun_[i]   = residual_.gait_overrun_[i];
       rfn->step_frozen_ok_[i] = residual_.step_frozen_ok_[i];
       rfn->com_acc_filt_[i]   = residual_.com_acc_filt_[i];
+      if (i == 0) {
+        rfn->danger_prev_ = residual_.danger_prev_;
+        rfn->danger_rate_ = residual_.danger_rate_;
+        rfn->danger_prev_time_ = residual_.danger_prev_time_;
+        rfn->catch_armed_ = residual_.catch_armed_;
+        rfn->catch_reset_time_ = residual_.catch_reset_time_;
+        rfn->catch_bias_on_ = residual_.catch_bias_on_;
+        rfn->bias_since_ = residual_.bias_since_;
+        rfn->catch_onset_time_ = residual_.catch_onset_time_;
+        rfn->stance_sep_y_ = residual_.stance_sep_y_;
+        rfn->catch_hold_until_ = residual_.catch_hold_until_;
+        rfn->catch_hold_recov_ = residual_.catch_hold_recov_;
+      }
       rfn->dcm_target_[i]     = residual_.dcm_target_[i];
     }
     for (int i = 0; i < 4; i++) rfn->step_frozen_[i] = residual_.step_frozen_[i];
