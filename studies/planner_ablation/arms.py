@@ -80,6 +80,23 @@ ARMS = {
                             "sampling_representation": 0}),
     "ps_raw02_zero":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.02,
                             "sampling_representation": 0}),
+
+    # ---- deploy-rate campaign (2026-09-11 afternoon): ladders on CEM, the
+    #      planner the real system runs, at the plan rate it runs at ----------
+    "cem_ne1":       (CEM, {"n_elite": 1}),      # argmin of 20 noisy (variance -> floor)
+    "cem_ne2":       (CEM, {"n_elite": 2}),
+    "cem_ne10":      (CEM, {"n_elite": 10}),
+    "cem_ne20":      (CEM, {"n_elite": 20}),     # mean of everything, no selection
+    "cem_stdmin02":  (CEM, {"std_min": 0.02}),
+    "cem_stdmin03":  (CEM, {"std_min": 0.03}),
+    "cem_stdmin05":  (CEM, {"std_min": 0.05}),
+    "cem_stdmin10":  (CEM, {"std_min": 0.10}),
+    "ps_raw02_cubic": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.02,
+                            "sampling_representation": 2}),
+    "ps_raw03_cubic": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.03,
+                            "sampling_representation": 2}),
+    "ps_raw05_cubic": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.05,
+                            "sampling_representation": 2}),
 }
 
 BATCHES = {
@@ -93,4 +110,11 @@ BATCHES = {
           "icem_ne10", "icem_a095", "cem_ne6_fixed01_nom"],
     "E": ["icem_n8_ne2", "icem_n40_ne12", "icem_h05", "icem_h03",
           "ps_raw01_zero_n40", "ps_raw004_zero", "ps_raw02_zero"],
+    # deploy-rate campaign: R = the five update rules at every rate; L = the
+    # ladders at 33 Hz only
+    "R": ["cem", "icem", "mppi_raw01_zero_l1", "ps_raw01_cubic", "ps_raw01_zero"],
+    "L": ["cem_ne1", "cem_ne2", "cem_ne10", "cem_ne20",
+          "cem_stdmin02", "cem_stdmin03", "cem_stdmin05", "cem_stdmin10",
+          "ps_raw02_cubic", "ps_raw03_cubic", "ps_raw05_cubic",
+          "mppi_raw01_zero_l0.1", "mppi_raw01_zero_l10"],
 }

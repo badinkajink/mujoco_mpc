@@ -142,6 +142,16 @@ int main(int argc, char** argv) {
     numeric_over.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1));
   }
 
+  // ★ 2026-09-11 `--gains deploy`: put the DEPLOY NODE's joint PD on the plant
+  // and on the planner model. The lean XML ships arm kp 40 on every arm joint
+  // and ankle-roll kp 200; the node (h12_control_node.cc KP[]/KV[], patched into
+  // its planner model by PatchActuators so "node KP == planner kp == twin PD")
+  // runs shoulder 90/60, yaw 40, elbow 90, wrists 15 and ankle roll 80. A bench
+  // run at the node's plan rate with the XML gains is therefore not the robot's
+  // joint law. Default off = the XML = every earlier bench run. Values copied
+  // from h12_control_node.cc (2026-08-22 table); keep them in sync by hand.
+  const std::string gains = Arg(argc, argv, "--gains", "xml");
+
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
   // Synchronize once after the first Transition so rollout physics and posture
@@ -178,6 +188,25 @@ int main(int argc, char** argv) {
     }
     model->numeric_data[model->numeric_adr[n]] = kv.second;
     std::fprintf(stderr, "[bench] %s = %g\n", kv.first.c_str(), kv.second);
+  }
+  if (gains == "deploy") {
+    static const double kKP[27] = {150, 200, 200, 200, 200, 80, 150, 200, 200, 200, 200, 80, 200,
+                                   90, 60, 40, 90, 15, 15, 15, 90, 60, 40, 90, 15, 15, 15};
+    static const double kKV[27] = {5, 5, 5, 5, 4, 4, 5, 5, 5, 5, 4, 4, 5,
+                                   10, 10, 10, 10, 2, 2, 2, 10, 10, 10, 10, 2, 2, 2};
+    if (model->nu != 27) {
+      std::fprintf(stderr, "[bench] --gains deploy expects nu=27, model has %d\n", model->nu);
+      return 2;
+    }
+    for (int i = 0; i < model->nu; i++) {
+      model->actuator_gainprm[i * mjNGAIN + 0] = kKP[i];
+      model->actuator_biasprm[i * mjNBIAS + 1] = -kKP[i];
+      model->actuator_biasprm[i * mjNBIAS + 2] = -kKV[i];
+    }
+    std::fprintf(stderr, "[bench] gains = deploy (h12_control_node KP/KV on plant + planner)\n");
+  } else if (gains != "xml") {
+    std::fprintf(stderr, "[bench] --gains wants xml|deploy\n");
+    return 2;
   }
   mjData* data = mj_makeData(model);
 

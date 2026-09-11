@@ -43,6 +43,11 @@ def run_one(arm, seed, a):
             "--spp", str(a.spp), "--out", csv_path, "--state_out", state_path,
             "--numeric", "agent_allocate_active_only=1",
             "--numeric", "agent_planner=%d" % planner]
+    if a.gains != "xml":
+        cmd += ["--gains", a.gains]
+    if a.log_per_plan:
+        # 0.999: lean_bench truncates 1/(log_hz*dt) to an int; keep it just above spp
+        cmd += ["--log_hz", "%.6f" % (0.999 / (a.spp * 0.002))]
     for k, v in nums.items():
         cmd += ["--numeric", "%s=%g" % (k, v)]
     if a.qpos:
@@ -59,7 +64,7 @@ def run_one(arm, seed, a):
         g = SUMMARY.search(line)
         if g:
             m = g.group(1)
-    rec = {"arm": arm, "seed": seed, "planner": planner, "numerics": nums,
+    rec = {"arm": arm, "seed": seed, "planner": planner, "numerics": nums, "gains": a.gains,
            "wall_s": round(wall, 1), "rc": p.returncode, "csv": csv_path,
            "state": state_path, "summary": m or ""}
     if m:
@@ -89,6 +94,11 @@ def main():
     ap.add_argument("--nice", type=int, default=10)
     ap.add_argument("--spp", type=int, default=3)
     ap.add_argument("--qpos", action="store_true", help="also dump qpos for video")
+    ap.add_argument("--gains", default="xml", help="xml (default) or deploy: lean_bench --gains")
+    ap.add_argument("--log_per_plan", action="store_true",
+                    help="log the metric CSV and state track once per plan "
+                         "(log_hz = 1/(spp x 0.002 s)) instead of at 50 Hz, so the "
+                         "executed-control step is measured per plan")
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
 

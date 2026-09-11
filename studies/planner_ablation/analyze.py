@@ -48,6 +48,13 @@ def score_run(rec):
     enter = [fnum(x) for x in rec.get("enter", "").split(":") if x]
     out["enter"] = enter
     out["max_phase"] = max([i for i, e in enumerate(enter) if e >= 0] or [-1])
+    # rung durations from the entry times (nan if the rung was not left)
+    names = ["stand_up", "brace_lean", "reach", "release", "standback_r1",
+             "standback_r2", "standback_r3", "standback_r4", "stand_final"]
+    out["rung_dur"] = {}
+    for i in range(len(enter) - 1):
+        if enter[i] >= 0 and enter[i + 1] >= 0:
+            out["rung_dur"][names[i]] = enter[i + 1] - enter[i]
     out["phase_at_end"] = out["max_phase"]
 
     rows = list(csv.DictReader(open(rec["csv"]))) if os.path.exists(rec["csv"]) else []
@@ -110,6 +117,7 @@ def score_run(rec):
     if sp and os.path.exists(sp):
         prev = None
         jit_all, jit_phase = [], defaultdict(list)
+        t_prev, dts = None, []
         with open(sp) as f:
             rd = csv.reader(f)
             hdr = next(rd)
@@ -118,6 +126,10 @@ def score_run(rec):
             for row in rd:
                 if len(row) != len(hdr):
                     continue  # partial last line of a run still in flight
+                t_row = float(row[0])
+                if t_prev is not None and len(dts) < 50:
+                    dts.append(t_row - t_prev)
+                t_prev = t_row
                 u = [float(row[i]) for i in ucols]
                 if prev is not None:
                     d = math.sqrt(sum((a - b) ** 2 for a, b in zip(u, prev)) / len(u))
@@ -127,6 +139,9 @@ def score_run(rec):
                         jit_phase[PHASE_NAMES[ph]].append(d)
                 prev = u
         out["jitter_rms_rad"] = st.mean(jit_all) if jit_all else float("nan")
+        # the row interval the step was measured over: 0.020 s for the 50 Hz
+        # logs, one plan (spp x 0.002 s) for --log_per_plan runs
+        out["row_dt"] = st.median(dts) if dts else float("nan")
         out["jitter_phase"] = {k: st.mean(v) for k, v in jit_phase.items() if v}
         out["jitter_stand_rad"] = out["jitter_phase"].get("stand_up", float("nan"))
     return out
