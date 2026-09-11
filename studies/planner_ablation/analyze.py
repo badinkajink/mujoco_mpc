@@ -71,11 +71,29 @@ def score_run(rec):
     lean_rows = 0
     ess = []
     pelvis_min, tilt_max = float("inf"), 0.0
+    # Lean-onset margin (dense signal for the 33 Hz failure mode): within the
+    # first 3 s of the lean rung the CoM retreats before the trunk bow carries it
+    # forward. com_beyond_foot_edge is -0.15 while standing (15 cm inside the
+    # front edge); completing runs bottom out near -0.18 and recover, failing
+    # runs pass -0.25 and go over backward. cop_sat = fraction of those rows with
+    # the CoP within 2 cm of the heel edge (ankle authority exhausted).
+    t_lean = enter[1] if len(enter) > 1 and enter[1] >= 0 else None
+    onset_min_com, onset_rows, onset_cop_sat = float("inf"), 0, 0
+    onset_min_com_early = float("inf")   # first 1.2 s only: before a fall is irreversible
     for r in rows:
         if len(r) != len(rows[0]) or r.get("cost") in (None, ""):
             continue
         pelvis_min = min(pelvis_min, fnum(r["pelvis_z"]))
         tilt_max = max(tilt_max, fnum(r["torso_tilt_deg"]))
+        if t_lean is not None and t_lean <= fnum(r["t"]) <= t_lean + 3.0:
+            cb, pb = fnum(r["com_beyond_foot_edge"]), fnum(r["cop_beyond_foot_edge"])
+            if not math.isnan(cb):
+                onset_min_com = min(onset_min_com, cb)
+                if fnum(r["t"]) <= t_lean + 1.2:
+                    onset_min_com_early = min(onset_min_com_early, cb)
+                onset_rows += 1
+                if not math.isnan(pb) and pb < -0.19:
+                    onset_cop_sat += 1
         ph = int(r["phase"]) if r["phase"] not in ("", "-1") else -1
         c = fnum(r["cost"])
         if ph >= 0 and not math.isnan(c):
@@ -95,6 +113,9 @@ def score_run(rec):
         e = fnum(r["mppi_ess"])
         if not math.isnan(e):
             ess.append(e)
+    out["lean_onset_min_com_beyond"] = onset_min_com if onset_min_com < float("inf") else float("nan")
+    out["lean_onset_min_com_early"] = onset_min_com_early if onset_min_com_early < float("inf") else float("nan")
+    out["lean_onset_cop_sat_frac"] = onset_cop_sat / onset_rows if onset_rows else float("nan")
     out["pelvis_min_m"] = pelvis_min
     out["tilt_max_deg"] = tilt_max
     # The bench's fall stop is pelvis < 0.5 m. A robot draped over the slab with
