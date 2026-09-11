@@ -1253,6 +1253,29 @@
              body physically ~+20deg off). -->
         <numeric name="brace_target_slab_lat" data="1.0"/>
         <numeric name="brace_lat_inset" data="0.20"/>
+        <!-- ===== planner-ablation knobs (wxie/planner-ablation, 2026-09-10) =====
+             Every value here is the default the planner code already assumed when
+             the numeric was absent, so declaring the block changes nothing; it
+             exists so lean_bench can override them with --numeric name=value
+             (mj_name2id needs the numeric to exist). Sits BEFORE the first
+             residual_* numeric so task parameter indices do not move.
+               agent_allocate_active_only  1 = bench: allocate only agent_planner
+               sampling_noise_raw          PS/MPPI: 1 = std in ctrl units (CEM's
+                                           convention) instead of x half-ctrlrange
+               sampling_representation     PS/MPPI spline: 0 zero 1 linear 2 cubic
+               cem_representation          CEM/iCEM spline, same coding
+               cem_variance_fixed          CEM/iCEM: >0 = constant std, no refit
+               cem_include_nominal         CEM/iCEM: 1 = candidate 0 unperturbed
+               icem_alpha / icem_elite_keep / mppi_temperature: the planners' own -->
+        <numeric name="agent_allocate_active_only" data="0"/>
+        <numeric name="sampling_noise_raw" data="0"/>
+        <numeric name="sampling_representation" data="2"/>
+        <numeric name="cem_representation" data="0"/>
+        <numeric name="cem_variance_fixed" data="0"/>
+        <numeric name="cem_include_nominal" data="0"/>
+        <numeric name="icem_alpha" data="0.7"/>
+        <numeric name="icem_elite_keep" data="2"/>
+        <numeric name="mppi_temperature" data="0.1"/>
         <numeric name="residual_Height Goal" data="1.68 0.0 2.0"/>
         <!-- Slider → strategy. GetStrategyNames() in lean.h is 36 slots long and every
              slot not listed here is PADDED with h12_simple_stand: Strategy is a

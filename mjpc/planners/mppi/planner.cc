@@ -71,6 +71,7 @@ void MPPIPlanner::Initialize(mjModel* model, const Task& task) {
   interpolation_ = GetNumberOrDefault(SplineInterpolation::kCubicSpline, model,
                                       "sampling_representation");
   sliding_plan_ = GetNumberOrDefault(0, model, "sampling_sliding_plan");
+  noise_raw_ = GetNumberOrDefault(0, model, "sampling_noise_raw") != 0;
 
   if (num_trajectory_ > kMaxTrajectory) {
     mju_error_i("Too many trajectories, %d is the maximum allowed.",
@@ -240,9 +241,12 @@ void MPPIPlanner::MPPIUpdate(int num_trajectory) {
 
   // minimum cost (for overflow-safe exponent)
   double j_min = trajectory[0].total_return;
+  double j_max = trajectory[0].total_return;
   for (int i = 1; i < num_trajectory; i++) {
     j_min = std::min(j_min, trajectory[i].total_return);
+    j_max = std::max(j_max, trajectory[i].total_return);
   }
+  last_spread_ = j_max - j_min;
 
   // temperature (guard against divide-by-zero)
   double lambda = std::max(mppi_temperature_, 1.0e-10);
@@ -264,7 +268,12 @@ void MPPIPlanner::MPPIUpdate(int num_trajectory) {
   }
 
   // normalize
-  for (int i = 0; i < num_trajectory; i++) weights[i] /= weight_sum;
+  double sum_w2 = 0.0;
+  for (int i = 0; i < num_trajectory; i++) {
+    weights[i] /= weight_sum;
+    sum_w2 += weights[i] * weights[i];
+  }
+  last_ess_ = sum_w2 > 0.0 ? 1.0 / sum_w2 : 0.0;
 
   // weighted average of spline node values
   std::fill(parameters_scratch.begin(),
@@ -428,8 +437,9 @@ void MPPIPlanner::AddNoiseToPolicy(double start_time, int i) {
 
   for (const TimeSpline::Node& node : candidate_policy[i].plan) {
     for (int k = 0; k < model->nu; k++) {
-      double scale = 0.5 * (model->actuator_ctrlrange[2 * k + 1] -
-                            model->actuator_ctrlrange[2 * k]);
+      double scale = noise_raw_ ? 1.0
+                                : 0.5 * (model->actuator_ctrlrange[2 * k + 1] -
+                                         model->actuator_ctrlrange[2 * k]);
       double noise = absl::Gaussian<double>(gen_, 0.0, scale * std);
       node.values()[k] += noise;
     }

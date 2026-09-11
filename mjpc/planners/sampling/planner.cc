@@ -66,6 +66,7 @@ void SamplingPlanner::Initialize(mjModel* model, const Task& task) {
   interpolation_ = GetNumberOrDefault(SplineInterpolation::kCubicSpline, model,
                                       "sampling_representation");
   sliding_plan_ = GetNumberOrDefault(0, model, "sampling_sliding_plan");
+  noise_raw_ = GetNumberOrDefault(0, model, "sampling_noise_raw") != 0;
 
   if (num_trajectory_ > kMaxTrajectory) {
     mju_error_i("Too many trajectories, %d is the maximum allowed.",
@@ -339,8 +340,9 @@ void SamplingPlanner::AddNoiseToPolicy(double start_time, int i) {
 
   for (const TimeSpline::Node& node : candidate_policy[i].plan) {
     for (int k = 0; k < model->nu; k++) {
-      double scale = 0.5 * (model->actuator_ctrlrange[2 * k + 1] -
-                            model->actuator_ctrlrange[2 * k]);
+      double scale = noise_raw_ ? 1.0
+                                : 0.5 * (model->actuator_ctrlrange[2 * k + 1] -
+                                         model->actuator_ctrlrange[2 * k]);
       double noise = absl::Gaussian<double>(gen_, 0.0, scale * std);
       node.values()[k] += noise;
     }

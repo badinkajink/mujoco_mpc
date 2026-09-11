@@ -137,6 +137,11 @@ class SamplingPlanner : public RankedPlanner {
 
   // ----- noise ----- //
   double noise_exploration[2] = {0};  // stds for sampling: N(0, exploration)
+  // `sampling_noise_raw` (numeric, default 0): 0 = the stock convention, noise
+  // std = exploration x half the actuator ctrlrange; 1 = std is used as-is, in
+  // ctrl units, which is the convention CEM/iCEM use for `std_min`. Exists so a
+  // planner comparison can hold the noise magnitude fixed across families.
+  bool noise_raw_ = false;
   std::vector<double> noise;
 mjpc::spline::SplineInterpolation interpolation_ =
       mjpc::spline::SplineInterpolation::kZeroSpline;

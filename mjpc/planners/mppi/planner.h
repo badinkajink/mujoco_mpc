@@ -163,6 +163,13 @@ class MPPIPlanner : public RankedPlanner {
 
   // ----- noise ----- //
   double noise_exploration[2] = {0};  // stds for sampling: N(0, exploration)
+  // `sampling_noise_raw`: see SamplingPlanner::noise_raw_.
+  bool noise_raw_ = false;
+  // Diagnostics from the last MPPIUpdate, read by lean_bench: effective sample
+  // size 1/sum(w^2) of the softmax weights (1 = argmin, N = uniform mean) and
+  // the return spread max-min across the batch. Not used by the planner.
+  double last_ess_ = 0.0;
+  double last_spread_ = 0.0;
   std::vector<double> noise;
   mjpc::spline::SplineInterpolation interpolation_ =
       mjpc::spline::SplineInterpolation::kZeroSpline;

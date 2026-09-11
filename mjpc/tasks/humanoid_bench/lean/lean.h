@@ -239,6 +239,19 @@ class lean : public Task {
 
   void ResetLocked(const mjModel *model) override;
 
+  // ---- headless bench accessors (lean_bench.cc) ------------------------- //
+  // The phase index/name are what a "did the ladder actually advance" call is
+  // made of, and they live behind motion_strategy_. Read-only, main-thread.
+  int BenchPhaseIndex() const {
+    return motion_strategy_.GetCurrentKeyframeIndex();
+  }
+  int BenchPhaseCount() const { return motion_strategy_.GetKeyframesCount(); }
+  std::string BenchPhaseName() const {
+    return motion_strategy_.HasKeyframes()
+               ? motion_strategy_.GetCurrentKeyframe().name
+               : std::string("none");
+  }
+
   // Populate phase-aware monitoring metrics (reach, CoP, ICP, brace force,
   // saturation, etc.) for the Research GUI / headless analyzer. Reads the
   // current keyframe + sensor stack; safe to call from the gRPC poll loop.

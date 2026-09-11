@@ -176,8 +176,18 @@ void Agent::Initialize(const mjModel* model) {
 // allocate memory
 void Agent::Allocate() {
   // planner
-  for (const auto& planner : planners_) {
-    planner->Allocate();
+  // `agent_allocate_active_only` (numeric, default 0 = every planner, the GUI
+  // behaviour): 1 = allocate and reset only the planner selected by
+  // `agent_planner`. Each sampling planner reserves kMaxTrajectory x
+  // kMaxTrajectoryHorizon trajectories up front (~10 GB resident for the lean
+  // task across all eleven), and a headless bench that never switches planner
+  // does not need the other ten. Never set it where the planner can be
+  // switched at run time: Trajectory::Reset on an unallocated planner is UB.
+  allocate_active_only_ =
+      GetNumberOrDefault(0, model_, "agent_allocate_active_only") != 0;
+  for (int i = 0; i < static_cast<int>(planners_.size()); i++) {
+    if (allocate_active_only_ && i != planner_) continue;
+    planners_[i]->Allocate();
   }
 
   // state
@@ -193,8 +203,9 @@ void Agent::Allocate() {
 // reset data, settings, planners, state
 void Agent::Reset(const double* initial_repeated_action) {
   // planner
-  for (const auto& planner : planners_) {
-    planner->Reset(kMaxTrajectoryHorizon, initial_repeated_action);
+  for (int i = 0; i < static_cast<int>(planners_.size()); i++) {
+    if (allocate_active_only_ && i != planner_) continue;
+    planners_[i]->Reset(kMaxTrajectoryHorizon, initial_repeated_action);
   }
 
   // state

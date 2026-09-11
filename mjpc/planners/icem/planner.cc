@@ -59,6 +59,13 @@ void iCEMPlanner::Initialize(mjModel* model, const Task& task) {
   n_elite_keep_ =
       GetNumberOrDefault(2, model, "icem_elite_keep");
 
+  // ablation knobs, all default = stock
+  variance_fixed_ = GetNumberOrDefault(0.0, model, "cem_variance_fixed");
+  include_nominal_ = GetNumberOrDefault(0, model, "cem_include_nominal") != 0;
+  interpolation_ = static_cast<mjpc::spline::SplineInterpolation>(
+      GetNumberOrDefault(static_cast<int>(interpolation_), model,
+                         "cem_representation"));
+
   if (num_trajectory_ > kMaxTrajectory) {
     mju_error_i("Too many trajectories, %d is the maximum allowed.",
                 kMaxTrajectory);
@@ -207,7 +214,8 @@ void iCEMPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
         double p_avg = parameters_scratch[t * model->nu + j];
         double pi = n.values()[j];
         double diff = pi - p_avg;
-        variance[t * model->nu + j] += diff * diff / (n_elite - 1);
+        if (n_elite > 1)  // n_elite = 1: no spread, the floor rules
+          variance[t * model->nu + j] += diff * diff / (n_elite - 1);
       }
     }
   }
@@ -319,7 +327,9 @@ void iCEMPlanner::AddNoiseToPolicy(int i, double std_min) {
   for (int t = 0; t < num_spline_points; t++) {
     for (int j = 0; j < model->nu; j++) {
       int k = t * model->nu + j;
-      double std = std::max(std::sqrt(variance[k]), std_min);
+      double std = variance_fixed_ > 0.0
+                       ? variance_fixed_
+                       : std::max(std::sqrt(variance[k]), std_min);
       double w = absl::Gaussian<double>(gen_, 0.0, std);
       double n = a * prev_n[j] + sqrt_one_minus_a2 * w;
       noise[k + shift] = n;
@@ -357,10 +367,12 @@ void iCEMPlanner::Rollouts(int num_trajectory, int horizon, ThreadPool& pool) {
     // For the first n_keep rollouts (if any), seed from saved elite memory
     // instead of adding fresh noise — these are the "kept" elites.
     bool use_elite_memory = (i < n_keep);
+    // cem_include_nominal: the first non-memory slot is the unperturbed nominal
+    bool use_nominal = include_nominal_ && (i == n_keep);
     pool.Schedule([&s = *this, &model = this->model, &task = this->task,
                    &state = this->state, &time = this->time,
                    &mocap = this->mocap, &userdata = this->userdata, horizon,
-                   std, i, use_elite_memory]() {
+                   std, i, use_elite_memory, use_nominal]() {
       {
         const std::shared_lock<std::shared_mutex> lock(s.mtx_);
         if (use_elite_memory) {
@@ -375,7 +387,7 @@ void iCEMPlanner::Rollouts(int num_trajectory, int horizon, ThreadPool& pool) {
                                          s.resampled_policy.num_spline_points);
           s.candidate_policy[i].plan.SetInterpolation(
               s.resampled_policy.plan.Interpolation());
-          s.AddNoiseToPolicy(i, std);
+          if (!use_nominal) s.AddNoiseToPolicy(i, std);
         }
       }
 

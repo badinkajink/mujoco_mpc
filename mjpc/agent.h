@@ -134,6 +134,7 @@ class Agent {
   void OverrideModel(UniqueMjModel model = {nullptr, mj_deleteModel});
 
   mjpc::Planner& ActivePlanner() const { return *planners_[planner_]; }
+  int PlannerId() const { return planner_; }
   mjpc::Estimator& ActiveEstimator() const { return *estimators_[estimator_]; }
   int ActiveEstimatorIndex() const { return estimator_; }
   double ComputeTime() const { return agent_compute_time_; }
@@ -214,6 +215,8 @@ class Agent {
   // planners
   std::vector<std::unique_ptr<mjpc::Planner>> planners_;
   int planner_;
+  // see Agent::Allocate: only planners_[planner_] is allocated/reset
+  bool allocate_active_only_ = false;
 
   // estimators
   std::vector<std::unique_ptr<mjpc::Estimator>> estimators_;

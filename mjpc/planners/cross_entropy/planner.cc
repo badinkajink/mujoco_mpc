@@ -68,6 +68,13 @@ void CrossEntropyPlanner::Initialize(mjModel* model, const Task& task) {
   n_elite_ =
       GetNumberOrDefault(std::max(num_trajectory_ / 10, 2), model, "n_elite");
 
+  // ablation knobs, all default = stock
+  variance_fixed_ = GetNumberOrDefault(0.0, model, "cem_variance_fixed");
+  include_nominal_ = GetNumberOrDefault(0, model, "cem_include_nominal") != 0;
+  interpolation_ = static_cast<mjpc::spline::SplineInterpolation>(
+      GetNumberOrDefault(static_cast<int>(interpolation_), model,
+                         "cem_representation"));
+
   if (num_trajectory_ > kMaxTrajectory) {
     mju_error_i("Too many trajectories, %d is the maximum allowed.",
                 kMaxTrajectory);
@@ -266,7 +273,10 @@ void CrossEntropyPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
         // candidate parameter
         double pi = n.values()[j];
         double diff = pi - p_avg;
-        variance[t * model->nu + j] += diff * diff / (n_elite - 1);
+        // n_elite = 1 (pure argmin) has no spread: leave the variance at 0 so
+        // the noise floor rules, rather than dividing by zero.
+        if (n_elite > 1)
+          variance[t * model->nu + j] += diff * diff / (n_elite - 1);
       }
     }
   }
@@ -394,8 +404,10 @@ void CrossEntropyPlanner::AddNoiseToPolicy(int i, double std_min) {
     double knot_scale = 1.0 + knot_growth * knot_frac;
     for (int j = 0; j < model->nu; j++) {
       int k = t * model->nu + j;
-      noise[k + shift] = absl::Gaussian<double>(
-          gen_, 0.0, std::max(std::sqrt(variance[k]), std_min) * knot_scale);
+      double sigma = variance_fixed_ > 0.0
+                         ? variance_fixed_
+                         : std::max(std::sqrt(variance[k]), std_min);
+      noise[k + shift] = absl::Gaussian<double>(gen_, 0.0, sigma * knot_scale);
     }
   }
 
@@ -450,8 +462,9 @@ void CrossEntropyPlanner::Rollouts(int num_trajectory, int horizon,
         s.candidate_policy[i].plan.SetInterpolation(
             s.resampled_policy.plan.Interpolation());
 
-        // sample noise
-        s.AddNoiseToPolicy(i, std);
+        // sample noise (candidate 0 stays the unperturbed nominal when
+        // cem_include_nominal is set)
+        if (!(s.include_nominal_ && i == 0)) s.AddNoiseToPolicy(i, std);
       }
 
       // ----- rollout sample policy ----- //

@@ -117,6 +117,9 @@ class iCEMPlanner : public Planner {
   bool elite_memory_valid_ = false;
 
   int n_elite_;
+  // ablation knobs, same semantics as CrossEntropyPlanner's
+  double variance_fixed_ = 0.0;
+  bool include_nominal_ = false;
   double improvement;
   std::atomic<double> noise_compute_time;
   double rollouts_compute_time;

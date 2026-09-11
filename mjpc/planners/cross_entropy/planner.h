@@ -137,6 +137,14 @@ class CrossEntropyPlanner : public Planner {
   // number of elite samples
   int n_elite_;
 
+  // ----- ablation knobs (numerics; defaults = stock behaviour) ----- //
+  // `cem_variance_fixed` > 0: every knot samples at this constant std and the
+  // elite-variance refit is ignored (the adaptive covariance is switched off).
+  double variance_fixed_ = 0.0;
+  // `cem_include_nominal` = 1: candidate 0 is the unperturbed resampled nominal
+  // (predictive sampling's convention), so it competes for the elite set.
+  bool include_nominal_ = false;
+
   // improvement
   double improvement;
 

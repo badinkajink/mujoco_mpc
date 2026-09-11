@@ -43,3 +43,14 @@ docs/specs/
 # scratch backups: use git, not .bak files (archived 2026-08-06)
 *.bak
 *.bak.*
+
+# --- wxie study branches ------------------------------------------------------
+# Raw sweep outputs: large, regenerable from studies/*/sweep.py, and meaningless
+# without the binary that produced them. The figures + summary JSON a doc page
+# depends on ARE committed, under docs/lean/media/.
+studies/runs/
+studies/*/runs/
+studies/**/__pycache__/
+studies/*/figs/
+studies/*/figs_*/
+studies/*/*.log
