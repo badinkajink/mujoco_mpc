@@ -150,6 +150,35 @@ def fig_cemstd(runs, arms, seed, out):
     plt.close(fig)
 
 
+def fig_jitter_phase(runs, arms, out):
+    """Executed-control step per rung, median over seeds, for the bridge arms."""
+    import statistics as st
+    phases = ["stand_up", "brace_lean", "reach", "release", "standback_r1", "standback_r2",
+              "standback_r3", "standback_r4", "stand_final"]
+    fig, ax = plt.subplots(figsize=(10.5, 3.8))
+    for a in arms:
+        rs = [r for r in runs if r["arm"] == a and "jitter_phase" in r]
+        if not rs:
+            continue
+        ys = []
+        for ph in phases:
+            v = [r["jitter_phase"][ph] for r in rs if ph in r["jitter_phase"]]
+            ys.append(1000 * st.median(v) if v else np.nan)
+        fam = FAMILY[rs[0]["planner"]]
+        k = sum(r["outcome"] == "complete" for r in rs)
+        ax.plot(range(len(phases)), ys, marker="o", ms=4, lw=1.2, label="%s (%d/%d)" % (a, k, len(rs)),
+                color=COLORS[fam], ls="-" if a in ("icem", "cem", "ps_raw01_zero") else "--", alpha=0.9)
+    ax.set_xticks(range(len(phases)))
+    ax.set_xticklabels(PHASES, fontsize=8)
+    ax.set_yscale("log")
+    ax.set_ylabel("executed-control step, mrad RMS per 20 ms")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, frameon=False, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", required=True)
@@ -168,6 +197,10 @@ def main():
     fig_traces(runs, a.trace_arms.split(","), a.trace_seed, os.path.join(a.out, "traces.png"))
     fig_cemstd(runs, ["cem", "icem", "icem_stdmin10", "icem_ne2", "icem_ne20"], a.trace_seed,
                os.path.join(a.out, "cem_std.png"))
+    fig_jitter_phase(runs, ["icem", "icem_a0", "cem", "cem_fixed01", "cem_ne1_fixed01",
+                            "cem_ne1_fixed01_nom", "ps_raw01_zero", "ps_raw01_cubic",
+                            "icem_stdmin10", "ps_raw10_zero"],
+                     os.path.join(a.out, "jitter_phase.png"))
     print("figures ->", a.out)
 
 
