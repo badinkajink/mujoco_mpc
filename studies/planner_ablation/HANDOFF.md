@@ -97,19 +97,28 @@ rate" and Result, `./make_page.py … --out ../../docs/lean/20260911-planner_abl
 copy `paper_figs/*.png` to `docs/lean/media/planner_ablation/`, republish to the
 same artifact URL (listed in `docs/experiments/INDEX.md`).
 
-## 3b. RESULT of the deploy-gains test (26/36 runs in at 15:12 MDT; rerun `./analyze.py --runs runs/gains_spp15 --out runs/summary_gains_spp15.json` for the final table)
-`--gains deploy` at 33 Hz, 6 seeds: **CEM 5/6, iCEM 6/6, CEM k=2 6/6, PS (argmin,
-cubic) 0/6**, cem_stdmin02 1/2 so far, MPPI λ=1 pending. **The bench-vs-robot gap
-was the gain table.** With the robot's joint PD the bench reproduces the robot
-(CEM works at 33 Hz) and predictive sampling still fails at the same noise and
-rate — which is the paper's motivation, now on the right plant. Consequences:
+## 3b. RESULT of the deploy-gains test (final, 36/36, 15:08 MDT; `runs/summary_gains_spp15.json`)
+`--gains deploy` at 33 Hz, 6 seeds:
+
+| arm | complete | fell | stalled | t_complete med (s) | onset margin med (m) | brace peak med (N) | seated_frac med |
+|---|---|---|---|---|---|---|---|
+| cem (k=6, σ 0.01) | 5/6 | 1 (s0, lean onset) | 0 | 41.6 | −0.155 | 50 | 0.03 |
+| icem | 6/6 | 0 | 0 | 44.2 | −0.157 | 119 | – |
+| cem_ne2 | 6/6 | 0 | 0 | 44.1 | −0.152 | 144 | – |
+| cem_stdmin02 | 5/6 | 1 (s1) | 0 | 44.3 | −0.146 | 222 | – |
+| mppi_raw01_zero_l1 | 4/6 | 0 | 2 (s2 at rung 6, s4 at rung 5) | 49.3 | −0.139 | 154 | 0.46 |
+| ps_raw01_cubic | 0/6 | 5 (4 at rung 1, 1 at rung 2) | 1 (rung 2) | – | −0.143 | 41 | – |
+
+**The bench-vs-robot gap was the gain table.** With the robot's joint PD the
+bench reproduces the robot (CEM works at 33 Hz) and predictive sampling still
+fails at the same noise and rate. MPPI's two failures are stalls in the
+stand-back rungs, never falls, and MPPI rests on the table more (seated_frac
+0.43–0.63 vs CEM 0.00–0.31; brace peak 88–211 N vs 2–120 N) — a candidate
+differentiator from the task/sensor channels; check it on the full grid.
+Consequences:
 - Every earlier bench number (§2a, §2b) is on the XML gains and is a
-  *different plant*; the 33 Hz window in §2b is a property of that plant. Rerun
-  the decisive rows with `--gains deploy` before publishing anything:
-  at 33 Hz the CEM k ladder (1, 2, 6, 10, 20), the σ ladder (0.005–0.10), PS σ
-  ladder and MPPI λ ladder; at 167 Hz the four shipped planners + matched-noise
-  PS/MPPI (3 seeds is enough there). ~4 h total. The §5 basin study should be run
-  entirely on `--gains deploy`.
+  *different plant*; the 33 Hz window in §2b is a property of that plant. The
+  decisive rows are being re-taken on `--gains deploy` by `campaign3.sh` (§4).
 - Mechanism to check on the traces: with kp 90 the bracing arm swings forward
   faster, so the CoM does not retreat at the lean onset (compare
   `lean_onset_min_com_early` between `runs/rate_spp15` and `runs/gains_spp15`
@@ -118,21 +127,59 @@ rate — which is the paper's motivation, now on the right plant. Consequences:
   so the planner model and the bench match the robot by default — coordinate
   with Allen; `PatchActuators` in the node would then be a no-op.
 
-## 4. In flight right now (`campaign2.sh`, log `runs/campaign2.log`)
-1. **`runs/gains_spp15`** (result in §3b) — `lean_bench --gains deploy`: the deploy node's KP/KV
-   table (`h12_control_node.cc` KP[]/KV[]: arm kp 90/60/40/90/15, ankle roll 80;
-   XML has arm 40, ankle roll 200) applied to plant AND planner model, at 33 Hz,
-   6 seeds: cem, icem, ps_raw01_cubic, cem_ne2, cem_stdmin02, mppi λ=1. **This is
-   the test of whether the bench-vs-robot gap is the gain table.** If cem comes
-   back ≥5/6, every future bench run should use `--gains deploy` and the 167 Hz
-   rows should be re-run with it. If not, next candidates: gravity feed-forward
-   (`--gravity_ff` is 0 for the lean per the node's comments, so probably not),
-   the estimator/latency compensation, the real actuator dynamics. Ask the user
-   for a real-robot lowstate/lowcmd log of a strategy-25 lean: the executed
-   target step per plan (this study's metric) can be computed from it directly
-   and compared with the bench's 6.5 mrad.
-2. `runs/rate_spp6` (83 Hz, batch R, 6 seeds), 3. `runs/rate_spp3` seeds 3–5.
-Check with `cat runs/campaign2.log`; each sweep is resumable (`--out` same dir).
+## 3c. FLAG: the task XML and the robot run different joint gains
+Verified 2026-09-11 by loading `build_cmake/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml`
+with `mujoco` and comparing `actuator_gainprm`/`biasprm` with `KP[]/KV[]` in
+`mjpc/deploy/h12_control_node.cc` (the table `PatchActuators` writes into the
+planner and latency models at node start). KV is identical everywhere. KP:
+
+| joint | XML kp | deploy kp |
+|---|---|---|
+| ankle roll (both) | 200 | 80 |
+| shoulder pitch (both) | 40 | 90 |
+| shoulder roll (both) | 40 | 60 |
+| shoulder yaw (both) | 40 | 40 |
+| elbow (both) | 40 | 90 |
+| wrist roll/pitch/yaw (both) | 40 | 15 |
+| legs, hips, knees, ankle pitch, torso | = | = |
+
+The deploy node's comments date the arm raises (2026-08-08 shoulder 30→60,
+2026-08-21 elbow 40→90, 2026-08-22 shoulder pitch 60→90) and the ankle-roll
+value; the XML was never updated to match. **Anything that runs the planner
+without going through `h12_control_node` is on the XML plant**: the `mjpc` GUI,
+`lean_bench` without `--gains deploy`, any headless scorer that loads the task
+XML directly. The RoboCasa twin is on the deploy gains (the plant PD comes from
+lowcmd kp/kd, the planner is patched by the node). The bench shows the two
+plants differ in outcome at 33 Hz (shipped CEM 1/6 on XML vs 5/6 on deploy),
+so a sim-only evaluation on the XML gains at the robot's plan rate does not
+predict the robot. Told the user 2026-09-11; they will check whether the
+table-height evals (student, `wxie/table-height`) went through the node or the
+XML. Fix options: (a) put the deploy table in the XML actuators (Allen's file);
+(b) an `<include>` of a gains file both the node and the XML read; (c) at
+minimum, `--gains deploy` in every bench script and a loud note in the task
+README.
+
+## 4. In flight right now (`campaign3.sh`, log `runs/campaign3.log`, started 15:10 MDT)
+`campaign2.sh` was killed after `gains_spp15` finished (its 83 Hz and 167 Hz
+rows would have been on XML gains). `campaign3.sh` re-takes everything on
+`--gains deploy`, in priority order, each sweep resumable (`--out` same dir):
+1. `runs/gains_spp15` (33 Hz): batches R,A,S,K,T,N, 6 seeds — 150 new runs
+   (~2.5 h). This is the 33 Hz slice of the §5 basin study plus the shipped
+   ps/mppi and the k/λ/N axes. Log `runs/gains_spp15b.log`.
+2. `runs/gains_spp3` (167 Hz): R + A (shipped four + matched PS/MPPI), 6 seeds,
+   42 runs (~2.5 h). Log `runs/gains_spp3.log`.
+3. `runs/gains_spp10` (50 Hz): R,S,K,T, 6 seeds, 138 runs (~3 h).
+4. `runs/gains_spp6` (83 Hz): R, 6 seeds, 30 runs (~0.8 h).
+5. `runs/gains_spp3` (167 Hz): S at seeds 0–2, 36 runs (~2 h). Log `runs/gains_spp3b.log`.
+Batches (arms.py): S = σ ∈ {0.005, 0.01, 0.02, 0.03, 0.05} × {cem std_min, ps
+raw cubic, mppi raw zero λ=1}; K = cem n_elite {1,2,10,20}; T = mppi λ {0.1,10};
+N = {8, 40} trajectories for cem (k=N×0.3), ps cubic, mppi λ=1.
+`sweep.py` resume was broken (seed stored as a string by the summary parse, so
+`(arm, seed)` never matched) — fixed 15:05; the summary no longer overwrites
+`seed`/`wall_s`. Check with `cat runs/campaign3.log`; score each dir with
+`./analyze.py --runs runs/gains_sppN --out runs/summary_gains_sppN.json`.
+`score_rates.sh` still points at the XML-gains dirs — repoint it at
+`runs/gains_spp{3,6,10,15}` before regenerating `paper_figs.py`.
 Box policy: 2 jobs × 6 threads, CPUQuota 550%, nice 15 while the user is at the
 desk. **Never `pkill -f <script>` from the tool shell — it matches the tool's own
 command line and kills the shell (exit 144); use the PID.**
@@ -149,7 +196,7 @@ itself an argument for CEM.
 MPPI λ ∈ {0.1, 1, 10}; PS spline ∈ {zero, cubic}. Three planners (CEM k=6,
 PS argmin cubic, MPPI λ=1) × 5 σ × 3 rates × 6 seeds = 270 runs ≈ 6 h (33/50 Hz
 runs are 1–2 min, 167 Hz 5–6 min, 2 jobs); the k and λ axes at 33 and 50 Hz add
-~2 h. Use `--gains deploy` if §4 says so.
+~2 h. All of it runs on `--gains deploy` (campaign3.sh, §4).
 
 **Outcomes, from coarse to dense (all already in `analyze.py` per run):**
 1. `outcome` ∈ {complete, stalled, collapsed, fell}, `max_phase`, `t_complete`.

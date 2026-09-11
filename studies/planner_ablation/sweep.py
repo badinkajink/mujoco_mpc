@@ -71,7 +71,7 @@ def run_one(arm, seed, a):
         for kv in m.split():
             if "=" in kv:
                 k, v = kv.split("=", 1)
-                if k not in ("task", "planner"):
+                if k not in ("task", "planner", "seed", "wall_s"):
                     rec[k] = v
     print("  done %-26s rc=%3d wall=%5.0fs fell=%s complete=%s t_complete=%s enter=%s"
           % (tag, p.returncode, wall, rec.get("fell"), rec.get("complete"),
@@ -126,7 +126,8 @@ def main():
             try:
                 r = json.loads(line)
                 if r.get("summary"):
-                    done.add((r["arm"], r["seed"]))
+                    # the summary parse below stores seed as a string; compare as int
+                    done.add((r["arm"], int(r["seed"])))
             except json.JSONDecodeError:
                 pass
     jobs = [(arm, s) for arm in arms for s in seeds if (arm, s) not in done]

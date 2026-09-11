@@ -97,6 +97,34 @@ ARMS = {
                             "sampling_representation": 2}),
     "ps_raw05_cubic": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.05,
                             "sampling_representation": 2}),
+
+    # ---- deploy-gains basin study (2026-09-11 evening): the common sigma axis
+    #      for the three update rules, plus N at 33 Hz. Every run in this study
+    #      uses lean_bench --gains deploy (the robot's KP/KV on plant + planner).
+    "cem_stdmin005":   (CEM, {"std_min": 0.005}),
+    "ps_raw005_cubic": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.005,
+                             "sampling_representation": 2}),
+    "mppi_raw005_zero_l1": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.005,
+                                   "sampling_representation": 0, "mppi_temperature": 1.0}),
+    "mppi_raw02_zero_l1":  (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.02,
+                                   "sampling_representation": 0, "mppi_temperature": 1.0}),
+    "mppi_raw03_zero_l1":  (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.03,
+                                   "sampling_representation": 0, "mppi_temperature": 1.0}),
+    "mppi_raw05_zero_l1":  (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.05,
+                                   "sampling_representation": 0, "mppi_temperature": 1.0}),
+    # N axis (elite fraction held at 0.3 for CEM)
+    "cem_n8_ne2":    (CEM, {"sampling_trajectories": 8, "n_elite": 2}),
+    "cem_n40_ne12":  (CEM, {"sampling_trajectories": 40, "n_elite": 12}),
+    "ps_raw01_cubic_n8":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 2, "sampling_trajectories": 8}),
+    "ps_raw01_cubic_n40": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 2, "sampling_trajectories": 40}),
+    "mppi_raw01_zero_l1_n8":  (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                      "sampling_representation": 0, "mppi_temperature": 1.0,
+                                      "sampling_trajectories": 8}),
+    "mppi_raw01_zero_l1_n40": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                      "sampling_representation": 0, "mppi_temperature": 1.0,
+                                      "sampling_trajectories": 40}),
 }
 
 BATCHES = {
@@ -117,4 +145,15 @@ BATCHES = {
           "cem_stdmin02", "cem_stdmin03", "cem_stdmin05", "cem_stdmin10",
           "ps_raw02_cubic", "ps_raw03_cubic", "ps_raw05_cubic",
           "mppi_raw01_zero_l0.1", "mppi_raw01_zero_l10"],
+    # deploy-gains basin study: S = the common sigma axis (5 x 3 update rules),
+    # K = CEM elite count, T = MPPI temperature, N = sample count at 33 Hz
+    "S": ["cem_stdmin005", "cem", "cem_stdmin02", "cem_stdmin03", "cem_stdmin05",
+          "ps_raw005_cubic", "ps_raw01_cubic", "ps_raw02_cubic", "ps_raw03_cubic",
+          "ps_raw05_cubic",
+          "mppi_raw005_zero_l1", "mppi_raw01_zero_l1", "mppi_raw02_zero_l1",
+          "mppi_raw03_zero_l1", "mppi_raw05_zero_l1"],
+    "K": ["cem_ne1", "cem_ne2", "cem_ne10", "cem_ne20"],
+    "T": ["mppi_raw01_zero_l0.1", "mppi_raw01_zero_l10"],
+    "N": ["cem_n8_ne2", "cem_n40_ne12", "ps_raw01_cubic_n8", "ps_raw01_cubic_n40",
+          "mppi_raw01_zero_l1_n8", "mppi_raw01_zero_l1_n40"],
 }
