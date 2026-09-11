@@ -237,6 +237,18 @@ class beginning : public Task {
     // to exactly 0 and stops, so a foot over ground 1 cm lower than expected
     // just hangs there. This is that missing search-for-ground.
     double gait_overrun_[2] = {0.0, 0.0};
+    // ★ R7b LIFTOFF INTERLOCK (2026-09-05). A touchdown only counts if the foot
+    // ACTUALLY LEFT THE GROUND first. Without this the swing window is decided by
+    // the CLOCK alone, so a strategy that is standing still -- drive while idle
+    // (drive_gait_amp_ = 0, feet planted) or the balance-gated stumble march --
+    // still toggles gait_in_swing_ every cycle while BOTH feet stay loaded, and
+    // the touchdown test fires immediately on phantom contact, winding the phase
+    // PLL with garbage. Drive spends most of its life idle, so the offset would be
+    // junk the instant a walk command arrives. Mirrors the reference walker's
+    // `contact_lifted` flag: set when the foot unloads, and required before the
+    // next touchdown is accepted. Self-gating -- a planted foot never unloads, so
+    // an idle stand contributes exactly zero PLL updates.
+    bool   gait_lifted_[2] = {false, false};
     // Frozen per-step placement [Lx,Ly,Rx,Ry]. Recomputing step_x from live
     // qvel every tick means the swing foot chases a MOVING setpoint, and a
     // smoothstep ramp toward a moving setpoint is not monotone -- the foot
@@ -586,6 +598,7 @@ class beginning : public Task {
       rfn->gait_in_swing_[i]  = residual_.gait_in_swing_[i];
       rfn->gait_swing_t0_[i]  = residual_.gait_swing_t0_[i];
       rfn->gait_overrun_[i]   = residual_.gait_overrun_[i];
+      rfn->gait_lifted_[i]    = residual_.gait_lifted_[i];   // R7b interlock
       rfn->step_frozen_ok_[i] = residual_.step_frozen_ok_[i];
       rfn->com_acc_filt_[i]   = residual_.com_acc_filt_[i];
       if (i == 0) {

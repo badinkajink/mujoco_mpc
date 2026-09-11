@@ -4798,6 +4798,7 @@ void beginning::TransitionLocked(mjModel *model, mjData *data) {
         residual_.gait_in_swing_[i] = false;
         residual_.gait_swing_t0_[i] = -1.0;
         residual_.gait_overrun_[i] = 0.0;
+        residual_.gait_lifted_[i] = false;   // R7b interlock re-arms on unload
         residual_.step_frozen_ok_[i] = false;
         residual_.com_acc_filt_[i] = 0.0;
       }
@@ -5058,6 +5059,15 @@ void beginning::TransitionLocked(mjModel *model, mjData *data) {
 
       for (int i = 0; i < 2; i++) {
         const bool nominal_swing = (r7ph[i] >= g7.duty);
+        // ★ R7b LIFTOFF INTERLOCK: arm the leg only once it has genuinely
+        // unloaded. The swing WINDOW is a clock fact, but leaving the ground is a
+        // physical one, and the two disagree exactly when the gait amplitude is 0
+        // -- drive standing idle, or the balance-gated stumble march holding
+        // still. There BOTH feet stay loaded through every nominal swing window,
+        // so an un-interlocked touchdown test fires on phantom contact every
+        // cycle and winds the PLL with noise. Cleared on touchdown below.
+        if (!r7_contact[i]) residual_.gait_lifted_[i] = true;
+
         // LIFTOFF: the clock has just entered this leg's swing window.
         if (nominal_swing && !residual_.gait_in_swing_[i]) {
           residual_.gait_in_swing_[i] = true;
@@ -5138,8 +5148,13 @@ void beginning::TransitionLocked(mjModel *model, mjData *data) {
         const bool debounced =
             (residual_.gait_td_time_[i] < 0.0) ||
             (now - residual_.gait_td_time_[i] > kMinStep);
-        if (r7_contact[i] && residual_.gait_in_swing_[i] && debounced) {
+        // gait_lifted_ is the R7b interlock: this leg must have actually left the
+        // ground since its last touchdown. A permanently-planted foot (idle drive,
+        // held stumble) therefore never produces a touchdown event at all.
+        if (r7_contact[i] && residual_.gait_in_swing_[i] &&
+            residual_.gait_lifted_[i] && debounced) {
           residual_.gait_in_swing_[i] = false;
+          residual_.gait_lifted_[i] = false;      // re-arm on the next unload
           residual_.gait_td_time_[i] = now;
           residual_.gait_overrun_[i] = 0.0;
           residual_.step_frozen_ok_[i] = false;
