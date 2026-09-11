@@ -580,7 +580,7 @@
              (h12_brace_targeting, absorbed/bench-only) used rtt[1]=0.04 + this
              knob=0.12 to pick grid column B; if that bench is ever rerun, pass
              target_col_y=0.12 for it. -->
-        <numeric name="target_col_y" data="0.05"/>
+        <numeric name="target_col_y" data="0.0"/>
         <!-- ★ 2026-09-03 target_col_x (m): depth offset ADDED to every rung's
              reach_target_table[0] (strat 9 servo sweep: grid ROW knob). Both
              col knobs also shift servo_nominal inside the node, so a new grid
@@ -1191,7 +1191,7 @@
         <numeric name="servo_max_offset_y" data="0.12"/>  <!-- 2026-09-05 run 16: D405 composition put the block 8 cm right of where the head cam (table bundle) put it; lateral now from head-lock + belief, D405 keeps depth/height -->
         <numeric name="servo_max_offset_y_out" data="0.10"/>  <!-- 2026-09-05 one-sided RIGHTWARD cap: R shoulder roll at its outward stop on every hold (9_B3_25/26/27 body shoved, pad slid, elbow folded) -->
         <numeric name="servo_hold_ki" data="0.3"/>  <!-- 2026-09-05 hold integrator (1/s): camera-frame hold error integrated into the hold target; 0 = off -->
-        <numeric name="servo_hold_int_max" data="0.04"/>
+        <numeric name="servo_hold_int_max" data="0.04"/>  <!-- 2026-09-08: 0.04 saturated in y/z with 2 cm left in every hold -->
         <numeric name="reach_level_aim" data="0"/>  <!-- 2026-09-05: 1 = on servo_hold rungs, Reach Level lateral component aims the gripper approach axis at the target instead of pinning it to world +x (wrist yaw supplies ~3.3 cm lateral per 10 deg) -->
         <numeric name="servo_max_depth" data="0.40"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
         <numeric name="servo_freeze_dist" data="0.08"/>
