@@ -7,6 +7,12 @@ analyze.py (one per plan rate) and draws:
   fig_floor     completion vs noise floor sigma at 33 Hz, CEM vs PS
   fig_step      executed step per plan, per rung, CEM vs PS vs MPPI at 33 Hz
   fig_shipped   the four planners as shipped vs at matched noise (167 Hz)
+  fig_basin     completion over sigma x plan rate per update rule (+ k, lambda, N)
+  fig_window    completion vs executed step per plan, every arm at every rate,
+                with the lean-onset CoM margin as the dense channel
+
+Default input is the deploy-gains campaign (runs/summary_deploy_spp*.json, the
+plant the robot is); --gains xml reads the earlier XML-gains summaries.
 
 Color follows the UPDATE RULE, the entity the paper argues about, in a fixed
 order: elite mean (CEM, iCEM) blue, argmin (predictive sampling) orange, softmax
@@ -61,7 +67,7 @@ def wilson(k, n, z=1.96):
     d = 1 + z * z / n
     c = (p + z * z / (2 * n)) / d
     h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return (max(0.0, c - h), min(1.0, c + h))
+    return (min(p, max(0.0, c - h)), max(p, min(1.0, c + h)))
 
 
 def load(path):
@@ -311,20 +317,202 @@ def fig_window(S, out, hz=33):
     plt.close(fig)
 
 
+# ---- fig_basin ---------------------------------------------------------------
+SIG = [0.005, 0.01, 0.02, 0.03, 0.05]
+SIG_ARMS = {
+    "elite mean": ["cem_stdmin005", "cem", "cem_stdmin02", "cem_stdmin03", "cem_stdmin05"],
+    "argmin": ["ps_raw005_cubic", "ps_raw01_cubic", "ps_raw02_cubic", "ps_raw03_cubic", "ps_raw05_cubic"],
+    "softmax": ["mppi_raw005_zero_l1", "mppi_raw01_zero_l1", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1",
+                "mppi_raw05_zero_l1"],
+}
+RULE_COL = {"elite mean": C_ELITE, "argmin": C_ARGMIN, "softmax": C_SOFTMAX}
+RULE_TITLE = {"elite mean": "CEM, mean of k = 6 elites", "argmin": "predictive sampling, argmin",
+              "softmax": "MPPI, softmax mean, λ = 1"}
+ADMISSIBLE = 2 / 3  # >= 4/6 seeds (>= 2/3 at 3 seeds); declared before the runs
+
+
+def _mix(hex_col, t):
+    """lightness ramp for one hue: t = 0 -> near white, t = 1 -> the hue."""
+    import matplotlib.colors as mc
+    c = np.array(mc.to_rgb(hex_col)); w = np.array([0.985, 0.98, 0.97])
+    return tuple(w + (c - w) * t)
+
+
+def _cells(ax, grid, col, xlabels, ylabels, title=None, admissible=True):
+    """grid[i][j] = (k, n) or None; rows = y (bottom-up), cols = x."""
+    ny, nx = len(grid), len(grid[0])
+    for i in range(ny):
+        for j in range(nx):
+            kn = grid[i][j]
+            if kn is None or kn[1] == 0:
+                ax.add_patch(plt.Rectangle((j, i), 1, 1, fc="white", ec=C_GRID, lw=0.6, zorder=1))
+                ax.text(j + 0.5, i + 0.5, "·", ha="center", va="center", fontsize=7, color=C_GRAY, zorder=3)
+                continue
+            k, n = kn; p = k / n
+            ax.add_patch(plt.Rectangle((j, i), 1, 1, fc=_mix(col, p), ec="white", lw=1.2, zorder=1))
+            if admissible and p >= ADMISSIBLE - 1e-9:
+                ax.add_patch(plt.Rectangle((j + 0.07, i + 0.07), 0.86, 0.86, fc="none", ec=C_INK,
+                                           lw=0.9, zorder=2))
+            ax.text(j + 0.5, i + 0.5, "%d/%d" % (k, n), ha="center", va="center", fontsize=6.3,
+                    color="white" if p > 0.6 else C_INK, zorder=3)
+    ax.set_xlim(0, nx); ax.set_ylim(0, ny)
+    ax.set_xticks(np.arange(nx) + 0.5); ax.set_xticklabels(xlabels)
+    ax.set_yticks(np.arange(ny) + 0.5); ax.set_yticklabels(ylabels)
+    ax.tick_params(length=0, pad=2)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.set_aspect("equal")
+    if title:
+        ax.set_title(title, loc="left", fontsize=7, color=col if col != C_INK2 else C_INK, pad=2.5)
+
+
+def fig_basin(sums, out):
+    """Row 1: completion over sigma (rows) x plan rate (columns) per update rule.
+    Row 2: the rule-specific axes -- CEM elite count k, MPPI temperature lambda
+    (both x rate at 33/50 Hz), and the rollout count N at 33 Hz for all three.
+    Cells at >= 2/3 of seeds are outlined; the outlined area is the basin.
+    Panels are placed in inches so every cell is the same size."""
+    rates = [(15, "33"), (10, "50"), (3, "167")]
+    CELL, W, H = 0.235, COL, 3.9
+    fig = plt.figure(figsize=(W, H))
+
+    def place(x, y, nx, ny):  # x, y = lower-left corner in inches from the figure's lower-left
+        return fig.add_axes([x / W, y / H, nx * CELL / W, ny * CELL / H])
+
+    x0, gap = 0.52, 0.30
+    ytop, ybot = H - 0.40 - 5 * CELL, 0.62
+    basin = {}
+    titles = {"elite mean": "CEM (elite mean, k = 6)", "argmin": "PS (argmin)", "softmax": "MPPI (softmax, λ = 1)"}
+    for j, rule in enumerate(["elite mean", "argmin", "softmax"]):
+        ax = place(x0 + j * (3 * CELL + gap), ytop, 3, 5)
+        grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp, _ in rates]
+                for arm in SIG_ARMS[rule]]
+        _cells(ax, grid, RULE_COL[rule], [h for _, h in rates], ["%g" % x for x in SIG] if j == 0 else [""] * 5,
+               title=titles[rule])
+        if j == 0:
+            ax.set_ylabel("sampling std σ, rad")
+        ax.set_xlabel("plans/s", labelpad=1)
+        adm = sum(1 for row in grid for kn in row if kn and kn[1] and kn[0] / kn[1] >= ADMISSIBLE - 1e-9)
+        tot = sum(1 for row in grid for kn in row if kn and kn[1])
+        basin[rule] = (adm, tot)
+    # row 2, left: CEM k x rate (33, 50)
+    ks = [(1, "cem_ne1"), (2, "cem_ne2"), (6, "cem"), (10, "cem_ne10"), (20, "cem_ne20")]
+    ax = place(x0, ybot, 2, 5)
+    grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ks]
+    _cells(ax, grid, C_ELITE, ["33", "50"], [str(k) for k, _ in ks], title="CEM: elites k of 20")
+    ax.set_ylabel("k"); ax.set_xlabel("plans/s", labelpad=1)
+    # row 2, middle: MPPI lambda x rate
+    ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
+    ax = place(x0 + 3 * CELL + gap, ybot + 2 * CELL, 2, 3)
+    grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ls]
+    _cells(ax, grid, C_SOFTMAX, ["33", "50"], ["%g" % l for l, _ in ls], title="MPPI: temperature λ")
+    ax.set_ylabel("λ"); ax.set_xlabel("plans/s", labelpad=1)
+    # row 2, right: N x rule at 33 Hz
+    Ns = [(8, ["cem_n8_ne2", "ps_raw01_cubic_n8", "mppi_raw01_zero_l1_n8"]),
+          (20, ["cem", "ps_raw01_cubic", "mppi_raw01_zero_l1"]),
+          (40, ["cem_n40_ne12", "ps_raw01_cubic_n40", "mppi_raw01_zero_l1_n40"])]
+    ax = place(x0 + 2 * (3 * CELL + gap), ybot + 2 * CELL, 3, 3)
+    grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N at 33 plans/s")
+    ax.set_ylabel("N")
+    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of seeds complete the ladder.  σ = 0.01 rad and N = 20 unless varied.",
+             fontsize=6.3, color=C_INK2)
+    fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
+    plt.close(fig)
+    return basin
+
+
+# ---- fig_window (all rates) --------------------------------------------------
+def _rule_of(arm):
+    pl = ARMS[arm][0]
+    if pl == 0 or ARMS[arm][1].get("n_elite") == 1:
+        return "argmin"
+    return "softmax" if pl == 9 else "elite mean"
+
+
+def fig_window_all(sums, out):
+    """(a) every arm at every rate: x = median executed step per plan in the
+    lean rung, y = completion fraction; marker = update rule, fill = plan rate.
+    (b) the dense channel behind (a): the CoM margin at the lean onset per run
+    against the same x, completing runs filled, falls hollow."""
+    import statistics as st
+    FILL = {15: "full", 10: "left", 6: "left", 3: "none"}
+    RLAB = {15: "33 plans/s", 10: "50 / 83 plans/s", 3: "167 plans/s"}
+    MK = {"argmin": "^", "softmax": "D", "elite mean": "o"}
+    fig, axs = plt.subplots(2, 1, figsize=(COL, 4.4), sharex=True,
+                            gridspec_kw={"height_ratios": [1, 1.15], "hspace": 0.12})
+    ax, bx = axs
+    pts = []
+    for spp, S in sums.items():
+        for arm in sorted(set(r["arm"] for r in S["runs"])):
+            rs = [r for r in S["runs"] if r["arm"] == arm and "row_dt" in r]
+            if len(rs) < 3:
+                continue
+            steps = [1000 * r["jitter_phase"]["brace_lean"] for r in rs
+                     if "brace_lean" in r.get("jitter_phase", {})]
+            if not steps:
+                continue
+            k = sum(r["outcome"] == "complete" for r in rs); n = len(rs)
+            pts.append((st.median(steps), k, n, _rule_of(arm), spp, arm))
+            for r in rs:
+                j = r.get("jitter_phase", {}).get("brace_lean"); m = r.get("lean_onset_min_com_early")
+                if j is None or m is None or (isinstance(m, float) and math.isnan(m)):
+                    continue
+                rule = _rule_of(arm)
+                bx.plot(1000 * j, m, marker=MK[rule], ms=3.6, mec=RULE_COL[rule], mew=0.7, lw=0,
+                        mfc=RULE_COL[rule] if r["outcome"] == "complete" else "white",
+                        alpha=0.85, zorder=3 if r["outcome"] == "complete" else 4)
+    order = {"elite mean": 3, "softmax": 4, "argmin": 5}
+    for x, k, n, rule, spp, arm in sorted(pts, key=lambda t: order[t[3]]):
+        p = k / n; lo, hi = wilson(k, n)
+        ax.plot([x, x], [lo, hi], color=RULE_COL[rule], lw=0.5, alpha=0.3, zorder=2)
+        ax.plot(x, p, marker=MK[rule], color=RULE_COL[rule], ms=5.2, fillstyle=FILL[spp],
+                mec=RULE_COL[rule], mew=0.8, lw=0, alpha=0.9, zorder=order[rule])
+    for rule in ["elite mean", "argmin", "softmax"]:
+        ax.plot([], [], marker=MK[rule], color=RULE_COL[rule], lw=0, ms=5.2, mec=RULE_COL[rule], label=rule)
+    for spp in (15, 10, 3):
+        ax.plot([], [], marker="s", color=C_INK2, mec=C_INK2, lw=0, ms=5, fillstyle=FILL[spp], label=RLAB[spp])
+    ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.02), handlelength=1.2, borderaxespad=0)
+    ax.set_ylabel("completed, fraction of seeds")
+    ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
+    bx.set_xscale("log")
+    bx.set_xticks([2, 3, 5, 10, 20, 50]); bx.set_xticklabels(["2", "3", "5", "10", "20", "50"])
+    bx.minorticks_off()
+    bx.set_xlabel("executed step per plan in the lean rung, mrad RMS over 27 joints")
+    bx.set_ylabel("CoM margin at the lean onset, m\n(min over 1.2 s; negative = behind)")
+    bx.plot([], [], marker="o", color=C_INK2, lw=0, ms=4, label="completed")
+    bx.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=4, label="failed")
+    bx.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), handlelength=1.2, borderaxespad=0)
+    for a_ in axs:
+        style_axes(a_)
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.join(HERE, "paper_figs"))
+    ap.add_argument("--gains", default="deploy", choices=["deploy", "xml"],
+                    help="which campaign to draw: deploy (runs/summary_deploy_spp*, default) or xml")
+    ap.add_argument("--out", default="")
     a = ap.parse_args()
-    os.makedirs(a.out, exist_ok=True)
-    sums = {3: load("runs/summary_rate_spp3.json"), 6: load("runs/summary_rate_spp6.json"),
-            10: load("runs/summary_rate_spp10.json"), 15: load("runs/summary_rate_spp15.json")}
-    fig_rate(sums, os.path.join(a.out, "fig_rate"))
-    fig_elites(sums[15], os.path.join(a.out, "fig_elites"))
-    fig_floor(sums[15], sums[3], os.path.join(a.out, "fig_floor"))
-    fig_step(sums[15], os.path.join(a.out, "fig_step"))
-    fig_shipped(sums[3], os.path.join(a.out, "fig_shipped"))
-    fig_window(sums[15], os.path.join(a.out, "fig_window"))
-    print("->", a.out)
+    out = a.out or os.path.join(HERE, "paper_figs" if a.gains == "deploy" else "paper_figs_xml")
+    os.makedirs(out, exist_ok=True)
+    pre = "runs/summary_deploy_spp" if a.gains == "deploy" else "runs/summary_rate_spp"
+    sums = {spp: load("%s%d.json" % (pre, spp)) for spp in (3, 6, 10, 15)}
+    for spp, S in sums.items():
+        print("spp %2d: %3d runs, %2d arms" % (spp, len(S["runs"]), len(set(r["arm"] for r in S["runs"]))))
+    fig_rate(sums, os.path.join(out, "fig_rate"))
+    fig_elites(sums[15], os.path.join(out, "fig_elites"))
+    fig_floor(sums[15], sums[3], os.path.join(out, "fig_floor"))
+    fig_step(sums[15], os.path.join(out, "fig_step"))
+    fig_shipped(sums[3], os.path.join(out, "fig_shipped"))
+    fig_window(sums[15], os.path.join(out, "fig_window"))
+    basin = fig_basin(sums, os.path.join(out, "fig_basin"))
+    fig_window_all(sums, os.path.join(out, "fig_window_all"))
+    json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
+              open(os.path.join(out, "basin.json"), "w"), indent=1)
+    print("basin (admissible / measured cells of the sigma x rate grid):", basin)
+    print("->", out)
 
 
 if __name__ == "__main__":
