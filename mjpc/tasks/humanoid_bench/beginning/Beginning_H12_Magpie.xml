@@ -527,6 +527,15 @@
              reference for that oscillation to be a stable limit cycle. Without
              it the controller fights its own intended rocking. Start small. -->
         <numeric name="trot_step_width" data="0.02"/>
+        <!-- trot_duty: stance fraction of the gait cycle. 0 = use the built-in
+             0.60. Double-support fraction = 2*duty - 1, so 0.60 gives only 20%
+             of the cycle with both feet down and 80% with a SINGLE ankle
+             carrying the whole body. Measured 2026-09-06, ankle_pitch runs at
+             94% of its estop torque on average and peaks over 100% -- it is the
+             binding constraint on the whole gait, and it is the weakest major
+             joint (60 Nm rated vs knee 300, hip 200). Raising duty puts more of
+             the cycle on two feet so the pair shares the load. -->
+        <numeric name="trot_duty" data="0.0"/>
         <numeric name="trot_settle_thresh" data="0.0"/>
 
         <!-- ═══════════ ★ R7 CONTACT-TRIGGERED GAIT (2026-09-03) ═══════════

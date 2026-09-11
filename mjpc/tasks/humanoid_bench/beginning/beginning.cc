@@ -78,9 +78,15 @@ inline GaitClock GaitPhases(const mjModel *model, double time, double offset,
   // duty: TROT may raise it (trot_duty, is_trot-gated) for more double support
   // during slow forward walk; strat 20 keeps kDutyRatio. Both readers resolve it
   // identically here so cost and swing can never disagree about the duty.
+  // A value <= 0 means "unset" and falls back to kDutyRatio, so declaring the
+  // numeric with the file's usual data="0" default is byte-identical to not
+  // declaring it at all. Without this guard a 0 would mean "always swinging"
+  // and would destroy the gait silently. Clamped to 0.95 because duty >= 1.0
+  // divides by zero in the (1 - kDuty) swing-progress denominators below.
   int dty_id = mj_name2id(model, mjOBJ_NUMERIC, "trot_duty");
-  g.duty = (is_trot && dty_id >= 0)
-               ? model->numeric_data[model->numeric_adr[dty_id]] : kDutyRatio;
+  double duty_raw = (is_trot && dty_id >= 0)
+                        ? model->numeric_data[model->numeric_adr[dty_id]] : 0.0;
+  g.duty = (duty_raw > 1e-6) ? mju_min(duty_raw, 0.95) : kDutyRatio;
   double ph = std::fmod(time * g.cad + offset, 1.0);
   if (ph < 0.0) ph += 1.0;                     // fmod is sign-preserving
   g.ph_l = ph;
