@@ -97,8 +97,29 @@ rate" and Result, `./make_page.py … --out ../../docs/lean/20260911-planner_abl
 copy `paper_figs/*.png` to `docs/lean/media/planner_ablation/`, republish to the
 same artifact URL (listed in `docs/experiments/INDEX.md`).
 
+## 3b. RESULT of the deploy-gains test (26/36 runs in at 15:12 MDT; rerun `./analyze.py --runs runs/gains_spp15 --out runs/summary_gains_spp15.json` for the final table)
+`--gains deploy` at 33 Hz, 6 seeds: **CEM 5/6, iCEM 6/6, CEM k=2 6/6, PS (argmin,
+cubic) 0/6**, cem_stdmin02 1/2 so far, MPPI λ=1 pending. **The bench-vs-robot gap
+was the gain table.** With the robot's joint PD the bench reproduces the robot
+(CEM works at 33 Hz) and predictive sampling still fails at the same noise and
+rate — which is the paper's motivation, now on the right plant. Consequences:
+- Every earlier bench number (§2a, §2b) is on the XML gains and is a
+  *different plant*; the 33 Hz window in §2b is a property of that plant. Rerun
+  the decisive rows with `--gains deploy` before publishing anything:
+  at 33 Hz the CEM k ladder (1, 2, 6, 10, 20), the σ ladder (0.005–0.10), PS σ
+  ladder and MPPI λ ladder; at 167 Hz the four shipped planners + matched-noise
+  PS/MPPI (3 seeds is enough there). ~4 h total. The §5 basin study should be run
+  entirely on `--gains deploy`.
+- Mechanism to check on the traces: with kp 90 the bracing arm swings forward
+  faster, so the CoM does not retreat at the lean onset (compare
+  `lean_onset_min_com_early` between `runs/rate_spp15` and `runs/gains_spp15`
+  for the same arm+seed).
+- Consider adding the deploy KP/KV to the XML actuators (or an `<include>`)
+  so the planner model and the bench match the robot by default — coordinate
+  with Allen; `PatchActuators` in the node would then be a no-op.
+
 ## 4. In flight right now (`campaign2.sh`, log `runs/campaign2.log`)
-1. **`runs/gains_spp15`** — `lean_bench --gains deploy`: the deploy node's KP/KV
+1. **`runs/gains_spp15`** (result in §3b) — `lean_bench --gains deploy`: the deploy node's KP/KV
    table (`h12_control_node.cc` KP[]/KV[]: arm kp 90/60/40/90/15, ankle roll 80;
    XML has arm 40, ankle roll 200) applied to plant AND planner model, at 33 Hz,
    6 seeds: cem, icem, ps_raw01_cubic, cem_ne2, cem_stdmin02, mppi λ=1. **This is
