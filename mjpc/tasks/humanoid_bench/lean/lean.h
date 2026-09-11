@@ -311,6 +311,10 @@ class lean : public Task {
     //  2026-09-05: recovery rungs = strat 29 lineage (25 rungs tried in 9_B3_8: stalled at pitch 17 deg, reverted);
     //  CoM-recenter gate scoped like 28/29 (all standback rungs); hold point 0.44 (jaw tips ~5 cm off the face).
     names[9]  = "h12_brace_servo_sweep";
+    // ★ 2026-09-08 strat 10: FULL GRASP off strat 9. Strat 9 rungs 0-4 (dive, hover,
+    //  approach, 5 s servo hold at 0.44) + strat 29 kf4 (grasp_close slide-in 0.55,
+    //  node close gate) + kf5 (lift-back 0.48/0.10) -> strat 9 release/standback.
+    names[10] = "h12_brace_grasp_full";
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
     // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the
