@@ -526,7 +526,7 @@
              to oscillate side to side and the feet need an alternating +/-w/2
              reference for that oscillation to be a stable limit cycle. Without
              it the controller fights its own intended rocking. Start small. -->
-        <numeric name="trot_step_width" data="0.02"/>
+        <numeric name="trot_step_width" data="0.0"/>
         <!-- trot_duty: stance fraction of the gait cycle. 0 = use the built-in
              0.60. Double-support fraction = 2*duty - 1, so 0.60 gives only 20%
              of the cycle with both feet down and 80% with a SINGLE ankle
@@ -615,7 +615,7 @@
         <numeric name="trot_cop_anchor" data="0.0"/>
         <numeric name="trot_cop_lp" data="0.08"/>
         <numeric name="trot_dcm_target" data="0"/>
-        <numeric name="stumble_step_height" data="0.08"/>
+        <numeric name="stumble_step_height" data="0.06"/>
         <!-- ★ trot_rock_ff [m] (2026-07-20, default 0 = OFF = byte-identical) —
              THE SAG FIX. Commanded pelvis LATERAL shift at full swing bump, driven
              OPEN-LOOP onto the STANCE hip_roll (and the Hip Roll cost target moved
@@ -670,7 +670,7 @@
              CAVEAT: v4a fixes the GLOBAL frame, not relative kinematics — its
              inter-foot spread is 46.6 mm vs v3's 14.4 mm. Use it for the stance
              ORIGIN and keep leg kinematics for relative foot geometry. -->
-        <numeric name="drive_foot_anchor" data="1"/>
+        <numeric name="drive_foot_anchor" data="0"/>
         <numeric name="trot_rock_ff" data="0.0"/>
         <!-- ★ trot_rock_lead [cycle fractions] (default 0). PHASE ADVANCE for the
              rock. With duty 0.60 the swing bump is 0 at liftoff (ph 0.60) and
