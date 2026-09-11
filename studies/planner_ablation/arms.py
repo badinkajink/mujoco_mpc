@@ -125,6 +125,20 @@ ARMS = {
     "mppi_raw01_zero_l1_n40": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
                                       "sampling_representation": 0, "mppi_temperature": 1.0,
                                       "sampling_trajectories": 40}),
+
+    # ---- representation x update rule (2026-09-11 15:20): on the deploy plant
+    #      at 33 Hz PS at 0.01 rad completes 6/6 with a zero-order hold and 0/6
+    #      with the cubic spline it ships with, so the spline is a component.
+    #      Complete the 2 x 3 (spline x update rule) at sigma = 0.01.
+    "cem_cubic":            (CEM,  {"cem_representation": 2}),
+    "icem_cubic":           (ICEM, {"cem_representation": 2}),
+    "mppi_raw01_cubic_l1":  (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                    "sampling_representation": 2, "mppi_temperature": 1.0}),
+    # the one-knob versions a user would try first: shipped spline, shipped
+    # noise convention, exploration turned down to 0.01 (= 0.003-0.03 rad)
+    "mppi_scaled01_cubic":  (MPPI, {"sampling_exploration": 0.01}),
+    "mppi_raw01_cubic_l0.1": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                     "sampling_representation": 2, "mppi_temperature": 0.1}),
 }
 
 BATCHES = {
@@ -156,4 +170,7 @@ BATCHES = {
     "T": ["mppi_raw01_zero_l0.1", "mppi_raw01_zero_l10"],
     "N": ["cem_n8_ne2", "cem_n40_ne12", "ps_raw01_cubic_n8", "ps_raw01_cubic_n40",
           "mppi_raw01_zero_l1_n8", "mppi_raw01_zero_l1_n40"],
+    # X = the spline x update-rule completion plus the one-knob PS/MPPI
+    "X": ["cem_cubic", "icem_cubic", "mppi_raw01_cubic_l1", "ps_scaled01_cubic",
+          "mppi_scaled01_cubic", "mppi_raw01_cubic_l0.1"],
 }

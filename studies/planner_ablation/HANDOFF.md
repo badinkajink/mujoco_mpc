@@ -85,6 +85,26 @@ lean; completing median −0.174, lean-onset falls median −0.244, 44/61 falls 
 the completing p10 of −0.222) and `lean_onset_cop_sat_frac`. These are the dense
 signals for §5.
 
+## 2d. Deploy plant, 33 Hz: the spline is a component (2026-09-11 15:20, `runs/gains_spp15`)
+Predictive sampling at σ = 0.01 rad, argmin, 6 seeds: **zero-order hold 6/6,
+cubic 0/6** (cubic: 4 falls at rung 1, 1 at rung 2, 1 stall). The executed
+step per plan is the same (8.3 vs 9.4 mrad in the lean), so the step-size
+window does not explain it; on the XML plant at 50 Hz the same split was 5/6
+vs 1/6, and at 167 Hz cubic completes (3/3), so it is a stale-plan effect of
+the representation. CEM/iCEM hard-code the zero-order hold. Shipped PS
+(cubic, 0.03–0.36 rad) 0/6 and shipped MPPI 0/5 fall in the stand within
+10–45 s. Hypothesis to test on the traces: between plans the cubic command
+moves along the curve toward knot 1 (0.5 s ahead, chosen under the previous
+state) while the hold stays at knot 0; log one seed of each at 500 Hz
+(`--log_hz 500`) and compare the within-plan command velocity. The 2 × 3
+(spline × update rule) at σ = 0.01 is queued in batch X (`cem_cubic`,
+`icem_cubic`, `mppi_raw01_cubic_l1`, `mppi_raw01_cubic_l0.1`, plus the
+one-knob `ps_scaled01_cubic`, `mppi_scaled01_cubic`) at 33/50/167 Hz.
+Reading so far: the components that make CEM work on the robot's plant at the
+robot's rate are the noise floor in radians (0.01) and the hold spline; the
+update rule is second order (argmin 6/6, elite mean 5/6–6/6, softmax 4/6 with
+stalls). `cem_ne1` (argmin of 20 with the adaptive variance) is in batch K.
+
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the
 overnight data. Its 167 Hz sections stand. Its §"At the deploy node's plan rate"
@@ -159,9 +179,11 @@ XML. Fix options: (a) put the deploy table in the XML actuators (Allen's file);
 minimum, `--gains deploy` in every bench script and a loud note in the task
 README.
 
-## 4. In flight right now (`campaign3.sh`, log `runs/campaign3.log`, started 15:10 MDT)
+## 4. In flight right now (`campaign4.sh`, log `runs/campaign4.log`; campaign3.sh killed 15:22 so batch X could go in first)
 `campaign2.sh` was killed after `gains_spp15` finished (its 83 Hz and 167 Hz
-rows would have been on XML gains). `campaign3.sh` re-takes everything on
+rows would have been on XML gains). `campaign4.sh` (same list as campaign3.sh
+with batch X added at 33/50/167 Hz; waits for campaign3's 33 Hz sweep, which
+kept running) re-takes everything on
 `--gains deploy`, in priority order, each sweep resumable (`--out` same dir):
 1. `runs/gains_spp15` (33 Hz): batches R,A,S,K,T,N, 6 seeds — 150 new runs
    (~2.5 h). This is the 33 Hz slice of the §5 basin study plus the shipped
@@ -221,14 +243,26 @@ side by side, sequential single-hue, admissible cells outlined), `fig_window`
 (already there: completion vs step/plan; extend to all rates with the rate as
 marker fill), `fig_rate` (already there).
 
-## 6. Paper figures drafted so far (`paper_figs/`, PDF+PNG, IEEE column width)
-`fig_rate` completion vs plans/s per update rule (6 seeds where available);
-`fig_window` completion vs executed step per plan at 33 Hz, all arms;
-`fig_elites` completion + step vs k at 33 Hz; `fig_floor` completion vs σ at 167
-and 33 Hz, CEM vs PS; `fig_step` step per rung at 33 Hz; `fig_shipped` shipped vs
-matched noise at 167 Hz. Palette: update rule → colour (elite mean #2a78d6,
-argmin #eb6834, softmax #1baf7a), Wilson 95% bars, serif 8 pt. Regenerate with
-`./score_rates.sh && ./paper_figs.py` after every wave.
+## 6. Paper figures (`paper_figs.py`, output `paper_figs/`, PDF+PNG, IEEE column width)
+Target set for the paper (user 2026-09-11: "fewer and denser"): three figures.
+1. **fig_ladder** — one row per configuration from shipped PS/MPPI to iCEM,
+   three switch columns (noise std, spline, update rule; the cell that changed
+   from the row above is set in ink), completion at 33 plans/s (filled) and
+   167 (hollow) with Wilson 95 %. Answers "which component".
+2. **fig_basin** — σ × plan-rate completion grid per update rule (cells
+   ≥ 2/3 outlined = the basin), plus CEM k × rate, MPPI λ × rate, N × rule at
+   33 Hz. Answers "how sensitive is each rule to its configuration". Basin
+   counts are written to `paper_figs/basin.json`.
+3. **fig_rate** (completion vs plans/s per rule) with **fig_window_all**
+   (completion and the lean-onset CoM margin against the executed step per
+   plan, every arm at every rate) as the mechanism panel, if the deploy data
+   collapse onto the step axis; if not, fig_rate alone.
+Older candidates kept in the script: fig_elites, fig_floor, fig_step,
+fig_shipped, fig_window (33 Hz only). `./score_rates.sh && ./paper_figs.py`
+regenerates everything from `runs/summary_deploy_spp{3,6,10,15}.json`;
+`--gains xml` draws the XML-plant set into `paper_figs_xml/` for the record.
+Palette: update rule → colour (elite mean #2a78d6, argmin #eb6834, softmax
+#1baf7a; gray #9a9a96); serif 8 pt; text in ink tokens, never a series colour.
 
 ## 7. Files
 - Harness: `mjpc/lean_bench.cc` (`--numeric`, `--state_out`, `--log_hz`, `--gains

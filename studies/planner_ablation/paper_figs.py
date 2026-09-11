@@ -489,6 +489,83 @@ def fig_window_all(sums, out):
     plt.close(fig)
 
 
+# ---- fig_ladder --------------------------------------------------------------
+LADDER = [  # (arm, family, sigma text, spline text, update text)
+    ("ps",                  "PS",   "0.03–0.36", "cubic", "argmin"),
+    ("ps_scaled01_cubic",   "PS",   "0.003–0.03", "cubic", "argmin"),
+    ("ps_raw01_cubic",      "PS",   "0.01",  "cubic", "argmin"),
+    ("ps_raw01_zero",       "PS",   "0.01",  "hold",  "argmin"),
+    ("mppi",                "MPPI", "0.03–0.36", "cubic", "softmax, λ 0.1"),
+    ("mppi_scaled01_cubic", "MPPI", "0.003–0.03", "cubic", "softmax, λ 0.1"),
+    ("mppi_raw01_cubic_l0.1", "MPPI", "0.01", "cubic", "softmax, λ 0.1"),
+    ("mppi_raw01_cubic_l1", "MPPI", "0.01",  "cubic", "softmax, λ 1"),
+    ("mppi_raw01_zero_l1",  "MPPI", "0.01",  "hold",  "softmax, λ 1"),
+    ("cem_cubic",           "CEM",  "0.01*", "cubic", "mean of 6 elites"),
+    ("cem",                 "CEM",  "0.01*", "hold",  "mean of 6 elites"),
+    ("cem_ne1",             "CEM",  "0.01*", "hold",  "argmin of 20"),
+    ("icem",                "CEM",  "0.01*", "hold, AR(1)", "mean of 6, memory"),
+]
+
+
+def fig_ladder(sums, out):
+    """One row per configuration, grouped by planner family; the three switch
+    columns name the component (noise std, spline, update rule) and the cell
+    that changed from the row above is set in ink, the rest in gray. Right:
+    completion at 33 plans/s (filled) and 167 plans/s (hollow), Wilson 95 %."""
+    rows = LADDER
+    n = len(rows)
+    fig = plt.figure(figsize=(COL, 0.19 * n + 0.95))
+    # table axes (left 58 %) and dot axes (right 42 %)
+    tax = fig.add_axes([0.0, 0.17, 0.62, 0.76]); tax.axis("off")
+    ax = fig.add_axes([0.66, 0.17, 0.33, 0.76])
+    ys = []
+    y = 0.0
+    fam_prev = None
+    for arm, fam, sig, spl, upd in rows:
+        if fam_prev is not None and fam != fam_prev:
+            y -= 0.6
+        ys.append(y); y -= 1.0
+        fam_prev = fam
+    cols_x = [0.02, 0.16, 0.43, 0.66]   # family, sigma, spline, update
+    tax.set_xlim(0, 1); tax.set_ylim(y + 0.4, 0.6)
+    ax.set_ylim(y + 0.4, 0.6)
+    hdr_y = 0.55
+    for x, h in zip(cols_x[1:], ["noise std, rad", "spline", "update rule"]):
+        tax.text(x, hdr_y + 0.45, h, fontsize=6.5, color=C_INK2, va="bottom")
+    prev = None
+    for (arm, fam, sig, spl, upd), yy in zip(rows, ys):
+        first = prev is None or prev[1] != fam
+        if first:
+            tax.text(cols_x[0], yy, fam, fontsize=7.5, color=C_INK, va="center", weight="bold")
+        for x, txt, key in zip(cols_x[1:], [sig, spl, upd], [2, 3, 4]):
+            changed = first or prev[key] != txt
+            tax.text(x, yy, txt, fontsize=6.4, va="center",
+                     color=C_INK if changed else C_GRAY, weight="bold" if changed and not first else "normal")
+        prev = (arm, fam, sig, spl, upd)
+        col = {"PS": C_ARGMIN, "MPPI": C_SOFTMAX, "CEM": C_ELITE}[fam]
+        for spp, fill, dy in [(15, "full", 0.0), (3, "none", 0.0)]:
+            S = sums[spp]
+            k, nn = counts(S, arm)
+            if not nn:
+                continue
+            p_ = k / nn; lo, hi = wilson(k, nn)
+            ax.plot([lo, hi], [yy + dy, yy + dy], color=col, lw=0.7, alpha=0.35, zorder=2)
+            ax.plot(p_, yy + dy, marker="o", ms=5, mfc=col if fill == "full" else "white", mec=col,
+                    mew=1.0, lw=0, zorder=4 if fill == "full" else 3)
+    ax.set_xlim(-0.06, 1.06); ax.set_xticks([0, 0.5, 1]); ax.set_xticklabels(["0", "½", "1"])
+    ax.set_yticks([])
+    ax.spines["left"].set_visible(False)
+    ax.grid(True, axis="x", zorder=0); ax.set_axisbelow(True)
+    ax.set_xlabel("completed, fraction of seeds")
+    ax.plot([], [], marker="o", ms=5, color=C_INK2, lw=0, label="33 plans/s")
+    ax.plot([], [], marker="o", ms=5, mfc="white", mec=C_INK2, lw=0, label="167 plans/s")
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, handletextpad=0.3, columnspacing=0.8)
+    fig.text(0.0, 0.0, "* CEM/iCEM: elite std, which decays to the 0.01 rad floor within 0.3 s",
+             fontsize=6, color=C_INK2, va="bottom")
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gains", default="deploy", choices=["deploy", "xml"],
@@ -509,6 +586,7 @@ def main():
     fig_window(sums[15], os.path.join(out, "fig_window"))
     basin = fig_basin(sums, os.path.join(out, "fig_basin"))
     fig_window_all(sums, os.path.join(out, "fig_window_all"))
+    fig_ladder(sums, os.path.join(out, "fig_ladder"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)
