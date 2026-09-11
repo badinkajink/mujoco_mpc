@@ -139,6 +139,14 @@ ARMS = {
     "mppi_scaled01_cubic":  (MPPI, {"sampling_exploration": 0.01}),
     "mppi_raw01_cubic_l0.1": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
                                      "sampling_representation": 2, "mppi_temperature": 0.1}),
+    # PS sigma axis with the hold spline, so the basin compares update rules
+    # at one representation (the cubic PS axis stays as the spline contrast)
+    "ps_raw01_zero_n8": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                              "sampling_representation": 0, "sampling_trajectories": 8}),
+    "ps_raw005_zero": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.005,
+                            "sampling_representation": 0}),
+    "ps_raw05_zero":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.05,
+                            "sampling_representation": 0}),
 }
 
 BATCHES = {
@@ -169,8 +177,11 @@ BATCHES = {
     "K": ["cem_ne1", "cem_ne2", "cem_ne10", "cem_ne20"],
     "T": ["mppi_raw01_zero_l0.1", "mppi_raw01_zero_l10"],
     "N": ["cem_n8_ne2", "cem_n40_ne12", "ps_raw01_cubic_n8", "ps_raw01_cubic_n40",
+          "ps_raw01_zero_n8", "ps_raw01_zero_n40",
           "mppi_raw01_zero_l1_n8", "mppi_raw01_zero_l1_n40"],
     # X = the spline x update-rule completion plus the one-knob PS/MPPI
     "X": ["cem_cubic", "icem_cubic", "mppi_raw01_cubic_l1", "ps_scaled01_cubic",
           "mppi_scaled01_cubic", "mppi_raw01_cubic_l0.1"],
+    # S2 = the PS sigma axis with the hold spline
+    "S2": ["ps_raw005_zero", "ps_raw01_zero", "ps_raw02_zero", "ps_raw03_zero", "ps_raw05_zero"],
 }

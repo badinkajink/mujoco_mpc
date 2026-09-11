@@ -319,13 +319,15 @@ def fig_window(S, out, hz=33):
 
 # ---- fig_basin ---------------------------------------------------------------
 SIG = [0.005, 0.01, 0.02, 0.03, 0.05]
-SIG_ARMS = {
+SIG_ARMS = {  # every rule at the hold spline; the cubic PS axis is the spline contrast
     "elite mean": ["cem_stdmin005", "cem", "cem_stdmin02", "cem_stdmin03", "cem_stdmin05"],
-    "argmin": ["ps_raw005_cubic", "ps_raw01_cubic", "ps_raw02_cubic", "ps_raw03_cubic", "ps_raw05_cubic"],
+    "argmin": ["ps_raw005_zero", "ps_raw01_zero", "ps_raw02_zero", "ps_raw03_zero", "ps_raw05_zero"],
     "softmax": ["mppi_raw005_zero_l1", "mppi_raw01_zero_l1", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1",
                 "mppi_raw05_zero_l1"],
+    "argmin cubic": ["ps_raw005_cubic", "ps_raw01_cubic", "ps_raw02_cubic", "ps_raw03_cubic", "ps_raw05_cubic"],
 }
-RULE_COL = {"elite mean": C_ELITE, "argmin": C_ARGMIN, "softmax": C_SOFTMAX}
+
+RULE_COL = {"elite mean": C_ELITE, "argmin": C_ARGMIN, "softmax": C_SOFTMAX, "argmin cubic": C_ARGMIN}
 RULE_TITLE = {"elite mean": "CEM, mean of k = 6 elites", "argmin": "predictive sampling, argmin",
               "softmax": "MPPI, softmax mean, λ = 1"}
 ADMISSIBLE = 2 / 3  # >= 4/6 seeds (>= 2/3 at 3 seeds); declared before the runs
@@ -373,17 +375,18 @@ def fig_basin(sums, out):
     Cells at >= 2/3 of seeds are outlined; the outlined area is the basin.
     Panels are placed in inches so every cell is the same size."""
     rates = [(15, "33"), (10, "50"), (3, "167")]
-    CELL, W, H = 0.235, COL, 3.9
+    CELL, W, H = 0.19, COL, 3.4
     fig = plt.figure(figsize=(W, H))
 
     def place(x, y, nx, ny):  # x, y = lower-left corner in inches from the figure's lower-left
         return fig.add_axes([x / W, y / H, nx * CELL / W, ny * CELL / H])
 
-    x0, gap = 0.52, 0.30
-    ytop, ybot = H - 0.40 - 5 * CELL, 0.62
+    x0, gap = 0.50, 0.19
+    ytop, ybot = H - 0.42 - 5 * CELL, 0.58
     basin = {}
-    titles = {"elite mean": "CEM (elite mean, k = 6)", "argmin": "PS (argmin)", "softmax": "MPPI (softmax, λ = 1)"}
-    for j, rule in enumerate(["elite mean", "argmin", "softmax"]):
+    titles = {"elite mean": "CEM, elite mean", "argmin": "PS, argmin", "softmax": "MPPI, softmax",
+              "argmin cubic": "argmin, cubic"}
+    for j, rule in enumerate(["elite mean", "argmin", "softmax", "argmin cubic"]):
         ax = place(x0 + j * (3 * CELL + gap), ytop, 3, 5)
         grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp, _ in rates]
                 for arm in SIG_ARMS[rule]]
@@ -391,7 +394,8 @@ def fig_basin(sums, out):
                title=titles[rule])
         if j == 0:
             ax.set_ylabel("sampling std σ, rad")
-        ax.set_xlabel("plans/s", labelpad=1)
+        if j == 1:
+            ax.set_xlabel("plans per second", labelpad=1, x=1.1)
         adm = sum(1 for row in grid for kn in row if kn and kn[1] and kn[0] / kn[1] >= ADMISSIBLE - 1e-9)
         tot = sum(1 for row in grid for kn in row if kn and kn[1])
         basin[rule] = (adm, tot)
@@ -403,20 +407,20 @@ def fig_basin(sums, out):
     ax.set_ylabel("k"); ax.set_xlabel("plans/s", labelpad=1)
     # row 2, middle: MPPI lambda x rate
     ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
-    ax = place(x0 + 3 * CELL + gap, ybot + 2 * CELL, 2, 3)
+    ax = place(x0 + 3 * CELL + gap + 0.15, ybot + 2 * CELL, 2, 3)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ls]
     _cells(ax, grid, C_SOFTMAX, ["33", "50"], ["%g" % l for l, _ in ls], title="MPPI: temperature λ")
     ax.set_ylabel("λ"); ax.set_xlabel("plans/s", labelpad=1)
     # row 2, right: N x rule at 33 Hz
-    Ns = [(8, ["cem_n8_ne2", "ps_raw01_cubic_n8", "mppi_raw01_zero_l1_n8"]),
-          (20, ["cem", "ps_raw01_cubic", "mppi_raw01_zero_l1"]),
-          (40, ["cem_n40_ne12", "ps_raw01_cubic_n40", "mppi_raw01_zero_l1_n40"])]
-    ax = place(x0 + 2 * (3 * CELL + gap), ybot + 2 * CELL, 3, 3)
+    Ns = [(8, ["cem_n8_ne2", "ps_raw01_zero_n8", "mppi_raw01_zero_l1_n8"]),
+          (20, ["cem", "ps_raw01_zero", "mppi_raw01_zero_l1"]),
+          (40, ["cem_n40_ne12", "ps_raw01_zero_n40", "mppi_raw01_zero_l1_n40"])]
+    ax = place(x0 + 2 * (3 * CELL + gap) + 0.45, ybot + 2 * CELL, 3, 3)
     grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
-    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N at 33 plans/s")
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N, 33 plans/s")
     ax.set_ylabel("N")
-    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of seeds complete the ladder.  σ = 0.01 rad and N = 20 unless varied.",
-             fontsize=6.3, color=C_INK2)
+    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of seeds complete.  Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied.",
+             fontsize=6.0, color=C_INK2)
     fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
     plt.close(fig)
     return basin
