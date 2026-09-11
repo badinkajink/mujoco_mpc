@@ -50,7 +50,7 @@ def main():
         if arm not in agg:
             continue
         g = agg[arm]
-        rs = sorted([r for r in runs if r["arm"] == arm], key=lambda r: int(r["seed"]))
+        rs = sorted([r for r in runs if r["arm"] == arm], key=lambda r: r["seed"])
         rungs = " / ".join("%s<sup>%s</sup>" % (PHASES[r["max_phase"]], {"complete": "✓", "fell": "✗", "collapsed": "✗", "stalled": "·"}[r["outcome"]]) for r in rs)
         cls = {"iCEM": "icem", "CEM": "cem", "PS": "ps", "MPPI": "mppi"}[FAMILY[g["planner"]]]
         out.append("<tr class=%s><td><code>%s</code></td><td>%s</td><td>%d</td><td><b>%d</b></td><td>%d</td><td>%d</td><td>%d</td>"

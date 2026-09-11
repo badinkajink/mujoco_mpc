@@ -94,7 +94,7 @@ def fig_jitter(runs, out):
 def fig_traces(runs, arms, seed, out):
     fig, axs = plt.subplots(3, 1, figsize=(9, 6.2), sharex=True)
     for a in arms:
-        rs = [r for r in runs if r["arm"] == a and r["seed"] == seed]
+        rs = [r for r in runs if r["arm"] == a and int(r["seed"]) == seed]
         if not rs:
             continue
         r = rs[0]
@@ -127,7 +127,7 @@ def fig_cemstd(runs, arms, seed, out):
     std_min floor drawn in: shows how long the adaptive variance is live."""
     fig, ax = plt.subplots(figsize=(8, 3.2))
     for a in arms:
-        rs = [r for r in runs if r["arm"] == a and r["seed"] == seed]
+        rs = [r for r in runs if r["arm"] == a and int(r["seed"]) == seed]
         if not rs:
             continue
         rows = list(csv.DictReader(open(rs[0]["csv"])))

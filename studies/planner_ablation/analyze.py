@@ -37,8 +37,9 @@ def fnum(x):
 
 
 def score_run(rec):
-    out = {"arm": rec["arm"], "seed": rec["seed"], "planner": rec["planner"],
-           "rc": rec["rc"], "wall_s": rec["wall_s"]}
+    out = {"arm": rec["arm"], "seed": int(rec["seed"]), "planner": rec["planner"],
+           "rc": rec["rc"], "wall_s": rec["wall_s"], "csv": rec["csv"],
+           "state": rec.get("state", "")}
     fell = rec.get("fell") == "1"
     complete = rec.get("complete") == "1"
     out["outcome"] = "fell" if fell else ("complete" if complete else "stalled")
@@ -185,13 +186,18 @@ def main():
     ap.add_argument("--out", default="")
     ap.add_argument("--order", default="", help="comma list of arms for the table order")
     a = ap.parse_args()
-    recs = []
+    # later --runs dirs override earlier ones for the same (arm, seed), so a
+    # redo directory replaces the runs it redid
+    by_key = {}
     for d in a.runs:
         p = os.path.join(d, "results.jsonl")
+        if not os.path.exists(p):
+            continue
         for line in open(p):
             r = json.loads(line)
             if r.get("summary"):
-                recs.append(r)
+                by_key[(r["arm"], int(r["seed"]))] = r
+    recs = list(by_key.values())
     runs = [score_run(r) for r in recs]
     agg = aggregate(runs)
     order = [x for x in a.order.split(",") if x] or list(agg.keys())

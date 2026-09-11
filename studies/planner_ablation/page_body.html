@@ -1,0 +1,81 @@
+<h1>Sampling-planner ablation on the braced lean</h1>
+<p class="muted">2026-09-10/11 · branch <code>wxie/planner-ablation</code> off <code>icra2026</code> at <code>20f20f0e</code> · <code>Lean H12 Magpie</code>, strategy 25, table face 0.985 m · headless <code>lean_bench</code>, 6 planner threads, 20 rollouts, 1.0 s horizon, a plan every 6 ms · 3 seeds per arm unless stated · {{NRUNS}} runs</p>
+
+<h2>Result</h2>
+<p>The controller the paper ships (iCEM, <code>agent_planner=7</code>) completes the braced-lean ladder 3/3. Predictive sampling and MPPI, selected by changing that one number, complete 0/3 each and put the robot on the slab with the torso past 130° within the first 25 s. The difference is the sampling standard deviation the two families use. iCEM and CEM read <code>std_min = 0.01</code> and draw noise in radians; predictive sampling and MPPI read <code>sampling_exploration = 0.12</code> and multiply it by half the actuator control range, which is 0.03–0.36 rad per joint (median 0.21 rad, 21× iCEM's floor). With the noise set to 0.01 rad in the same units, predictive sampling completes 3/3 (cubic spline) and 2/3 (zero-order hold), and MPPI completes 9/9 across three decades of temperature, at the same 42–50 s as iCEM.</p>
+<p>The rest of iCEM's machinery is worth less than one seed. {{ICEM_INTERNALS_SUMMARY}}</p>
+<p>What separates the working from the failing arms on the plant is the size of the step the executed control takes between plans. Every arm that completes moves the 27 position targets by 4–16 mrad RMS per 20 ms; the shipped predictive sampling and MPPI move them by 70–130 mrad, and the plant cost during the first 12 s of quiet standing is 250–1700 instead of 4–8. Against position actuators with kp = 200 N·m/rad on the legs, a 0.2 rad target step is a 40 N·m torque step at 167 Hz.</p>
+
+<h2>What the four planners are in this fork</h2>
+<p>All four are implemented in <code>mjpc/planners/</code> and share the same spline policy, the same rollout, the same cost. Read from the source on 2026-09-10; the shipped numeric values are from <code>Lean_H12_Magpie.xml</code>.</p>
+<div class="scroll"><table>
+<tr><th></th><th>Predictive sampling (0)</th><th>MPPI (9)</th><th>Cross-entropy (5)</th><th>iCEM (7, shipped)</th></tr>
+<tr><td>noise per knot, per actuator</td><td>N(0, (0.12 · ½ ctrlrange)²) = 0.03–0.36 rad, white</td><td>same as PS</td><td>N(0, max(elite std, 0.01)²) rad, white</td><td>same std as CEM, AR(1) across the 3 knots with α = 0.7</td></tr>
+<tr><td>candidates (20)</td><td>the unperturbed nominal + 19 noisy</td><td>same as PS</td><td>20 noisy; the nominal is rolled out but cannot win</td><td>2 elites kept verbatim from the last plan + 18 noisy</td></tr>
+<tr><td>update</td><td>argmin</td><td>softmax(−J/λ) mean, λ = 0.1</td><td>mean of the 6 best</td><td>mean of the 6 best</td></tr>
+<tr><td>spline, 3 knots</td><td>cubic (<code>sampling_representation</code> default)</td><td>cubic</td><td>zero-order hold (hard-coded)</td><td>zero-order hold (hard-coded)</td></tr>
+<tr><td>carried across plans</td><td>the winning plan, time-shifted</td><td>the folded plan</td><td>the elite mean and the elite variance</td><td>the elite mean, the variance, 2 elite plans</td></tr>
+<tr><td>task hook</td><td>—</td><td>—</td><td><code>LiveStdMinOverride</code> (off: <code>std_min_state_gated = 0</code>)</td><td>—</td></tr>
+</table></div>
+<p>Two things in that table are not what the names suggest. First, MPPI at λ = 0.1 is predictive sampling: the return spread across a batch is 500–6000 cost units at the shipped noise, so exp(−ΔJ/0.1) puts all the weight on the argmin (measured effective sample size 1.00 through every phase). Second, CEM's adaptive variance is inert after the first 0.3 s. The refit elite std starts at 0.12 and reaches the 0.01 floor within ~50 plans, and it never re-expands, through the lean, the release or the stand-back:</p>
+{{FIG:cem_std.png|CEM/iCEM refit elite std, mean over the 3 × 27 spline parameters, seed 0. The log-variance of a k-elite sample variance drifts by E[log(χ²₅/5)] = −0.21 per refit for any parameter the cost does not discriminate, and n_elite = 6 of 20 discriminates few of them, so the floor is reached in ~50 plans (0.3 s at 167 plans/s). The `explore_fraction` that would re-widen it ships at 0.}}
+<p>So in steady state the shipped controller draws N(0, 0.01²) rad per knot and takes the mean of the 6 best of 20. That is the object the ablation has to explain.</p>
+
+<h2>Method</h2>
+<p><code>mjpc/lean_bench.cc</code> runs the agent loop headless: strategy 25 (<code>h12_brace_targeting</code>, 9 rungs: stand 12 s → brace lean 10 s → targeted reach gated on the jaw tip coming within 70 mm of a point 150 mm above the slab → release → four stand-back rungs → final stand), home keyframe, seeded 3 mm state perturbation, 75 s cap. A run <em>completes</em> when it has held the final rung for 3 s, <em>fell</em> when the pelvis drops below 0.5 m (the bench stops), and is scored <em>collapsed</em> from the log when the pelvis went below 0.75 m or the torso tilted past 60° at any step — the shipped predictive-sampling runs end up draped over the slab with the pelvis at 0.5–0.6 m, which the fall stop never trips. Otherwise <em>stalled</em>.</p>
+<p>Arms differ only in <code>agent_planner</code> and in model <code>&lt;numeric&gt;</code> overrides applied on the command line before <code>Agent::Initialize</code>; the task, strategy JSON, weights and model are identical. Six knobs were added for this study, each defaulting to what its planner already assumed (commit <code>7af5d8c5</code>): <code>sampling_noise_raw</code> (PS/MPPI: std in radians, CEM's convention), <code>cem_representation</code>, <code>cem_variance_fixed</code>, <code>cem_include_nominal</code>, a guard so <code>n_elite = 1</code> does not divide by zero, and <code>agent_allocate_active_only</code> (allocate one planner instead of eleven: 10.1 → 3.7 GB resident, which is what let two runs share the box). The full arm table is <code>studies/planner_ablation/arms.py</code>.</p>
+<p>The planner is not run-to-run repeatable (shared RNG across the thread pool) and the noise stream depends on the thread count, so every arm ran at 6 threads and every count below is over ≥ 3 seeds. Three of three has a Wilson 95% lower bound of 44%; the tables separate arms at 3/3 vs 0/3, and anything closer is a difference this study cannot resolve.</p>
+<p>One correction to the record. <code>--spp 3</code> in this bench is a plan every 3 <em>plant</em> steps of 2 ms, i.e. 167 plans/s, not the 33 Hz that every earlier note on this bench assumed (<code>agent_timestep = 0.010</code> is applied to the planner's copy of the model only). The deploy node plans at 33–45 Hz. Section {{SPP_SECTION}} re-runs the decisive arms at <code>--spp 15</code>.</p>
+
+<h2>The four planners as shipped</h2>
+{{TABLE:icem,cem,ps,mppi|Table 1. One number changed between rows: agent_planner. Stand jitter = RMS change of the 27 executed position targets per 20 ms during the first rung; stand cost = mean plant cost over the same rung; peak brace = largest left-arm normal force on the slab; reach err = closest the jaw tip came to the rung-2 point.}}
+{{FIG:traces.png|Seed 0 of each shipped planner, and of predictive sampling at 0.01 rad. Pelvis height, plant cost (log) and the left-arm normal force on the slab. The shipped PS/MPPI cost is 100–1000 during quiet standing, before any rung asks for anything.}}
+<p>CEM and iCEM complete every seed at 41–50 s. Predictive sampling never leaves the lean rung: the cost is already 20–400 during the stand rung, the brace pad reaches the slab only after the body has folded onto it, and the peak "brace" force of 600–1500 N is the trunk's weight arriving through whatever link landed first. MPPI at λ = 0.1 is the same run with a different name.</p>
+
+<h2>Predictive sampling and MPPI at CEM's noise</h2>
+{{TABLE:ps_raw01_zero,ps_raw01_cubic,ps_scaled01_cubic,mppi_raw01_zero_l0.1,mppi_raw01_zero_l1,mppi_raw01_zero_l10|Table 2. Predictive sampling and MPPI with the noise std set to 0.01 rad per knot. raw = std in radians (CEM's convention); scaled01 = the shipped convention with sampling_exploration turned down to 0.01, which is 0.003–0.030 rad per joint. zero/cubic = spline.}}
+<p>With 0.01 rad of noise, predictive sampling completes 3/3 on the cubic spline it ships with and 2/3 on CEM's zero-order hold; the one failure fell backward in the first stand-back rung after a clean lean, reach (25 mm) and release. Simply turning the shipped knob down (<code>sampling_exploration 0.12 → 0.01</code>, still scaled by control range) gives 2/3 with one fall during the lean. MPPI with the same noise completes 9/9 at λ ∈ {0.1, 1, 10}, i.e. with effective sample sizes of 1–2, 7–15 and 16–20 out of 20 through the ladder. A near-uniform average of twenty 0.01 rad perturbations (λ = 10, ESS 17–20) still completes in 43–47 s.</p>
+<p>The update rule — argmin, softmax mean, or elite mean — does not decide the outcome at this noise level. The noise level does.</p>
+
+<h2>The noise ladder</h2>
+{{TABLE:ps_raw004_zero,ps_raw01_zero,ps_raw02_zero,ps_raw03_zero,ps_raw10_zero,ps|Table 3. Predictive sampling, zero-order hold, std in radians from 0.004 to 0.10, and the shipped 0.03–0.36.}}
+<p>{{NOISE_LADDER_TEXT}}</p>
+
+<h2>Inside iCEM</h2>
+{{TABLE:icem,icem_a0,icem_keep0,icem_a0_keep0,cem,icem_fixed01,icem_ne2,icem_ne10,icem_ne20,icem_stdmin03,icem_stdmin10,icem_a095|Table 4. iCEM with one component changed at a time. icem_a0_keep0 is CEM by construction (white noise, no elite memory) and is the equivalence check against the cem row.}}
+<p>{{ICEM_INTERNALS_TEXT}}</p>
+
+<h2>The bridge from CEM's update to predictive sampling's</h2>
+{{TABLE:cem,cem_fixed01,cem_ne1_fixed01,cem_ne1_fixed01_nom,cem_ne6_fixed01_nom,ps_raw01_zero|Table 5. From CEM to predictive sampling one change at a time: freeze the variance at the 0.01 floor it sits at anyway; take the single best instead of the mean of 6; let the unperturbed nominal compete (PS's convention). The last row is PS itself at the same noise; it differs from the row above only in where the three knots sit (t, t+0.33, t+0.67 vs t, t+0.5, t+1.0).}}
+<p>{{BRIDGE_TEXT}}</p>
+
+<h2>Budget, horizon and plan rate</h2>
+{{TABLE:icem,icem_n8_ne2,icem_n40_ne12,ps_raw01_zero,ps_raw01_zero_n40,icem_h05,icem_h03|Table 6. Sample budget and lookahead within the working family.}}
+<p>{{BUDGET_TEXT}}</p>
+<h3 id="spp">At the deploy node's plan rate</h3>
+{{TABLE_SPP}}
+<p>{{SPP_TEXT}}</p>
+
+<h2>Mechanism</h2>
+{{FIG:jitter.png|Every run. Left: the furthest rung entered against the executed-control jitter during the stand rung (RMS change of the 27 position targets per 20 ms, log scale). Right: the plant's mean cost during the same rung. Marker: o completed, s stalled, x fell or collapsed.}}
+<p>The executed jitter is what the plant receives regardless of which planner produced it, and it sorts the runs: {{JITTER_TEXT}}</p>
+<p>Why the elite mean lowers it. The mean of k draws at std σ has std σ/√k in every direction the cost does not discriminate, so CEM's executed step is ~σ/√6 where predictive sampling's argmin is a full σ step whenever some sample beats the nominal by chance. iCEM lowers it a further 2× for two reasons visible in the code: 2 of its 6 elites are last plan's elites re-evaluated with no fresh noise, and its AR(1) recursion starts from zero, so the first knot — the one the plant executes — has variance (1−α²)σ² = 0.51σ² rather than σ². Measured stand jitter: iCEM 4.5, CEM 10.1, PS at 0.01 rad 4.9 (zero-order) and 8.3 (cubic) mrad per 20 ms.</p>
+<p>Why the shipped predictive sampling cannot stand. Its per-joint std is 0.13 rad on the knees, 0.34 rad on the hip pitch, 0.28 rad on the torso. On a 27 × 3 parameter batch with a 1 s rollout, one of 19 samples beats the unperturbed nominal almost every plan, so the executed targets random-walk with 0.1–0.3 rad steps at 167 Hz into kp = 200 N·m/rad position servos. The plant cost during quiet standing is 250–1700 against 4–8 for every working arm, and the robot is on the slab by t = 20 s with nothing having been asked of it beyond standing.</p>
+<p>What the sampling planner is doing here. With 0.01 rad of noise, a 1 s horizon and a plan every 6 ms, and with the phase schedule and posture keyframes supplying the motion, the planner is a local stochastic regulator around a plan that the cost landscape already shapes. Any fold that moves the plan a little in the direction of lower cost completes the ladder; a fold that moves it 0.2 rad in a random direction does not. This is consistent with the table-height result on the same task (a 100 mm slab change defeats the same planner at every setting tried), where the failure was the cost landscape rather than the search.</p>
+
+<h2>What this does not settle</h2>
+<ul>
+<li><b>Whether the same ordering holds at the deploy plan rate.</b> Section <a href="#spp">deploy rate</a> covers four arms at <code>--spp 15</code>; the iCEM internals and the bridge were run only at 167 Hz. Re-run Table 4 at <code>--spp 15</code> (<code>sweep.py --spp 15 --batch C</code>, ~2.5 h).</li>
+<li><b>Whether 0.01 rad is the right floor or merely a working one.</b> Table 3 brackets predictive sampling; the equivalent ladder for iCEM is <code>icem_stdmin03</code> / <code>icem_stdmin10</code> in Table 4. A finer ladder (0.005, 0.015, 0.02, 0.05) on both families, 5 seeds each, would give the cliff to a factor of 1.5 (<code>arms.py</code>, ~4 h).</li>
+<li><b>Off-nominal robustness.</b> Every arm here is at the compiled 0.985 m slab and 3 mm of initial perturbation. The shipped iCEM and PS-at-0.01 should be compared under <code>--perturb 0.02</code> and under the 1.035 m slab from the table-height study before claiming they are interchangeable (<code>--table_h</code> needs the <code>residual_Table H</code> parameter from <code>wxie/table-height</code>, which this branch does not carry).</li>
+<li><b>The one PS failure at 0.01 rad (backward fall in stand-back, seed 0)</b> is n = 1 and could be planner noise; 6 more seeds of <code>ps_raw01_zero</code> and <code>cem</code> would say whether the argmin's larger step in the unbraced rungs (11–14 vs 5 mrad) costs completions.</li>
+<li><b>The plant-side jitter is per 20 ms at 167 plans/s.</b> Logging the executed control at the plan rate (<code>--log_hz 167</code> on the state track) would give the per-plan step directly.</li>
+</ul>
+
+<h2>Files</h2>
+<ul>
+<li>Harness and knobs: <code>mjpc/lean_bench.cc</code>, <code>mjpc/agent.cc</code>, <code>mjpc/planners/{sampling,mppi,cross_entropy,icem}/planner.cc</code>, <code>mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml</code> (the knob block sits before the first <code>residual_</code> numeric).</li>
+<li>Study: <code>studies/planner_ablation/{arms,sweep,analyze,make_figs,tables,make_page}.py</code>, <code>queue.sh</code>, <code>queue2.sh</code>.</li>
+<li>Runs (gitignored, on this box): <code>studies/planner_ablation/runs/wave{1,1_redo,2,3_spp15,4}/</code> — per-run metric CSV, 50 Hz state track, log, <code>results.jsonl</code>; scored: <code>runs/summary.json</code>.</li>
+<li>Reproduce one arm: <code>build_cmake/bin/lean_bench --task "Lean H12 Magpie" --strategy 25 --seed 0 --total_time 75 --threads 6 --spp 3 --numeric agent_allocate_active_only=1 --numeric agent_planner=0 --numeric sampling_noise_raw=1 --numeric sampling_exploration=0.01 --out r.csv --state_out r.state.csv</code></li>
+</ul>
