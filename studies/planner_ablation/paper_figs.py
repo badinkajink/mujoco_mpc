@@ -570,6 +570,69 @@ def fig_ladder(sums, out):
     plt.close(fig)
 
 
+# ---- fig_spline --------------------------------------------------------------
+def fig_spline(S15, out):
+    """(a) the executed position target of the left hip pitch over 0.4 s of
+    quiet standing at 33 plans/s, logged at 500 Hz: the cubic spline moves
+    between plans, the zero-order hold does not. (b) every run of the spline x
+    update-rule grid at 33 Hz: time spent in the lean rung before it advanced
+    (the rung advances after the posture has stayed within tolerance for the
+    sustain time), x = the run fell or stalled before advancing."""
+    import pandas as pd
+    fig = plt.figure(figsize=(COL, 2.3))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1, 2.0], wspace=0.62)
+    ax = fig.add_subplot(gs[0, 0])
+    for arm, lab, col in [("ps_raw01_cubic", "cubic", C_ARGMIN), ("ps_raw01_zero", "hold", C_INK2)]:
+        pth = os.path.join(HERE, "runs/probe500/%s_s1.state.csv" % arm)
+        if not os.path.exists(pth):
+            continue
+        d = pd.read_csv(pth)
+        w = d[(d.t >= 9.0) & (d.t <= 9.4)]
+        ax.plot(w.t - 9.0, 1000 * (w.u1 - w.u1.iloc[0]), color=col, lw=1.1, label=lab)
+    ax.set_xlabel("time, s (quiet stand)")
+    ax.set_ylabel("hip-pitch target, mrad")
+    ax.set_xticks([0, 0.2, 0.4])
+    ax.legend(loc="upper left", handlelength=1.4, borderaxespad=0.2)
+    ax.set_title("PS, 0.01 rad, 33 plans/s", loc="left", fontsize=7.5)
+    style_axes(ax)
+    bx = fig.add_subplot(gs[0, 1])
+    groups = [("PS", "ps_raw01_cubic", "ps_raw01_zero", C_ARGMIN, "^"),
+              ("MPPI", "mppi_raw01_cubic_l1", "mppi_raw01_zero_l1", C_SOFTMAX, "D"),
+              ("CEM", "cem_cubic", "cem", C_ELITE, "o"),
+              ("iCEM", "icem_cubic", "icem", C_ELITE, "s")]
+    xt, xl = [], []
+    for g, (fam, a_cub, a_hold, col, mk) in enumerate(groups):
+        for k, (arm, lab) in enumerate([(a_cub, "cubic"), (a_hold, "hold")]):
+            x0 = g * 3.0 + k * 1.15
+            xt.append(x0); xl.append(lab)
+            rs = sorted([r for r in S15["runs"] if r["arm"] == arm], key=lambda r: r["seed"])
+            # stack seeds at the same rung side by side
+            seen = {}
+            for r in rs:
+                y = 8.6 if r["outcome"] == "complete" else r["max_phase"]
+                n = seen.get(y, 0); seen[y] = n + 1
+                xx = x0 + ((n % 3) - 1) * 0.3
+                yy = y + (0.28 if n < 3 else -0.28) if y == 8.6 else y
+                if r["outcome"] == "complete":
+                    bx.plot(xx, yy, marker=mk, ms=3.3, mfc=col, mec="white", mew=0.5, lw=0, zorder=3)
+                else:
+                    bx.plot(xx, y, marker="x" if r["outcome"] != "stalled" else "_", ms=4, color=col,
+                            mew=1.0, lw=0, zorder=3)
+        bx.text(g * 3.0 + 0.575, 9.7, fam, ha="center", va="top", fontsize=7.5, color=C_INK)
+    bx.set_xticks(xt); bx.set_xticklabels(xl, fontsize=6.3, rotation=35, ha="right", rotation_mode="anchor")
+    bx.set_xlim(-0.7, 3 * 3.0 + 1.15 + 0.7)
+    bx.set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8.6])
+    bx.set_yticklabels(["stand", "lean", "reach", "release", "back 1", "2", "3", "4", "complete"])
+    bx.set_ylim(-0.5, 9.8)
+    bx.set_ylabel("furthest rung, per seed", labelpad=2)
+    bx.plot([], [], marker="x", color=C_INK2, lw=0, ms=4.5, label="fell")
+    bx.plot([], [], marker="_", color=C_INK2, lw=0, ms=4.5, mew=1.1, label="stalled")
+    bx.legend(loc="center right", bbox_to_anchor=(1.02, 0.5), handlelength=1.0, borderaxespad=0.1)
+    bx.grid(True, axis="y", zorder=0); bx.set_axisbelow(True)
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gains", default="deploy", choices=["deploy", "xml"],
@@ -591,6 +654,7 @@ def main():
     basin = fig_basin(sums, os.path.join(out, "fig_basin"))
     fig_window_all(sums, os.path.join(out, "fig_window_all"))
     fig_ladder(sums, os.path.join(out, "fig_ladder"))
+    fig_spline(sums[15], os.path.join(out, "fig_spline"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)

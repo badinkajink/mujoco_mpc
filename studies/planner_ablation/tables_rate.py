@@ -3,9 +3,10 @@
 import json, os, sys, html
 HERE = os.path.dirname(os.path.abspath(__file__))
 PHASES = ["stand", "lean", "reach", "release", "sb1", "sb2", "sb3", "sb4", "final"]
-LEVELS = [("runs/summary.json", 3, "167 Hz"), ("runs/summary_spp6.json", 6, "83 Hz"),
-          ("runs/summary_spp10.json", 10, "50 Hz"), ("runs/summary_spp15.json", 15, "33 Hz")]
-ARMS = ["icem", "cem", "ps_raw01_cubic", "ps_raw01_zero", "cem_ne1_fixed01_nom", "mppi_raw01_zero_l1", "ps"]
+LEVELS = [("runs/summary_deploy_spp15.json", 15, "33 plans/s"), ("runs/summary_deploy_spp10.json", 10, "50"),
+          ("runs/summary_deploy_spp6.json", 6, "83"), ("runs/summary_deploy_spp3.json", 3, "167")]
+ARMS = ["cem", "icem", "cem_cubic", "icem_cubic", "ps", "ps_scaled01_cubic", "ps_raw01_cubic", "ps_raw01_zero",
+        "mppi", "mppi_scaled01_cubic", "mppi_raw01_cubic_l0.1", "mppi_raw01_cubic_l1", "mppi_raw01_zero_l1"]
 
 
 def cell(S, arm):
@@ -23,7 +24,7 @@ def main():
         p = os.path.join(HERE, path)
         sums.append((json.load(open(p)) if os.path.exists(p) else {"runs": []}, spp, hz))
     out = ["<div class=scroll><table><caption>%s</caption>" % html.escape(sys.argv[1] if len(sys.argv) > 1 else "")]
-    out.append("<tr><th>arm</th>" + "".join("<th>--spp %d (%s)</th>" % (spp, hz) for _, spp, hz in sums) + "</tr>")
+    out.append("<tr><th>arm</th>" + "".join("<th>%s</th>" % hz for _, spp, hz in sums) + "</tr>")
     for arm in ARMS:
         out.append("<tr><td><code>%s</code></td>" % arm + "".join("<td>%s</td>" % cell(S, arm) for S, _, _ in sums) + "</tr>")
     out.append("</table></div>")

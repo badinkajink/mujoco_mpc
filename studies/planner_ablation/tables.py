@@ -44,7 +44,7 @@ def main():
         out.append("<caption>%s</caption>" % html.escape(a.caption))
     out.append("<tr><th>arm</th><th>planner and overrides</th><th>n</th><th>completed</th>"
                "<th>fell</th><th>collapsed</th><th>stalled</th><th>furthest rung, per seed</th>"
-               "<th>t<sub>complete</sub> median, s</th><th>stand jitter, mrad / 20 ms</th>"
+               "<th>t<sub>complete</sub> median, s</th><th>stand step, mrad / plan</th>"
                "<th>stand cost</th><th>peak brace, N</th><th>min reach err, mm</th></tr>")
     for arm in a.arms.split(","):
         if arm not in agg:
