@@ -31,6 +31,8 @@
 #include <mujoco/mujoco.h>
 
 #include "mjpc/agent.h"
+#include "mjpc/planners/cross_entropy/planner.h"
+#include "mjpc/planners/icem/planner.h"
 #include "mjpc/planners/mppi/planner.h"
 #include "mjpc/task.h"
 #include "mjpc/threadpool.h"
@@ -215,6 +217,8 @@ int main(int argc, char** argv) {
   g_task = agent.ActiveTask();
   mjcb_sensor = &residual_callback;
   auto* mppi = dynamic_cast<mjpc::MPPIPlanner*>(&agent.ActivePlanner());
+  auto* cem = dynamic_cast<mjpc::CrossEntropyPlanner*>(&agent.ActivePlanner());
+  auto* icem = dynamic_cast<mjpc::iCEMPlanner*>(&agent.ActivePlanner());
   auto* lean_task = dynamic_cast<mjpc::lean*>(g_task);
   if (!lean_task) {
     std::fprintf(stderr, "[bench] --task is not a lean task; phase log unavailable\n");
@@ -279,7 +283,11 @@ int main(int argc, char** argv) {
   // (the two are not the same quantity; compare within a family only).
   // mppi_ess / mppi_spread are MPPI's softmax effective sample size and the
   // batch return spread; nan for every other planner.
-  std::fprintf(fo, ",plan_return,mppi_ess,mppi_spread");
+  // cem_std_mean: CEM/iCEM's refit elite std, mean over the (knots x nu)
+  // parameters actually in use, BEFORE the std_min floor is applied -- so it
+  // can be read against std_min to see whether the adaptive variance is doing
+  // anything. nan for PS/MPPI.
+  std::fprintf(fo, ",plan_return,mppi_ess,mppi_spread,cem_std_mean");
   for (int k = 0; k < kNMetric; k++) std::fprintf(fo, ",%s", kMetricKeys[k]);
   std::fprintf(fo, "\n");
   if (fq) {
@@ -462,7 +470,17 @@ int main(int argc, char** argv) {
         double plan_return = best ? best->total_return : std::nan("");
         double ess = std::nan(""), spread = std::nan("");
         if (mppi) { ess = mppi->last_ess_; spread = mppi->last_spread_; }
-        std::fprintf(fo, ",%.6f,%.3f,%.6f", plan_return, ess, spread);
+        double cem_std = std::nan("");
+        const std::vector<double>* var = nullptr;
+        int npar = 0;
+        if (cem) { var = &cem->variance; npar = cem->policy.num_spline_points * model->nu; }
+        if (icem) { var = &icem->variance; npar = icem->policy.num_spline_points * model->nu; }
+        if (var && npar > 0) {
+          double acc = 0.0;
+          for (int k = 0; k < npar; k++) acc += std::sqrt(std::max(0.0, (*var)[k]));
+          cem_std = acc / npar;
+        }
+        std::fprintf(fo, ",%.6f,%.3f,%.6f,%.6f", plan_return, ess, spread, cem_std);
       }
       metrics.clear();
       g_task->ComputeMetrics(model, data, &metrics, &phase_name_m);
