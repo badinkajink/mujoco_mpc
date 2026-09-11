@@ -152,6 +152,16 @@ ARMS = {
     #      differences from CEM under the cubic: colored noise vs elite memory.
     "icem_a0_cubic":    (ICEM, {"cem_representation": 2, "icem_alpha": 0.0}),      # white noise, memory
     "icem_keep0_cubic": (ICEM, {"cem_representation": 2, "icem_elite_keep": 0}),   # colored noise, no memory
+    # knot-spacing falsifier for the cubic failure: if the transient first knot
+    # is the mechanism, denser knots (0.2 s apart instead of 0.5) should rescue
+    # the cubic; linear is the intermediate representation
+    "ps_raw01_cubic_k6":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 2, "sampling_spline_points": 6}),
+    "ps_raw01_zero_k6":   (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 0, "sampling_spline_points": 6}),
+    "ps_raw01_linear":    (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 1}),
+    "cem_cubic_k6":       (CEM, {"cem_representation": 2, "sampling_spline_points": 6}),
 }
 
 BATCHES = {
@@ -190,5 +200,6 @@ BATCHES = {
     # S2 = the PS sigma axis with the hold spline
     "S2": ["ps_raw005_zero", "ps_raw01_zero", "ps_raw02_zero", "ps_raw03_zero", "ps_raw05_zero"],
     # Y = the iCEM-under-cubic split (plus the hold versions of the same two)
-    "Y": ["icem_a0_cubic", "icem_keep0_cubic", "icem_a0", "icem_keep0"],
+    "Y": ["icem_a0_cubic", "icem_keep0_cubic", "icem_a0", "icem_keep0",
+          "ps_raw01_cubic_k6", "ps_raw01_zero_k6", "ps_raw01_linear", "cem_cubic_k6"],
 }
