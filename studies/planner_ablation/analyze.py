@@ -62,7 +62,12 @@ def score_run(rec):
     seated = 0
     lean_rows = 0
     ess = []
+    pelvis_min, tilt_max = float("inf"), 0.0
     for r in rows:
+        if len(r) != len(rows[0]) or r.get("cost") in (None, ""):
+            continue
+        pelvis_min = min(pelvis_min, fnum(r["pelvis_z"]))
+        tilt_max = max(tilt_max, fnum(r["torso_tilt_deg"]))
         ph = int(r["phase"]) if r["phase"] not in ("", "-1") else -1
         c = fnum(r["cost"])
         if ph >= 0 and not math.isnan(c):
@@ -82,6 +87,14 @@ def score_run(rec):
         e = fnum(r["mppi_ess"])
         if not math.isnan(e):
             ess.append(e)
+    out["pelvis_min_m"] = pelvis_min
+    out["tilt_max_deg"] = tilt_max
+    # The bench's fall stop is pelvis < 0.5 m. A robot draped over the slab with
+    # the torso past horizontal never trips it, so score a collapse separately:
+    # pelvis below 0.75 m or torso tilt past 60 deg at any logged step.
+    out["collapsed"] = bool(pelvis_min < 0.75 or tilt_max > 60.0)
+    if out["outcome"] == "stalled" and out["collapsed"]:
+        out["outcome"] = "collapsed"
     out["cost_phase_mean"] = {PHASE_NAMES[p]: st.mean(v) for p, v in per_phase_cost.items() if v}
     out["cost_stand_mean"] = out["cost_phase_mean"].get("stand_up", float("nan"))
     out["brace_peak_N"] = brace_peak
@@ -102,6 +115,8 @@ def score_run(rec):
             ucols = [i for i, h in enumerate(hdr) if h.startswith("u")]
             pcol = hdr.index("phase")
             for row in rd:
+                if len(row) != len(hdr):
+                    continue  # partial last line of a run still in flight
                 u = [float(row[i]) for i in ucols]
                 if prev is not None:
                     d = math.sqrt(sum((a - b) ** 2 for a, b in zip(u, prev)) / len(u))
@@ -140,12 +155,16 @@ def aggregate(runs):
         n = len(rs)
         k = sum(r["outcome"] == "complete" for r in rs)
         f = sum(r["outcome"] == "fell" for r in rs)
+        c = sum(r["outcome"] == "collapsed" for r in rs)
         agg[arm] = {
             "planner": ARMS[arm][0], "numerics": ARMS[arm][1], "n": n,
-            "complete": k, "fell": f, "stalled": n - k - f,
+            "complete": k, "fell": f, "collapsed": c, "stalled": n - k - f - c,
+            "upright": n - f - c,
             "complete_wilson": wilson(k, n),
             "t_complete_median": nanmedian([r["t_complete"] for r in rs if r["outcome"] == "complete"]),
             "t_fall_median": nanmedian([r["t_end"] for r in rs if r["outcome"] == "fell"]),
+            "pelvis_min_median": nanmedian([r.get("pelvis_min_m", float("nan")) for r in rs]),
+            "tilt_max_median": nanmedian([r.get("tilt_max_deg", float("nan")) for r in rs]),
             "max_phase": sorted(r["max_phase"] for r in rs),
             "max_phase_median": st.median([r["max_phase"] for r in rs]),
             "cost_stand_median": nanmedian([r.get("cost_stand_mean", float("nan")) for r in rs]),
@@ -176,17 +195,18 @@ def main():
     runs = [score_run(r) for r in recs]
     agg = aggregate(runs)
     order = [x for x in a.order.split(",") if x] or list(agg.keys())
-    print("%-24s %2s %4s %4s %5s  %6s  %8s  %8s  %7s  %7s %6s"
-          % ("arm", "n", "cmpl", "fell", "phase", "t_cmpl", "jit_stnd", "cost_stnd", "brace_N", "reach_mm", "ess"))
+    print("%-24s %2s %4s %4s %4s %9s  %6s  %8s  %8s  %7s  %7s %6s %6s"
+          % ("arm", "n", "cmpl", "fell", "clps", "phase", "t_cmpl", "jit_stnd", "cost_stnd", "brace_N", "reach_mm", "tiltmax", "ess"))
     for arm in order:
         if arm not in agg:
             continue
         g = agg[arm]
-        print("%-24s %2d %4d %4d %5s  %6.1f  %8.4f  %8.2f  %7.0f  %7.0f %6.1f"
-              % (arm, g["n"], g["complete"], g["fell"],
+        print("%-24s %2d %4d %4d %4d %9s  %6.1f  %8.4f  %8.2f  %7.0f  %7.0f %6.0f %6.1f"
+              % (arm, g["n"], g["complete"], g["fell"], g["collapsed"],
                  "/".join(str(x) for x in g["max_phase"]),
                  g["t_complete_median"], g["jitter_stand_median"], g["cost_stand_median"],
-                 g["brace_peak_median"], g["reach_min_mm_median"], g["mppi_ess_median"]))
+                 g["brace_peak_median"], g["reach_min_mm_median"], g["tilt_max_median"],
+                 g["mppi_ess_median"]))
     if a.out:
         json.dump({"runs": runs, "agg": agg}, open(a.out, "w"), indent=1, default=str)
         print("->", a.out)

@@ -23,15 +23,17 @@ def fig_outcomes(agg, order, out):
     s = np.array([agg[a]["stalled"] for a in arms])
     f = np.array([agg[a]["fell"] for a in arms])
     ax.bar(x, c, color="#2b8a3e", label="completed the ladder")
-    ax.bar(x, s, bottom=c, color="#b8b8b8", label="stalled (no fall)")
-    ax.bar(x, f, bottom=c + s, color="#c92a2a", label="fell")
+    k = np.array([agg[a].get("collapsed", 0) for a in arms])
+    ax.bar(x, s, bottom=c, color="#b8b8b8", label="stalled, upright")
+    ax.bar(x, k, bottom=c + s, color="#e8590c", label="collapsed onto the slab")
+    ax.bar(x, f, bottom=c + s + k, color="#c92a2a", label="fell")
     ax.set_xticks(x)
     ax.set_xticklabels(arms, rotation=60, ha="right", fontsize=8)
     for i, a in enumerate(arms):
         ax.get_xticklabels()[i].set_color(COLORS[FAMILY[agg[a]["planner"]]])
     ax.set_ylabel("runs")
     ax.set_ylim(0, max(agg[a]["n"] for a in arms) + 0.5)
-    ax.legend(fontsize=8, loc="upper right", ncol=3, frameon=False)
+    ax.legend(fontsize=7, loc="upper right", ncol=4, frameon=False)
     ax.set_title("Outcome per arm (seeds 0-2 unless noted)", fontsize=10)
     fig.tight_layout()
     fig.savefig(out, dpi=150)
@@ -45,7 +47,7 @@ def fig_ladder(runs, order, out):
         rs = [r for r in runs if r["arm"] == a]
         for j, r in enumerate(rs):
             y = r["max_phase"]
-            m = {"complete": "o", "fell": "x", "stalled": "s"}[r["outcome"]]
+            m = {"complete": "o", "fell": "x", "collapsed": "x", "stalled": "s"}[r["outcome"]]
             ax.scatter(i + (j - (len(rs) - 1) / 2) * 0.18, y, marker=m, s=34,
                        color=COLORS[FAMILY[r["planner"]]], zorder=3)
     ax.set_xticks(range(len(arms)))
@@ -67,7 +69,7 @@ def fig_jitter(runs, out):
         if not (j > 0):
             continue
         fam = FAMILY[r["planner"]]
-        m = {"complete": "o", "fell": "x", "stalled": "s"}[r["outcome"]]
+        m = {"complete": "o", "fell": "x", "collapsed": "x", "stalled": "s"}[r["outcome"]]
         axs[0].scatter(j, r["max_phase"] + np.random.uniform(-0.12, 0.12), marker=m,
                        color=COLORS[fam], s=30, alpha=0.85)
         axs[1].scatter(j, r.get("cost_stand_mean", float("nan")), marker=m,
@@ -120,6 +122,34 @@ def fig_traces(runs, arms, seed, out):
     plt.close(fig)
 
 
+def fig_cemstd(runs, arms, seed, out):
+    """CEM/iCEM refit std (mean over knots x actuators) against time, with the
+    std_min floor drawn in: shows how long the adaptive variance is live."""
+    fig, ax = plt.subplots(figsize=(8, 3.2))
+    for a in arms:
+        rs = [r for r in runs if r["arm"] == a and r["seed"] == seed]
+        if not rs:
+            continue
+        rows = list(csv.DictReader(open(rs[0]["csv"])))
+        if "cem_std_mean" not in rows[0]:
+            continue
+        t = np.array([float(x["t"]) for x in rows])
+        v = np.array([float(x["cem_std_mean"]) for x in rows])
+        ax.plot(t, v, lw=1.1, label="%s (%s)" % (a, rs[0]["outcome"]),
+                color=COLORS[FAMILY[rs[0]["planner"]]],
+                ls="-" if a in ("icem", "cem") else "--")
+    ax.axhline(0.01, color="k", lw=0.8, ls=":", label="std_min = 0.01")
+    ax.axhline(0.12, color="k", lw=0.8, ls="--", label="sampling_exploration = 0.12 (initial)")
+    ax.set_yscale("log")
+    ax.set_xlabel("sim time, s")
+    ax.set_ylabel("refit elite std, rad (mean over 3 knots x 27 actuators)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7, frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", required=True)
@@ -136,6 +166,8 @@ def main():
     fig_ladder(runs, order, os.path.join(a.out, "ladder.png"))
     fig_jitter(runs, os.path.join(a.out, "jitter.png"))
     fig_traces(runs, a.trace_arms.split(","), a.trace_seed, os.path.join(a.out, "traces.png"))
+    fig_cemstd(runs, ["cem", "icem", "icem_stdmin10", "icem_ne2", "icem_ne20"], a.trace_seed,
+               os.path.join(a.out, "cem_std.png"))
     print("figures ->", a.out)
 
 

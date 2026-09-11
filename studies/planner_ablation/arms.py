@@ -65,6 +65,21 @@ ARMS = {
     "cem_ne1_fixed01_nom": (CEM, {"cem_variance_fixed": 0.01, "n_elite": 1,
                                   "cem_include_nominal": 1}),                   # == PS raw zero
     "cem_ne6_fixed01_nom": (CEM, {"cem_variance_fixed": 0.01, "cem_include_nominal": 1}),
+
+    # ---- tier 5: budget and lookahead within the working family ------------
+    "icem_n8_ne2":    (ICEM, {"sampling_trajectories": 8, "n_elite": 2}),
+    "icem_n40_ne12":  (ICEM, {"sampling_trajectories": 40, "n_elite": 12}),
+    "icem_h05":       (ICEM, {"agent_horizon": 0.5}),
+    "icem_h03":       (ICEM, {"agent_horizon": 0.3}),
+    "ps_raw01_zero_n40": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                               "sampling_representation": 0, "sampling_trajectories": 40}),
+    # PS at the SAME per-plant-step jitter CEM ends up with: the elite mean of
+    # 6 draws at sigma has std sigma/sqrt(6) = 0.004 in the directions the cost
+    # does not care about; give PS that sigma directly
+    "ps_raw004_zero": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.004,
+                            "sampling_representation": 0}),
+    "ps_raw02_zero":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.02,
+                            "sampling_representation": 0}),
 }
 
 BATCHES = {
@@ -76,4 +91,6 @@ BATCHES = {
           "icem_fixed01", "icem_stdmin10"],
     "D": ["cem_fixed01", "cem_ne1_fixed01", "cem_ne1_fixed01_nom", "icem_stdmin03",
           "icem_ne10", "icem_a095", "cem_ne6_fixed01_nom"],
+    "E": ["icem_n8_ne2", "icem_n40_ne12", "icem_h05", "icem_h03",
+          "ps_raw01_zero_n40", "ps_raw004_zero", "ps_raw02_zero"],
 }
