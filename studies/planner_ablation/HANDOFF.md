@@ -85,7 +85,7 @@ lean; completing median −0.174, lean-onset falls median −0.244, 44/61 falls 
 the completing p10 of −0.222) and `lean_onset_cop_sat_frac`. These are the dense
 signals for §5.
 
-## 2d. Deploy plant, 33 Hz: the spline is a component (`runs/gains_spp15`, complete 258/258 at 17:18)
+## 2d. Deploy plant, 33 Hz: the spline is a component (cubic is upstream MJPC's sampling-planner default, 734bda29; CEM/iCEM hard-code the hold) (`runs/gains_spp15`, complete 258/258 at 17:18)
 Spline × update rule at σ = 0.01 rad, 6 seeds:
 
 | update rule | cubic | hold |
@@ -109,8 +109,9 @@ within the plan interval at 70–90 mrad/s RMS over joints (2–2.5 mrad per 30 
 plus a 6–10 mrad jump at each plan; the hold has no within-plan motion and a
 1.9 mrad jump in the stand. The ramp is not undone by the next jump
 (corr +0.01…+0.03), so it is not a sawtooth. Working mechanism: with a hold
-the perturbation of the first knot is executed for 0.5 s in the rollout, so
-the immediate action is selected on; with a cubic and white knot noise the
+the perturbation of the first knot is executed for 0.33 s in the rollout (hold
+knots at t, t+0.33, t+0.67; cubic knots at t, t+0.5, t+1.0), so the immediate
+action is selected on; with a cubic and white knot noise the
 first-knot perturbation is transient and the immediate action follows a curve
 set by knots chosen for 0.5–1 s ahead. iCEM's colored noise ties the first
 knot to the later ones, which would explain its immunity; batch Y
