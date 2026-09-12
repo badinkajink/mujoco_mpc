@@ -51,9 +51,9 @@
 
 <h2>Plan rate</h2>
 <p>{{RATE_TEXT}}</p>
+<p>The executed step per plan, which sorted the arms on the XML plant, does not on the deploy plant: between 3 and 25 mrad per plan in the lean rung the completing and the failing arms overlap at every rate (the cubic arms fail at the same step as the hold arms that complete), and only the shipped-noise arms at 40–130 mrad separate (<code>paper_figs/fig_window_all</code>). The step is a symptom of the noise scale, not the mechanism of the spline or rate failures.</p>
 {{PFIG:fig_rate.png|Figure 5. Completion against plans per second for the five update-rule × spline combinations at 0.01 rad, deploy plant, 6 seeds. The deploy node runs at 33 plans/s.}}
 {{TABLE_RATE|Table 6. Completions against plan rate on the deploy plant. Failure cells name the rung and the time.}}
-{{WINDOW_BLOCK}}
 
 <h2>What this does not settle</h2>
 <ul>
