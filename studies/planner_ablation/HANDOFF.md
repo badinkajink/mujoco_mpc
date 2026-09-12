@@ -6,11 +6,13 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-11 23:55 (read this first)
-The page is published on the deploy plant with 33/50/83/167 plans/s:
+## 0. State at 2026-09-12 02:05 (read this first)
+The campaign is complete (708 runs, `campaign10.sh` finished; no lean_bench
+running) and the page is published on the deploy plant with 33/50/83/167 plans/s:
 `docs/lean/20260911-planner_ablation.html` = https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e
-(660 runs; the 167 Hz σ axis, batch S+S2 at 3 seeds, `runs/gains_spp3b.log`,
-was still running — when it lands: `./score_rates.sh && ./paper_figs.py`, copy
+(708 runs including the 167 Hz σ axis at 3 seeds; basin cells admissible: CEM
+15/15, PS-hold 10/15, MPPI-hold 8/15, PS-cubic 5/15. To regenerate after any
+new runs: `./score_rates.sh && ./paper_figs.py`, copy
 `paper_figs/fig_*.png` to `docs/lean/media/planner_ablation/`, `./make_page.py
 --summary runs/summary_deploy_spp15.json --out ../../docs/lean/20260911-planner_ablation.html
 --title "Sampling-planner selection for the braced lean at the robot's plan rate" --nruns N`,

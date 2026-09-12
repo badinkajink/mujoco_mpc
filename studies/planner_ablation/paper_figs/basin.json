@@ -2,20 +2,20 @@
  "admissible_rule": ">= 2/3 of seeds complete",
  "basin_cells": {
   "elite mean": [
-   11,
-   11
+   15,
+   15
   ],
   "argmin": [
-   7,
-   11
+   10,
+   15
   ],
   "softmax": [
-   5,
-   11
+   8,
+   15
   ],
   "argmin cubic": [
-   2,
-   11
+   5,
+   15
   ]
  }
 }
