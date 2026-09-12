@@ -125,6 +125,30 @@ basin is CEM 0.005–0.05 all ≥ 4/6, PS-hold 0.01–0.02, MPPI-hold 0.01–0.0
 k = 1, 2, 6, 10 all ≥ 5/6, k = 20 (no selection) 0/6; N = 8 hurts CEM (2/6)
 and PS (2/6), not MPPI (4/6).
 
+## 2e. 167 Hz on the deploy plant (`runs/gains_spp3`, 78 runs, 20:21) and the spline mechanism (batch Y, 33 Hz)
+167 plans/s, 6 seeds: cem 6/6, icem 6/6, shipped ps 0/6, shipped mppi 0/6 (both
+fall or collapse in the stand), ps_raw01_zero 6/6, ps_raw01_cubic 4/6,
+ps_scaled01_cubic 6/6, mppi_raw01_zero_l1 6/6, mppi_raw01_cubic_l1 2/6,
+mppi_raw01_cubic_l0.1 5/6, mppi_scaled01_cubic 5/6, cem_cubic 6/6, icem_cubic
+4/6. So the noise-units failure is rate-independent and the cubic failure is a
+rate × spline interaction (cubic rows: 4–6/6 at 167, 0–1/6 at 33; iCEM 6/6 at
+both).
+Batch Y at 33 Hz (6 seeds): icem_a0_cubic (white knot noise, elite memory kept)
+1/6; icem_keep0_cubic (AR(1) α 0.7 noise, no memory) 6/6; icem_a0 (hold, white)
+6/6; icem_keep0 (hold, colored) 6/6; ps_raw01_cubic_k6 (cubic, 6 knots 0.2 s
+apart) 0/6; ps_raw01_zero_k6 (hold, 6 knots, first knot held 0.167 s) 2/6.
+Reading: the colored noise is what makes iCEM immune to the cubic, not the
+memory; denser knots do not rescue the white-noise cubic; and the hold itself
+fails when its first knot is held for 0.167 s instead of 0.33 s. One statement
+covers all six: the sampled perturbation of the immediate action has to persist
+for roughly 0.3 s of the rollout to be selected on — a hold does it by
+construction (0.33 s at 3 knots), AR(1) noise does it by correlating the knots
+(ρ = 0.7 between knots 0.5 s apart), white-noise cubic (decorrelated at the next
+knot, 0.5 s, and moving from t = 0) and a 6-knot hold (0.167 s) do not. Batch Z
+(campaign9, running): ps hold with 2 knots (0.5 s), ps cubic with 2 knots (a 1 s
+ramp), icem_a095_cubic (longer persistence), icem_a03_cubic (shorter) — the
+prediction is 2-knot hold ≥ 5/6, α 0.95 6/6, α 0.3 ≤ 2/6, 2-knot cubic unclear.
+
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the
 overnight data. Its 167 Hz sections stand. Its §"At the deploy node's plan rate"
