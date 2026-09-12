@@ -157,8 +157,18 @@ cubic-3 AR0.7 0.66 (6/6, 6/6), hold-3 AR0.7 0.65 (6/6, 6/6). **A step at
 the plan interval's (≈ 10 intervals at 33 Hz): at 167 Hz cubic-3 completes
 4–6/6. Prediction for the 50 Hz block: cubic-3 (0.28 s vs a 0.2 s threshold)
 completes ≥ 4/6 (`ps_raw01_cubic`, `cem_cubic`, `mppi_raw01_cubic_l1` in
-`runs/gains_spp10`). A 4-knot cubic at 33 Hz (τ_p ≈ 0.19) would land inside
-the band; not queued.
+`runs/gains_spp10`). Batch W (23:11): 4-knot cubic 0/6, 4-knot linear 0/6, 5-knot hold 1/6,
+**4-knot hold 5/6** — the last one breaks the τ_p ordering (0.25 s completes,
+cubic-3 at 0.28 fails). The statistic that orders all 20 arms is **t80 = the lag
+at which the autocorrelation of δu falls below 0.8** (`persistence.t_below`):
+≤ 0.20 s → 0–2/6 (cubic-6 0.08, cubic-4 0.13, linear-4 0.15, hold-6 0.17,
+cubic-3 0.19, hold-5 0.20), ≥ 0.22 s → 5–6/6 (linear-3 0.22 is the edge at
+3/6; AR0.3 cubic 0.22 5/6; hold-4 0.25 5/6; AR0.7 cubic 0.28 6/6; hold-3 0.34;
+cubic-2 0.43; hold-2 0.50), α 0.95 cubic 0.34 → 0/6 for amplitude. Reading:
+selection needs the perturbation still applied at ≈ 0.2 s ≈ 7 plan intervals,
+not a long total correlation. `fig_persist` uses t80. 50 Hz block (23:01):
+cubic-3 ps 4/6, cem 3/6, mppi λ1 4/6, λ0.1 3/6 — graded with rate as
+predicted, not a threshold measurement; the W arms at 50/167 Hz would be.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

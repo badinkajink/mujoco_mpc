@@ -9,9 +9,12 @@ over the horizon, and integrate its normalized autocorrelation with delta_u(0):
 
     tau_p = integral_0^H  max(0, corr(delta_u(0), delta_u(tau))) dtau
 
-A hold with knot spacing D gives tau_p = D exactly; a white-noise cubic
-decorrelates by the next knot. Knot times follow the planner: hold knots at
-t + i H/n, linear/cubic knots at t + i H/(n-1).
+and also the lag at which that correlation first falls below 0.8, t80. Over the
+16 spline/noise arms at 33 plans/s, t80 orders completion and tau_p does not
+(a 4-knot hold, tau_p 0.25 s, completes 5/6; the 3-knot cubic, tau_p 0.28 s,
+0/6): the arms that complete keep the executed perturbation at >= 80 % for
+>= 0.22 s, the arms that fail lose it by 0.20 s. Knot times follow the
+planner: hold knots at t + i H/n, linear/cubic knots at t + i H/(n-1).
 """
 import numpy as np
 
@@ -68,6 +71,12 @@ def tau_p(n, kind, alpha=0.0, samples=4000, dt=0.01, seed=0):
     return float(np.trapezoid(np.clip(rho, 0, None), taus)), rho, taus
 
 
+def t_below(rho, taus, level=0.8):
+    """lag at which the correlation first drops below `level` (H if never)."""
+    below = rho < level
+    return float(taus[np.argmax(below)]) if below.any() else float(H)
+
+
 CONFIGS = {  # arm -> (knots, kind, alpha)
     "hold, 3 knots": (3, "zero", 0.0), "hold, 6 knots": (6, "zero", 0.0), "hold, 2 knots": (2, "zero", 0.0),
     "cubic, 3 knots, white": (3, "cubic", 0.0), "cubic, 6 knots, white": (6, "cubic", 0.0),
@@ -79,5 +88,4 @@ CONFIGS = {  # arm -> (knots, kind, alpha)
 if __name__ == "__main__":
     for name, (n, kind, a) in CONFIGS.items():
         tp, rho, taus = tau_p(n, kind, a)
-        half = taus[np.argmax(rho < 0.5)] if (rho < 0.5).any() else H
-        print("%-30s tau_p = %.3f s   rho<0.5 at %.2f s" % (name, tp, half))
+        print("%-30s tau_p = %.3f s   rho(0.2 s) = %.2f   t80 = %.2f s" % (name, tp, rho[20], t_below(rho, taus)))

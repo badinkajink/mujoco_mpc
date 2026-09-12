@@ -655,10 +655,11 @@ FAM_MK = {"ps": ("^", C_ARGMIN), "mppi": ("D", C_SOFTMAX), "cem": ("o", C_ELITE)
 
 
 def fig_persist(S15, out):
-    """Completion at 33 plans/s against the correlation time of the sampled
-    perturbation of the executed action (persistence.py): every arm at 0.01 rad
-    whose spline, knot count or noise colour differs. Cubic/linear splines are
-    hollow, the hold filled."""
+    """Completion at 33 plans/s against the persistence of the sampled
+    perturbation of the executed action (persistence.py: the lag at which its
+    autocorrelation falls below 0.8): every arm at 0.01 rad whose spline, knot
+    count or noise colour differs. Cubic/linear splines are hollow, the hold
+    filled."""
     import persistence
     fig, ax = plt.subplots(figsize=(COL, 2.35))
     cache = {}
@@ -668,28 +669,28 @@ def fig_persist(S15, out):
         if not n:
             continue
         if cfg not in cache:
-            cache[cfg] = persistence.tau_p(*cfg, samples=3000)[0]
+            _, rho, taus = persistence.tau_p(*cfg, samples=3000)
+            cache[cfg] = persistence.t_below(rho, taus, 0.8)
         fam = "icem" if arm.startswith("icem") else arm.split("_")[0]
         pts.append((cache[cfg], k, n, fam, cfg[1] == "zero", arm))
     # jitter identical x a little so co-located arms show
     seen = {}
     for x, k, n, fam, hold, arm in sorted(pts, key=lambda t: t[0]):
         key = round(x, 3); j = seen.get(key, 0); seen[key] = j + 1
-        xo = x * (1 + 0.012 * (j - 1))
+        xo = x * (1 + 0.015 * (j - 1.5))
         p = k / n; lo, hi = wilson(k, n)
         mk, col = FAM_MK[fam]
         ax.plot([xo, xo], [lo, hi], color=col, lw=0.6, alpha=0.3, zorder=2)
         ax.plot(xo, p, marker=mk, ms=5, mfc=col if hold else "white", mec=col, mew=0.9, lw=0, zorder=3)
-    ax.axvspan(0.281, 0.341, color=C_GRAY, alpha=0.18, lw=0, zorder=0)
+    ax.axvspan(0.20, 0.22, color=C_GRAY, alpha=0.22, lw=0, zorder=0)
     ka, na = counts(S15, "icem_a095_cubic")
     if na:
-        ax.annotate("AR(1) α = 0.95: first-knot\nstd 0.3 σ, falls in the stand-up", xy=(cache[(3, "cubic", 0.95)], ka / na),
-                    xytext=(0.36, 0.22), fontsize=6, color=C_INK2, ha="left",
-                    arrowprops=dict(arrowstyle="-", color=C_GRAY, lw=0.6))
+        ax.text(cache[(3, "cubic", 0.95)] * 1.06, 0.04, "AR(1) α = 0.95:\nfirst-knot std 0.3 σ,\nfalls in the stand-up",
+                fontsize=5.8, color=C_INK2, ha="left", va="bottom")
     ax.set_xscale("log")
-    ax.set_xticks([0.1, 0.2, 0.3, 0.5, 0.8]); ax.set_xticklabels(["0.1", "0.2", "0.3", "0.5", "0.8"])
+    ax.set_xticks([0.05, 0.1, 0.2, 0.3, 0.5]); ax.set_xticklabels(["0.05", "0.1", "0.2", "0.3", "0.5"])
     ax.minorticks_off()
-    ax.set_xlabel("correlation time of the sampled perturbation, s")
+    ax.set_xlabel("persistence of the sampled perturbation in the rollout, s\n(lag at which its autocorrelation falls below 0.8)")
     ax.set_ylabel("completed, fraction of 6 seeds")
     ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
     for fam, lab in [("ps", "predictive sampling"), ("mppi", "MPPI"), ("cem", "CEM"), ("icem", "iCEM")]:
