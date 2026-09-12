@@ -51,10 +51,10 @@ def main():
             continue
         g = agg[arm]
         rs = sorted([r for r in runs if r["arm"] == arm], key=lambda r: r["seed"])
-        rungs = " / ".join("%s<sup>%s</sup>" % (PHASES[r["max_phase"]], {"complete": "✓", "fell": "✗", "collapsed": "✗", "stalled": "·"}[r["outcome"]]) for r in rs)
+        rungs = " ".join("%s<sup>%s</sup>" % (PHASES[r["max_phase"]], {"complete": "✓", "fell": "✗", "collapsed": "✗", "stalled": "·"}[r["outcome"]]) for r in rs)
         cls = {"iCEM": "icem", "CEM": "cem", "PS": "ps", "MPPI": "mppi"}[FAMILY[g["planner"]]]
         out.append("<tr class=%s><td><code>%s</code></td><td>%s</td><td>%d</td><td><b>%d</b></td><td>%d</td><td>%d</td><td>%d</td>"
-                   "<td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                   "<td class=rungs>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
                    % (cls, arm, html.escape(describe(arm)), g["n"], g["complete"], g["fell"], g["collapsed"], g["stalled"], rungs,
                       fmt(g["t_complete_median"]), fmt(1000 * g["jitter_stand_median"], 1),
                       fmt(g["cost_stand_median"], 1), fmt(g["brace_peak_median"], 0),

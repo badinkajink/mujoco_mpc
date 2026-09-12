@@ -16,7 +16,7 @@ STYLE = ("body{font:17px/1.55 system-ui,sans-serif;max-width:1180px;margin:40px 
          "figure.paper img{max-width:min(100%,760px)}figure.paper{background:white;padding:12px 12px 4px;border:1px solid #e3e8ee}"
          "tr.icem td:first-child{border-left:4px solid #1f77b4}tr.cem td:first-child{border-left:4px solid #2ca02c}"
          "tr.ps td:first-child{border-left:4px solid #d62728}tr.mppi td:first-child{border-left:4px solid #ff7f0e}"
-         "td b{color:#1b5e20}")
+         "td b{color:#1b5e20}td.rungs{white-space:nowrap;font-size:12px}")
 
 
 def main():
