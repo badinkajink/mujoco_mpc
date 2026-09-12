@@ -5,18 +5,28 @@ summary.json and the figures under docs/lean/media/planner_ablation/."""
 import argparse, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STYLE = ("body{font:17px/1.55 system-ui,sans-serif;max-width:1180px;margin:40px auto;padding:0 24px;"
-         "color:#1d2835;background:#fafbfd}h1{font-size:32px;line-height:1.15}h2{margin-top:36px}"
-         "h3{margin-top:24px}table{border-collapse:collapse;width:100%;font-size:13.5px;background:white}"
-         "th,td{padding:6px 8px;border-bottom:1px solid #d6dde6;text-align:left;vertical-align:top}"
-         "th{background:#e9eef5}caption{text-align:left;font-size:14px;color:#546474;padding:6px 0}"
-         ".scroll{overflow-x:auto;margin:12px 0}code,pre{background:#eef1f5;font-size:13.5px}pre{padding:14px;white-space:pre-wrap}"
-         "img{max-width:100%;display:block;margin:8px auto}a{color:#075eaa}.muted{color:#546474}"
-         "figure{margin:18px 0}figcaption{font-size:14px;color:#546474}"
-         "figure.paper img{max-width:min(100%,760px)}figure.paper{background:white;padding:12px 12px 4px;border:1px solid #e3e8ee}"
-         "tr.icem td:first-child{border-left:4px solid #1f77b4}tr.cem td:first-child{border-left:4px solid #2ca02c}"
-         "tr.ps td:first-child{border-left:4px solid #d62728}tr.mppi td:first-child{border-left:4px solid #ff7f0e}"
-         "td b{color:#1b5e20}td.rungs{white-space:nowrap;font-size:12px}")
+STYLE = """
+:root{--bg:#fafbfd;--fg:#1d2835;--muted:#546474;--rule:#d6dde6;--th:#e9eef5;--card:#ffffff;--code:#eef1f5;--link:#075eaa;--ok:#1b5e20;
+  --icem:#1f77b4;--cem:#2ca02c;--ps:#d62728;--mppi:#ff7f0e}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#14181d;--fg:#e4e8ee;--muted:#9aa5b4;--rule:#2c343d;--th:#1f262e;--card:#181d23;--code:#222932;--link:#7db5e8;--ok:#8fd19e}}
+:root[data-theme="dark"]{--bg:#14181d;--fg:#e4e8ee;--muted:#9aa5b4;--rule:#2c343d;--th:#1f262e;--card:#181d23;--code:#222932;--link:#7db5e8;--ok:#8fd19e}
+body{font:17px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:1180px;margin:40px auto;padding:0 24px;color:var(--fg);background:var(--bg)}
+h1{font-size:32px;line-height:1.15;text-wrap:balance}h2{margin-top:36px}h3{margin-top:24px}
+p{max-width:78ch}ul{max-width:80ch}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--card);font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+th{background:var(--th)}caption{text-align:left;font-size:14px;color:var(--muted);padding:6px 0;caption-side:top}
+.scroll{overflow-x:auto;margin:12px 0}
+code,pre{background:var(--code);font-size:13.5px;border-radius:3px;padding:0 3px}pre{padding:14px;white-space:pre-wrap}
+img{max-width:100%;display:block;margin:8px auto;background:#fff;border-radius:4px}
+a{color:var(--link)}.muted{color:var(--muted)}
+figure{margin:18px 0}figcaption{font-size:14px;color:var(--muted);max-width:90ch}
+figure.paper{background:var(--card);padding:12px 12px 4px;border:1px solid var(--rule);border-radius:4px}
+figure.paper img{max-width:min(100%,760px)}
+tr.icem td:first-child{border-left:4px solid var(--icem)}tr.cem td:first-child{border-left:4px solid var(--cem)}
+tr.ps td:first-child{border-left:4px solid var(--ps)}tr.mppi td:first-child{border-left:4px solid var(--mppi)}
+td b{color:var(--ok)}td.rungs{white-space:nowrap;font-size:12px}
+"""
 
 
 def main():
