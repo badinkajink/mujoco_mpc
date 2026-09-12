@@ -172,6 +172,16 @@ ARMS = {
                                 "sampling_representation": 2, "sampling_spline_points": 2}),
     "icem_a095_cubic":    (ICEM, {"cem_representation": 2, "icem_alpha": 0.95}),
     "icem_a03_cubic":     (ICEM, {"cem_representation": 2, "icem_alpha": 0.3}),
+    # points inside the 0.2-0.3 s band: 4-knot hold (tau_p 0.26), 4-knot cubic
+    # (0.20), 5-knot hold (0.20), 4-knot linear (0.22)
+    "ps_raw01_zero_k4":   (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 0, "sampling_spline_points": 4}),
+    "ps_raw01_cubic_k4":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 2, "sampling_spline_points": 4}),
+    "ps_raw01_zero_k5":   (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 0, "sampling_spline_points": 5}),
+    "ps_raw01_linear_k4": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 1, "sampling_spline_points": 4}),
 }
 
 BATCHES = {
@@ -213,4 +223,5 @@ BATCHES = {
     "Y": ["icem_a0_cubic", "icem_keep0_cubic", "icem_a0", "icem_keep0",
           "ps_raw01_cubic_k6", "ps_raw01_zero_k6", "ps_raw01_linear", "cem_cubic_k6"],
     "Z": ["ps_raw01_zero_k2", "ps_raw01_cubic_k2", "icem_a095_cubic", "icem_a03_cubic"],
+    "W": ["ps_raw01_zero_k4", "ps_raw01_cubic_k4", "ps_raw01_zero_k5", "ps_raw01_linear_k4"],
 }

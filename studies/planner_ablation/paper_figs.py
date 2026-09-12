@@ -648,6 +648,8 @@ PERSIST = {  # arm -> persistence.py config (knots, kind, alpha); 33 Hz, sigma 0
     "icem_cubic": (3, "cubic", 0.7), "icem_keep0_cubic": (3, "cubic", 0.7),
     "icem": (3, "zero", 0.7), "icem_keep0": (3, "zero", 0.7),
     "icem_a095_cubic": (3, "cubic", 0.95),
+    "ps_raw01_zero_k4": (4, "zero", 0.0), "ps_raw01_cubic_k4": (4, "cubic", 0.0),
+    "ps_raw01_zero_k5": (5, "zero", 0.0), "ps_raw01_linear_k4": (4, "linear", 0.0),
 }
 FAM_MK = {"ps": ("^", C_ARGMIN), "mppi": ("D", C_SOFTMAX), "cem": ("o", C_ELITE), "icem": ("s", C_ELITE)}
 
