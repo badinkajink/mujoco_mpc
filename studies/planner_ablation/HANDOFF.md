@@ -6,6 +6,22 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
+## 0. State at 2026-09-11 23:55 (read this first)
+The page is published on the deploy plant with 33/50/83/167 plans/s:
+`docs/lean/20260911-planner_ablation.html` = https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e
+(660 runs; the 167 Hz σ axis, batch S+S2 at 3 seeds, `runs/gains_spp3b.log`,
+was still running — when it lands: `./score_rates.sh && ./paper_figs.py`, copy
+`paper_figs/fig_*.png` to `docs/lean/media/planner_ablation/`, `./make_page.py
+--summary runs/summary_deploy_spp15.json --out ../../docs/lean/20260911-planner_ablation.html
+--title "Sampling-planner selection for the braced lean at the robot's plan rate" --nruns N`,
+`./publish_prep.py <page> <scratch copy>` and republish to the same URL with
+`root paper_figs` and the five `media/planner_ablation/fig_*.png` files).
+The three-plus-one paper figures: `fig_ladder` (which component), `fig_basin`
+(sensitivity), `fig_persist` (mechanism), `fig_rate` (plan rate); `fig_spline`
+is the page's 500 Hz trace + rung strip. All in `paper_figs/*.pdf|png`.
+Everything below §1 is the working log in the order it happened; §2d–2e hold
+the spline/persistence result, §3b–3c the gains result and the flag.
+
 ## 1. Ground truth from the user (2026-09-11)
 
 - **The real robot runs CEM (planner 5) on strategy 25 at 33 plans/s, "100%".**
