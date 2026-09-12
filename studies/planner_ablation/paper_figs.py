@@ -140,10 +140,10 @@ def fig_rate(sums, out):
     ax.minorticks_off()
     ax.set_xlabel("plans per second")
     ax.set_ylabel("ladder completed, fraction of seeds")
-    ax.set_ylim(-0.03, 1.05)
+    ax.set_ylim(-0.03, 1.12)
     ax.set_yticks([0, 0.5, 1.0])
-    ax.axvspan(33, 45, color=C_GRAY, alpha=0.15, lw=0, zorder=0)
-    ax.text(38.5, 1.02, "deploy node", ha="center", va="bottom", fontsize=6.5, color=C_INK2)
+    ax.axvline(33, color=C_GRAY, lw=6, alpha=0.18, zorder=0)
+    ax.text(33, 1.07, "robot", ha="center", va="bottom", fontsize=6.5, color=C_INK2)
     style_axes(ax)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.28), ncol=2, handlelength=2.4,
               columnspacing=1.0)
@@ -547,14 +547,14 @@ def fig_ladder(sums, out):
                      color=C_INK if changed else C_GRAY, weight="bold" if changed and not first else "normal")
         prev = (arm, fam, sig, spl, upd)
         col = {"PS": C_ARGMIN, "MPPI": C_SOFTMAX, "CEM": C_ELITE}[fam]
-        for spp, fill, dy in [(15, "full", 0.0), (3, "none", 0.0)]:
+        for spp, fill, dy in [(15, "full", 0.17), (3, "none", -0.17)]:
             S = sums[spp]
             k, nn = counts(S, arm)
             if not nn:
                 continue
             p_ = k / nn; lo, hi = wilson(k, nn)
             ax.plot([lo, hi], [yy + dy, yy + dy], color=col, lw=0.7, alpha=0.35, zorder=2)
-            ax.plot(p_, yy + dy, marker="o", ms=5, mfc=col if fill == "full" else "white", mec=col,
+            ax.plot(p_, yy + dy, marker="o", ms=4.6, mfc=col if fill == "full" else "white", mec=col,
                     mew=1.0, lw=0, zorder=4 if fill == "full" else 3)
     ax.set_xlim(-0.06, 1.06); ax.set_xticks([0, 0.5, 1]); ax.set_xticklabels(["0", "½", "1"])
     ax.set_yticks([])

@@ -162,6 +162,16 @@ ARMS = {
     "ps_raw01_linear":    (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
                                 "sampling_representation": 1}),
     "cem_cubic_k6":       (CEM, {"cem_representation": 2, "sampling_spline_points": 6}),
+    # persistence test (Y result 20:35: colored noise rescues the cubic, 6 knots
+    # do not; the hold with 6 knots drops to 2/6): the sampled perturbation of
+    # the immediate action has to persist ~0.3 s in the rollout to be selected
+    # on. Two knots = 0.5 s hold / a 1 s ramp; alpha 0.95 = longer persistence.
+    "ps_raw01_zero_k2":   (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 0, "sampling_spline_points": 2}),
+    "ps_raw01_cubic_k2":  (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 2, "sampling_spline_points": 2}),
+    "icem_a095_cubic":    (ICEM, {"cem_representation": 2, "icem_alpha": 0.95}),
+    "icem_a03_cubic":     (ICEM, {"cem_representation": 2, "icem_alpha": 0.3}),
 }
 
 BATCHES = {
@@ -202,4 +212,5 @@ BATCHES = {
     # Y = the iCEM-under-cubic split (plus the hold versions of the same two)
     "Y": ["icem_a0_cubic", "icem_keep0_cubic", "icem_a0", "icem_keep0",
           "ps_raw01_cubic_k6", "ps_raw01_zero_k6", "ps_raw01_linear", "cem_cubic_k6"],
+    "Z": ["ps_raw01_zero_k2", "ps_raw01_cubic_k2", "icem_a095_cubic", "icem_a03_cubic"],
 }
