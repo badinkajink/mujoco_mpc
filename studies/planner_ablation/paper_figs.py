@@ -633,6 +633,70 @@ def fig_spline(S15, out):
     plt.close(fig)
 
 
+# ---- fig_persist -------------------------------------------------------------
+PERSIST = {  # arm -> persistence.py config (knots, kind, alpha); 33 Hz, sigma 0.01, hold/cubic/linear
+    "ps_raw01_cubic_k6": (6, "cubic", 0.0), "cem_cubic_k6": (6, "cubic", 0.0),
+    "ps_raw01_zero_k6": (6, "zero", 0.0),
+    "ps_raw01_cubic": (3, "cubic", 0.0), "cem_cubic": (3, "cubic", 0.0), "icem_a0_cubic": (3, "cubic", 0.0),
+    "mppi_raw01_cubic_l1": (3, "cubic", 0.0),
+    "ps_raw01_linear": (3, "linear", 0.0),
+    "ps_raw01_zero": (3, "zero", 0.0), "cem": (3, "zero", 0.0), "icem_a0": (3, "zero", 0.0),
+    "mppi_raw01_zero_l1": (3, "zero", 0.0),
+    "icem_a03_cubic": (3, "cubic", 0.3),
+    "ps_raw01_zero_k2": (2, "zero", 0.0),
+    "ps_raw01_cubic_k2": (2, "cubic", 0.0),
+    "icem_cubic": (3, "cubic", 0.7), "icem_keep0_cubic": (3, "cubic", 0.7),
+    "icem": (3, "zero", 0.7), "icem_keep0": (3, "zero", 0.7),
+    "icem_a095_cubic": (3, "cubic", 0.95),
+}
+FAM_MK = {"ps": ("^", C_ARGMIN), "mppi": ("D", C_SOFTMAX), "cem": ("o", C_ELITE), "icem": ("s", C_ELITE)}
+
+
+def fig_persist(S15, out):
+    """Completion at 33 plans/s against the correlation time of the sampled
+    perturbation of the executed action (persistence.py): every arm at 0.01 rad
+    whose spline, knot count or noise colour differs. Cubic/linear splines are
+    hollow, the hold filled."""
+    import persistence
+    fig, ax = plt.subplots(figsize=(COL, 2.35))
+    cache = {}
+    pts = []
+    for arm, cfg in PERSIST.items():
+        k, n = counts(S15, arm)
+        if not n:
+            continue
+        if cfg not in cache:
+            cache[cfg] = persistence.tau_p(*cfg, samples=3000)[0]
+        fam = "icem" if arm.startswith("icem") else arm.split("_")[0]
+        pts.append((cache[cfg], k, n, fam, cfg[1] == "zero", arm))
+    # jitter identical x a little so co-located arms show
+    seen = {}
+    for x, k, n, fam, hold, arm in sorted(pts, key=lambda t: t[0]):
+        key = round(x, 3); j = seen.get(key, 0); seen[key] = j + 1
+        xo = x * (1 + 0.012 * (j - 1))
+        p = k / n; lo, hi = wilson(k, n)
+        mk, col = FAM_MK[fam]
+        ax.plot([xo, xo], [lo, hi], color=col, lw=0.6, alpha=0.3, zorder=2)
+        ax.plot(xo, p, marker=mk, ms=5, mfc=col if hold else "white", mec=col, mew=0.9, lw=0, zorder=3)
+    ax.axvspan(0.281, 0.341, color=C_GRAY, alpha=0.18, lw=0, zorder=0)
+    ax.set_xscale("log")
+    ax.set_xticks([0.1, 0.2, 0.3, 0.5, 0.8]); ax.set_xticklabels(["0.1", "0.2", "0.3", "0.5", "0.8"])
+    ax.minorticks_off()
+    ax.set_xlabel("correlation time of the sampled perturbation, s")
+    ax.set_ylabel("completed, fraction of 6 seeds")
+    ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
+    for fam, lab in [("ps", "predictive sampling"), ("mppi", "MPPI"), ("cem", "CEM"), ("icem", "iCEM")]:
+        mk, col = FAM_MK[fam]
+        ax.plot([], [], marker=mk, color=col, lw=0, ms=5, label=lab)
+    ax.plot([], [], marker="o", mfc=C_INK2, mec=C_INK2, lw=0, ms=5, label="hold")
+    ax.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=5, label="cubic / linear")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=3, handlelength=1.0, columnspacing=1.2)
+    ax.set_title("33 plans/s, σ = 0.01 rad", loc="left")
+    style_axes(ax)
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gains", default="deploy", choices=["deploy", "xml"],
@@ -655,6 +719,7 @@ def main():
     fig_window_all(sums, os.path.join(out, "fig_window_all"))
     fig_ladder(sums, os.path.join(out, "fig_ladder"))
     fig_spline(sums[15], os.path.join(out, "fig_spline"))
+    fig_persist(sums[15], os.path.join(out, "fig_persist"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)
