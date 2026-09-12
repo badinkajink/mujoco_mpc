@@ -144,10 +144,21 @@ covers all six: the sampled perturbation of the immediate action has to persist
 for roughly 0.3 s of the rollout to be selected on — a hold does it by
 construction (0.33 s at 3 knots), AR(1) noise does it by correlating the knots
 (ρ = 0.7 between knots 0.5 s apart), white-noise cubic (decorrelated at the next
-knot, 0.5 s, and moving from t = 0) and a 6-knot hold (0.167 s) do not. Batch Z
-(campaign9, running): ps hold with 2 knots (0.5 s), ps cubic with 2 knots (a 1 s
-ramp), icem_a095_cubic (longer persistence), icem_a03_cubic (shorter) — the
-prediction is 2-knot hold ≥ 5/6, α 0.95 6/6, α 0.3 ≤ 2/6, 2-knot cubic unclear.
+knot, 0.5 s, and moving from t = 0) and a 6-knot hold (0.167 s) do not. Batch Z (20:49): ps hold 2 knots 5/6, ps cubic 2 knots **6/6**, icem_a03_cubic
+5/6, icem_a095_cubic 0/6 (all six fall in the initial stand-up at 4.4–5.0 s:
+the cold-started AR(1) at α 0.95 gives the first knot std 0.31 σ = 3 mrad, an
+amplitude failure, not persistence). `persistence.py` computes the correlation
+time τ_p of δu(τ) with δu(0) over the horizon with MJPC's interpolation/slope
+rules: cubic-6 0.11 (0/6, 0/6), hold-6 0.17 (2/6), cubic-3 white 0.28 (0/6 PS,
+1/6 CEM, 1/6 iCEM-a0, 1/6 MPPI), linear-3 0.32 (3/6), hold-3 0.34 (6/6, 5/6,
+6/6, 4/6), cubic-3 AR0.3 0.45 (5/6), hold-2 0.50 (5/6), cubic-2 0.62 (6/6),
+cubic-3 AR0.7 0.66 (6/6, 6/6), hold-3 AR0.7 0.65 (6/6, 6/6). **A step at
+≈ 0.3 s across four planners — `fig_persist`.** The threshold is presumably
+the plan interval's (≈ 10 intervals at 33 Hz): at 167 Hz cubic-3 completes
+4–6/6. Prediction for the 50 Hz block: cubic-3 (0.28 s vs a 0.2 s threshold)
+completes ≥ 4/6 (`ps_raw01_cubic`, `cem_cubic`, `mppi_raw01_cubic_l1` in
+`runs/gains_spp10`). A 4-knot cubic at 33 Hz (τ_p ≈ 0.19) would land inside
+the band; not queued.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

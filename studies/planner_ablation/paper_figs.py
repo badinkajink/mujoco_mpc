@@ -679,6 +679,11 @@ def fig_persist(S15, out):
         ax.plot([xo, xo], [lo, hi], color=col, lw=0.6, alpha=0.3, zorder=2)
         ax.plot(xo, p, marker=mk, ms=5, mfc=col if hold else "white", mec=col, mew=0.9, lw=0, zorder=3)
     ax.axvspan(0.281, 0.341, color=C_GRAY, alpha=0.18, lw=0, zorder=0)
+    ka, na = counts(S15, "icem_a095_cubic")
+    if na:
+        ax.annotate("AR(1) α = 0.95: first-knot\nstd 0.3 σ, falls in the stand-up", xy=(cache[(3, "cubic", 0.95)], ka / na),
+                    xytext=(0.36, 0.22), fontsize=6, color=C_INK2, ha="left",
+                    arrowprops=dict(arrowstyle="-", color=C_GRAY, lw=0.6))
     ax.set_xscale("log")
     ax.set_xticks([0.1, 0.2, 0.3, 0.5, 0.8]); ax.set_xticklabels(["0.1", "0.2", "0.3", "0.5", "0.8"])
     ax.minorticks_off()
