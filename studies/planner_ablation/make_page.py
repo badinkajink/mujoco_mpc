@@ -26,6 +26,8 @@ figure.paper img{max-width:min(100%,760px)}
 tr.icem td:first-child{border-left:4px solid var(--icem)}tr.cem td:first-child{border-left:4px solid var(--cem)}
 tr.ps td:first-child{border-left:4px solid var(--ps)}tr.mppi td:first-child{border-left:4px solid var(--mppi)}
 td b{color:var(--ok)}td.rungs{white-space:nowrap;font-size:12px}
+.vids{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin:12px 0}
+figure.vid{margin:0}figure.vid video{width:100%;display:block;background:#000;border-radius:4px}figure.vid figcaption{font-size:13px}
 """
 
 

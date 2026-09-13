@@ -188,6 +188,29 @@ not a long total correlation. `fig_persist` uses t80. 50 Hz block (23:01):
 cubic-3 ps 4/6, cem 3/6, mppi λ1 4/6, λ0.1 3/6 — graded with rate as
 predicted, not a threshold measurement; the W arms at 50/167 Hz would be.
 
+## 2f. Why 33 plans/s is enough (2026-09-13 00:10–01:40, `runs/floor_spp*`, `runs/lat_spp15_l*`)
+Plan-rate floor, batch R at 0.01 rad, 6 seeds: 25 plans/s CEM 3/6, iCEM 1/6,
+PS-hold 4/6, MPPI-hold 5/6, PS-cubic 0/6; 16.7 plans/s 0–1/6; 10 and 5 plans/s
+0/6. Every low-rate failure is the lean-onset backward fall at 14–15 s; the
+12 s stand survives at 5 plans/s on every seed (the joint PD holds posture; the
+planner moves setpoints). Latency (`lean_bench --latency_steps`, plans from
+the state L steps ago): 30/60/100 ms at 33 plans/s cost nothing (hold arms
+5–6/6 at each; cubic PS 0/6); 200/300/500 ms queued in campaign13.
+Mechanism candidate: the executed step per plan is rate-independent (CEM
+5.4–7.7 mrad from 167 to 5 plans/s, iCEM 2.6–2.9, PS-hold 5.4–9.8), so the
+planner's setpoint speed is step × rate; the *directed* target speed (net
+target displacement over the first 2 s of the lean, RMS over 27 joints)
+saturates at 50–61 mrad/s at ≥ 50 plans/s (the task's demand), is 27–42 at
+33 (planner-limited, ~70 % of demand), 20–39 at 25, 8–22 at 10; iCEM is the
+lowest at every rate (its step is 2.7 mrad) and the first to fail at 25 Hz.
+Prediction under test (batch FS, campaign13): a larger σ (0.02–0.05) restores
+completion at 25/16.7/10 plans/s by raising the step. Task-side version (not
+run; needs a knob in lean.cc, Allen's file): a slower posture-target ramp at
+the lean onset should lower the floor.
+Renders: `runs/video_spp15` (7 arms, seed 1; ps_raw01_zero seed 2 because its
+seed-1 rerun fell — nondeterminism), `renders/vid_*.mp4` + `renders/frames.png`
+via `render.py` (EGL); copied to `docs/lean/media/planner_ablation/`.
+
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the
 overnight data. Its 167 Hz sections stand. Its §"At the deploy node's plan rate"
