@@ -257,3 +257,21 @@ BATCHES = {
            "ps_raw05_zero", "icem_stdmin03", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1"],
     "FS2": ["icem_stdmin02", "icem_stdmin05", "cem_ne2_stdmin02", "cem_ne10_stdmin02"],
 }
+
+# ---- 2026-09-13 target grid: strategy 25's 3x3 (target_col_x rows -0.10/0/+0.10 m,
+#      target_col_y columns A/B/C = 0/0.12/0.24 m) for the four hold planners at
+#      0.01 rad. Generated so the 36 names stay consistent.
+_GRID_BASE = {
+    "cem": (CEM, {}), "icem": (ICEM, {}),
+    "ps_raw01_zero": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01, "sampling_representation": 0}),
+    "mppi_raw01_zero_l1": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                  "sampling_representation": 0, "mppi_temperature": 1.0}),
+}
+BATCHES["G"] = []
+for _xi, _x in [("m10", -0.10), ("0", 0.0), ("p10", 0.10)]:
+    for _yi, _y in [("A", 0.0), ("B", 0.12), ("C", 0.24)]:
+        for _b, (_pl, _nums) in _GRID_BASE.items():
+            _name = "%s_tx%s_c%s" % (_b, _xi, _yi)
+            ARMS[_name] = (_pl, dict(_nums, target_col_x=_x, target_col_y=_y))
+            BATCHES["G"].append(_name)
+
