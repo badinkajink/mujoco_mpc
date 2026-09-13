@@ -705,6 +705,95 @@ def fig_persist(S15, out):
     plt.close(fig)
 
 
+# ---- fig_floor2: the plan-rate floor and the target-speed collapse ------------
+FLOOR_SETS = [(3, "runs/summary_deploy_spp3.json"), (6, "runs/summary_deploy_spp6.json"),
+              (10, "runs/summary_deploy_spp10.json"), (15, "runs/summary_deploy_spp15.json"),
+              (20, "runs/summary_floor_spp20.json"), (30, "runs/summary_floor_spp30.json"),
+              (50, "runs/summary_floor_spp50.json"), (100, "runs/summary_floor_spp100.json")]
+LAT_SETS = [(0, "runs/summary_deploy_spp15.json"), (15, "runs/summary_lat_spp15_l15.json"),
+            (30, "runs/summary_lat_spp15_l30.json"), (50, "runs/summary_lat_spp15_l50.json")]
+
+
+def fig_floor2(out):
+    """(a) completion against plans per second from 5 to 167 for the five
+    update-rule x spline combinations at 0.01 rad; (b) completion against the
+    executed target speed (step per plan x plans per second) for every hold arm
+    at every rate, including the larger-sigma arms at 10-25 plans/s; (c)
+    completion at 33 plans/s against uncompensated plan latency."""
+    import statistics as st
+    sums = {spp: load(p) for spp, p in FLOOR_SETS}
+    fig, axs = plt.subplots(1, 3, figsize=(DBL, 2.3), gridspec_kw={"width_ratios": [1.15, 1.15, 0.9], "wspace": 0.4})
+    ax, bx, cx = axs
+    # (a)
+    for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
+        xs, ys, los, his = [], [], [], []
+        for spp, S in sorted(sums.items()):
+            k, n = counts(S, arm)
+            if not n:
+                continue
+            xs.append(500.0 / spp); ys.append(k / n); lo, hi = wilson(k, n); los.append(lo); his.append(hi)
+        off = 10 ** ((j - 2) * 0.02)
+        xs = np.array(xs) * off
+        ls = "-" if mk in ("o", "^", "D") else "--"
+        ax.plot(xs, ys, color=col, lw=1.3, ls=ls, marker=mk, ms=4.5, mec="white", mew=0.7, label=label, zorder=3)
+        for x, y, lo, hi in zip(xs, ys, los, his):
+            ax.plot([x, x], [lo, hi], color=col, lw=0.6, alpha=0.35, zorder=2)
+    ax.set_xscale("log"); ax.set_xticks([5, 10, 17, 25, 33, 50, 83, 167]); ax.set_xticklabels(["5", "10", "17", "25", "33", "50", "83", "167"])
+    ax.minorticks_off(); ax.set_xlabel("plans per second"); ax.set_ylabel("completed, fraction of 6 seeds")
+    ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
+    ax.axvline(33, color=C_GRAY, lw=6, alpha=0.18, zorder=0); ax.text(33, 1.06, "robot", ha="center", va="bottom", fontsize=6.5, color=C_INK2)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, fontsize=6, handlelength=2.0, columnspacing=0.8)
+    style_axes(ax)
+    # (b) every hold arm at every rate: x = median step per plan in the lean x rate
+    pts = []
+    for spp, S in sums.items():
+        rate = 500.0 / spp
+        for arm in sorted(set(r["arm"] for r in S["runs"])):
+            if ARMS[arm][1].get("sampling_representation", 0 if ARMS[arm][0] in (5, 7) else 2) != 0 and ARMS[arm][0] in (0, 9):
+                continue  # cubic PS/MPPI arms: the spline, not the speed, is their story
+            if ARMS[arm][0] in (5, 7) and ARMS[arm][1].get("cem_representation", 0) != 0:
+                continue
+            rs = [r for r in S["runs"] if r["arm"] == arm]
+            steps = [1000 * r["jitter_phase"]["brace_lean"] for r in rs if "brace_lean" in r.get("jitter_phase", {})]
+            if len(rs) < 3 or not steps:
+                continue
+            k, n = counts(S, arm)
+            pts.append((st.median(steps) * rate, k, n, _rule_of(arm), spp))
+    MK = {"argmin": "^", "softmax": "D", "elite mean": "o"}
+    for x, k, n, rule, spp in pts:
+        p = k / n; lo, hi = wilson(k, n)
+        bx.plot([x, x], [lo, hi], color=RULE_COL[rule], lw=0.5, alpha=0.3, zorder=2)
+        bx.plot(x, p, marker=MK[rule], ms=4.2, mfc=RULE_COL[rule] if spp >= 15 else "white", mec=RULE_COL[rule], mew=0.8, lw=0, alpha=0.9, zorder=3)
+    bx.set_xscale("log"); bx.set_xticks([20, 50, 100, 200, 500, 1000]); bx.set_xticklabels(["20", "50", "100", "200", "500", "1000"])
+    bx.minorticks_off(); bx.set_xlabel("executed target speed, mrad/s\n(step per plan × plans per second)")
+    bx.set_ylim(-0.03, 1.05); bx.set_yticks([0, 0.5, 1.0]); bx.set_yticklabels([])
+    for rule in ["elite mean", "argmin", "softmax"]:
+        bx.plot([], [], marker=MK[rule], color=RULE_COL[rule], lw=0, ms=4.2, label=rule)
+    bx.plot([], [], marker="s", color=C_INK2, lw=0, ms=4.2, label="≥ 33 plans/s")
+    bx.plot([], [], marker="s", mfc="white", mec=C_INK2, lw=0, ms=4.2, label="≤ 25 plans/s")
+    bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=3, fontsize=6, handlelength=1.0, columnspacing=0.8)
+    style_axes(bx)
+    # (c) latency at 33 plans/s
+    lats = {L: load(p) for L, p in LAT_SETS}
+    for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
+        xs, ys, los, his = [], [], [], []
+        for L, S in sorted(lats.items()):
+            k, n = counts(S, arm)
+            if not n:
+                continue
+            xs.append(2 * L); ys.append(k / n); lo, hi = wilson(k, n); los.append(lo); his.append(hi)
+        xs = np.array(xs, dtype=float) + (j - 2) * 1.2
+        ls = "-" if mk in ("o", "^", "D") else "--"
+        cx.plot(xs, ys, color=col, lw=1.3, ls=ls, marker=mk, ms=4.5, mec="white", mew=0.7, zorder=3)
+        for x, y, lo, hi in zip(xs, ys, los, his):
+            cx.plot([x, x], [lo, hi], color=col, lw=0.6, alpha=0.35, zorder=2)
+    cx.set_xticks([0, 30, 60, 100]); cx.set_xlabel("uncompensated plan latency, ms\n(33 plans/s)")
+    cx.set_ylim(-0.03, 1.05); cx.set_yticks([0, 0.5, 1.0]); cx.set_yticklabels([])
+    style_axes(cx)
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gains", default="deploy", choices=["deploy", "xml"],
@@ -728,6 +817,7 @@ def main():
     fig_ladder(sums, os.path.join(out, "fig_ladder"))
     fig_spline(sums[15], os.path.join(out, "fig_spline"))
     fig_persist(sums[15], os.path.join(out, "fig_persist"))
+    fig_floor2(os.path.join(out, "fig_floor2"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)
