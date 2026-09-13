@@ -6,14 +6,12 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 03:20 (read this first)
-Republished 03:20 with renders (7 videos + filmstrip), the plan-rate floor
-(5–25 plans/s), latency (30–500 ms), step-size × low-rate (FS), horizon/N/dt
-minima (H), perturbation 20 mm, plant-only kp/mass mismatch — 1290 runs.
-`campaign15.sh` is still running W at 50/167 Hz and the σ-axis seeds 3–5 at
-167 Hz (log `runs/campaign15.log`); when it ends: score, `./paper_figs.py`,
-rebuild, republish (root `.`, files from `paper_figs/` and `renders/`).
-See §2f–2g for the new results. The page is:
+## 0. State at 2026-09-13 09:45 (read this first)
+ALL QUEUES FINISHED (campaign16 ended 06:59; nothing running). Republished
+09:45 with everything: renders, plan-rate floor 5–167, latency raw and
+compensated (30–500 ms), step-size × low-rate (FS, FS2), horizon/N/dt minima,
+perturbation, plant-only kp/mass mismatch, the 25 plans/s basin column, the
+σ axis at 6 seeds at 167 Hz, W at 50/167 Hz — 1686 runs. See §2f–2h. The page is:
 `docs/lean/20260911-planner_ablation.html` = https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e
 (708 runs including the 167 Hz σ axis at 3 seeds; basin cells admissible: CEM
 15/15, PS-hold 10/15, MPPI-hold 8/15, PS-cubic 5/15. To regenerate after any
@@ -238,6 +236,22 @@ the exposed parameter (no gravity feedforward on the lean).
 Rung timing at 33 Hz (completing seeds): reach rung CEM 3.7 s, iCEM 4.3, PS
 5.8, MPPI λ1 6.8; CEM k=6 leans lightest (50 N, 2 % seated), PS/MPPI λ1/CEM
 k=2 138–154 N, 38–47 %.
+
+## 2h. Last blocks (2026-09-13 03:20–07:00)
+W at 50 plans/s: hold-4 4/6, hold-5 4/6, linear-4 2/6, cubic-4 0/6; at 167:
+cubic-4 6/6, linear-4 6/6, hold-4 5/6, hold-5 4/6 → the persistence threshold
+moves down with the plan interval (below 0.13 s at 167).
+Compensated latency (`--latency_compensate 1`, 33 Hz): 200 ms CEM 6, iCEM 6,
+MPPI 6, PS-hold 5 of 6 (raw: 2/4/0/1); 300 ms CEM 5, MPPI 4, PS 3, iCEM 1;
+500 ms 0/6 → compensation buys one more ~100 ms step.
+FS2: iCEM σ 0.02/0.03/0.05 at 25 Hz 6/5/6, at 16.7 Hz 5/4/6, at 10 Hz 0/4/4;
+CEM σ 0.02 with k = 2: 5/6, 6/6, 3/6 (k = 6: 5, 5, 1; k = 10: 3, 2, 0).
+Basin at 25 plans/s (S+S2 added): σ 0.005 0/6 for every rule; CEM 0.01–0.03
+admissible, PS-hold and MPPI-hold 0.01–0.02. σ axis at 167 Hz at 6 seeds:
+cem_stdmin05 3/6 (was 2/3). Basin over 20 cells (25/33/50/167 × 5 σ): CEM 16,
+PS-hold 12, MPPI-hold 10, PS-cubic 5 (of 15; none at 25).
+`fig_basin` now has the 25 plans/s column and no cubic panel; `fig_floor2` (c)
+shows raw and compensated latency to 500 ms.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

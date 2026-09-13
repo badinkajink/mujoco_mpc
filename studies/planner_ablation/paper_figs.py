@@ -374,7 +374,8 @@ def fig_basin(sums, out):
     (both x rate at 33/50 Hz), and the rollout count N at 33 Hz for all three.
     Cells at >= 2/3 of seeds are outlined; the outlined area is the basin.
     Panels are placed in inches so every cell is the same size."""
-    rates = [(15, "33"), (10, "50"), (3, "167")]
+    rates = [(20, "25"), (15, "33"), (10, "50"), (3, "167")]
+    sums = dict(sums); sums.setdefault(20, load("runs/summary_floor_spp20.json"))
     CELL, W, H = 0.19, COL, 3.4
     fig = plt.figure(figsize=(W, H))
 
@@ -386,8 +387,8 @@ def fig_basin(sums, out):
     basin = {}
     titles = {"elite mean": "CEM, elite mean", "argmin": "PS, argmin", "softmax": "MPPI, softmax",
               "argmin cubic": "argmin, cubic"}
-    for j, rule in enumerate(["elite mean", "argmin", "softmax", "argmin cubic"]):
-        ax = place(x0 + j * (3 * CELL + gap), ytop, 3, 5)
+    for j, rule in enumerate(["elite mean", "argmin", "softmax"]):
+        ax = place(x0 + j * (4 * CELL + gap), ytop, 4, 5)
         grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp, _ in rates]
                 for arm in SIG_ARMS[rule]]
         _cells(ax, grid, RULE_COL[rule], [h for _, h in rates], ["%g" % x for x in SIG] if j == 0 else [""] * 5,
@@ -407,7 +408,7 @@ def fig_basin(sums, out):
     ax.set_ylabel("k"); ax.set_xlabel("plans/s", labelpad=1)
     # row 2, middle: MPPI lambda x rate
     ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
-    ax = place(x0 + 3 * CELL + gap + 0.15, ybot + 2 * CELL, 2, 3)
+    ax = place(x0 + 4 * CELL + gap + 0.15, ybot + 2 * CELL, 2, 3)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ls]
     _cells(ax, grid, C_SOFTMAX, ["33", "50"], ["%g" % l for l, _ in ls], title="MPPI: temperature λ")
     ax.set_ylabel("λ"); ax.set_xlabel("plans/s", labelpad=1)
@@ -415,11 +416,11 @@ def fig_basin(sums, out):
     Ns = [(8, ["cem_n8_ne2", "ps_raw01_zero_n8", "mppi_raw01_zero_l1_n8"]),
           (20, ["cem", "ps_raw01_zero", "mppi_raw01_zero_l1"]),
           (40, ["cem_n40_ne12", "ps_raw01_zero_n40", "mppi_raw01_zero_l1_n40"])]
-    ax = place(x0 + 2 * (3 * CELL + gap) + 0.45, ybot + 2 * CELL, 3, 3)
+    ax = place(x0 + 2 * (4 * CELL + gap) + 0.12, ybot + 2 * CELL, 3, 3)
     grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
-    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N, 33 plans/s")
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N, 33 plans/s", )
     ax.set_ylabel("N")
-    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of seeds complete.  Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied.",
+    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of 6 seeds complete.  Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied.",
              fontsize=6.0, color=C_INK2)
     fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
     plt.close(fig)
@@ -711,7 +712,11 @@ FLOOR_SETS = [(3, "runs/summary_deploy_spp3.json"), (6, "runs/summary_deploy_spp
               (20, "runs/summary_floor_spp20.json"), (30, "runs/summary_floor_spp30.json"),
               (50, "runs/summary_floor_spp50.json"), (100, "runs/summary_floor_spp100.json")]
 LAT_SETS = [(0, "runs/summary_deploy_spp15.json"), (15, "runs/summary_lat_spp15_l15.json"),
-            (30, "runs/summary_lat_spp15_l30.json"), (50, "runs/summary_lat_spp15_l50.json")]
+            (30, "runs/summary_lat_spp15_l30.json"), (50, "runs/summary_lat_spp15_l50.json"),
+            (100, "runs/summary_lat_spp15_l100.json"), (150, "runs/summary_lat_spp15_l150.json"),
+            (250, "runs/summary_lat_spp15_l250.json")]
+LATC_SETS = [(0, "runs/summary_deploy_spp15.json"), (100, "runs/summary_latc_spp15_l100.json"),
+             (150, "runs/summary_latc_spp15_l150.json"), (250, "runs/summary_latc_spp15_l250.json")]
 
 
 def fig_floor2(out):
@@ -722,7 +727,7 @@ def fig_floor2(out):
     completion at 33 plans/s against uncompensated plan latency."""
     import statistics as st
     sums = {spp: load(p) for spp, p in FLOOR_SETS}
-    fig, axs = plt.subplots(1, 3, figsize=(DBL, 2.5), gridspec_kw={"width_ratios": [1.15, 1.15, 0.9], "wspace": 0.42})
+    fig, axs = plt.subplots(1, 3, figsize=(DBL, 2.5), gridspec_kw={"width_ratios": [1.1, 1.1, 1.0], "wspace": 0.35})
     ax, bx, cx = axs
     # (a)
     for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
@@ -802,22 +807,33 @@ def fig_floor2(out):
     bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.36), ncol=3, fontsize=6, handlelength=1.0, columnspacing=0.8)
     bx.set_title("every hold arm, 5–167 plans/s, σ 0.005–0.05", loc="left", fontsize=7)
     style_axes(bx); bx.grid(True, axis="x", zorder=0)
-    # (c) latency at 33 plans/s
-    lats = {L: load(p) for L, p in LAT_SETS}
-    for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
-        xs, ys, los, his = [], [], [], []
-        for L, S in sorted(lats.items()):
-            k, n = counts(S, arm)
-            if not n:
-                continue
-            xs.append(2 * L); ys.append(k / n); lo, hi = wilson(k, n); los.append(lo); his.append(hi)
-        xs = np.array(xs, dtype=float) + (j - 2) * 1.2
-        ls = "-" if mk in ("o", "^", "D") else "--"
-        cx.plot(xs, ys, color=col, lw=1.3, ls=ls, marker=mk, ms=4.5, mec="white", mew=0.7, zorder=3)
-        for x, y, lo, hi in zip(xs, ys, los, his):
-            cx.plot([x, x], [lo, hi], color=col, lw=0.6, alpha=0.35, zorder=2)
-    cx.set_xticks([0, 30, 60, 100]); cx.set_xlabel("uncompensated plan latency, ms\n(33 plans/s)")
+    # (c) latency at 33 plans/s: raw (planned from the stale state) and
+    # compensated (the stale state predicted forward, as the deploy node does);
+    # per-arm markers for the four hold arms and the 4-arm mean as a line
+    HOLD = ["cem", "icem", "ps_raw01_zero", "mppi_raw01_zero_l1"]
+    lat_ms = [0, 30, 60, 100, 200, 300, 500]
+    xpos = {ms: k for k, ms in enumerate(lat_ms)}
+    for sets, ls, lab in [(LAT_SETS, "-", "planned from the stale state"), (LATC_SETS, ":", "stale state predicted forward")]:
+        xs, means = [], []
+        for L, pth in sets:
+            S = load(pth); ms = 2 * L
+            vals = []
+            for arm in HOLD:
+                k, n = counts(S, arm)
+                if not n:
+                    continue
+                vals.append(k / n)
+                col, mk = RULE[arm][1], RULE[arm][2]
+                cx.plot(xpos[ms] + (HOLD.index(arm) - 1.5) * 0.12, k / n, marker=mk, ms=3.2, mfc=col if ls == "-" else "white",
+                        mec=col, mew=0.7, lw=0, alpha=0.9, zorder=3)
+            if vals:
+                xs.append(xpos[ms]); means.append(np.mean(vals))
+        cx.plot(xs, means, color=C_INK2, lw=1.4, ls=ls, zorder=2, label=lab)
+    cx.set_xticks(list(xpos.values())); cx.set_xticklabels([str(m) for m in lat_ms], fontsize=6.5)
+    cx.set_xlabel("plan latency, ms (33 plans/s)")
     cx.set_ylim(-0.03, 1.05); cx.set_yticks([0, 0.5, 1.0]); cx.set_yticklabels([])
+    cx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=1, fontsize=6, handlelength=2.0)
+    cx.set_title("hold arms; line = 4-arm mean", loc="left", fontsize=7)
     style_axes(cx)
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
     plt.close(fig)
