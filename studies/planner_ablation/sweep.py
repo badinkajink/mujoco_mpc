@@ -45,6 +45,10 @@ def run_one(arm, seed, a):
             "--numeric", "agent_planner=%d" % planner]
     if a.gains != "xml":
         cmd += ["--gains", a.gains]
+    if a.latency > 0:
+        cmd += ["--latency_steps", str(a.latency)]
+    if a.perturb >= 0:
+        cmd += ["--perturb", "%g" % a.perturb]
     if a.log_per_plan:
         # 0.999: lean_bench truncates 1/(log_hz*dt) to an int; keep it just above spp
         cmd += ["--log_hz", "%.6f" % (0.999 / (a.spp * 0.002))]
@@ -65,6 +69,7 @@ def run_one(arm, seed, a):
         if g:
             m = g.group(1)
     rec = {"arm": arm, "seed": seed, "planner": planner, "numerics": nums, "gains": a.gains,
+           "spp": a.spp, "latency": a.latency, "perturb": a.perturb,
            "wall_s": round(wall, 1), "rc": p.returncode, "csv": csv_path,
            "state": state_path, "summary": m or ""}
     if m:
@@ -95,6 +100,8 @@ def main():
     ap.add_argument("--spp", type=int, default=3)
     ap.add_argument("--qpos", action="store_true", help="also dump qpos for video")
     ap.add_argument("--gains", default="xml", help="xml (default) or deploy: lean_bench --gains")
+    ap.add_argument("--latency", type=int, default=0, help="lean_bench --latency_steps (plant steps of 2 ms)")
+    ap.add_argument("--perturb", type=float, default=-1, help="lean_bench --perturb (m); -1 = the bench default 0.003")
     ap.add_argument("--log_per_plan", action="store_true",
                     help="log the metric CSV and state track once per plan "
                          "(log_hz = 1/(spp x 0.002 s)) instead of at 50 Hz, so the "

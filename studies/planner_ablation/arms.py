@@ -182,6 +182,25 @@ ARMS = {
                                 "sampling_representation": 0, "sampling_spline_points": 5}),
     "ps_raw01_linear_k4": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
                                 "sampling_representation": 1, "sampling_spline_points": 4}),
+    # ---- 2026-09-13: why 33 Hz is enough -- horizon, budget and rollout
+    #      resolution at the robot's rate (plan-rate floor and latency are
+    #      sweep flags, not arms)
+    "cem_h03":   (CEM, {"agent_horizon": 0.3}),
+    "cem_h05":   (CEM, {"agent_horizon": 0.5}),
+    "cem_h20":   (CEM, {"agent_horizon": 2.0}),
+    "ps_raw01_zero_h03": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                               "sampling_representation": 0, "agent_horizon": 0.3}),
+    "ps_raw01_zero_h05": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                               "sampling_representation": 0, "agent_horizon": 0.5}),
+    "cem_n4_ne1": (CEM, {"sampling_trajectories": 4, "n_elite": 1}),
+    "ps_raw01_zero_n4": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                              "sampling_representation": 0, "sampling_trajectories": 4}),
+    "mppi_raw01_zero_l1_n4": (MPPI, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                     "sampling_representation": 0, "mppi_temperature": 1.0,
+                                     "sampling_trajectories": 4}),
+    "cem_dt02":  (CEM, {"agent_timestep": 0.02}),
+    "ps_raw01_zero_dt02": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
+                                "sampling_representation": 0, "agent_timestep": 0.02}),
 }
 
 BATCHES = {
@@ -224,4 +243,11 @@ BATCHES = {
           "ps_raw01_cubic_k6", "ps_raw01_zero_k6", "ps_raw01_linear", "cem_cubic_k6"],
     "Z": ["ps_raw01_zero_k2", "ps_raw01_cubic_k2", "icem_a095_cubic", "icem_a03_cubic"],
     "W": ["ps_raw01_zero_k4", "ps_raw01_cubic_k4", "ps_raw01_zero_k5", "ps_raw01_linear_k4"],
+    # H = horizon / budget / rollout step at 33 Hz; V = the video arms
+    "H": ["cem_h03", "cem_h05", "cem_h20", "ps_raw01_zero_h03", "ps_raw01_zero_h05",
+          "cem_n4_ne1", "ps_raw01_zero_n4", "mppi_raw01_zero_l1_n4", "cem_dt02", "ps_raw01_zero_dt02"],
+    "V": ["cem", "icem", "ps", "mppi", "ps_raw01_zero", "ps_raw01_cubic", "mppi_raw01_zero_l1"],
+    # FS = does a larger step per plan lower the plan-rate floor? (25/16.7/10 Hz)
+    "FS": ["cem_stdmin02", "cem_stdmin03", "cem_stdmin05", "ps_raw02_zero", "ps_raw03_zero",
+           "ps_raw05_zero", "icem_stdmin03", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1"],
 }

@@ -151,6 +151,13 @@ int main(int argc, char** argv) {
   // joint law. Default off = the XML = every earlier bench run. Values copied
   // from h12_control_node.cc (2026-08-22 table); keep them in sync by hand.
   const std::string gains = Arg(argc, argv, "--gains", "xml");
+  // ★ 2026-09-13 PLAN LATENCY (`--latency_steps L`, plant steps; 0 = OFF =
+  // byte-identical). Each plan is computed from the plant state L steps in the
+  // past and executed now, i.e. an uncompensated compute/transport delay of
+  // L x 2 ms. The deploy node predicts the state forward before planning, so
+  // the robot sits between L = 0 and the raw delay; the bench with L = 0 is
+  // the compensated ideal, L = spp is one whole plan interval of staleness.
+  const int latency_steps = std::atoi(Arg(argc, argv, "--latency_steps", "0").c_str());
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -339,6 +346,15 @@ int main(int argc, char** argv) {
   std::string phase_name_m;
   auto wall0 = std::chrono::steady_clock::now();
 
+  // Ring buffer of plant snapshots for --latency_steps (see the option above).
+  struct Snap { std::vector<double> qpos, qvel, act, mocap_pos, mocap_quat, userdata; double time; };
+  std::vector<Snap> snaps(std::max(1, latency_steps + 1));
+  for (auto& sn : snaps) {
+    sn.qpos.resize(model->nq); sn.qvel.resize(model->nv); sn.act.resize(std::max(1, model->na));
+    sn.mocap_pos.resize(std::max(1, 3 * model->nmocap)); sn.mocap_quat.resize(std::max(1, 4 * model->nmocap));
+    sn.userdata.resize(std::max(1, model->nuserdata)); sn.time = 0.0;
+  }
+
   for (int i = 0; i < total_steps; i++) {
     g_task->Transition(model, data);
     if (i == 0) {
@@ -369,6 +385,18 @@ int main(int argc, char** argv) {
       }
     }
     agent.state.Set(model, data);
+    if (latency_steps > 0) {
+      Snap& sn = snaps[i % snaps.size()];
+      mju_copy(sn.qpos.data(), data->qpos, model->nq);
+      mju_copy(sn.qvel.data(), data->qvel, model->nv);
+      if (model->na) mju_copy(sn.act.data(), data->act, model->na);
+      if (model->nmocap) {
+        mju_copy(sn.mocap_pos.data(), data->mocap_pos, 3 * model->nmocap);
+        mju_copy(sn.mocap_quat.data(), data->mocap_quat, 4 * model->nmocap);
+      }
+      if (model->nuserdata) mju_copy(sn.userdata.data(), data->userdata, model->nuserdata);
+      sn.time = data->time;
+    }
     agent.ActivePlanner().ActionFromPolicy(data->ctrl, agent.state.state().data(),
                                            agent.state.time(), /*use_previous=*/false);
     if (fs && i % log_every == 0) {
@@ -383,7 +411,15 @@ int main(int argc, char** argv) {
       std::fprintf(fs, "\n");
     }
     mj_step(model, data);
-    if (i % spp == 0) agent.PlanIteration(&pool);
+    if (i % spp == 0) {
+      if (latency_steps > 0 && i >= latency_steps) {
+        // plan from the snapshot taken latency_steps plant steps ago
+        const Snap& sn = snaps[(i - latency_steps) % snaps.size()];
+        agent.state.Set(model, sn.qpos.data(), sn.qvel.data(), sn.act.data(),
+                        sn.mocap_pos.data(), sn.mocap_quat.data(), sn.userdata.data(), sn.time);
+      }
+      agent.PlanIteration(&pool);
+    }
 
     // The strategy JSON loads on the FIRST Transition, so the phase count is 0
     // until then -- re-read it every step rather than latching a stale 0.
