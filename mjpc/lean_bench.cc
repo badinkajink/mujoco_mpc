@@ -172,6 +172,11 @@ int main(int argc, char** argv) {
   // model that is wrong by that factor, which is the sim-to-real question.
   const double plant_kp_scale = std::atof(Arg(argc, argv, "--plant_kp_scale", "1").c_str());
   const double plant_mass_scale = std::atof(Arg(argc, argv, "--plant_mass_scale", "1").c_str());
+  // `--plant_friction_scale s`: every geom's sliding friction on the plant x s
+  // (MuJoCo takes the pair friction as the max of the two geoms', so the
+  // pad-table and foot-floor contacts scale by s). The planner keeps the
+  // model's friction. 1 = OFF.
+  const double plant_friction_scale = std::atof(Arg(argc, argv, "--plant_friction_scale", "1").c_str());
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -404,6 +409,10 @@ int main(int argc, char** argv) {
           model->actuator_biasprm[k * mjNBIAS + 1] *= plant_kp_scale;
         }
         std::fprintf(stderr, "[bench] plant kp x %g (planner unchanged)\n", plant_kp_scale);
+      }
+      if (plant_friction_scale != 1.0) {
+        for (int g = 0; g < model->ngeom; g++) model->geom_friction[3 * g + 0] *= plant_friction_scale;
+        std::fprintf(stderr, "[bench] plant sliding friction x %g (planner unchanged)\n", plant_friction_scale);
       }
       if (plant_mass_scale != 1.0) {
         for (int b = 1; b < model->nbody; b++) {

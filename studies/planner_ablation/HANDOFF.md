@@ -6,8 +6,9 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 13:50 (read this first)
-NOTHING RUNNING. Target grid done (§2i). Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
+## 0. State at 2026-09-13 14:05 (read this first)
+RUNNING: `campaign17.sh` (log `runs/campaign17.log`) = the model-mismatch
+ladder for the sim-to-real claim, §2j — ~4.5 h. Target grid done (§2i). Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
 corrected Table tab:planners, Discussion paragraph, feedback comments) with
 figures in `paper/figures/planner/`. Running: `runs/grid_spp15` = strategy 25's
 3x3 target grid (target_col_x -0.10/0/+0.10 x target_col_y 0/0.12/0.24) for
@@ -269,6 +270,37 @@ commanded targets the four hold rules are interchangeable at 3 seeds; CEM's
 advantage is the σ basin, not target coverage. Caveat: `reach_min_mm` is vs
 the unshifted target body, so only column A (y = 0) values are meaningful
 (7–62 mm). Batch G in arms.py generates the 36 arm names.
+
+## 2j. Is CEM better for sim-to-real? Claim status (2026-09-13 14:05) and the ladder running to settle it
+What exists (33 Hz, deploy plant, 6 seeds, one magnitude per axis except mass):
+plant kp × 2 → CEM 6/6, iCEM 4/6, PS-hold 3/6, MPPI 2/6; plant mass × 1.10 →
+CEM 3/6, iCEM 2/6, MPPI 1/6, PS 0/6; mass × 1.25 → CEM 1/6, PS 3/6 (reversed);
+raw latency 200 ms → CEM 2, iCEM 4, PS 1, MPPI 0; compensated 300 ms → CEM 5,
+MPPI 4, PS 3, iCEM 1; perturbation 20 mm → no difference; kp × 0.5 → everyone
+falls (plant failure). One-sided Fisher, CEM vs PS: kp×2 p = 0.09, mass×1.1
+p = 0.09, latency-200 p = 0.50; pooled over those three: CEM 11/18 vs PS 4/18
+p = 0.02, vs MPPI 3/18 p = 0.008. So: a consistent direction in 3 of 4 mismatch
+axes, no single cell significant, one reversal (mass × 1.25), one magnitude per
+axis, iCEM inconsistent (worse than CEM on kp and mass, better on raw latency),
+and the "wide σ basin ⇒ mismatch tolerance" mechanism untested. NOT enough
+for the paper to claim CEM transfers better; enough to say "in the one
+condition per axis tested, the elite mean lost fewer seeds".
+What would make the claim (campaign17, running): the four hold rules at 12
+seeds on a magnitude ladder — mass × 1.05/1.10/1.15/1.20, kp × 1.5/2/3,
+plant sliding friction × 0.6/0.4 (`--plant_friction_scale`, new; the real
+table went μ 0.3 → 0.8 with grip tape, so friction is the axis the hardware
+actually crossed) — plus the 12-seed baseline, then the σ link: cem_stdmin02/03,
+icem_stdmin03, ps_raw02_zero, mppi_raw02_zero_l1 under mass × 1.10 and at
+baseline (batch MS). Decision rule, stated before the data: the claim holds
+if CEM's completion is ≥ the argmin's and the softmax's at every magnitude on
+≥ 2 of the 3 axes with the pooled one-sided Fisher p < 0.01, AND CEM at
+σ = 0.02–0.03 is at least as tolerant as at 0.01 while PS at 0.02 is not (the
+basin mechanism); if the σ link fails, the robustness is a property of the
+elite mean, not of the basin, and the paper should say that instead.
+Dirs: `runs/mismatch_spp15_m{1.05,1.10,1.15,1.20}`, `_kp{1.5,2.0,3.0}`,
+`_mu{0.6,0.4}`; baseline seeds 6–11 in `runs/gains_spp15`. Score each with
+analyze.py; a `fig_mismatch` (completion vs magnitude per axis, one line per
+rule, 12 seeds) is the figure to add to paper_figs.py.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

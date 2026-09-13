@@ -256,6 +256,10 @@ BATCHES = {
     "FS": ["cem_stdmin02", "cem_stdmin03", "cem_stdmin05", "ps_raw02_zero", "ps_raw03_zero",
            "ps_raw05_zero", "icem_stdmin03", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1"],
     "FS2": ["icem_stdmin02", "icem_stdmin05", "cem_ne2_stdmin02", "cem_ne10_stdmin02"],
+    # M = the four hold rules for the mismatch ladder; MS = the sigma-basin link
+    # under mismatch (does a wider sigma buy mismatch tolerance, and for whom?)
+    "M": ["cem", "icem", "ps_raw01_zero", "mppi_raw01_zero_l1"],
+    "MS": ["cem_stdmin02", "cem_stdmin03", "icem_stdmin03", "ps_raw02_zero", "mppi_raw02_zero_l1"],
 }
 
 # ---- 2026-09-13 target grid: strategy 25's 3x3 (target_col_x rows -0.10/0/+0.10 m,
