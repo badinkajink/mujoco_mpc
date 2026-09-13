@@ -1,0 +1,15 @@
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+Multiple -pix_fmt options specified for stream 0, only the last option '-pix_fmt yuv420p' will be used.
+-> renders/vid_ps.mp4 158 frames
+-> renders/vid_mppi.mp4 99 frames
+-> renders/vid_cem.mp4 1057 frames
+-> renders/vid_icem.mp4 1150 frames
+-> renders/vid_mppi_raw01_zero_l1.mp4 1127 frames
+-> renders/vid_ps_raw01_cubic.mp4 1875 frames
+-> renders/vid_ps_raw01_zero.mp4 1242 frames
+-> renders/frames.png (1920, 1606)

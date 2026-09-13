@@ -722,7 +722,7 @@ def fig_floor2(out):
     completion at 33 plans/s against uncompensated plan latency."""
     import statistics as st
     sums = {spp: load(p) for spp, p in FLOOR_SETS}
-    fig, axs = plt.subplots(1, 3, figsize=(DBL, 2.3), gridspec_kw={"width_ratios": [1.15, 1.15, 0.9], "wspace": 0.4})
+    fig, axs = plt.subplots(1, 3, figsize=(DBL, 2.5), gridspec_kw={"width_ratios": [1.15, 1.15, 0.9], "wspace": 0.42})
     ax, bx, cx = axs
     # (a)
     for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
@@ -744,35 +744,64 @@ def fig_floor2(out):
     ax.axvline(33, color=C_GRAY, lw=6, alpha=0.18, zorder=0); ax.text(33, 1.06, "robot", ha="center", va="bottom", fontsize=6.5, color=C_INK2)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, fontsize=6, handlelength=2.0, columnspacing=0.8)
     style_axes(ax)
-    # (b) every hold arm at every rate: x = median step per plan in the lean x rate
+    # (b) the operating window: every hold arm at every rate (including the
+    # larger-sigma arms at 10-25 plans/s): x = directed target speed over the
+    # first 2 s of the lean, y = executed step per plan; fill = completion
+    import pandas as pd
+
+    def directed(r, T=2.0):
+        try:
+            d = pd.read_csv(os.path.join(HERE, r["state"]), usecols=["t"] + ["u%d" % k for k in range(27)])
+            m = pd.read_csv(os.path.join(HERE, r["csv"]), usecols=["t", "phase"])
+        except Exception:
+            return None
+        ph = m[m.phase == 1]
+        if ph.empty:
+            return None
+        t0 = ph.t.min(); w = d[(d.t >= t0) & (d.t <= t0 + T + 0.05)]
+        if len(w) < 3 or w.t.max() < t0 + T * 0.9:
+            return None
+        U = w[["u%d" % k for k in range(27)]].values
+        return 1000 * np.sqrt(((U[-1] - U[0]) ** 2).mean()) / (w.t.iloc[-1] - w.t.iloc[0])
+
     pts = []
     for spp, S in sums.items():
-        rate = 500.0 / spp
         for arm in sorted(set(r["arm"] for r in S["runs"])):
-            if ARMS[arm][1].get("sampling_representation", 0 if ARMS[arm][0] in (5, 7) else 2) != 0 and ARMS[arm][0] in (0, 9):
-                continue  # cubic PS/MPPI arms: the spline, not the speed, is their story
-            if ARMS[arm][0] in (5, 7) and ARMS[arm][1].get("cem_representation", 0) != 0:
+            pl, nums = ARMS[arm]
+            if pl in (0, 9) and nums.get("sampling_representation", 2) != 0:
+                continue
+            if pl in (5, 7) and nums.get("cem_representation", 0) != 0:
+                continue
+            if any(k in nums for k in ("sampling_spline_points", "agent_horizon", "agent_timestep", "sampling_trajectories")):
+                continue
+            if nums.get("n_elite") == 20:
                 continue
             rs = [r for r in S["runs"] if r["arm"] == arm]
+            if len(rs) < 3:
+                continue
             steps = [1000 * r["jitter_phase"]["brace_lean"] for r in rs if "brace_lean" in r.get("jitter_phase", {})]
-            if len(rs) < 3 or not steps:
+            dv = [x for x in (directed(r) for r in rs) if x]
+            if not steps or not dv:
                 continue
             k, n = counts(S, arm)
-            pts.append((st.median(steps) * rate, k, n, _rule_of(arm), spp))
+            pts.append((st.median(dv), st.median(steps), k / n, _rule_of(arm), spp, arm))
     MK = {"argmin": "^", "softmax": "D", "elite mean": "o"}
-    for x, k, n, rule, spp in pts:
-        p = k / n; lo, hi = wilson(k, n)
-        bx.plot([x, x], [lo, hi], color=RULE_COL[rule], lw=0.5, alpha=0.3, zorder=2)
-        bx.plot(x, p, marker=MK[rule], ms=4.2, mfc=RULE_COL[rule] if spp >= 15 else "white", mec=RULE_COL[rule], mew=0.8, lw=0, alpha=0.9, zorder=3)
-    bx.set_xscale("log"); bx.set_xticks([20, 50, 100, 200, 500, 1000]); bx.set_xticklabels(["20", "50", "100", "200", "500", "1000"])
-    bx.minorticks_off(); bx.set_xlabel("executed target speed, mrad/s\n(step per plan × plans per second)")
-    bx.set_ylim(-0.03, 1.05); bx.set_yticks([0, 0.5, 1.0]); bx.set_yticklabels([])
+    for x, y, p, rule, spp, arm in sorted(pts, key=lambda t: t[2]):
+        col = RULE_COL[rule]
+        bx.plot(x, y, marker=MK[rule], ms=5, mfc=_mix(col, p), mec=col, mew=0.8, lw=0, zorder=3)
+    bx.set_xscale("log"); bx.set_yscale("log")
+    bx.set_xticks([10, 20, 40, 80]); bx.set_xticklabels(["10", "20", "40", "80"])
+    bx.set_yticks([3, 5, 10, 20, 30]); bx.set_yticklabels(["3", "5", "10", "20", "30"])
+    bx.minorticks_off()
+    bx.set_xlabel("directed target speed, mrad/s\n(first 2 s of the lean, RMS over 27 joints)")
+    bx.set_ylabel("executed step per plan, mrad", labelpad=1)
     for rule in ["elite mean", "argmin", "softmax"]:
-        bx.plot([], [], marker=MK[rule], color=RULE_COL[rule], lw=0, ms=4.2, label=rule)
-    bx.plot([], [], marker="s", color=C_INK2, lw=0, ms=4.2, label="≥ 33 plans/s")
-    bx.plot([], [], marker="s", mfc="white", mec=C_INK2, lw=0, ms=4.2, label="≤ 25 plans/s")
-    bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=3, fontsize=6, handlelength=1.0, columnspacing=0.8)
-    style_axes(bx)
+        bx.plot([], [], marker=MK[rule], color=RULE_COL[rule], lw=0, ms=5, label=rule)
+    for p_, lab in [(0.0, "0/6"), (0.5, "3/6"), (1.0, "6/6")]:
+        bx.plot([], [], marker="s", mfc=_mix(C_INK2, p_), mec=C_INK2, lw=0, ms=5, label=lab)
+    bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.36), ncol=3, fontsize=6, handlelength=1.0, columnspacing=0.8)
+    bx.set_title("every hold arm, 5–167 plans/s, σ 0.005–0.05", loc="left", fontsize=7)
+    style_axes(bx); bx.grid(True, axis="x", zorder=0)
     # (c) latency at 33 plans/s
     lats = {L: load(p) for L, p in LAT_SETS}
     for j, (arm, (label, col, mk)) in enumerate(RULE.items()):
