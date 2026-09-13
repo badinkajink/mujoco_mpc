@@ -12,8 +12,8 @@ Shipped numerics the arms inherit unless overridden (Lean_H12_Magpie.xml):
 Noise conventions differ by family and that is the confound the equalized arms
 remove: PS/MPPI draw N(0, (exploration x half-ctrlrange)^2) per knot per
 actuator (0.12 x 0.6-1.8 rad = 0.07-0.21 rad); CEM/iCEM draw N(0, max(elite
-std, std_min)^2) in raw ctrl units, and the elite std collapses to the 0.01
-floor within ~1 s (log-variance drifts -0.21 per refit at n_elite=6). So the
+std, std_min)^2) in raw ctrl units, and the refit elite std settles at 1.3x the
+0.01 floor within ~25 refits (0.8 s at 33 plans/s; measured, cem_std_mean). So the
 shipped iCEM plans at sigma = 0.01 rad and the shipped PS at 7-21x that.
 """
 

@@ -565,7 +565,7 @@ def fig_ladder(sums, out):
     ax.plot([], [], marker="o", ms=5, color=C_INK2, lw=0, label="33 plans/s")
     ax.plot([], [], marker="o", ms=5, mfc="white", mec=C_INK2, lw=0, label="167 plans/s")
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, handletextpad=0.3, columnspacing=0.8)
-    fig.text(0.0, 0.0, "* CEM/iCEM: elite std, which decays to the 0.01 rad floor within 0.3 s",
+    fig.text(0.0, 0.0, "* CEM/iCEM: elite std floored at 0.01 rad; the refit std settles at 1.3 × the floor within 25 refits (0.8 s at 33 plans/s)",
              fontsize=6, color=C_INK2, va="bottom")
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
     plt.close(fig)

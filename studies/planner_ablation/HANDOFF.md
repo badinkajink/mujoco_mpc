@@ -472,3 +472,37 @@ Palette: update rule → colour (elite mean #2a78d6, argmin #eb6834, softmax
   (the report page), `queue*.sh`, `campaign_rate.sh`, `campaign2.sh`.
 - Memory files: `planner-noise-convention`, `lean-bench-plan-rate`,
   `mjpc-sweep-cpu-budget` (double-launch and pkill traps).
+
+### 2k. Is CEM's σ adaptive on this task? (measured 2026-09-13 15:20, `cem_std_mean`)
+Question from the user: CEM refits σ from the elites every plan, so what does a
+"σ axis" for CEM mean? Answer from the bench's per-plan `cem_std_mean` column
+(refit elite std, mean over the 81 knot×joint parameters, logged BEFORE the
+`std_min` floor is applied), 33 plans/s, `runs/gains_spp15`:
+
+| arm | floor | refit std after 2 s, median | p99 | max over run | ratio to floor |
+|---|---|---|---|---|---|
+| cem_stdmin005 | 0.005 | 0.0070 | 0.0093 | 0.0108 | 1.40 |
+| cem | 0.010 | 0.0134 | 0.0178 | 0.0204 | 1.34 (12 runs) |
+| cem_stdmin02 | 0.020 | 0.0259 | 0.0327 | 0.0358 | 1.29 |
+| cem_stdmin03 | 0.030 | 0.0383 | 0.0487 | 0.0569 | 1.28 |
+| cem_stdmin05 | 0.050 | 0.0627 | 0.0773 | 0.0852 | 1.25 |
+| cem_ne2 / ne10 / ne20 | 0.010 | 0.0105 / 0.0141 / 0.0190 | | | 1.05 / 1.41 / 1.90 (ne20: 47 % of plans > 2×) |
+| icem / icem_cubic / icem_keep0 | 0.010 | 0.0079 / 0.0078 / 0.0082 | | 0.0093 | 0.79 (floor binds everywhere) |
+| icem_a0 (white noise) | 0.010 | 0.0122 | | | 1.22 |
+
+- Transient: from the 0.12 initial std to < 2× floor in 24–27 refits at every
+  rate (0.77 s at 33/s, 0.54 at 50, 0.28 at 83, 0.15 at 167). Steady ratio 1.32–1.34
+  at every rate. No rise at rung transitions (2 s bin means 0.012–0.015 rad over 40 s).
+- Null model (6 unselected draws through the same floor, 81 params, simulated):
+  steady 1.68× floor. Measured 1.34× ⇒ selection tightens the elites ~20 % in
+  std; the floor sets the rest. The collapse is a property of a k-of-N sample
+  std with a floor on a locally unimodal cost, not of the task being slow; the
+  task's slowness shows up as "never re-opens" (max 2.0× over 40 s).
+- iCEM's AR(1) α=0.7 cold-start gives knot stds 0.71/0.87/0.94 σ, so its refit
+  std is 0.8× the floor and the effective per-knot σ is 0.71–0.94 × `std_min`.
+- Consequence for the figures: the CEM σ axis in fig_basin/fig_floor2 is
+  `std_min`; the sampled σ is 1.3× the label, same factor at every floor and
+  rate, so the axis is monotone and comparable to PS/MPPI (whose σ is exactly
+  the label) up to that constant. Page §"The three components", paper caption
+  and the fig_ladder footnote now say this (the old "reaches the floor within
+  0.3 s" was the 167 plans/s transient; it is 25 refits, not 0.3 s).
