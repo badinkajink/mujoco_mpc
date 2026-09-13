@@ -6,7 +6,15 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 09:45 (read this first)
+## 0. State at 2026-09-13 12:45 (read this first)
+Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
+corrected Table tab:planners, Discussion paragraph, feedback comments) with
+figures in `paper/figures/planner/`. Running: `runs/grid_spp15` = strategy 25's
+3x3 target grid (target_col_x -0.10/0/+0.10 x target_col_y 0/0.12/0.24) for
+cem / icem / ps_raw01_zero / mppi_raw01_zero_l1, 3 seeds (batch G, 108 runs,
+log `runs/grid_spp15.log`) — the sim counterpart of the paper's commandability
+experiment; score with `./analyze.py --runs runs/grid_spp15 --out runs/summary_grid_spp15.json`.
+
 ALL QUEUES FINISHED (campaign16 ended 06:59; nothing running). Republished
 09:45 with everything: renders, plan-rate floor 5–167, latency raw and
 compensated (30–500 ms), step-size × low-rate (FS, FS2), horizon/N/dt minima,
