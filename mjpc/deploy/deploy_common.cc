@@ -1507,6 +1507,7 @@ int RunDeployNode(const NodeConfig& cfg) {
                  "(stock %.1fs + %.1fs) so witness+confirm+apply land BEFORE "
                  "policy handover (--ac_hold_extra 0 for stock timing)\n",
                  ramp_hold_eff, kRampHoldSec, ramp_hold_eff - kRampHoldSec);
+  std::printf("[node] waist fix (torso IMU -> pelvis quat via torso_joint): %s\n", cfg.waist_fix ? "ON" : "OFF (raw torso quat as pelvis)");
   if (imu_pitch_off != 0.0 || imu_roll_off != 0.0 || imu_yaw_off != 0.0)
     std::printf("[node] IMU zero-offset calibration ON: perceived base orientation rotated "
                 "pitch%+.2f roll%+.2f yaw%+.2f deg before planning\n",
@@ -1562,6 +1563,23 @@ int RunDeployNode(const NodeConfig& cfg) {
       mju_axisAngle2Quat(d, ax, imu_yaw_off);
       mju_mulQuat(t, d, bq); mju_copy4(bq, t);
     }
+    // ★ 2026-09-12 WAIST FIX (cfg.waist_fix): IMU quat = TORSO orientation; pelvis = torso *
+    // Rz(-q_waist) (body-frame post-multiply), and the free-joint angvel (pelvis body frame) =
+    // Rz(q_waist) * gyro - dq_waist * z. Same math as base_estimator_node.pelvis_from_torso.
+    double gyro_p[3] = {cur.gyro[0], cur.gyro[1], cur.gyro[2]};
+    {
+      const int tm = 12 - moff;   // torso_joint motor index on this node's rows
+      if (cfg.waist_fix && tm >= 0 && tm < cfg.nu) {
+        const double th = cur.q[tm], dth = cur.dq[tm];
+        double d[4], ax[3] = {0, 0, 1}, t[4];
+        mju_axisAngle2Quat(d, ax, -th);
+        mju_mulQuat(t, bq, d); mju_copy4(bq, t);
+        const double c = std::cos(th), s = std::sin(th);
+        gyro_p[0] = c * cur.gyro[0] - s * cur.gyro[1];
+        gyro_p[1] = s * cur.gyro[0] + c * cur.gyro[1];
+        gyro_p[2] = cur.gyro[2] - dth;
+      }
+    }
     mju_normalize4(bq);
     for (int k = 0; k < 4; k++) sd->qpos[3 + k] = bq[k];
     for (int i = 0; i < cfg.nu; i++) sd->qpos[7 + moff + i] = cur.q[i];
@@ -1576,7 +1594,7 @@ int RunDeployNode(const NodeConfig& cfg) {
       sd->qpos[7 + 10] -= ankle_poff_r;
       sd->qpos[7 + 11] -= ankle_off_r;
     }
-    for (int k = 0; k < 3; k++) sd->qvel[3 + k] = cur.gyro[k];        // free-joint angvel == body gyro
+    for (int k = 0; k < 3; k++) sd->qvel[3 + k] = gyro_p[k];          // free-joint angvel == PELVIS body rate (waist fix)
     for (int i = 0; i < cfg.nu; i++) sd->qvel[6 + moff + i] = cur.dq[i];
     // X-aware: inject the MEASURED complement pose so the planner's CoM/dynamics track it,
     // and retarget the equality locks to HOLD it there during each rollout (instead of

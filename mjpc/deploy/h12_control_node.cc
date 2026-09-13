@@ -92,6 +92,10 @@ ABSL_FLAG(bool, object_servo, false,
           "wrist FK + the hand-eye extrinsic and slew-limits a correction onto servo\n"
           "rungs' reach targets. Needs numeric servo_slew > 0 AND a calibrated\n"
           "grip_cam_pos/grip_cam_rpy_deg. Default OFF (byte-identical).");
+ABSL_FLAG(bool, waist_fix, false,
+          "Undo the waist (torso_joint) yaw between the torso-mounted IMU and the pelvis before the\n"
+          "planner sees the base orientation (2026-09-12; the estimator already does this). Pass\n"
+          "--waist_fix=false to restore the raw torso quaternion as pelvis (pre-09-12 behaviour).");
 ABSL_FLAG(bool, yaw_fusion, true,
           "LIVE tag-yaw fusion (2026-08-18): slew the heading correction toward the\n"
           "tag bridge's continuously tracked IMU-vs-table yaw offset (rides in\n"
@@ -382,6 +386,7 @@ int main(int argc, char** argv) {
   cfg.imu_roll_offset_deg = absl::GetFlag(FLAGS_imu_roll_offset_deg);
   cfg.imu_yaw_offset_deg = absl::GetFlag(FLAGS_imu_yaw_offset_deg);
   cfg.yaw_fusion = absl::GetFlag(FLAGS_yaw_fusion);
+  cfg.waist_fix = absl::GetFlag(FLAGS_waist_fix);
   cfg.grasp_gate = absl::GetFlag(FLAGS_grasp_gate);
   cfg.object_servo = absl::GetFlag(FLAGS_object_servo);
   // YAW PREFLIGHT (2026-08-17): the IMU yaw is gyro-integrated from power-on and

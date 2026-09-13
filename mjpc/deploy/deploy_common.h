@@ -144,6 +144,12 @@ struct NodeConfig {
                                        // rt/object_tag and feed the task's
                                        // servo bus. OFF = byte-identical.
   bool yaw_fusion = true;              // slew the yaw offset live from the tag
+  // ★ 2026-09-12 WAIST FIX: the H1-2 IMU is on torso_link (URDF imu_joint, behind torso_joint),
+  // so the lowstate quaternion is the TORSO orientation. Feeding it in as the pelvis quat yaws the
+  // planner's whole believed body by the waist angle (twin: -7.7 deg waist -> believed hand 9 cm
+  // left of the true hand, node print == FK with IMU-as-pelvis to the mm). The estimator already
+  // undoes this (pelvis_from_torso); the node now does too. false = the pre-09-12 behaviour.
+  bool waist_fix = false;   // 2026-09-12 19:55: DEFAULT OFF after real 25new_2 -- the planner twisted the waist (-6 stand, -23 stand-back) and the stand-back needed help; see memory project_waist_yaw_double_count
                                        // bridge's aux_odom.position[2] (2026-08-18)
                                        // The IMU yaw is a gyro integration with
                                        // no absolute reference: it random-walks

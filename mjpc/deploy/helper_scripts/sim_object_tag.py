@@ -156,8 +156,15 @@ def main():
         Rb = np.zeros(9); mujoco.mju_quat2Mat(Rb, quat); Rb = Rb.reshape(3, 3)
         # sportmodestate.position is the IMU-SITE world pose; pelvis (free joint)
         # = site - R*IMU_OFFSET, exactly as the node reconstructs it.
-        d.qpos[0:3] = np.array(list(ss.position)) - Rb @ IMU_OFFSET
-        d.qpos[3:7] = quat
+        d.qpos[0:3] = np.array(list(ss.position)) - Rb @ IMU_OFFSET   # offset is in the TORSO frame -> R_torso is right
+        # ★ 2026-09-12 WAIST FIX: the IMU quat is the TORSO orientation (imu site in torso_link);
+        # pelvis = torso * Rz(-q_waist). Without this the FK'd wrist (and so the synthetic camera
+        # vector) was yawed by the waist angle -- the twin servo then "saw" the block exactly where
+        # the (equally wrong) node belief put it and corrected nothing (v1 runs 09-12).
+        th = float(ls.motor_state[12].q)
+        qz = np.array([np.cos(-th / 2), 0.0, 0.0, np.sin(-th / 2)])
+        qp = np.zeros(4); mujoco.mju_mulQuat(qp, quat, qz)
+        d.qpos[3:7] = qp
         for i in range(27):
             d.qpos[7 + i] = ls.motor_state[i].q
         mujoco.mj_forward(m, d)
