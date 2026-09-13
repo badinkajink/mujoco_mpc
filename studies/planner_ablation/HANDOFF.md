@@ -6,9 +6,14 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-12 02:05 (read this first)
-The campaign is complete (708 runs, `campaign10.sh` finished; no lean_bench
-running) and the page is published on the deploy plant with 33/50/83/167 plans/s:
+## 0. State at 2026-09-13 03:20 (read this first)
+Republished 03:20 with renders (7 videos + filmstrip), the plan-rate floor
+(5–25 plans/s), latency (30–500 ms), step-size × low-rate (FS), horizon/N/dt
+minima (H), perturbation 20 mm, plant-only kp/mass mismatch — 1290 runs.
+`campaign15.sh` is still running W at 50/167 Hz and the σ-axis seeds 3–5 at
+167 Hz (log `runs/campaign15.log`); when it ends: score, `./paper_figs.py`,
+rebuild, republish (root `.`, files from `paper_figs/` and `renders/`).
+See §2f–2g for the new results. The page is:
 `docs/lean/20260911-planner_ablation.html` = https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e
 (708 runs including the 167 Hz σ axis at 3 seeds; basin cells admissible: CEM
 15/15, PS-hold 10/15, MPPI-hold 8/15, PS-cubic 5/15. To regenerate after any
@@ -210,6 +215,29 @@ the lean onset should lower the floor.
 Renders: `runs/video_spp15` (7 arms, seed 1; ps_raw01_zero seed 2 because its
 seed-1 rerun fell — nondeterminism), `renders/vid_*.mp4` + `renders/frames.png`
 via `render.py` (EGL); copied to `docs/lean/media/planner_ablation/`.
+
+## 2g. Step size × low rate, minima, latency, mismatch (2026-09-13 01:40–03:10)
+FS (batch FS at 25/16.7/10 plans/s): CEM σ 0.02 → 5/6, 5/6, 1/6; σ 0.03 → 5/6,
+1/6, 2/6; iCEM σ 0.03 → 5/6, 4/6, **4/6 at 10 plans/s**; PS-hold 0.02 → 5/6,
+2/6, 0/6; MPPI 0.02 → 4/6, 0/6, 1/6. The larger σ raises the directed target
+speed for every rule but also the random step, and only the elite mean (σ/√6
+random step; iCEM's memory + colored noise) can afford it → CEM's wide σ basin
+is what lets it trade noise for rate. `fig_floor2` (b) = the operating window
+(directed speed ≥ 30–40 mrad/s and step ≤ 15–20 mrad).
+H (33 Hz): horizon 0.3/0.5 s 0/6 (CEM and PS-hold), 2.0 s 5/6; N=4: CEM 2/6,
+PS 0/6, MPPI 1/6; agent_timestep 0.02: CEM 3/6, PS 1/6 → the shipped 1 s /
+20 rollouts / 10 ms is close to minimal at 33 Hz.
+Latency (33 Hz): 30/60/100 ms 5–6/6 for hold arms; 200 ms CEM 2, iCEM 4,
+PS 1, MPPI 0; 300 ms and 500 ms 0/6 → tolerance 100–200 ms (≈ the 0.2 s
+persistence scale).
+Perturb 20 mm: CEM 6, iCEM 6, MPPI 6, PS-hold 5, PS-cubic 1 of 6.
+Mismatch (plant-only): kp × 0.5 → everyone falls in the stand-up at 5 s
+(plant failure); kp × 2 → CEM 6/6, iCEM 4/6, PS-hold 3/6, MPPI 2/6; mass
+× 1.1 → CEM 3/6, iCEM 2/6, MPPI 1/6, PS 0/6; mass × 1.25 → 0–3/6. Mass is
+the exposed parameter (no gravity feedforward on the lean).
+Rung timing at 33 Hz (completing seeds): reach rung CEM 3.7 s, iCEM 4.3, PS
+5.8, MPPI λ1 6.8; CEM k=6 leans lightest (50 N, 2 % seated), PS/MPPI λ1/CEM
+k=2 138–154 N, 38–47 %.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the
