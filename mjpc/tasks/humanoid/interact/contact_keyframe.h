@@ -146,6 +146,29 @@ class ContactKeyframe {
   // standback recovery, empty-handed but upright.
   bool timeout_advance;
 
+  // ★ 2026-09-12 STRAT 11 (lean): grade/track the gripper CENTRELINE tip (jaw far edge on the
+  // gripper axis) instead of jaw_a's outer corner (kGripperTipLocal, 10.6 cm off-centre). Absent =
+  // false = byte-identical. Ignored when grasp_center is set.
+  bool tip_centreline;
+  // ★ 2026-09-12 STRAT 11: the servo correction comes from the BLOCK-CENTROID bus (every block
+  // tag 30-34 composed with its rvec to the cube centroid, node-side) instead of the raw front
+  // tag, is composed against the wrist pose at IMAGE time (no wrist-quiet gate), and keeps
+  // correcting through the hold. Absent = false = the strat 27/9/10 behaviour.
+  bool servo_centroid;
+  // ★ 2026-09-12 optional per-rung override of the servo_max_offset_y_out numeric (m); <0 = numeric.
+  mjtNum servo_cap_y_out;
+  // ★ 2026-09-12: vertical STANDOFF [m] of the aim point above the block CENTROID on centroid rungs
+  // (target = centroid + standoff up). The servo nominal is reach_target_table minus this. Default 0.025.
+  mjtNum centroid_standoff;
+  // 2026-09-12 strat 11: per-rung cap (m) for the servo_hold integrator; <0 = global numeric servo_hold_int_max
+  mjtNum servo_hold_int_max;
+  // 2026-09-12 AIM AT THE CENTROID: graded point = centreline tip + centroid_standoff along the gripper
+  // approach axis (local x, world), target = the rung target itself (the centroid). Pair with Reach Level + reach_pitch_deg.
+  bool aim_centroid;
+  // 2026-09-12 AIM FREE (user): Reach Level keeps ONLY the jaws-lateral (roll) component; pitch and yaw are free,
+  // the pointing comes from aim_centroid alone (strat-25-like motion, tags on every face).
+  bool aim_free;
+
   ContactKeyframe()
       : name(""),
         contact_pairs{},
@@ -160,6 +183,13 @@ class ContactKeyframe {
         servo_wait(false),
         reach_pitch_deg(0.),
         timeout_advance(false),
+        tip_centreline(false),
+        servo_centroid(false),
+        servo_cap_y_out(-1.),
+        centroid_standoff(0.025),
+        servo_hold_int_max(-1.),
+        aim_centroid(false),
+        aim_free(false),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1),

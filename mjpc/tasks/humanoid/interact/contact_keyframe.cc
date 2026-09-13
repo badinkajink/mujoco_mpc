@@ -54,6 +54,13 @@ void ContactKeyframe::Reset() {
   servo_wait = false;
   reach_pitch_deg = 0.;
   timeout_advance = false;
+  tip_centreline = false;
+  servo_centroid = false;
+  servo_cap_y_out = -1.;
+  centroid_standoff = 0.025;
+  servo_hold_int_max = -1.;
+  aim_centroid = false;
+  aim_free = false;
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -91,7 +98,14 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"servo_hold", keyframe.servo_hold},
            {"servo_wait", keyframe.servo_wait},
            {"reach_pitch_deg", keyframe.reach_pitch_deg},
-           {"timeout_advance", keyframe.timeout_advance}};
+           {"timeout_advance", keyframe.timeout_advance},
+           {"tip_centreline", keyframe.tip_centreline},
+           {"servo_centroid", keyframe.servo_centroid},
+           {"servo_cap_y_out", keyframe.servo_cap_y_out},
+           {"centroid_standoff", keyframe.centroid_standoff},
+           {"servo_hold_int_max", keyframe.servo_hold_int_max},
+           {"aim_centroid", keyframe.aim_centroid},
+           {"aim_free", keyframe.aim_free}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -118,5 +132,13 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   keyframe.reach_pitch_deg = j.value("reach_pitch_deg", 0.);
   // ★ 2026-08-26 fail-soft timeout (lean strat 28); absent = false = reset.
   keyframe.timeout_advance = j.value("timeout_advance", false);
+  // ★ 2026-09-12 strat 11 fields; absent = false / -1 = byte-identical.
+  keyframe.tip_centreline = j.value("tip_centreline", false);
+  keyframe.servo_centroid = j.value("servo_centroid", false);
+  keyframe.servo_cap_y_out = j.value("servo_cap_y_out", -1.);
+  keyframe.centroid_standoff = j.value("centroid_standoff", 0.025);
+  keyframe.servo_hold_int_max = j.value("servo_hold_int_max", -1.);
+  keyframe.aim_centroid = j.value("aim_centroid", false);
+  keyframe.aim_free = j.value("aim_free", false);
 }
 }  // namespace mjpc::humanoid

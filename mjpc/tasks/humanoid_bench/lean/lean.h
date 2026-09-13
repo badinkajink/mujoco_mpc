@@ -325,6 +325,8 @@ class lean : public Task {
     //  approach, 5 s servo hold at 0.44) + strat 29 kf4 (grasp_close slide-in 0.55,
     //  node close gate) + kf5 (lift-back 0.48/0.10) -> strat 9 release/standback.
     names[10] = "h12_brace_grasp_full";
+    names[11] = "h12_brace_servo_target";   // 2026-09-12: strat 25 approach + LIVE wrist-cam servo to the block centroid, centreline tip, 4 cm / 5 s
+    names[12] = "h12_brace_targeting_tight"; // 2026-09-12: strat 25 CONTROL -- same geometry, 4 cm ball / 5 s sustain / timeout_advance
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
     // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the

@@ -34,6 +34,11 @@ namespace mjpc {
 // grade the same point (the 08-23 lesson).
 static constexpr double kGripperTipLocal[3] = {0.2254, -0.0118, -0.1062};
 static constexpr double kGripperGraspLocal[3] = {0.19, -0.0038, 0.0};
+// ★ 2026-09-12 STRAT 11: the CENTRELINE tip -- on the gripper axis at the jaw far edge (x of the
+// jaw_a corner, z = 0 between the plates). Selected per rung by `tip_centreline`. Putting THIS on a
+// point means the jaws straddle it; putting the jaw_a corner on it (kGripperTipLocal) parks the
+// gripper centre 10.6 cm to the side -- which the 09-11 grid's wrist-cam data showed physically.
+static constexpr double kGripperCentreTipLocal[3] = {0.2254, -0.0118, 0.0};
 
 // T1 REFERENCE TRIM v2 -- ported from stabilize.cc (commit 1708253) 2026-07-20.
 // Written by TransitionLocked (real state, once per plan) and read by the
@@ -81,6 +86,7 @@ static int s_hold_int_kf = -1;
 // advance gate on `servo_hold` rungs (strat 9): the 5 s hold clock counts
 // only while this is true. Stale/frozen keeps the last value (settled).
 static bool s_servo_settled = false;
+static bool s_push_abort = false;   // 2026-09-12 servo_hold push guard -> fail-soft advance
 // ★ 2026-09-04 last MEASURED tag position in world, composed through the
 // BELIEVED wrist (same composition as the servo). Used by `servo_hold` rungs
 // to grade the hold in a belief-drift-free way: (tag - grasp centre), both
@@ -2397,9 +2403,21 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int gtb = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
     if (gtb >= 0) {
       const double* ref_local = residual_keyframe_.grasp_center
-                                    ? kGripperGraspLocal : kGripperTipLocal;
+                                    ? kGripperGraspLocal
+                                    : (residual_keyframe_.tip_centreline ? kGripperCentreTipLocal
+                                                                          : kGripperTipLocal);
       mju_mulMatVec3(tip_storage, data->xmat + 9 * gtb, ref_local);
       mju_addTo3(tip_storage, data->xpos + 3 * gtb);
+      // ★ 2026-09-12 AIM AT THE CENTROID (`aim_centroid`): grade the point centroid_standoff
+      // AHEAD of the tip along the gripper approach axis (local x). Nulling it on the
+      // centroid makes the gripper POINT at the block with the tip standoff away in 3D,
+      // instead of parking the tip at a point straight above (user 17:50). Reach Level
+      // (jaws lateral + reach_pitch_deg) picks the approach angle.
+      if (residual_keyframe_.aim_centroid) {
+        const double* xm = data->xmat + 9 * gtb;
+        double ax[3] = {xm[0], xm[3], xm[6]};
+        mju_addToScl3(tip_storage, ax, residual_keyframe_.centroid_standoff);
+      }
       reaching_hand = tip_storage;
     }
   }
@@ -4001,7 +4019,10 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         // corrected) target: the wrist yaws toward the block, the grasp
         // centre swings ~3.3 cm per 10 deg, and the gripper cam keeps the tag
         // centred. Depth/height components unchanged.
-        if (residual_keyframe_.servo_hold) {
+        // ★ 2026-09-12: also on aim_centroid rungs (strat 12/11) -- with the axis pinned to
+        // world +x the outer-right column is a shoulder-roll-stop miss (twin B3r10: 5.6 cm
+        // lateral, belief == truth); yawing the gripper toward the block is the user's spec.
+        if (residual_keyframe_.servo_hold || residual_keyframe_.aim_centroid) {
           int aim_id = mj_name2id(model, mjOBJ_NUMERIC, "reach_level_aim");
           double aim = (aim_id >= 0) ? model->numeric_data[model->numeric_adr[aim_id]] : 0.0;
           if (aim > 0.5) {
@@ -4021,6 +4042,9 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
         }
       }
     }
+    // ★ 2026-09-12 aim_free: pitch/yaw pins off, roll (jaws lateral) only -- the user's spec is
+    // strat-25 motion + a 3D standoff along the gripper axis, no fixed approach direction.
+    if (residual_keyframe_.aim_free) { level_res[0] = 0.0; level_res[1] = 0.0; }
     residual[counter++] = level_res[0];
     residual[counter++] = level_res[1];
     residual[counter++] = level_res[2];
@@ -4270,10 +4294,31 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       static unsigned long long last_seq = 0;
       static double last_fresh_time = -1.0;
       static double last_call_time = -1.0;
-      unsigned long long seq = mjpc::g_object_seq.load();
+      // ★ 2026-09-12 STRAT 11 (`servo_centroid` rung): the correction source is the
+      // BLOCK-CENTROID bus (g_block_*: every block tag composed to the cube centroid
+      // node-side) and the detection is composed against the wrist pose AT IMAGE TIME
+      // (ring buffer below, 1 s deep) instead of at arrival, so the arm may keep moving
+      // while it servos (the wrist-quiet gate is bypassed on such rungs).
+      const bool use_centroid = residual_.residual_keyframe_.servo_centroid;
+      static double s_det_age = 0.0;   // age of the latest accepted detection at arrival [s]
+      unsigned long long seq = use_centroid ? mjpc::g_block_seq.load()
+                                            : mjpc::g_object_seq.load();
       if (seq != last_seq) {
         last_seq = seq;
         last_fresh_time = data->time;
+        s_det_age = use_centroid ? mjpc::g_block_age.load() : 0.0;
+      }
+      // wrist pose ring buffer (time, xpos, xmat) for image-time composition
+      struct WristSample { double t; double p[3]; double R[9]; };
+      static WristSample s_wring[256];
+      static int s_wring_n = 0, s_wring_head = 0;
+      {
+        int wyb0 = mj_name2id(model, mjOBJ_BODY, "right_wrist_yaw_link");
+        if (wyb0 >= 0 && (s_wring_n == 0 || data->time > s_wring[(s_wring_head + 255) % 256].t)) {
+          WristSample& w = s_wring[s_wring_head];
+          w.t = data->time; mju_copy3(w.p, data->xpos + 3 * wyb0); mju_copy(w.R, data->xmat + 9 * wyb0, 9);
+          s_wring_head = (s_wring_head + 1) % 256; if (s_wring_n < 256) s_wring_n++;
+        }
       }
       double max_age = GetNumberOrDefault(1.0, model, "servo_max_age");
       bool fresh = (last_fresh_time >= 0.0) &&
@@ -4307,7 +4352,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       double fdist = GetNumberOrDefault(0.08, model, "servo_freeze_dist");
       bool far_enough = (s_adv_dist > fdist);
       double max_depth = GetNumberOrDefault(0.30, model, "servo_max_depth");
-      bool near_range = (mjpc::g_object_cam_z.load() <= max_depth);
+      bool near_range = ((use_centroid ? mjpc::g_block_cam_z.load()
+                                       : mjpc::g_object_cam_z.load()) <= max_depth);
       // ★ 2026-08-29 NO UPDATES ON THE GRASP RUNG: the slide-in runs on the
       // correction latched at the pre-grasp. A detection taken as the jaws
       // move in (real 29_46: +4.6 cm x at the rung entry) is the least
@@ -4344,6 +4390,15 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         num3("grip_cam_pos", cam_pos, 0.0, 0.0, 0.0);
         num3("grip_cam_rpy_deg", cam_rpy, 0.0, 0.0, 0.0);
         num3("servo_nominal", nominal, 0.55, 0.16, 0.025);
+        // ★ 2026-09-12 centroid rungs (strat 11): the nominal CENTROID is derived from the
+        // rung's own reach_target_table (target = centroid + 2.5 cm up), so the JSON uses the
+        // strat-25 column convention (B3 = target_col_y 0.12) and servo_nominal is not read.
+        if (use_centroid && residual_.residual_keyframe_.reach_target_table.size() == 3) {
+          const auto& rtt = residual_.residual_keyframe_.reach_target_table;
+          nominal[0] = rtt[0]; nominal[1] = rtt[1];
+          nominal[2] = rtt[2] - (residual_.residual_keyframe_.aim_centroid
+                                     ? 0.0 : residual_.residual_keyframe_.centroid_standoff);
+        }
         // ★ 2026-09-03: the grid knobs move the rung targets, so they must
         // move the nominal the correction is measured against by the same
         // amount (else the servo would double-apply the column shift and hit
@@ -4358,6 +4413,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double t_cam[3] = {mjpc::g_object_cam_x.load(),
                            mjpc::g_object_cam_y.load(),
                            mjpc::g_object_cam_z.load()};
+        if (use_centroid) {
+          t_cam[0] = mjpc::g_block_cam_x.load();
+          t_cam[1] = mjpc::g_block_cam_y.load();
+          t_cam[2] = mjpc::g_block_cam_z.load();
+        }
         // ★ 2026-08-29 NEAR-RANGE ONLY: the hand-eye's residual error grows
         // with tag depth (real 29_31..39: +2 cm z at 0.5 m vs +6 cm at 0.2 m
         // for the same block). A correction latched from far away and then
@@ -4375,10 +4435,22 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         double in_wrist[3];
         mju_mulMatVec3(in_wrist, Rc, t_cam);
         mju_addTo3(in_wrist, cam_pos);
-        // wrist frame -> world
+        // wrist frame -> world. On centroid rungs use the wrist pose at IMAGE time
+        // (arrival - age) from the ring buffer; else the pose now (legacy).
         double p_world[3];
-        mju_mulMatVec3(p_world, data->xmat + 9 * wyb, in_wrist);
-        mju_addTo3(p_world, data->xpos + 3 * wyb);
+        const double* wR_use = data->xmat + 9 * wyb;
+        const double* wp_use = data->xpos + 3 * wyb;
+        if (use_centroid && s_wring_n > 0) {
+          double t_img = last_fresh_time - s_det_age;
+          int best = -1; double bdt = 1e9;
+          for (int i = 0; i < s_wring_n; ++i) {
+            double dt_i = std::fabs(s_wring[i].t - t_img);
+            if (dt_i < bdt) { bdt = dt_i; best = i; }
+          }
+          if (best >= 0 && bdt < 0.5) { wR_use = s_wring[best].R; wp_use = s_wring[best].p; }
+        }
+        mju_mulMatVec3(p_world, wR_use, in_wrist);
+        mju_addTo3(p_world, wp_use);
         mju_copy3(s_tag_world, p_world);
         s_tag_world_t = data->time;
         // nominal (table frame -> world), same convention as the residual
@@ -4409,6 +4481,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         // table). Leftward (+y, inward) keeps the symmetric cap. Numeric
         // `servo_max_offset_y_out` (m, default = servo_max_offset_y).
         double cap_y_out = GetNumberOrDefault(cap_y, model, "servo_max_offset_y_out");
+        if (residual_.residual_keyframe_.servo_cap_y_out >= 0.0)
+          cap_y_out = residual_.residual_keyframe_.servo_cap_y_out;   // ★ 2026-09-12 per-rung override
         if (want[1] < -cap_y_out) want[1] = -cap_y_out;
         // ★ 2026-09-05 per-axis DEPTH cap (`servo_max_offset_x`, default =
         // servo_max_offset): lets the lateral/height clamp open up (the
@@ -4417,6 +4491,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         // the depth correction drive the jaws into the block (9_B3_7).
         double cap_x = GetNumberOrDefault(cap, model, "servo_max_offset_x");
         want[0] = mju_clip(want[0], -cap_x, cap_x);
+        // ★ 2026-09-12 per-axis HEIGHT cap (`servo_max_offset_z`, default = servo_max_offset):
+        // real 11new_3 composed the block 6 cm ABOVE a belief that was right (wrist-cam
+        // extrinsic ROTATION not refit, tilt check 1.5-6.7 deg) and the servo lifted the hand.
+        double cap_z = GetNumberOrDefault(cap, model, "servo_max_offset_z");
+        want[2] = mju_clip(want[2], -cap_z, cap_z);
         // ★ 2026-08-30 OUTLIER GUARD (real 29_57): two accepted detections
         // 4 s apart put the block at y +0.046 and then y +0.164 (12 cm apart,
         // wrist quiet both times) -- a D405/AprilTag pose glitch. The arm
@@ -5010,9 +5089,16 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
         int gtb25 = mj_name2id(model, mjOBJ_BODY, "right_magpie_gripper");
         if (gtb25 >= 0) {
           const double* ref25 = current_kf.grasp_center
-                                    ? kGripperGraspLocal : kGripperTipLocal;
+                                    ? kGripperGraspLocal
+                                    : (current_kf.tip_centreline ? kGripperCentreTipLocal
+                                                                 : kGripperTipLocal);
           mju_mulMatVec3(tip25, data->xmat + 9 * gtb25, ref25);
           mju_addTo3(tip25, data->xpos + 3 * gtb25);
+          if (current_kf.aim_centroid) {   // 2026-09-12: same standoff-ahead point as the residual
+            const double* xm25 = data->xmat + 9 * gtb25;
+            double ax25[3] = {xm25[0], xm25[3], xm25[6]};
+            mju_addToScl3(tip25, ax25, current_kf.centroid_standoff);
+          }
           h25 = tip25;
         }
         total_distance = mju_dist3(h25, tgt25);
@@ -5029,6 +5115,15 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
               const double* pn = model->numeric_data + model->numeric_adr[nid];
               nom[0] = pn[0]; nom[1] = pn[1]; nom[2] = pn[2];
             }
+            // ★ 2026-09-12 CENTROID rungs (strat 11): s_tag_world is the composed block
+            // CENTROID and the nominal centroid is the rung target minus the standoff, so
+            // err = (centroid + standoff up) - centreline tip = aim point - tip, straight from
+            // the wrist cam. The integrator below then walks the target until the tip sits ON
+            // the aim point instead of at the reach/clearance equilibrium (twin 09-12: 5 cm high).
+            if (current_kf.servo_centroid) {
+              nom[0] = rtt[0]; nom[1] = rtt[1];
+              nom[2] = rtt[2] - (current_kf.aim_centroid ? 0.0 : current_kf.centroid_standoff);
+            }
             double nom_tag[3] = {tc25[0] - half_depth25 + nom[0] + col_x,
                                  tc25[1] - (nom[1] + col_y), face25 + nom[2]};
             double tgt_nom[3] = {tc25[0] - half_depth25 + rtt[0] + col_x,
@@ -5038,12 +5133,31 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
             mju_sub3(rel, s_tag_world, h25);
             mju_sub3(err, rel, desired);
             total_distance = mju_norm3(err);
+            // ★ 2026-09-12 PUSH GUARD (real 11_nominal_7: a lean lunge during the hold drove the
+            // hand 7 cm past the block's centre plane, shoved the block, the composition flipped
+            // 24 cm and the arm swung after it). If the camera sees the graded point more than
+            // `servo_hold_push_abort` (m, default 0.03; <=0 = off) PAST the aim in depth, the hand
+            // is in the block: flag a fail-soft advance (release/recovery) instead of pushing on.
+            {
+              double pa = GetNumberOrDefault(0.03, model, "servo_hold_push_abort");
+              if (pa > 0.0 && err[0] < -pa) {
+                if (!s_push_abort)
+                  std::printf("[servo-hold] PUSH GUARD: graded point %.3f m past the centroid plane -> abort to release\n", -err[0]);
+                s_push_abort = true;
+              }
+            }
             {  // ★ 2026-09-05 HOLD INTEGRATOR update (fresh tag only; see decl.)
               double ki = GetNumberOrDefault(0.0, model, "servo_hold_ki");
               double imax = GetNumberOrDefault(0.04, model, "servo_hold_int_max");
+              if (current_kf.servo_hold_int_max >= 0.0) imax = current_kf.servo_hold_int_max;  // per-rung (strat 11)
               int kfi = motion_strategy_.GetCurrentKeyframeIndex();
-              if (kfi != s_hold_int_kf) {
-                s_hold_int_kf = kfi; s_hold_int[0] = s_hold_int[1] = s_hold_int[2] = 0.0;
+              // 2026-09-12 LOOPING strategies: the same rung index comes round each cycle, so
+              // also reset when the rung START TIME changed (new visit of the same rung).
+              static double s_hold_int_kf_t0 = -1.0;
+              const double kf_t0 = motion_strategy_.GetCurrentKeyframeStartTime();
+              if (kfi != s_hold_int_kf || kf_t0 != s_hold_int_kf_t0) {
+                s_hold_int_kf = kfi; s_hold_int_kf_t0 = kf_t0;
+                s_hold_int[0] = s_hold_int[1] = s_hold_int[2] = 0.0;
                 s_hold_int_t = -1.0;
               }
               if (ki > 0.0) {
@@ -5063,7 +5177,22 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                           data->time - s_tag_world_t, s_hold_int[0], s_hold_int[1], s_hold_int[2]);
             }
           } else {
-            total_distance = 1e3;   // no fresh tag -> hold clock re-arms
+            // ★ 2026-09-12 STALE FALLBACK (real 11new_7: the wrist cam lost the block 1 s into the
+            // hold and the rung stalled 40 s at dist=1000 while the arm wandered). After
+            // `servo_hold_stale_fallback` s without a fresh tag (default 3; <=0 = never), grade the
+            // hold by the BELIEF (servo delta + integrator frozen), as a no-servo rung would.
+            double fb = GetNumberOrDefault(3.0, model, "servo_hold_stale_fallback");
+            double age_fb = (s_tag_world_t >= 0.0) ? data->time - s_tag_world_t : 1e9;
+            if (fb > 0.0 && age_fb > fb) {
+              total_distance = mju_dist3(h25, tgt25);
+              static double last_fb_dbg = -1e9;
+              if (data->time - last_fb_dbg > 2.0) {
+                last_fb_dbg = data->time;
+                std::printf("[servo-hold] STALE %.1fs -> belief grading dist=%.3f\n", age_fb, total_distance);
+              }
+            } else {
+              total_distance = 1e3;   // no fresh tag -> hold clock re-arms
+            }
           }
         }
         // ★ 2026-09-05 SERVO-WAIT: the hover rung must not advance until a
@@ -5359,9 +5488,11 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       mjpc::g_grasp_gate_cmd.store(0);
       s_grasp_cmd_time = -1.0;
     }
+    if (s_push_abort && current_kf.servo_hold) expired28 = true;   // push guard = immediate timeout
     if (expired28 && current_kf.timeout_advance && !close_pending28 &&
         motion_strategy_.GetCurrentKeyframeIndex() + 1 <
             motion_strategy_.GetKeyframesCount()) {
+      s_push_abort = false;
       int kidx_to = motion_strategy_.GetCurrentKeyframeIndex();
       std::printf("[lean-gate] TIMEOUT on rung %d (dist %.3f, tol %.3f) -> "
                   "fail-soft ADVANCE to rung %d\n",
@@ -5845,7 +5976,8 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                              current_strategy_ == 9 ||
                              current_strategy_ == 10) &&  // 2026-09-05: strat 9 = 29's recovery rungs; 09-08: strat 10 = 9 + grasp
                             kfn != "forearm_brace_release") ||
-                           (current_strategy_ == 25 &&
+                           ((current_strategy_ == 25 || current_strategy_ == 11 ||
+                             current_strategy_ == 12) &&   // 2026-09-12: strat 12/11 = 25's stand-back
                             (kfn == "standback_r2" || kfn == "standback_r3"));
                        if (cgate > 0.0 && com_gate_scope) {
                          int pid_cg = mj_name2id(model, mjOBJ_BODY, "pelvis");
