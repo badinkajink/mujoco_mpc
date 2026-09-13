@@ -158,6 +158,14 @@ int main(int argc, char** argv) {
   // the robot sits between L = 0 and the raw delay; the bench with L = 0 is
   // the compensated ideal, L = spp is one whole plan interval of staleness.
   const int latency_steps = std::atoi(Arg(argc, argv, "--latency_steps", "0").c_str());
+  // ★ 2026-09-13 MODEL MISMATCH on the PLANT only (the planner keeps the model
+  // it was initialised with, i.e. the --gains table): `--plant_kp_scale s`
+  // multiplies every actuator kp on the plant by s after the planner copy is
+  // synced; `--plant_mass_scale s` multiplies every body mass (and inertia) on
+  // the plant by s. 1 = OFF = byte-identical. The planner then plans on a
+  // model that is wrong by that factor, which is the sim-to-real question.
+  const double plant_kp_scale = std::atof(Arg(argc, argv, "--plant_kp_scale", "1").c_str());
+  const double plant_mass_scale = std::atof(Arg(argc, argv, "--plant_mass_scale", "1").c_str());
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -382,6 +390,22 @@ int main(int argc, char** argv) {
       if (!model_out.empty()) {
         mj_saveModel(model, model_out.c_str(), nullptr, 0);
         mj_saveModel(pm, (model_out + ".planner").c_str(), nullptr, 0);
+      }
+      // plant-only mismatch, applied AFTER the planner copy so only the plant changes
+      if (plant_kp_scale != 1.0) {
+        for (int k = 0; k < model->nu; k++) {
+          model->actuator_gainprm[k * mjNGAIN + 0] *= plant_kp_scale;
+          model->actuator_biasprm[k * mjNBIAS + 1] *= plant_kp_scale;
+        }
+        std::fprintf(stderr, "[bench] plant kp x %g (planner unchanged)\n", plant_kp_scale);
+      }
+      if (plant_mass_scale != 1.0) {
+        for (int b = 1; b < model->nbody; b++) {
+          model->body_mass[b] *= plant_mass_scale;
+          for (int k = 0; k < 3; k++) model->body_inertia[3 * b + k] *= plant_mass_scale;
+        }
+        mj_setConst(model, data);
+        std::fprintf(stderr, "[bench] plant mass x %g (planner unchanged)\n", plant_mass_scale);
       }
     }
     agent.state.Set(model, data);

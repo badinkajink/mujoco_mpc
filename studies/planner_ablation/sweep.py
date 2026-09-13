@@ -49,6 +49,10 @@ def run_one(arm, seed, a):
         cmd += ["--latency_steps", str(a.latency)]
     if a.perturb >= 0:
         cmd += ["--perturb", "%g" % a.perturb]
+    if a.plant_kp_scale != 1.0:
+        cmd += ["--plant_kp_scale", "%g" % a.plant_kp_scale]
+    if a.plant_mass_scale != 1.0:
+        cmd += ["--plant_mass_scale", "%g" % a.plant_mass_scale]
     if a.log_per_plan:
         # 0.999: lean_bench truncates 1/(log_hz*dt) to an int; keep it just above spp
         cmd += ["--log_hz", "%.6f" % (0.999 / (a.spp * 0.002))]
@@ -70,6 +74,7 @@ def run_one(arm, seed, a):
             m = g.group(1)
     rec = {"arm": arm, "seed": seed, "planner": planner, "numerics": nums, "gains": a.gains,
            "spp": a.spp, "latency": a.latency, "perturb": a.perturb,
+           "plant_kp_scale": a.plant_kp_scale, "plant_mass_scale": a.plant_mass_scale,
            "wall_s": round(wall, 1), "rc": p.returncode, "csv": csv_path,
            "state": state_path, "summary": m or ""}
     if m:
@@ -102,6 +107,8 @@ def main():
     ap.add_argument("--gains", default="xml", help="xml (default) or deploy: lean_bench --gains")
     ap.add_argument("--latency", type=int, default=0, help="lean_bench --latency_steps (plant steps of 2 ms)")
     ap.add_argument("--perturb", type=float, default=-1, help="lean_bench --perturb (m); -1 = the bench default 0.003")
+    ap.add_argument("--plant_kp_scale", type=float, default=1.0, help="lean_bench --plant_kp_scale (plant-only mismatch)")
+    ap.add_argument("--plant_mass_scale", type=float, default=1.0, help="lean_bench --plant_mass_scale (plant-only mismatch)")
     ap.add_argument("--log_per_plan", action="store_true",
                     help="log the metric CSV and state track once per plan "
                          "(log_hz = 1/(spp x 0.002 s)) instead of at 50 Hz, so the "
