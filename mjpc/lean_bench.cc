@@ -158,6 +158,12 @@ int main(int argc, char** argv) {
   // the robot sits between L = 0 and the raw delay; the bench with L = 0 is
   // the compensated ideal, L = spp is one whole plan interval of staleness.
   const int latency_steps = std::atoi(Arg(argc, argv, "--latency_steps", "0").c_str());
+  // `--latency_compensate 1`: what the deploy node does -- before planning,
+  // roll the delayed snapshot forward by latency_steps under the current
+  // policy on a scratch mjData and plan from that predicted state (at the
+  // current time). 0 = raw delay (the option above).
+  const bool latency_compensate =
+      std::atoi(Arg(argc, argv, "--latency_compensate", "0").c_str()) != 0;
   // ★ 2026-09-13 MODEL MISMATCH on the PLANT only (the planner keeps the model
   // it was initialised with, i.e. the --gains table): `--plant_kp_scale s`
   // multiplies every actuator kp on the plant by s after the planner copy is
@@ -439,8 +445,32 @@ int main(int argc, char** argv) {
       if (latency_steps > 0 && i >= latency_steps) {
         // plan from the snapshot taken latency_steps plant steps ago
         const Snap& sn = snaps[(i - latency_steps) % snaps.size()];
-        agent.state.Set(model, sn.qpos.data(), sn.qvel.data(), sn.act.data(),
-                        sn.mocap_pos.data(), sn.mocap_quat.data(), sn.userdata.data(), sn.time);
+        if (!latency_compensate) {
+          agent.state.Set(model, sn.qpos.data(), sn.qvel.data(), sn.act.data(),
+                          sn.mocap_pos.data(), sn.mocap_quat.data(), sn.userdata.data(), sn.time);
+        } else {
+          // predict the delayed state forward to now under the current policy
+          static mjData* pred = nullptr;
+          if (!pred) pred = mj_makeData(model);
+          mju_copy(pred->qpos, sn.qpos.data(), model->nq);
+          mju_copy(pred->qvel, sn.qvel.data(), model->nv);
+          if (model->na) mju_copy(pred->act, sn.act.data(), model->na);
+          if (model->nmocap) {
+            mju_copy(pred->mocap_pos, sn.mocap_pos.data(), 3 * model->nmocap);
+            mju_copy(pred->mocap_quat, sn.mocap_quat.data(), 4 * model->nmocap);
+          }
+          if (model->nuserdata) mju_copy(pred->userdata, sn.userdata.data(), model->nuserdata);
+          pred->time = sn.time;
+          std::vector<double> ps(model->nq + model->nv + model->na);
+          for (int k = 0; k < latency_steps; k++) {
+            mju_copy(ps.data(), pred->qpos, model->nq);
+            mju_copy(ps.data() + model->nq, pred->qvel, model->nv);
+            if (model->na) mju_copy(ps.data() + model->nq + model->nv, pred->act, model->na);
+            agent.ActivePlanner().ActionFromPolicy(pred->ctrl, ps.data(), pred->time, false);
+            mj_step(model, pred);
+          }
+          agent.state.Set(model, pred);
+        }
       }
       agent.PlanIteration(&pool);
     }

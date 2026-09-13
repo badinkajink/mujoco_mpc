@@ -199,6 +199,11 @@ ARMS = {
                                      "sampling_representation": 0, "mppi_temperature": 1.0,
                                      "sampling_trajectories": 4}),
     "cem_dt02":  (CEM, {"agent_timestep": 0.02}),
+    # low-rate follow-ups: iCEM's sigma window and CEM's k at sigma 0.02
+    "icem_stdmin02": (ICEM, {"std_min": 0.02}),
+    "icem_stdmin05": (ICEM, {"std_min": 0.05}),
+    "cem_ne2_stdmin02":  (CEM, {"n_elite": 2, "std_min": 0.02}),
+    "cem_ne10_stdmin02": (CEM, {"n_elite": 10, "std_min": 0.02}),
     "ps_raw01_zero_dt02": (PS, {"sampling_noise_raw": 1, "sampling_exploration": 0.01,
                                 "sampling_representation": 0, "agent_timestep": 0.02}),
 }
@@ -250,4 +255,5 @@ BATCHES = {
     # FS = does a larger step per plan lower the plan-rate floor? (25/16.7/10 Hz)
     "FS": ["cem_stdmin02", "cem_stdmin03", "cem_stdmin05", "ps_raw02_zero", "ps_raw03_zero",
            "ps_raw05_zero", "icem_stdmin03", "mppi_raw02_zero_l1", "mppi_raw03_zero_l1"],
+    "FS2": ["icem_stdmin02", "icem_stdmin05", "cem_ne2_stdmin02", "cem_ne10_stdmin02"],
 }

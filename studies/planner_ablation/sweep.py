@@ -47,6 +47,8 @@ def run_one(arm, seed, a):
         cmd += ["--gains", a.gains]
     if a.latency > 0:
         cmd += ["--latency_steps", str(a.latency)]
+        if a.latency_compensate:
+            cmd += ["--latency_compensate", "1"]
     if a.perturb >= 0:
         cmd += ["--perturb", "%g" % a.perturb]
     if a.plant_kp_scale != 1.0:
@@ -73,7 +75,7 @@ def run_one(arm, seed, a):
         if g:
             m = g.group(1)
     rec = {"arm": arm, "seed": seed, "planner": planner, "numerics": nums, "gains": a.gains,
-           "spp": a.spp, "latency": a.latency, "perturb": a.perturb,
+           "spp": a.spp, "latency": a.latency, "latency_compensate": a.latency_compensate, "perturb": a.perturb,
            "plant_kp_scale": a.plant_kp_scale, "plant_mass_scale": a.plant_mass_scale,
            "wall_s": round(wall, 1), "rc": p.returncode, "csv": csv_path,
            "state": state_path, "summary": m or ""}
@@ -106,6 +108,7 @@ def main():
     ap.add_argument("--qpos", action="store_true", help="also dump qpos for video")
     ap.add_argument("--gains", default="xml", help="xml (default) or deploy: lean_bench --gains")
     ap.add_argument("--latency", type=int, default=0, help="lean_bench --latency_steps (plant steps of 2 ms)")
+    ap.add_argument("--latency_compensate", action="store_true", help="lean_bench --latency_compensate 1")
     ap.add_argument("--perturb", type=float, default=-1, help="lean_bench --perturb (m); -1 = the bench default 0.003")
     ap.add_argument("--plant_kp_scale", type=float, default=1.0, help="lean_bench --plant_kp_scale (plant-only mismatch)")
     ap.add_argument("--plant_mass_scale", type=float, default=1.0, help="lean_bench --plant_mass_scale (plant-only mismatch)")
