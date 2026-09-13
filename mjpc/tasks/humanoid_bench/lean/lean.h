@@ -61,6 +61,16 @@ inline std::atomic<double> g_object_cam_x{0.0};
 inline std::atomic<double> g_object_cam_y{0.0};
 inline std::atomic<double> g_object_cam_z{0.0};
 inline std::atomic<unsigned long long> g_object_seq{0};
+// ★ 2026-09-12 BLOCK-CENTROID bus (strat 11): the node composes EVERY block tag (30 front, 31 top,
+// 32 left, 33 right, 34 back; each centred on its face) with its rvec into the 5 cm cube's centroid
+// in the CAMERA optical frame. g_block_age = detection age at arrival [s] (bridge: now - image stamp,
+// robot-PC clock, so no cross-machine clock sync is needed).
+inline std::atomic<double> g_block_cam_x{0.0};
+inline std::atomic<double> g_block_cam_y{0.0};
+inline std::atomic<double> g_block_cam_z{0.0};
+inline std::atomic<double> g_block_age{0.0};
+inline std::atomic<int> g_block_id{0};
+inline std::atomic<unsigned long long> g_block_seq{0};
 
 constexpr int kLeanStrategyParameterIndex = 1;
 

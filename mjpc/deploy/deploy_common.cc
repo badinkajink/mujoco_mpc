@@ -1179,6 +1179,41 @@ int RunDeployNode(const NodeConfig& cfg) {
     obj_sub->InitChannel(
         [](const void* msg) {
           const SportState* s = static_cast<const SportState*>(msg);
+          // ★ 2026-09-12 MULTI-ID BRIDGE: tag_bridge --object-tag-id 30,31,32,33,34 now
+          // publishes every block tag (front/top/left/right/back) on this topic with
+          // mode = id. The servo bus is authored around the FRONT tag (30) and the
+          // per-id centroid offsets are not composed here yet, so accept ONLY id 30;
+          // the other ids are for recording / offline accuracy until strat 11 lands.
+          const int id = s->mode();
+          if (id >= 30 && id <= 34) {
+            // BLOCK-CENTROID bus: velocity = Rodrigues rvec (camera<-tag), the tag is centred on
+            // its face, the centroid sits 2.5 cm behind the face along the tag's -z (tag z points
+            // out of the face). centroid_cam = t + R(rvec) * (0,0,-0.025). progress = detection age.
+            double rv[3] = {s->velocity().at(0), s->velocity().at(1), s->velocity().at(2)};
+            double th = std::sqrt(rv[0]*rv[0] + rv[1]*rv[1] + rv[2]*rv[2]);
+            double R[9] = {1,0,0, 0,1,0, 0,0,1};
+            if (th > 1e-9) {
+              double ax[3] = {rv[0]/th, rv[1]/th, rv[2]/th};
+              double q[4]; mju_axisAngle2Quat(q, ax, th); mju_quat2Mat(R, q);
+            }
+            // ★ 2026-09-12 HEAD-ON SANITY: the tag's +z points OUT of the face toward the camera,
+            // so R's 3rd column must point back at the camera (n . t < 0). A head-on view can flip
+            // the solve's rotation (the ambiguity the bridge gate used to reject); a flipped normal
+            // would put the centroid 2.5 cm IN FRONT of the face = a 5 cm servo error. Flip it back.
+            {
+              const double ndot = R[2] * s->position().at(0) + R[5] * s->position().at(1) + R[8] * s->position().at(2);
+              if (ndot > 0.0) { R[2] = -R[2]; R[5] = -R[5]; R[8] = -R[8]; }
+            }
+            const double off[3] = {0.0, 0.0, -0.025};
+            double d[3]; mju_mulMatVec3(d, R, off);
+            mjpc::g_block_cam_x.store(s->position().at(0) + d[0]);
+            mjpc::g_block_cam_y.store(s->position().at(1) + d[1]);
+            mjpc::g_block_cam_z.store(s->position().at(2) + d[2]);
+            mjpc::g_block_age.store(s->progress());
+            mjpc::g_block_id.store(id);
+            mjpc::g_block_seq.fetch_add(1);
+          }
+          if (id != 30) return;
           mjpc::g_object_cam_x.store(s->position().at(0));
           mjpc::g_object_cam_y.store(s->position().at(1));
           mjpc::g_object_cam_z.store(s->position().at(2));

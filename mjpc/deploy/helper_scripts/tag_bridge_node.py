@@ -272,6 +272,13 @@ class TagCore:
         return xy, self.yaw_off, err, p_torso_table, self.yaw_off_abs
 
 
+def _stamp_s(msg):
+    try:
+        return float(msg.header.stamp.sec) + 1e-9 * float(msg.header.stamp.nanosec)
+    except Exception:
+        return None
+
+
 class ObjectTagCore:
     """★ 2026-08-24 STRAT 27: single-tag object localizer for the GRIPPER cam.
 
@@ -493,8 +500,18 @@ def main():
     ap.add_argument("--object-topic", default="rt/object_tag",
                     help="DDS topic for the object tag pose (CAMERA optical "
                          "frame; consumer composes with believed wrist FK)")
-    ap.add_argument("--object-tag-id", type=int, default=30)
+    ap.add_argument("--object-tag-id", default="30",
+                    help="object tag id(s) for the GRIPPER cam, comma-separated (e.g. 30,31,32,33,34: "
+                         "front,top,left,right,back of the 5 cm block). Each detection is published "
+                         "with mode = its id; the consumer applies the per-id offset to the centroid. "
+                         "The head-cam block lock uses the FIRST id only.")
     ap.add_argument("--object-tag-size", type=float, default=0.045)
+    ap.add_argument("--object-ambig-ratio", type=float, default=2.0,
+                    help="gripper-cam flip-ambiguity gate: the IPPE winner must beat the runner-up by this "
+                         "factor in reprojection error, else the frame is rejected (default 2.0). A small tag "
+                         "seen HEAD-ON has two near-equal solutions and is rejected by design; for TRANSLATION-"
+                         "only uses (tip-on-tag calibration) pass 1.0 to accept every frame -- the two "
+                         "solutions share the translation to ~mm.")
     # ★ 2026-09-05 HEAD-CAM BLOCK LOCK (strat 9): the head camera sees tag30 on the
     # block in the SAME frames it solves the bundle from, while the robot is still
     # standing. Publish the block in PLANNER WORLD (same mapping + 08-29 sign fix as
@@ -505,6 +522,8 @@ def main():
     ap.add_argument("--gripper-publish", action="store_true",
                     help="actually publish rt/object_tag (default: LOG ONLY)")
     a = ap.parse_args()
+    a.object_tag_ids = [int(x) for x in str(a.object_tag_id).split(",") if x.strip()]
+    a.object_tag_id = a.object_tag_ids[0]
 
     if a.selftest:
         raise SystemExit(_selftest())
@@ -554,11 +573,12 @@ def main():
     obj_state = {"K": None, "dist": None, "n": 0, "t0": time.time(), "last": 0.0}
     if a.gripper:
         obj_core = ObjectTagCore(a.object_tag_id, a.object_tag_size)
+        obj_cores = {tid: ObjectTagCore(tid, a.object_tag_size, ambig_ratio=a.object_ambig_ratio) for tid in a.object_tag_ids}
         if a.gripper_publish:
             obj_pub = ChannelPublisher(a.object_topic, SportModeState_)
             obj_pub.Init()
             obj_msg = unitree_go_msg_dds__SportModeState_()
-        print(f"[obj] gripper-cam channel ON: tag{a.object_tag_id} "
+        print(f"[obj] gripper-cam channel ON: tags {a.object_tag_ids} "
               f"({a.object_tag_size*1000:.0f}mm) {a.gripper_image_topic} -> "
               f"{'DDS ' + a.object_topic if a.gripper_publish else 'LOG ONLY'} "
               f"(CAMERA-frame pose; FIREWALLED from aux/estimator)")
@@ -613,37 +633,47 @@ def main():
         def on_obj_raw(self, msg):
             img = np.frombuffer(msg.data, np.uint8).reshape(msg.height, msg.width, -1)
             self.process_obj(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                             if img.ndim == 3 else img)
+                             if img.ndim == 3 else img, _stamp_s(msg))
 
         def on_obj_jpg(self, msg):
             img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_GRAYSCALE)
             if img is not None:
-                self.process_obj(img)
+                self.process_obj(img, _stamp_s(msg))
 
-        def process_obj(self, gray):
+        def process_obj(self, gray, stamp_s=None):
             if obj_state["K"] is None:
                 return
             corners, ids, _ = det.detectMarkers(gray)
             if ids is None:
                 return
-            hit = [c[0] for c, i in zip(corners, ids.flatten())
-                   if int(i) == obj_core.tag_id]
-            if not hit:
+            # ★ 2026-09-12 MULTI-ID: every listed block tag (front/top/left/right/back)
+            # is solved and published separately, mode = id. One message per tag per
+            # frame; the consumer/offline analysis applies the per-id centroid offset.
+            got = False
+            for c, i in zip(corners, ids.flatten()):
+                core_i = obj_cores.get(int(i))
+                if core_i is None:
+                    continue
+                r = core_i.step(c[0], obj_state["K"], obj_state["dist"])
+                if r is None:
+                    continue
+                tvec, rvec, err = r; got = True
+                if obj_pub is not None:
+                    # contract: position = tag centre in CAMERA OPTICAL frame [m],
+                    # velocity = Rodrigues rvec (camera<-tag), mode = tag id.
+                    # Consumer (h12_control_node) composes with believed wrist FK +
+                    # hand-eye extrinsic. NOTHING here enters the estimator.
+                    for k in range(3):
+                        obj_msg.position[k] = float(tvec[k])
+                        obj_msg.velocity[k] = float(rvec[k])
+                    obj_msg.mode = int(i)
+                    # ★ 2026-09-12: detection AGE [s] (publish time - image header stamp, same
+                    # clock) in `progress`, so the consumer can compose against the wrist pose at
+                    # image time instead of at arrival (moving-wrist servo, strat 11).
+                    obj_msg.progress = float(max(0.0, time.time() - stamp_s)) if stamp_s else 0.0
+                    obj_pub.Write(obj_msg)
+            if not got:
                 return
-            r = obj_core.step(hit[0], obj_state["K"], obj_state["dist"])
-            if r is None:
-                return
-            tvec, rvec, err = r
-            if obj_pub is not None:
-                # contract: position = tag centre in CAMERA OPTICAL frame [m],
-                # velocity = Rodrigues rvec (camera<-tag), mode = tag id.
-                # Consumer (h12_control_node) composes with believed wrist FK +
-                # hand-eye extrinsic. NOTHING here enters the estimator.
-                for k in range(3):
-                    obj_msg.position[k] = float(tvec[k])
-                    obj_msg.velocity[k] = float(rvec[k])
-                obj_msg.mode = obj_core.tag_id
-                obj_pub.Write(obj_msg)
             obj_state["n"] += 1
             now = time.time()
             if now - obj_state["last"] > 2.0:
@@ -740,8 +770,19 @@ def main():
                     now_h = time.time()
                     if now_h - head_state["last"] > 5.0:
                         head_state["last"] = now_h
+                        # 2026-09-12: block YAW in the table frame (front-face normal vs the table's depth axis) -- the
+                        # offset-block accuracy protocol shifts the reference along this normal, so it must be square.
+                        try:
+                            R30, _ = cv2.Rodrigues(np.asarray(r30[1], dtype=float).reshape(3))
+                            n_tab = core.last_R_tc @ R30[:, 2]
+                            byaw = math.degrees(math.atan2(n_tab[1], -n_tab[0]))
+                            byaw = (byaw + 180.0) % 360.0 - 180.0
+                            if abs(byaw) > 90.0: byaw = byaw - 180.0 if byaw > 0 else byaw + 180.0   # normal sign is irrelevant
+                            ytxt = f" block_yaw={byaw:+.1f}deg"
+                        except Exception:
+                            ytxt = ""
                         print(f"[head-obj] tag{head_core.tag_id} #{head_state['n']} bundle=({p_tab[0]:+.3f},{p_tab[1]:+.3f},{p_tab[2]:+.3f}) "
-                              f"world=({wx:.3f},{wy:.3f},{wz:.3f}) [B3 nominal world = (1.000,-0.160)] reproj={r30[2]:.2f}px", flush=True)
+                              f"world=({wx:.3f},{wy:.3f},{wz:.3f}){ytxt} [B3 nominal world = (1.000,-0.160)] reproj={r30[2]:.2f}px", flush=True)
             stats["n"] += 1
             now = time.time()
             if now - stats["last"] > 5.0:

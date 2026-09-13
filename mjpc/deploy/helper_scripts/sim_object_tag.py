@@ -95,6 +95,11 @@ def main():
     ap.add_argument("--cam-rpy-deg", type=float, nargs=3, default=[-90.0, 0.0, -90.0],
                     help="MUST equal the model's grip_cam_rpy_deg numeric")
     ap.add_argument("--tag-id", type=int, default=30)
+    ap.add_argument("--front-face", action="store_true",
+                    help="★ 2026-09-12 (strat 11): publish the tag as the FRONT-FACE tag of a 5 cm cube "
+                         "whose CENTROID is at --object-nominal(+offset): tag centre 2.5 cm nearer the robot "
+                         "(-x), tag normal facing the robot, REAL rvec in velocity[], progress = 0 age. The node "
+                         "then composes centroid = t + R(rvec)*(0,0,-0.025) and must recover the centroid.")
     ap.add_argument("--rate-hz", type=float, default=15.0)
     ap.add_argument("--noise-mm", type=float, default=2.0)
     ap.add_argument("--occlude-below", type=float, default=0.03,
@@ -172,7 +177,15 @@ def main():
         grasp_world = d.xmat[gb].reshape(3, 3) @ GRASP_LOCAL + d.xpos[gb]
         # visibility gates
         dist_to_obj = np.linalg.norm(grasp_world - obj_world)
-        t_cam = object_in_camera(obj_world, wpos, wR, cam_pos, R_ow)
+        tag_world = obj_world - np.array([0.025, 0.0, 0.0]) if a.front_face else obj_world
+        t_cam = object_in_camera(tag_world, wpos, wR, cam_pos, R_ow)
+        rvec = np.zeros(3)
+        if a.front_face:
+            # tag frame: z = outward normal = world -x (faces the robot), x = world -y, y = world +z
+            R_wt = np.array([[0.0, 0.0, -1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+            R_ct = (wR @ R_ow).T @ R_wt                         # camera<-tag
+            import cv2
+            rvec = cv2.Rodrigues(R_ct)[0].ravel()
         if (not a.force) and dist_to_obj < a.occlude_below:
             n_occ += 1
         else:
@@ -181,7 +194,8 @@ def main():
             else:
                 t_cam = t_cam + rs.randn(3) * (a.noise_mm / 1000.0)
                 out.position[0], out.position[1], out.position[2] = map(float, t_cam)
-                out.velocity[0] = out.velocity[1] = out.velocity[2] = 0.0
+                out.velocity[0], out.velocity[1], out.velocity[2] = map(float, rvec)
+                out.progress = 0.0
                 out.mode = a.tag_id
                 pub.Write(out)
                 n_pub += 1
