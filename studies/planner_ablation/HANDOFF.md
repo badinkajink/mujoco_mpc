@@ -6,14 +6,14 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 12:45 (read this first)
-Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
+## 0. State at 2026-09-13 13:50 (read this first)
+NOTHING RUNNING. Target grid done (§2i). Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
 corrected Table tab:planners, Discussion paragraph, feedback comments) with
 figures in `paper/figures/planner/`. Running: `runs/grid_spp15` = strategy 25's
 3x3 target grid (target_col_x -0.10/0/+0.10 x target_col_y 0/0.12/0.24) for
 cem / icem / ps_raw01_zero / mppi_raw01_zero_l1, 3 seeds (batch G, 108 runs,
 log `runs/grid_spp15.log`) — the sim counterpart of the paper's commandability
-experiment; score with `./analyze.py --runs runs/grid_spp15 --out runs/summary_grid_spp15.json`.
+experiment; scored in `runs/summary_grid_spp15.json` (§2i), on the page as Table 4c.
 
 ALL QUEUES FINISHED (campaign16 ended 06:59; nothing running). Republished
 09:45 with everything: renders, plan-rate floor 5–167, latency raw and
@@ -260,6 +260,15 @@ cem_stdmin05 3/6 (was 2/3). Basin over 20 cells (25/33/50/167 × 5 σ): CEM 16,
 PS-hold 12, MPPI-hold 10, PS-cubic 5 (of 15; none at 25).
 `fig_basin` now has the 25 plans/s column and no cubic panel; `fig_floor2` (c)
 shows raw and compensated latency to 500 ms.
+
+## 2i. Target grid (2026-09-13 12:58–13:45, `runs/grid_spp15`, 108 runs)
+Strategy 25 3x3 (target_col_x −0.10/0/+0.10 × target_col_y 0/0.12/0.24), 33 Hz,
+deploy plant, 3 seeds: CEM 23/27, iCEM 22/27, PS-hold 21/27, MPPI-hold 23/27;
+no cell < 1/3; hardest cell (−0.10, A): CEM 1/3, iCEM 1/3. Reading: across
+commanded targets the four hold rules are interchangeable at 3 seeds; CEM's
+advantage is the σ basin, not target coverage. Caveat: `reach_min_mm` is vs
+the unshifted target body, so only column A (y = 0) values are meaningful
+(7–62 mm). Batch G in arms.py generates the 36 arm names.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the

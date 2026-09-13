@@ -247,13 +247,13 @@ state predicted forward as the deploy node does (dotted).}
 %    twice.
 %
 % The commandability experiment (Sec. sec:icra, strategy 11)
-%  - The bench can give a simulation counterpart on strategy 25's 3x3 target
-%    grid (target_col_x / target_col_y numerics) for the four planners; that
-%    sweep is running as this file is written (runs/grid_spp15, 3 seeds per
-%    cell) and will be reported on the study page. On hardware the natural
-%    planner-side statement is that the elite mean's sigma basin (Fig.
-%    fig:planner_basin) is what makes one set of weights hold across targets
-%    and heights without retuning; the sim grid tests that.
+%  - Simulation counterpart on strategy 25's 3x3 target grid (target_col_x
+%    -0.10/0/+0.10 m x target_col_y 0/0.12/0.24 m, 33 plans/s, 3 seeds/cell):
+%    CEM 23/27, iCEM 22/27, PS-hold 21/27, MPPI-hold 23/27, no cell below 1/3.
+%    Across commanded targets the four rules are interchangeable at this seed
+%    count; CEM's advantage is the sigma basin (Fig. fig:planner_basin), i.e.
+%    one set of weights holds across targets without retuning, not target
+%    coverage. Usable as one sentence in the commandability section.
 %  - The one model parameter the controller is exposed to is mass (a 10%
 %    heavier plant halves completion without gravity feedforward); if the
 %    height/target grid carries a payload, say what the payload is relative

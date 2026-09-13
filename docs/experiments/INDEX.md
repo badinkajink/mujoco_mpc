@@ -6,7 +6,7 @@ page was published there as well.
 
 | Date | Page | Local file | Artifact URL |
 |---|---|---|---|
-| 2026-09-11 | Sampling-planner selection for the braced lean at the robot's plan rate (CEM / iCEM / MPPI / predictive sampling on the deploy joint gains, 5–167 plans/s, latency raw and compensated, model mismatch, renders; 1686 runs; supersedes the XML-plant version of the same page) | `docs/lean/20260911-planner_ablation.html` | https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e |
+| 2026-09-11 | Sampling-planner selection for the braced lean at the robot's plan rate (CEM / iCEM / MPPI / predictive sampling on the deploy joint gains, 5–167 plans/s, latency raw and compensated, model mismatch, commanded-target grid, renders; 1794 runs; supersedes the XML-plant version of the same page) | `docs/lean/20260911-planner_ablation.html` | https://claude.ai/code/artifact/6184e1b4-8fe2-421b-867a-e1c41cc4f77e |
 
 Pages from the table-height line live on branch `wxie/table-height` and are
 indexed there (`docs/experiments/INDEX.md` on that branch).
