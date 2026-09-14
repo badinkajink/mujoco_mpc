@@ -959,24 +959,25 @@ def _mis_panel(ax, axis, xlabel, letter_title, ylabel=None, show_ytick=True):
     style_axes(ax)
 
 
-def fig_basin_mismatch(sums, out):
-    """One column-wide figure for the paper: (a-c) completion over sigma x plan
-    rate per update rule (the basin), (d-f) the rule-specific axes k, lambda, N
-    transposed so they sit level in one row, (g-i) success rate under plant-side
-    mass, stiffness and friction error at 12 seeds, (j) the sigma link under
-    mass x 1.10. Axes are placed in inches so every heatmap cell is the same size."""
+def _draw_basin_rows(fig, W, ytop, sums, letters):
+    """Rows 1-2 of the combined figure: the three sigma x plan-rate grids and the
+    k / lambda / N strips. ytop = top of row 1 in inches from the figure's
+    bottom; returns the bottom of row 2 (the N grid). letters=False drops the
+    (a)-(f) prefixes for LaTeX subcaptions."""
+    H = fig.get_figheight()
     rates = [(20, "25"), (15, "33"), (10, "50"), (3, "167")]
     sums = dict(sums); sums.setdefault(20, load("runs/summary_floor_spp20.json"))
-    CELL, W, H = 0.19, COL, 5.85
-    fig = plt.figure(figsize=(W, H))
+    CELL = 0.19
 
     def place(x, y, w, h):  # inches from the figure's lower-left
         return fig.add_axes([x / W, y / H, w / W, h / H])
 
-    # ---- row 1: the basin, three 5 x 4 grids
+    def L(i, t):
+        return ("(%s) " % "abcdefghij"[i] if letters else "") + t
+
     x0, gap = 0.50, 0.19
-    y1 = H - 0.20 - 5 * CELL
-    titles = {"elite mean": "(a) CEM, elite mean", "argmin": "(b) PS, argmin", "softmax": "(c) MPPI, softmax"}
+    y1 = ytop - 5 * CELL
+    titles = {"elite mean": L(0, "CEM, elite mean"), "argmin": L(1, "PS, argmin"), "softmax": L(2, "MPPI, softmax")}
     for j, rule in enumerate(["elite mean", "argmin", "softmax"]):
         ax = place(x0 + j * (4 * CELL + gap), y1, 4 * CELL, 5 * CELL)
         grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp, _ in rates]
@@ -987,18 +988,17 @@ def fig_basin_mismatch(sums, out):
             ax.set_ylabel("Sampling std σ (rad)")
         if j == 1:
             ax.set_xlabel("Plans per second", labelpad=1)
-    # ---- row 2: k, lambda, N -- transposed, bottoms level
     y2 = y1 - 0.50 - 3 * CELL
     ks = [(1, "cem_ne1"), (2, "cem_ne2"), (6, "cem"), (10, "cem_ne10"), (20, "cem_ne20")]
     ax = place(x0, y2, 5 * CELL, 2 * CELL)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for _, arm in ks] for spp in (15, 10)]
-    _cells(ax, grid, C_ELITE, [str(k) for k, _ in ks], ["33", "50"], title="(d) CEM: elites k")
+    _cells(ax, grid, C_ELITE, [str(k) for k, _ in ks], ["33", "50"], title=L(3, "CEM: elites k"))
     ax.set_xlabel("k", labelpad=1); ax.set_ylabel("Plans/s", labelpad=2)
     ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
     xl = x0 + 5 * CELL + 0.14
     ax = place(xl, y2, 3 * CELL, 2 * CELL)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for _, arm in ls] for spp in (15, 10)]
-    _cells(ax, grid, C_SOFTMAX, ["%g" % l for l, _ in ls], ["", ""], title="(e) MPPI: λ")
+    _cells(ax, grid, C_SOFTMAX, ["%g" % l for l, _ in ls], ["", ""], title=L(4, "MPPI: λ"))
     ax.set_xlabel("λ", labelpad=1)
     Ns = [(8, ["cem_n8_ne2", "ps_raw01_zero_n8", "mppi_raw01_zero_l1_n8"]),
           (20, ["cem", "ps_raw01_zero", "mppi_raw01_zero_l1"]),
@@ -1006,16 +1006,31 @@ def fig_basin_mismatch(sums, out):
     xn = xl + 3 * CELL + 0.45
     ax = place(xn, y2, 3 * CELL, 3 * CELL)
     grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
-    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="(f) Rollouts N")
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title=L(5, "Rollouts N"))
     ax.set_ylabel("N", labelpad=2)
-    # ---- row 3: mass, stiffness, friction (12 seeds), shared y
-    PW, PH_, y3 = 0.80, 0.98, y2 - 0.50 - 0.98
-    for j, (axis, xlabel, title) in enumerate([("mass", "Plant mass ×", "(g) Mass"),
-                                               ("kp", "Plant joint kp ×", "(h) Stiffness"),
-                                               ("mu", "Plant friction ×", "(i) Friction")]):
+    return y2
+
+
+def _draw_mismatch_rows(fig, W, ytop, letters):
+    """Rows 3-4 of the combined figure: success under plant-side mass, stiffness
+    and friction error (12 seeds), the sigma link under mass x 1.10, and the
+    legend. ytop = top of row 3; returns the bottom of row 4."""
+    H = fig.get_figheight()
+
+    def place(x, y, w, h):
+        return fig.add_axes([x / W, y / H, w / W, h / H])
+
+    def L(i, t):
+        return ("(%s) " % "abcdefghij"[i] if letters else "") + t
+
+    x0 = 0.50
+    PW, PH_ = 0.80, 0.98
+    y3 = ytop - PH_
+    for j, (axis, xlabel, title) in enumerate([("mass", "Plant mass ×", L(6, "Mass")),
+                                               ("kp", "Plant joint kp ×", L(7, "Stiffness")),
+                                               ("mu", "Plant friction ×", L(8, "Friction"))]):
         ax = place(x0 + j * (PW + 0.17), y3, PW, PH_)
         _mis_panel(ax, axis, xlabel, title, ylabel="Success rate" if j == 0 else None, show_ytick=(j == 0))
-    # ---- row 4: the sigma link + legend
     y4 = y3 - 0.50 - PH_
     dx_ = place(x0, y4, 1.35, PH_)
     base = load("runs/summary_gains_spp15.json"); mis = load("runs/summary_mismatch_spp15_m1.10.json")
@@ -1036,21 +1051,50 @@ def fig_basin_mismatch(sums, out):
     dx_.set_xticks([0.01, 0.02, 0.03]); dx_.set_xticklabels(["0.01", "0.02", "0.03"]); dx_.set_xlim(0.006, 0.034)
     dx_.set_xlabel("Sampling std σ (rad)", labelpad=1.5); dx_.set_ylabel("Success rate", labelpad=2)
     dx_.set_ylim(-0.03, 1.05); dx_.set_yticks([0, 0.5, 1.0]); dx_.tick_params(pad=1.5)
-    dx_.set_title("(j) σ under mass × 1.10", loc="left", pad=3)
+    dx_.set_title(L(9, "σ under mass × 1.10"), loc="left", pad=3)
     style_axes(dx_)
     lg = place(x0 + 1.35 + 0.12, y4 - 0.05, W - x0 - 1.35 - 0.16, PH_ + 0.1); lg.axis("off")
     for arm, label, col, mk, ls in MIS_RULES:
         lg.plot([], [], color=col, lw=1.1, ls=ls, marker=mk, ms=3.6, mec="white", mew=0.5, label=label)
-    lg.plot([], [], marker="o", ms=3.6, mfc="white", mec=C_INK2, lw=0, label="(j) hollow: baseline")
-    lg.plot([], [], marker="o", ms=3.6, color=C_INK2, mec="white", lw=0, label="(j) filled: mass × 1.10")
+    tag = "(j) " if letters else "σ panel, "
+    lg.plot([], [], marker="o", ms=3.6, mfc="white", mec=C_INK2, lw=0, label=tag + "hollow: baseline")
+    lg.plot([], [], marker="o", ms=3.6, color=C_INK2, mec="white", lw=0, label=tag + "filled: mass × 1.10")
     lg.legend(loc="center left", fontsize=6.8, handlelength=2.0, handletextpad=0.5, labelspacing=0.45,
               borderaxespad=0, frameon=False)
+    return y4
+
+
+def fig_basin_mismatch(sums, out):
+    """One column-wide figure for the paper: (a-c) completion over sigma x plan
+    rate per update rule (the basin), (d-f) the rule-specific axes k, lambda, N
+    transposed so they sit level in one row, (g-i) success rate under plant-side
+    mass, stiffness and friction error at 12 seeds, (j) the sigma link under
+    mass x 1.10. Axes are placed in inches so every heatmap cell is the same size."""
+    W, H = COL, 5.85
+    fig = plt.figure(figsize=(W, H))
+    y2 = _draw_basin_rows(fig, W, H - 0.20, sums, letters=True)
+    _draw_mismatch_rows(fig, W, y2 - 0.50, letters=True)
     fig.text(0.5 / W, 0.04 / H, "(a–f) 6 seeds per cell; outlined: ≥ 4/6 complete. (g–j) 12 seeds, Wilson 95 % intervals. "
              "Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied; (f) at 33 plans/s.",
              fontsize=5.8, color=C_INK2, wrap=True)
     fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
     plt.close(fig)
 
+
+def fig_basin_mismatch_split(sums, out):
+    """The same figure as two column-wide PDFs for a LaTeX subfigure stack
+    (user 2026-09-14): <out>_a = rows 1-2 (basin + k/lambda/N strips), <out>_b =
+    rows 3-4 (model error + sigma link + legend). Same geometry, no letters or
+    footnote in the PDFs; the captions carry those."""
+    W = COL
+    fig = plt.figure(figsize=(W, 2.62))
+    _draw_basin_rows(fig, W, 2.62 - 0.20, sums, letters=False)
+    fig.savefig(out + "_a.pdf"); fig.savefig(out + "_a.png")
+    plt.close(fig)
+    fig = plt.figure(figsize=(W, 3.08))
+    _draw_mismatch_rows(fig, W, 3.08 - 0.22, letters=False)
+    fig.savefig(out + "_b.pdf"); fig.savefig(out + "_b.png")
+    plt.close(fig)
 
 
 def main():
@@ -1079,6 +1123,7 @@ def main():
     fig_floor2(os.path.join(out, "fig_floor2"))
     fig_mismatch(os.path.join(out, "fig_mismatch"))
     fig_basin_mismatch(sums, os.path.join(out, "fig_basin_mismatch"))
+    fig_basin_mismatch_split(sums, os.path.join(out, "fig_basin_mismatch"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)

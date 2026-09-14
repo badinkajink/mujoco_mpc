@@ -7,20 +7,21 @@ this box. Read this before touching anything: the story changed twice on
 the overnight version (§3 below says what it gets wrong).
 
 ## 0. State at 2026-09-14 00:40 (read this first)
-MULTIFIGURE (user 2026-09-14 00:05: "a latex multifigure with subcaptions
-rather than pdf-rendered captions, a broad caption 'Sampling-based planner
-ablation: <short descriptor>', the separated pdfs and a .tex with just the
-multifig + the 2-3 paragraph main-body section"): `paper/planner_ablation_multifig.tex`
-(one figure* of six subcaption panels a-f + \subsection{Planner Ablation} in
-three paragraphs) with panels in `paper/figures/planner/panels/panel_{ladder,
-persist,rate,basin,mismatch,sigma,strips}.pdf`, drawn by `paper_panels.py`
-(output `paper_panels/`, PDF+PNG) at their printed widths (516 pt textwidth;
-a 0.45, b 0.26, c 0.26, d 0.43, e 0.375, f 0.165) with no letters, titles or
-footnotes in the PDFs. Test-compiled in an IEEEtran harness (IEEEtran.cls is
-not installed on the box; the scratchpad copy came from CTAN); the figure is
-about 5.1 in tall with captions. `planner_ablation.tex` (the earlier single
-figures + table + discussion paragraph + feedback) is unchanged and still valid;
-the two files are alternatives for the same subsection, do not \input both.
+MULTIFIGURE (user 2026-09-14): `paper/planner_ablation_multifig.tex` = the
+combined fig_basin_mismatch split into TWO column-width PDFs stacked as LaTeX
+subfigures with subcaptions, `paper/figures/planner/fig_basin_mismatch_a.pdf`
+(rows 1-2: the σ × rate grids + k/λ/N strips) and `_b.pdf` (rows 3-4: mass /
+stiffness / friction + σ link + legend), same geometry as the combined figure,
+panel letters and footnote removed (the captions carry them); broad caption
+"Sampling-based planner ablation: sensitivity to configuration and to model
+error"; then \subsection{Planner Ablation} in three paragraphs. Drawn by
+`paper_figs.py::fig_basin_mismatch_split` (the combined `fig_basin_mismatch`
+was refactored into `_draw_basin_rows` + `_draw_mismatch_rows` and re-renders
+pixel-identical). Test-compiled in an IEEEtran harness in the scratchpad
+(IEEEtran.cls is not installed on the box). A first attempt (six separate
+panels in a figure*, commit f7080ab2) was wrong and is removed. The earlier
+`planner_ablation.tex` is unchanged; both files define fig:planner_basin and
+sec:planner_ablation, so \input one or the other.
 LOCAL VIEWING: `docs/tools/serve.sh start|stop|status` runs a static server for
 `mujoco_mpc/docs` on 127.0.0.1:8765 as the systemd --user unit `golem-docs-http`
 (linger is on, so it survives logout). Forward port 8765 in VS Code and open
@@ -515,10 +516,10 @@ side by side, sequential single-hue, admissible cells outlined), `fig_window`
 marker fill), `fig_rate` (already there).
 
 ## 6. Paper figures (`paper_figs.py`, output `paper_figs/`, PDF+PNG, IEEE column width)
-2026-09-14: the multifigure panels are a separate script, `paper_panels.py`
-(imports paper_figs for data and tokens; output `paper_panels/`; copies the PDFs
-to `paper/figures/planner/panels/`). Panel = figure content only; letters and
-captions are LaTeX subcaptions in `paper/planner_ablation_multifig.tex`.
+2026-09-14: `fig_basin_mismatch_split` writes `fig_basin_mismatch_{a,b}.pdf`
+(the combined figure cut between rows 2 and 3, no letters/footnote) for the
+subfigure stack in `paper/planner_ablation_multifig.tex`; copy both to
+`paper/figures/planner/` after regenerating.
 Target set for the paper (user 2026-09-11: "fewer and denser"): three figures.
 1. **fig_ladder** — one row per configuration from shipped PS/MPPI to iCEM,
    three switch columns (noise std, spline, update rule; the cell that changed
