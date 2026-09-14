@@ -1,0 +1,130 @@
+% planner_ablation_multifig.tex -- the planner ablation as one figure* with LaTeX
+% subcaptions plus the main-body subsection (2026-09-14, W. Xie / Claude).
+%
+% Preamble: \usepackage{subcaption}  (caption is already loaded for \captionof;
+% subcaption must come after it). Panels are in figures/planner/panels/, drawn
+% at their printed width by studies/planner_ablation/paper_panels.py, so no
+% panel carries a letter, title or footnote; every number below is from the
+% deploy-gains bench (lean_bench --gains deploy, strategy 25, 33 plans/s and
+% six seeds per point unless stated). Extra panel not used here:
+% panels/panel_strips.pdf (CEM elite count k, MPPI temperature, rollouts N).
+%
+% Usage: \input{planner_ablation_multifig} where Methods refers to
+% Sec.~\ref{sec:planner_ablation}. The figure is 0.97\textwidth wide and about
+% 5.1 in tall with captions; drop (c) and (f) to bring it under 4 in.
+
+\begin{figure*}[t]
+\centering
+\begin{subfigure}[b]{0.45\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_ladder.pdf}
+  \caption{From PS to CEM one component at a time; the cell that changed from
+  the row above is set in black. Filled: 33 plans/s, hollow: 167.}
+  \label{fig:planner_a}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.26\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_persist.pdf}
+  \caption{Success at 33 plans/s against how long the sampled perturbation of the
+  executed action persists in the rollout (lag at which its autocorrelation
+  falls below 0.8), for 20 spline, knot-count and noise-colour configurations.}
+  \label{fig:planner_b}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.26\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_rate.pdf}
+  \caption{Success against plan rate at $\sigma=0.01$\,rad.}
+  \label{fig:planner_c}
+\end{subfigure}
+
+\vspace{4pt}
+\begin{subfigure}[b]{0.43\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_basin.pdf}
+  \caption{Success over $\sigma$ and plan rate for each update rule on the hold
+  spline; outlined cells are at $\ge 4/6$.}
+  \label{fig:planner_d}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.375\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_mismatch.pdf}
+  \caption{Success at 33 plans/s when the plant's mass, joint stiffness or sliding
+  friction is scaled and the planner's model is not; 12 seeds, lines as in (c).}
+  \label{fig:planner_e}
+\end{subfigure}\hfill
+\begin{subfigure}[b]{0.165\textwidth}
+  \centering\includegraphics[width=\linewidth]{figures/planner/panels/panel_sigma.pdf}
+  \caption{Wider $\sigma$ at baseline (hollow) and under $1.10\times$ mass
+  (filled); 12 seeds.}
+  \label{fig:planner_f}
+\end{subfigure}
+\caption{\textbf{Sampling-based planner ablation: components, sensitivity, and
+model error.} Simulation on the robot's joint gains; six seeds per point unless
+stated, Wilson 95\% intervals; hold spline, $\sigma=0.01$\,rad, 20 rollouts,
+six elites and $\lambda=1$ unless varied. $0.01^*$: CEM and iCEM floor the
+elite standard deviation at $0.01$\,rad and refit at $1.3\times$ the floor.}
+\label{fig:planner}
+\end{figure*}
+
+\subsection{Planner Ablation}\label{sec:planner_ablation}
+At the robot's joint gains and its 33 plans/s, CEM as shipped in MJPC completes
+the ladder (stand, lean, reach, release, four stand-back rungs) on 5/6 seeds
+and iCEM on 6/6; predictive sampling (PS) and MPPI complete 0/6, PS falling in
+the initial stand on five seeds and MPPI before or during the lean on every
+seed (Fig.~\ref{fig:planner}a). Two of the three components that differ between
+the planners account for the gap. PS and MPPI scale their noise by the control
+range, $0.12\times\tfrac12\,\mathrm{ctrlrange}=0.03$--$0.36$\,rad per joint
+(median $0.21$), where CEM samples in radians with a $0.01$\,rad floor; set to
+$0.01$\,rad on the cubic spline MJPC's sampling planner ships with, PS and MPPI
+still complete 0/6 and 1/6. With the zero-order hold that CEM hard-codes, PS at
+$0.01$\,rad completes 6/6 and MPPI 4/6, and CEM on the cubic spline drops to
+1/6. Across twenty spline, knot-count and noise-colour configurations the
+separating quantity is how long the sampled perturbation of the executed
+action persists in the rollout (Fig.~\ref{fig:planner}b): every configuration
+whose autocorrelation falls below $0.8$ within $0.20$\,s completes 0--2/6 and
+every one that holds it to $0.22$\,s completes 5--6/6, for all four planners.
+A three-knot hold gives $0.33$\,s by construction; iCEM's AR(1) knot noise gives
+it by correlation, which is why iCEM completes with either spline. The update
+rule (\textsc{Fold} in Alg.~\ref{alg:skeleton}) is not one of the two: with
+the hold and $0.01$\,rad the argmin (PS, and CEM with one elite), the mean of
+$k\le 10$ elites and the softmax mean all complete 4--6/6, and only $k=20$, no
+selection at all, completes 0/6.
+
+The update rule decides sensitivity. Over $\sigma\times$plan rate
+(Fig.~\ref{fig:planner}d) CEM completes $\ge 4/6$ in 16 of 20 cells, PS on the
+hold in 12, MPPI in 10 and PS on its shipped cubic spline in 5 of 15; at 33
+plans/s CEM's admissible $\sigma$ spans the tested decade and the other rules'
+one octave. The elite mean's random step is $\sigma/\sqrt{k}$ where the
+argmin's is a full $\sigma$, and that is what lets it trade noise for rate: at
+$0.02$\,rad CEM completes 5/6 at 16.7 plans/s, where PS and MPPI gain nothing
+from the same change. The same asymmetry holds against model error
+(Fig.~\ref{fig:planner}e; the plant's mass, joint stiffness or sliding friction
+is scaled after the planner has taken its model, 12 seeds per cell). Pooled
+over the three axes CEM completes 80/108, the argmin 47/108 and the softmax
+mean 42/108 (one-sided Fisher $p=4\times10^{-6}$ and $1\times10^{-7}$). A plant
+two or three times as stiff as the model costs CEM nothing (11, 10/12) and PS
+7--11 seeds, every loss a fall at the lean onset, where the argmin executes one
+sample's full step; friction at $0.4\times$ costs CEM and iCEM nothing and PS
+and MPPI 5--6 seeds. Mass is the hard axis for every rule and the one on which
+iCEM fails (3/12 at $1.10\times$, every loss a fall in the stand: the heavier
+plant sags under the joint PD and iCEM's $3$\,mrad step cannot walk the
+setpoints out of the sag); widening its floor to $0.03$\,rad restores 9/12
+(Fig.~\ref{fig:planner}f), and the same widening costs CEM nothing at baseline
+(11/12) and PS three seeds. This is tolerance to parametric plant error;
+estimator noise and unmodelled actuator dynamics are not in the bench.
+
+The rate floor sits just below the robot's rate (Fig.~\ref{fig:planner}c): at
+$0.01$\,rad, 25 plans/s completes 1--5/6, 16.7 plans/s 0--1/6 and 10 plans/s
+0/6, every failure a backward fall 2--3\,s into the lean, while the $12$\,s
+stand survives at 5 plans/s; this is the 22\,Hz desktop failure of
+Sec.~\ref{sec:method}. The executed target step per plan depends on $\sigma$
+and the rule (CEM $5$--$8$\,mrad at every rate from 167 down to 5 plans/s), so
+setpoint speed is step\,$\times$\,rate, and the lean onset needs
+$30$--$40$\,mrad/s of directed setpoint motion (RMS over the 27 joints), which
+33 plans/s just supplies. Whole-body locomotion MPC runs at 50--100 plans/s
+because it re-decides a contact set every $\approx 0.3$\,s of stance and
+stabilises an underactuated phase with the pendulum's time constant; supported
+reaching has a fixed contact set, a posture the $500$\,Hz joint PD holds
+between plans, and one fast event. The planner is a setpoint optimiser over a
+stabilised plant, its rate requirement is set by how fast the setpoints must
+move, and a larger sampling step buys rate back only for the elite mean.
+Planning from a state $100$\,ms stale costs nothing at 33 plans/s and
+$200$\,ms costs 2--5 seeds, or none with the deploy node's forward prediction;
+halving the horizon to $0.5$\,s completes 0/6 and quartering the rollouts
+0--2/6, so the deployed $1$\,s, 20-rollout configuration is close to minimal
+in every direction but the noise.
