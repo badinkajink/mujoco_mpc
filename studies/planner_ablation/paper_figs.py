@@ -138,8 +138,8 @@ def fig_rate(sums, out):
     ax.set_xticks(xs)
     ax.set_xticklabels(["%d" % x for x in xs])
     ax.minorticks_off()
-    ax.set_xlabel("plans per second")
-    ax.set_ylabel("ladder completed, fraction of seeds")
+    ax.set_xlabel("Plans per second")
+    ax.set_ylabel("Success rate")
     ax.set_ylim(-0.03, 1.12)
     ax.set_yticks([0, 0.5, 1.0])
     ax.axvline(33, color=C_GRAY, lw=6, alpha=0.18, zorder=0)
@@ -166,10 +166,10 @@ def fig_elites(S, out):
         if not math.isnan(m):
             axs[1].errorbar(k, m, yerr=[[m - lo], [hi - m]], fmt="o", ms=5, mec="white", mew=0.8,
                             color=C_ELITE if k not in (1, 20) else C_GRAY, capsize=2, elinewidth=1.0, zorder=3)
-    axs[0].set_ylabel("completed, fraction")
+    axs[0].set_ylabel("Success rate")
     axs[0].set_ylim(-0.03, 1.05); axs[0].set_yticks([0, 0.5, 1.0])
-    axs[1].set_ylabel("executed step per plan,\nmrad RMS over 27 joints")
-    axs[1].set_xlabel("elite count k of 20 rollouts (CEM, 33 plans/s)")
+    axs[1].set_ylabel("Executed step per plan\n(mrad RMS over 27 joints)")
+    axs[1].set_xlabel("Elite count k of 20 rollouts (CEM, 33 plans/s)")
     axs[1].set_xscale("log"); axs[1].set_xticks(ks); axs[1].set_xticklabels([str(k) for k in ks])
     axs[1].minorticks_off()
     axs[0].annotate("argmin", (1, 0), xytext=(0, 14), textcoords="offset points", ha="center",
@@ -208,11 +208,11 @@ def fig_floor(S15, S3, out):
         ax.set_xticks([0.01, 0.02, 0.03, 0.05, 0.1])
         ax.set_xticklabels(["0.01", "0.02", "0.03", "0.05", "0.10"])
         ax.minorticks_off()
-        ax.set_xlabel("sampling std per knot, rad")
+        ax.set_xlabel("Sampling std per knot (rad)")
         ax.set_title(title, loc="left")
         ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
         style_axes(ax)
-    axs[0].set_ylabel("completed, fraction")
+    axs[0].set_ylabel("Success rate")
     axs[1].legend(loc="lower left")
     fig.tight_layout(w_pad=1.0)
     fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
@@ -234,8 +234,8 @@ def fig_step(S, out):
         ax.plot(x[ok], ys[ok], color=col, lw=1.6, marker=mk, ms=4.5, mec="white", mew=0.8, label=label, zorder=3)
         ax.fill_between(x[ok], np.array(los)[ok], np.array(his)[ok], color=col, alpha=0.10, lw=0)
     ax.set_xticks(x); ax.set_xticklabels(PH)
-    ax.set_ylabel("executed step per plan,\nmrad RMS over 27 joints")
-    ax.set_xlabel("rung of the ladder (33 plans/s, 0.01 rad noise)")
+    ax.set_ylabel("Executed step per plan\n(mrad RMS over 27 joints)")
+    ax.set_xlabel("Rung of the ladder (33 plans/s, 0.01 rad noise)")
     style_axes(ax)
     ax.legend(loc="upper left")
     fig.tight_layout()
@@ -259,9 +259,9 @@ def fig_shipped(S3, out):
         ax.plot([p2], [yi], marker="o", ms=6, color=col, mec="white", mew=0.8, zorder=4)
     ax.set_yticks(y); ax.set_yticklabels([r[0] for r in rows])
     ax.set_xlim(-0.05, 1.08); ax.set_xticks([0, 0.5, 1.0])
-    ax.set_xlabel("completed, fraction of 3 seeds (167 plans/s)")
-    ax.plot([], [], marker="o", ms=6, color="white", mec=C_INK2, mew=1.4, lw=0, label="as shipped")
-    ax.plot([], [], marker="o", ms=6, color=C_INK2, lw=0, label="noise set to 0.01 rad")
+    ax.set_xlabel("Success rate (3 seeds, 167 plans/s)")
+    ax.plot([], [], marker="o", ms=6, color="white", mec=C_INK2, mew=1.4, lw=0, label="As shipped")
+    ax.plot([], [], marker="o", ms=6, color=C_INK2, lw=0, label="Noise set to 0.01 rad")
     ax.legend(loc="lower left", bbox_to_anchor=(0.0, 0.32))
     ax.grid(True, axis="x", zorder=0); ax.set_axisbelow(True)
     fig.tight_layout()
@@ -304,8 +304,8 @@ def fig_window(S, out, hz=33):
     ax.set_xticks([3, 5, 10, 20, 50])
     ax.set_xticklabels(["3", "5", "10", "20", "50"])
     ax.minorticks_off()
-    ax.set_xlabel("executed step per plan in the lean rung, mrad RMS over 27 joints")
-    ax.set_ylabel("completed, fraction of seeds")
+    ax.set_xlabel("Executed step per plan in the lean rung (mrad RMS over 27 joints)")
+    ax.set_ylabel("Success rate")
     ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
     ax.annotate("fails backward\nat the lean onset", xy=(4.2, 0.88), fontsize=6.5, color=C_INK2, ha="center")
     ax.annotate("fails in the stand", xy=(36, 0.88), fontsize=6.5, color=C_INK2, ha="center")
@@ -394,9 +394,9 @@ def fig_basin(sums, out):
         _cells(ax, grid, RULE_COL[rule], [h for _, h in rates], ["%g" % x for x in SIG] if j == 0 else [""] * 5,
                title=titles[rule])
         if j == 0:
-            ax.set_ylabel("sampling std σ, rad")
+            ax.set_ylabel("Sampling std σ (rad)")
         if j == 1:
-            ax.set_xlabel("plans per second", labelpad=1, x=1.1)
+            ax.set_xlabel("Plans per second", labelpad=1, x=1.1)
         adm = sum(1 for row in grid for kn in row if kn and kn[1] and kn[0] / kn[1] >= ADMISSIBLE - 1e-9)
         tot = sum(1 for row in grid for kn in row if kn and kn[1])
         basin[rule] = (adm, tot)
@@ -405,22 +405,22 @@ def fig_basin(sums, out):
     ax = place(x0, ybot, 2, 5)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ks]
     _cells(ax, grid, C_ELITE, ["33", "50"], [str(k) for k, _ in ks], title="CEM: elites k of 20")
-    ax.set_ylabel("k"); ax.set_xlabel("plans/s", labelpad=1)
+    ax.set_ylabel("k"); ax.set_xlabel("Plans/s", labelpad=1)
     # row 2, middle: MPPI lambda x rate
     ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
     ax = place(x0 + 4 * CELL + gap + 0.15, ybot + 2 * CELL, 2, 3)
     grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp in (15, 10)] for _, arm in ls]
     _cells(ax, grid, C_SOFTMAX, ["33", "50"], ["%g" % l for l, _ in ls], title="MPPI: temperature λ")
-    ax.set_ylabel("λ"); ax.set_xlabel("plans/s", labelpad=1)
+    ax.set_ylabel("λ"); ax.set_xlabel("Plans/s", labelpad=1)
     # row 2, right: N x rule at 33 Hz
     Ns = [(8, ["cem_n8_ne2", "ps_raw01_zero_n8", "mppi_raw01_zero_l1_n8"]),
           (20, ["cem", "ps_raw01_zero", "mppi_raw01_zero_l1"]),
           (40, ["cem_n40_ne12", "ps_raw01_zero_n40", "mppi_raw01_zero_l1_n40"])]
     ax = place(x0 + 2 * (4 * CELL + gap) + 0.12, ybot + 2 * CELL, 3, 3)
     grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
-    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="rollouts N, 33 plans/s", )
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="Rollouts N, 33 plans/s", )
     ax.set_ylabel("N")
-    fig.text(0.02, 0.012, "outlined: ≥ 2/3 of 6 seeds complete.  Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied.",
+    fig.text(0.02, 0.012, "Outlined: ≥ 4/6 seeds complete.  Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied.",
              fontsize=6.0, color=C_INK2)
     fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
     plt.close(fig)
@@ -478,15 +478,15 @@ def fig_window_all(sums, out):
     for spp in (15, 10, 3):
         ax.plot([], [], marker="s", color=C_INK2, mec=C_INK2, lw=0, ms=5, fillstyle=FILL[spp], label=RLAB[spp])
     ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.02), handlelength=1.2, borderaxespad=0)
-    ax.set_ylabel("completed, fraction of seeds")
+    ax.set_ylabel("Success rate")
     ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
     bx.set_xscale("log")
     bx.set_xticks([2, 3, 5, 10, 20, 50]); bx.set_xticklabels(["2", "3", "5", "10", "20", "50"])
     bx.minorticks_off()
-    bx.set_xlabel("executed step per plan in the lean rung, mrad RMS over 27 joints")
-    bx.set_ylabel("CoM margin at the lean onset, m\n(min over 1.2 s; negative = behind)")
-    bx.plot([], [], marker="o", color=C_INK2, lw=0, ms=4, label="completed")
-    bx.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=4, label="failed")
+    bx.set_xlabel("Executed step per plan in the lean rung (mrad RMS over 27 joints)")
+    bx.set_ylabel("CoM margin at the lean onset (m)\n(min over 1.2 s; negative = behind)")
+    bx.plot([], [], marker="o", color=C_INK2, lw=0, ms=4, label="Completed")
+    bx.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=4, label="Failed")
     bx.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), handlelength=1.2, borderaxespad=0)
     for a_ in axs:
         style_axes(a_)
@@ -561,7 +561,7 @@ def fig_ladder(sums, out):
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.grid(True, axis="x", zorder=0); ax.set_axisbelow(True)
-    ax.set_xlabel("completed, fraction of seeds")
+    ax.set_xlabel("Success rate")
     ax.plot([], [], marker="o", ms=5, color=C_INK2, lw=0, label="33 plans/s")
     ax.plot([], [], marker="o", ms=5, mfc="white", mec=C_INK2, lw=0, label="167 plans/s")
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, handletextpad=0.3, columnspacing=0.8)
@@ -590,8 +590,8 @@ def fig_spline(S15, out):
         d = pd.read_csv(pth)
         w = d[(d.t >= 9.0) & (d.t <= 9.4)]
         ax.plot(w.t - 9.0, 1000 * (w.u1 - w.u1.iloc[0]), color=col, lw=1.1, label=lab)
-    ax.set_xlabel("time, s (quiet stand)")
-    ax.set_ylabel("hip-pitch target, mrad")
+    ax.set_xlabel("Time (s), quiet stand")
+    ax.set_ylabel("Hip-pitch target (mrad)")
     ax.set_xticks([0, 0.2, 0.4])
     ax.legend(loc="upper left", handlelength=1.4, borderaxespad=0.2)
     ax.set_title("PS, 0.01 rad, 33 plans/s", loc="left", fontsize=7.5)
@@ -625,9 +625,9 @@ def fig_spline(S15, out):
     bx.set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8.6])
     bx.set_yticklabels(["stand", "lean", "reach", "release", "back 1", "2", "3", "4", "complete"])
     bx.set_ylim(-0.5, 9.8)
-    bx.set_ylabel("furthest rung, per seed", labelpad=2)
-    bx.plot([], [], marker="x", color=C_INK2, lw=0, ms=4.5, label="fell")
-    bx.plot([], [], marker="_", color=C_INK2, lw=0, ms=4.5, mew=1.1, label="stalled")
+    bx.set_ylabel("Furthest rung, per seed", labelpad=2)
+    bx.plot([], [], marker="x", color=C_INK2, lw=0, ms=4.5, label="Fell")
+    bx.plot([], [], marker="_", color=C_INK2, lw=0, ms=4.5, mew=1.1, label="Stalled")
     bx.legend(loc="center right", bbox_to_anchor=(1.02, 0.5), handlelength=1.0, borderaxespad=0.1)
     bx.grid(True, axis="y", zorder=0); bx.set_axisbelow(True)
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
@@ -691,14 +691,14 @@ def fig_persist(S15, out):
     ax.set_xscale("log")
     ax.set_xticks([0.05, 0.1, 0.2, 0.3, 0.5]); ax.set_xticklabels(["0.05", "0.1", "0.2", "0.3", "0.5"])
     ax.minorticks_off()
-    ax.set_xlabel("persistence of the sampled perturbation in the rollout, s\n(lag at which its autocorrelation falls below 0.8)")
-    ax.set_ylabel("completed, fraction of 6 seeds")
+    ax.set_xlabel("Persistence of the sampled perturbation in the rollout (s)\n(lag at which its autocorrelation falls below 0.8)")
+    ax.set_ylabel("Success rate")
     ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
     for fam, lab in [("ps", "predictive sampling"), ("mppi", "MPPI"), ("cem", "CEM"), ("icem", "iCEM")]:
         mk, col = FAM_MK[fam]
         ax.plot([], [], marker=mk, color=col, lw=0, ms=5, label=lab)
-    ax.plot([], [], marker="o", mfc=C_INK2, mec=C_INK2, lw=0, ms=5, label="hold")
-    ax.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=5, label="cubic / linear")
+    ax.plot([], [], marker="o", mfc=C_INK2, mec=C_INK2, lw=0, ms=5, label="Hold")
+    ax.plot([], [], marker="o", mfc="white", mec=C_INK2, lw=0, ms=5, label="Cubic / linear")
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=3, handlelength=1.0, columnspacing=1.2)
     ax.set_title("33 plans/s, σ = 0.01 rad", loc="left")
     style_axes(ax)
@@ -744,7 +744,7 @@ def fig_floor2(out):
         for x, y, lo, hi in zip(xs, ys, los, his):
             ax.plot([x, x], [lo, hi], color=col, lw=0.6, alpha=0.35, zorder=2)
     ax.set_xscale("log"); ax.set_xticks([5, 10, 17, 25, 33, 50, 83, 167]); ax.set_xticklabels(["5", "10", "17", "25", "33", "50", "83", "167"])
-    ax.minorticks_off(); ax.set_xlabel("plans per second"); ax.set_ylabel("completed, fraction of 6 seeds")
+    ax.minorticks_off(); ax.set_xlabel("Plans per second"); ax.set_ylabel("Success rate")
     ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
     ax.axvline(33, color=C_GRAY, lw=6, alpha=0.18, zorder=0); ax.text(33, 1.06, "robot", ha="center", va="bottom", fontsize=6.5, color=C_INK2)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=2, fontsize=6, handlelength=2.0, columnspacing=0.8)
@@ -798,14 +798,14 @@ def fig_floor2(out):
     bx.set_xticks([10, 20, 40, 80]); bx.set_xticklabels(["10", "20", "40", "80"])
     bx.set_yticks([3, 5, 10, 20, 30]); bx.set_yticklabels(["3", "5", "10", "20", "30"])
     bx.minorticks_off()
-    bx.set_xlabel("directed target speed, mrad/s\n(first 2 s of the lean, RMS over 27 joints)")
-    bx.set_ylabel("executed step per plan, mrad", labelpad=1)
+    bx.set_xlabel("Directed target speed (mrad/s)\n(first 2 s of the lean, RMS over 27 joints)")
+    bx.set_ylabel("Executed step per plan (mrad)", labelpad=1)
     for rule in ["elite mean", "argmin", "softmax"]:
         bx.plot([], [], marker=MK[rule], color=RULE_COL[rule], lw=0, ms=5, label=rule)
     for p_, lab in [(0.0, "0/6"), (0.5, "3/6"), (1.0, "6/6")]:
         bx.plot([], [], marker="s", mfc=_mix(C_INK2, p_), mec=C_INK2, lw=0, ms=5, label=lab)
     bx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.36), ncol=3, fontsize=6, handlelength=1.0, columnspacing=0.8)
-    bx.set_title("every hold arm, 5–167 plans/s, σ 0.005–0.05", loc="left", fontsize=7)
+    bx.set_title("Every hold arm, 5–167 plans/s, σ 0.005–0.05", loc="left", fontsize=7)
     style_axes(bx); bx.grid(True, axis="x", zorder=0)
     # (c) latency at 33 plans/s: raw (planned from the stale state) and
     # compensated (the stale state predicted forward, as the deploy node does);
@@ -830,10 +830,10 @@ def fig_floor2(out):
                 xs.append(xpos[ms]); means.append(np.mean(vals))
         cx.plot(xs, means, color=C_INK2, lw=1.4, ls=ls, zorder=2, label=lab)
     cx.set_xticks(list(xpos.values())); cx.set_xticklabels([str(m) for m in lat_ms], fontsize=6.5)
-    cx.set_xlabel("plan latency, ms (33 plans/s)")
+    cx.set_xlabel("Plan latency (ms), 33 plans/s")
     cx.set_ylim(-0.03, 1.05); cx.set_yticks([0, 0.5, 1.0]); cx.set_yticklabels([])
     cx.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=1, fontsize=6, handlelength=2.0)
-    cx.set_title("hold arms; line = 4-arm mean", loc="left", fontsize=7)
+    cx.set_title("Hold arms; line = 4-arm mean", loc="left", fontsize=7)
     style_axes(cx)
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
     plt.close(fig)
@@ -851,8 +851,8 @@ MIS_SETS = {
 MIS_RULES = [  # arm, label, color, marker, linestyle
     ("cem", "CEM", C_ELITE, "o", "-"),
     ("icem", "iCEM", C_ELITE, "s", "--"),
-    ("ps_raw01_zero", "PS, argmin", C_ARGMIN, "v", "-"),
-    ("mppi_raw01_zero_l1", "MPPI, softmax", C_SOFTMAX, "D", "-"),
+    ("ps_raw01_zero", "PS (argmin)", C_ARGMIN, "v", "-"),
+    ("mppi_raw01_zero_l1", "MPPI (softmax)", C_SOFTMAX, "D", "-"),
 ]
 SIGMA_LINK = {  # arm -> [(sigma, arm at that sigma)]
     "cem": [(0.01, "cem"), (0.02, "cem_stdmin02"), (0.03, "cem_stdmin03")],
@@ -868,7 +868,7 @@ def fig_mismatch(out):
     friction scaled; 12 seeds per cell. (d) the sigma link: the same rules with
     a wider noise std at baseline (hollow) and under mass x 1.10 (filled)."""
     fig, axs = plt.subplots(2, 2, figsize=(COL, 3.3), gridspec_kw={"hspace": 0.62, "wspace": 0.32})
-    panels = [("mass", "plant mass × ", axs[0, 0]), ("kp", "plant joint kp × ", axs[0, 1]), ("mu", "plant friction × ", axs[1, 0])]
+    panels = [("mass", "Plant mass × ", axs[0, 0]), ("kp", "Plant joint kp × ", axs[0, 1]), ("mu", "Plant friction × ", axs[1, 0])]
     for axis, xlabel, ax in panels:
         sets = [(x, load(p)) for x, p in MIS_SETS[axis]]
         xs_all = [x for x, _ in sets]
@@ -892,10 +892,10 @@ def fig_mismatch(out):
         ax.set_xlabel(xlabel.strip(" ×") + " ×", labelpad=1.5)
         ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
         style_axes(ax)
-    axs[0, 0].set_ylabel("completed, fraction of 12")
-    axs[1, 0].set_ylabel("completed, fraction of 12")
-    axs[0, 0].set_title("(a) mass", loc="left"); axs[0, 1].set_title("(b) joint stiffness", loc="left")
-    axs[1, 0].set_title("(c) sliding friction", loc="left")
+    axs[0, 0].set_ylabel("Success rate")
+    axs[1, 0].set_ylabel("Success rate")
+    axs[0, 0].set_title("(a) Mass", loc="left"); axs[0, 1].set_title("(b) Joint stiffness", loc="left")
+    axs[1, 0].set_title("(c) Sliding friction", loc="left")
     # (d) the sigma link
     dx_ = axs[1, 1]
     base = load("runs/summary_gains_spp15.json"); mis = load("runs/summary_mismatch_spp15_m1.10.json")
@@ -916,7 +916,7 @@ def fig_mismatch(out):
             dx_.plot([x, x], [y1, y0], color=col, lw=0.6, ls=":", zorder=2)
     dx_.set_xticks([0.01, 0.02, 0.03]); dx_.set_xticklabels(["0.01", "0.02", "0.03"])
     dx_.set_xlim(0.006, 0.034)
-    dx_.set_xlabel("sampling std σ, rad", labelpad=1.5)
+    dx_.set_xlabel("Sampling std σ (rad)", labelpad=1.5)
     dx_.set_ylim(-0.03, 1.05); dx_.set_yticks([0, 0.5, 1.0])
     dx_.set_title("(d) σ under mass × 1.10", loc="left")
     style_axes(dx_)
@@ -926,6 +926,129 @@ def fig_mismatch(out):
     a0.legend(loc="upper center", bbox_to_anchor=(1.15, -1.95), ncol=3, fontsize=6.5,
               handlelength=2.0, columnspacing=1.0, handletextpad=0.4)
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---- fig_basin_mismatch: the basin (Figure 2) + plant-side model error, one column ----
+def _mis_panel(ax, axis, xlabel, letter_title, ylabel=None, show_ytick=True):
+    sets = [(x, load(p)) for x, p in MIS_SETS[axis]]
+    xs_all = [x for x, _ in sets]
+    for j, (arm, label, col, mk, ls) in enumerate(MIS_RULES):
+        xs, ys, los, his = [], [], [], []
+        for x, S in sets:
+            k, n = counts(S, arm)
+            if not n:
+                continue
+            xs.append(x); ys.append(k / n); lo, hi = wilson(k, n); los.append(lo); his.append(hi)
+        span = (max(xs_all) - min(xs_all))
+        xs = np.array(xs) + (j - 1.5) * 0.012 * span
+        ax.plot(xs, ys, color=col, lw=1.1, ls=ls, marker=mk, ms=3.6, mec="white", mew=0.5, label=label, zorder=3)
+        for x, lo, hi in zip(xs, los, his):
+            ax.plot([x, x], [lo, hi], color=col, lw=0.5, alpha=0.4, zorder=2)
+    ax.set_xticks(xs_all); ax.set_xticklabels(["%g" % x for x in xs_all])
+    if axis == "mu":
+        ax.invert_xaxis()
+    ax.set_xlabel(xlabel, labelpad=1.5)
+    ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
+    if not show_ytick:
+        ax.set_yticklabels([])
+    if ylabel:
+        ax.set_ylabel(ylabel, labelpad=2)
+    ax.set_title(letter_title, loc="left", pad=3)
+    ax.tick_params(pad=1.5)
+    style_axes(ax)
+
+
+def fig_basin_mismatch(sums, out):
+    """One column-wide figure for the paper: (a-c) completion over sigma x plan
+    rate per update rule (the basin), (d-f) the rule-specific axes k, lambda, N
+    transposed so they sit level in one row, (g-i) success rate under plant-side
+    mass, stiffness and friction error at 12 seeds, (j) the sigma link under
+    mass x 1.10. Axes are placed in inches so every heatmap cell is the same size."""
+    rates = [(20, "25"), (15, "33"), (10, "50"), (3, "167")]
+    sums = dict(sums); sums.setdefault(20, load("runs/summary_floor_spp20.json"))
+    CELL, W, H = 0.19, COL, 5.85
+    fig = plt.figure(figsize=(W, H))
+
+    def place(x, y, w, h):  # inches from the figure's lower-left
+        return fig.add_axes([x / W, y / H, w / W, h / H])
+
+    # ---- row 1: the basin, three 5 x 4 grids
+    x0, gap = 0.50, 0.19
+    y1 = H - 0.20 - 5 * CELL
+    titles = {"elite mean": "(a) CEM, elite mean", "argmin": "(b) PS, argmin", "softmax": "(c) MPPI, softmax"}
+    for j, rule in enumerate(["elite mean", "argmin", "softmax"]):
+        ax = place(x0 + j * (4 * CELL + gap), y1, 4 * CELL, 5 * CELL)
+        grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for spp, _ in rates]
+                for arm in SIG_ARMS[rule]]
+        _cells(ax, grid, RULE_COL[rule], [h for _, h in rates], ["%g" % x for x in SIG] if j == 0 else [""] * 5,
+               title=titles[rule])
+        if j == 0:
+            ax.set_ylabel("Sampling std σ (rad)")
+        if j == 1:
+            ax.set_xlabel("Plans per second", labelpad=1)
+    # ---- row 2: k, lambda, N -- transposed, bottoms level
+    y2 = y1 - 0.50 - 3 * CELL
+    ks = [(1, "cem_ne1"), (2, "cem_ne2"), (6, "cem"), (10, "cem_ne10"), (20, "cem_ne20")]
+    ax = place(x0, y2, 5 * CELL, 2 * CELL)
+    grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for _, arm in ks] for spp in (15, 10)]
+    _cells(ax, grid, C_ELITE, [str(k) for k, _ in ks], ["33", "50"], title="(d) CEM: elites k")
+    ax.set_xlabel("k", labelpad=1); ax.set_ylabel("Plans/s", labelpad=2)
+    ls = [(0.1, "mppi_raw01_zero_l0.1"), (1, "mppi_raw01_zero_l1"), (10, "mppi_raw01_zero_l10")]
+    xl = x0 + 5 * CELL + 0.14
+    ax = place(xl, y2, 3 * CELL, 2 * CELL)
+    grid = [[counts(sums[spp], arm) if sums[spp]["runs"] else None for _, arm in ls] for spp in (15, 10)]
+    _cells(ax, grid, C_SOFTMAX, ["%g" % l for l, _ in ls], ["", ""], title="(e) MPPI: λ")
+    ax.set_xlabel("λ", labelpad=1)
+    Ns = [(8, ["cem_n8_ne2", "ps_raw01_zero_n8", "mppi_raw01_zero_l1_n8"]),
+          (20, ["cem", "ps_raw01_zero", "mppi_raw01_zero_l1"]),
+          (40, ["cem_n40_ne12", "ps_raw01_zero_n40", "mppi_raw01_zero_l1_n40"])]
+    xn = xl + 3 * CELL + 0.45
+    ax = place(xn, y2, 3 * CELL, 3 * CELL)
+    grid = [[counts(sums[15], arm) if sums[15]["runs"] else None for arm in arms] for _, arms in Ns]
+    _cells(ax, grid, C_INK2, ["CEM", "PS", "MPPI"], [str(n) for n, _ in Ns], title="(f) Rollouts N")
+    ax.set_ylabel("N", labelpad=2)
+    # ---- row 3: mass, stiffness, friction (12 seeds), shared y
+    PW, PH_, y3 = 0.80, 0.98, y2 - 0.50 - 0.98
+    for j, (axis, xlabel, title) in enumerate([("mass", "Plant mass ×", "(g) Mass"),
+                                               ("kp", "Plant joint kp ×", "(h) Stiffness"),
+                                               ("mu", "Plant friction ×", "(i) Friction")]):
+        ax = place(x0 + j * (PW + 0.17), y3, PW, PH_)
+        _mis_panel(ax, axis, xlabel, title, ylabel="Success rate" if j == 0 else None, show_ytick=(j == 0))
+    # ---- row 4: the sigma link + legend
+    y4 = y3 - 0.50 - PH_
+    dx_ = place(x0, y4, 1.35, PH_)
+    base = load("runs/summary_gains_spp15.json"); mis = load("runs/summary_mismatch_spp15_m1.10.json")
+    for j, (arm, label, col, mk, ls) in enumerate(MIS_RULES):
+        off = (j - 1.5) * 0.0006
+        xb, yb, xm, ym = [], [], [], []
+        for sig, a in SIGMA_LINK[arm]:
+            kb, nb = counts(base, a); km, nm = counts(mis, a)
+            if not nb or not nm:
+                continue
+            xb.append(sig + off); yb.append(kb / nb); xm.append(sig + off); ym.append(km / nm)
+            lo, hi = wilson(km, nm)
+            dx_.plot([sig + off] * 2, [lo, hi], color=col, lw=0.5, alpha=0.4, zorder=2)
+        dx_.plot(xm, ym, color=col, lw=1.1, ls=ls, marker=mk, ms=3.6, mec="white", mew=0.5, zorder=3)
+        dx_.plot(xb, yb, color=col, lw=0, marker=mk, ms=3.6, mfc="white", mec=col, mew=0.8, zorder=3)
+        for x, a_, b_ in zip(xb, yb, ym):
+            dx_.plot([x, x], [b_, a_], color=col, lw=0.5, ls=":", zorder=2)
+    dx_.set_xticks([0.01, 0.02, 0.03]); dx_.set_xticklabels(["0.01", "0.02", "0.03"]); dx_.set_xlim(0.006, 0.034)
+    dx_.set_xlabel("Sampling std σ (rad)", labelpad=1.5); dx_.set_ylabel("Success rate", labelpad=2)
+    dx_.set_ylim(-0.03, 1.05); dx_.set_yticks([0, 0.5, 1.0]); dx_.tick_params(pad=1.5)
+    dx_.set_title("(j) σ under mass × 1.10", loc="left", pad=3)
+    style_axes(dx_)
+    lg = place(x0 + 1.35 + 0.12, y4 - 0.05, W - x0 - 1.35 - 0.16, PH_ + 0.1); lg.axis("off")
+    for arm, label, col, mk, ls in MIS_RULES:
+        lg.plot([], [], color=col, lw=1.1, ls=ls, marker=mk, ms=3.6, mec="white", mew=0.5, label=label)
+    lg.plot([], [], marker="o", ms=3.6, mfc="white", mec=C_INK2, lw=0, label="(j) hollow: baseline")
+    lg.plot([], [], marker="o", ms=3.6, color=C_INK2, mec="white", lw=0, label="(j) filled: mass × 1.10")
+    lg.legend(loc="center left", fontsize=6.8, handlelength=2.0, handletextpad=0.5, labelspacing=0.45,
+              borderaxespad=0, frameon=False)
+    fig.text(0.5 / W, 0.04 / H, "(a–f) 6 seeds per cell; outlined: ≥ 4/6 complete. (g–j) 12 seeds, Wilson 95 % intervals. "
+             "Hold spline, σ = 0.01 rad, N = 20, k = 6, λ = 1 unless varied; (f) at 33 plans/s.",
+             fontsize=5.8, color=C_INK2, wrap=True)
+    fig.savefig(out + ".pdf"); fig.savefig(out + ".png")
     plt.close(fig)
 
 
@@ -955,6 +1078,7 @@ def main():
     fig_persist(sums[15], os.path.join(out, "fig_persist"))
     fig_floor2(os.path.join(out, "fig_floor2"))
     fig_mismatch(os.path.join(out, "fig_mismatch"))
+    fig_basin_mismatch(sums, os.path.join(out, "fig_basin_mismatch"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)

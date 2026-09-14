@@ -6,7 +6,18 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 19:00 (read this first)
+## 0. State at 2026-09-13 20:00 (read this first)
+LOCAL VIEWING: `docs/tools/serve.sh start|stop|status` runs a static server for
+`mujoco_mpc/docs` on 127.0.0.1:8765 as the systemd --user unit `golem-docs-http`
+(linger is on, so it survives logout). Forward port 8765 in VS Code and open
+http://localhost:8765/lean/20260911-planner_ablation.html. Use this when the
+artifact host is down; the local file is always the source of truth.
+PAPER FIGURE: `paper/figures/planner/fig_basin_mismatch.pdf` (paper_figs.py
+`fig_basin_mismatch`) = Figure 2 (basin, k/λ/N strips transposed) + Figure 6
+(mismatch, 12 seeds, "Success rate") in one column; the tex now uses it as
+fig:planner_basin and the separate fig_mismatch environment is gone. All paper
+figure text is capitalized (memory `paper-figure-text-case`). Latency stays as
+sentences (user's call), not a panel.
 NOTHING RUNNING. campaign17 (mismatch ladders, 12 seeds) finished 17:59 and is
 scored, on the page (Figure 6 / Table 6, 2332 deploy-plant runs), in the paper
 tex (paragraph "Model error" + fig_mismatch) and in §2j-result below: the
