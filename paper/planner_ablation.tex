@@ -95,6 +95,44 @@ count, MPPI's temperature, and the rollout count at 33 plans/s.}
 \label{fig:planner_basin}
 \end{figure}
 
+\paragraph{Model error} The update rule also decides what happens when the
+plant is not the model (Fig.~\ref{fig:planner_mismatch}; the plant's mass,
+joint stiffness or sliding friction is scaled after the planner has taken
+its copy, 12 seeds per cell). Pooled over the three axes CEM completes
+80/108 against 47/108 for the argmin and 42/108 for the softmax mean
+(one-sided Fisher $p=4\times10^{-6}$ and $1\times10^{-7}$), and it is at or
+above both at 8 of the 9 magnitudes. A plant twice or three times as stiff
+as the model costs CEM nothing (11, 10/12) and PS 7--11 seeds, every loss a
+fall at the lean onset: the argmin executes one sample's full step, and on a
+stiffer plant that step is more torque than the planner priced. Friction at
+$0.4\times$ costs CEM and iCEM nothing and PS and MPPI 5--6 seeds. Mass is the
+hard axis for every rule (5\,\% heavier already costs PS 9 seeds), and it is
+where iCEM fails: 9, 3, 2, 0/12 over $1.05$--$1.20\times$, every loss a fall in
+the stand before the lean, because the heavier plant sags under the joint PD
+and iCEM's $3$\,mrad step (its AR(1) noise fills the first knot at
+$0.71\sigma$) cannot walk the setpoints out fast enough; widening its floor to
+$0.03$\,rad restores 9/12. The same widening is free for the elite mean and
+not for the argmin: CEM at $\sigma=0.03$\,rad completes 11/12 at baseline and
+9/12 under $1.10\times$ mass (7/12 at $0.01$), while PS at $0.02$\,rad drops to
+9/12 at baseline and gains nothing under mismatch. Tolerance to plant-side
+model error is bounded on both sides by the executed step, too small to track
+a bias and too large for a stiffer plant, and the mean of six elites at
+$0.01$--$0.03$\,rad sits inside both bounds. This is tolerance to parametric
+error; estimator noise and unmodelled actuator dynamics on the robot are not
+in the bench.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/planner/fig_mismatch.pdf}
+\caption{\textbf{Plant-side model error.} Completion at 33 plans/s (12 seeds
+per cell, Wilson 95\,\% intervals) when the plant's (a) mass, (b) joint
+stiffness or (c) sliding friction is scaled and the planner's model is not,
+for the four hold update rules at $\sigma=0.01$\,rad. (d) The same rules with
+a wider sampling standard deviation at baseline (hollow) and under
+$1.10\times$ mass (filled).}
+\label{fig:planner_mismatch}
+\end{figure}
+
 \paragraph{Plan rate and latency} % OPTIONAL if space is short; the Discussion paragraph below carries the point
 At $0.01$\,rad the floor is close to the robot's rate: 25 plans/s completes
 1--5/6, 16.7 plans/s 0--1/6, and 10 plans/s 0/6, every failure a backward
@@ -256,7 +294,10 @@ state predicted forward as the deploy node does (dotted).}
 %    count; CEM's advantage is the sigma basin (Fig. fig:planner_basin), i.e.
 %    one set of weights holds across targets without retuning, not target
 %    coverage. Usable as one sentence in the commandability section.
-%  - The one model parameter the controller is exposed to is mass (a 10%
-%    heavier plant halves completion without gravity feedforward); if the
-%    height/target grid carries a payload, say what the payload is relative
-%    to the model.
+%  - The model parameter the controller is most exposed to is mass (a 5%
+%    heavier plant costs every rule seeds without gravity feedforward, Fig.
+%    fig:planner_mismatch); if the height/target grid carries a payload, say
+%    what the payload is relative to the model. Stiffness and friction error
+%    are absorbed by CEM and not by PS/MPPI, which is the sim-to-real
+%    statement the paper can make: robustness to parametric plant error, the
+%    elite mean's, plus the hardware record; not a measured transfer rate.

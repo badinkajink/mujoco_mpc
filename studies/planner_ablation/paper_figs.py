@@ -838,6 +838,97 @@ def fig_floor2(out):
     fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
     plt.close(fig)
 
+# ---- fig_mismatch: plant-side model error, 12 seeds -----------------------------
+MIS_SETS = {
+    "mass": [(1.00, "runs/summary_gains_spp15.json"), (1.05, "runs/summary_mismatch_spp15_m1.05.json"),
+             (1.10, "runs/summary_mismatch_spp15_m1.10.json"), (1.15, "runs/summary_mismatch_spp15_m1.15.json"),
+             (1.20, "runs/summary_mismatch_spp15_m1.20.json")],
+    "kp": [(1.0, "runs/summary_gains_spp15.json"), (1.5, "runs/summary_mismatch_spp15_kp1.5.json"),
+           (2.0, "runs/summary_mismatch_spp15_kp2.0.json"), (3.0, "runs/summary_mismatch_spp15_kp3.0.json")],
+    "mu": [(1.0, "runs/summary_gains_spp15.json"), (0.6, "runs/summary_mismatch_spp15_mu0.6.json"),
+           (0.4, "runs/summary_mismatch_spp15_mu0.4.json")],
+}
+MIS_RULES = [  # arm, label, color, marker, linestyle
+    ("cem", "CEM", C_ELITE, "o", "-"),
+    ("icem", "iCEM", C_ELITE, "s", "--"),
+    ("ps_raw01_zero", "PS, argmin", C_ARGMIN, "v", "-"),
+    ("mppi_raw01_zero_l1", "MPPI, softmax", C_SOFTMAX, "D", "-"),
+]
+SIGMA_LINK = {  # arm -> [(sigma, arm at that sigma)]
+    "cem": [(0.01, "cem"), (0.02, "cem_stdmin02"), (0.03, "cem_stdmin03")],
+    "icem": [(0.01, "icem"), (0.03, "icem_stdmin03")],
+    "ps_raw01_zero": [(0.01, "ps_raw01_zero"), (0.02, "ps_raw02_zero")],
+    "mppi_raw01_zero_l1": [(0.01, "mppi_raw01_zero_l1"), (0.02, "mppi_raw02_zero_l1")],
+}
+
+
+def fig_mismatch(out):
+    """Completion of the four hold update rules on the deploy plant at 33 plans/s
+    when the PLANT (not the planner's model) has its mass, joint kp or sliding
+    friction scaled; 12 seeds per cell. (d) the sigma link: the same rules with
+    a wider noise std at baseline (hollow) and under mass x 1.10 (filled)."""
+    fig, axs = plt.subplots(2, 2, figsize=(COL, 3.3), gridspec_kw={"hspace": 0.62, "wspace": 0.32})
+    panels = [("mass", "plant mass × ", axs[0, 0]), ("kp", "plant joint kp × ", axs[0, 1]), ("mu", "plant friction × ", axs[1, 0])]
+    for axis, xlabel, ax in panels:
+        sets = [(x, load(p)) for x, p in MIS_SETS[axis]]
+        xs_all = [x for x, _ in sets]
+        for j, (arm, label, col, mk, ls) in enumerate(MIS_RULES):
+            xs, ys, los, his = [], [], [], []
+            for x, S in sets:
+                k, n = counts(S, arm)
+                if not n:
+                    continue
+                xs.append(x); ys.append(k / n); lo, hi = wilson(k, n); los.append(lo); his.append(hi)
+            span = (max(xs_all) - min(xs_all))
+            dx = (j - 1.5) * 0.012 * span
+            xs = np.array(xs) + dx
+            ax.plot(xs, ys, color=col, lw=1.2, ls=ls, marker=mk, ms=4, mec="white", mew=0.6, label=label, zorder=3)
+            for x, y, lo, hi in zip(xs, ys, los, his):
+                ax.plot([x, x], [lo, hi], color=col, lw=0.6, alpha=0.4, zorder=2)
+        ax.set_xticks(xs_all)
+        ax.set_xticklabels(["%g" % x for x in xs_all])
+        if axis == "mu":
+            ax.invert_xaxis()
+        ax.set_xlabel(xlabel.strip(" ×") + " ×", labelpad=1.5)
+        ax.set_ylim(-0.03, 1.05); ax.set_yticks([0, 0.5, 1.0])
+        style_axes(ax)
+    axs[0, 0].set_ylabel("completed, fraction of 12")
+    axs[1, 0].set_ylabel("completed, fraction of 12")
+    axs[0, 0].set_title("(a) mass", loc="left"); axs[0, 1].set_title("(b) joint stiffness", loc="left")
+    axs[1, 0].set_title("(c) sliding friction", loc="left")
+    # (d) the sigma link
+    dx_ = axs[1, 1]
+    base = load("runs/summary_gains_spp15.json"); mis = load("runs/summary_mismatch_spp15_m1.10.json")
+    for j, (arm, label, col, mk, ls) in enumerate(MIS_RULES):
+        pts = SIGMA_LINK[arm]
+        off = (j - 1.5) * 0.0006
+        xb, yb, xm, ym = [], [], [], []
+        for sig, a in pts:
+            kb, nb = counts(base, a); km, nm = counts(mis, a)
+            if not nb or not nm:
+                continue
+            xb.append(sig + off); yb.append(kb / nb); xm.append(sig + off); ym.append(km / nm)
+            lo, hi = wilson(km, nm)
+            dx_.plot([sig + off] * 2, [lo, hi], color=col, lw=0.6, alpha=0.4, zorder=2)
+        dx_.plot(xm, ym, color=col, lw=1.2, ls=ls, marker=mk, ms=4, mec="white", mew=0.6, zorder=3)
+        dx_.plot(xb, yb, color=col, lw=0, marker=mk, ms=4, mfc="white", mec=col, mew=0.9, zorder=3)
+        for x, y0, y1 in zip(xb, yb, ym):
+            dx_.plot([x, x], [y1, y0], color=col, lw=0.6, ls=":", zorder=2)
+    dx_.set_xticks([0.01, 0.02, 0.03]); dx_.set_xticklabels(["0.01", "0.02", "0.03"])
+    dx_.set_xlim(0.006, 0.034)
+    dx_.set_xlabel("sampling std σ, rad", labelpad=1.5)
+    dx_.set_ylim(-0.03, 1.05); dx_.set_yticks([0, 0.5, 1.0])
+    dx_.set_title("(d) σ under mass × 1.10", loc="left")
+    style_axes(dx_)
+    a0 = axs[0, 0]
+    a0.plot([], [], marker="o", ms=4, mfc="white", mec=C_INK2, lw=0, label="(d) hollow: baseline")
+    a0.plot([], [], marker="o", ms=4, color=C_INK2, mec="white", lw=0, label="(d) filled: mass × 1.10")
+    a0.legend(loc="upper center", bbox_to_anchor=(1.15, -1.95), ncol=3, fontsize=6.5,
+              handlelength=2.0, columnspacing=1.0, handletextpad=0.4)
+    fig.savefig(out + ".pdf", bbox_inches="tight"); fig.savefig(out + ".png", bbox_inches="tight")
+    plt.close(fig)
+
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -863,6 +954,7 @@ def main():
     fig_spline(sums[15], os.path.join(out, "fig_spline"))
     fig_persist(sums[15], os.path.join(out, "fig_persist"))
     fig_floor2(os.path.join(out, "fig_floor2"))
+    fig_mismatch(os.path.join(out, "fig_mismatch"))
     json.dump({"admissible_rule": ">= 2/3 of seeds complete", "basin_cells": basin},
               open(os.path.join(out, "basin.json"), "w"), indent=1)
     print("basin (admissible / measured cells of the sigma x rate grid):", basin)

@@ -75,6 +75,13 @@ def main():
         return r.stdout
 
     body = re.sub(r"\{\{TABLE_RUNGS(?:\|([^}]*))?\}\}", table_rungs, body)
+
+    def table_mis(m):
+        r = subprocess.run([sys.executable, os.path.join(HERE, "tables_mismatch.py"), m.group(1) or ""],
+                           capture_output=True, text=True, check=True)
+        return r.stdout
+
+    body = re.sub(r"\{\{TABLE_MIS(?:\|([^}]*))?\}\}", table_mis, body)
     body = re.sub(r"\{\{FIG:([^}|]+)(?:\|([^}]*))?\}\}",
                   lambda m: '<figure><img src="%s/%s" alt="%s"><figcaption>%s</figcaption></figure>'
                   % (a.media_rel, m.group(1), m.group(1), m.group(2) or ""), body)

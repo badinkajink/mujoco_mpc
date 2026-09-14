@@ -6,9 +6,13 @@ this box. Read this before touching anything: the story changed twice on
 2026-09-11 and the page (`docs/lean/20260911-planner_ablation.html`) still tells
 the overnight version (§3 below says what it gets wrong).
 
-## 0. State at 2026-09-13 14:05 (read this first)
-RUNNING: `campaign17.sh` (log `runs/campaign17.log`) = the model-mismatch
-ladder for the sim-to-real claim, §2j — ~4.5 h. Target grid done (§2i). Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
+## 0. State at 2026-09-13 19:00 (read this first)
+NOTHING RUNNING. campaign17 (mismatch ladders, 12 seeds) finished 17:59 and is
+scored, on the page (Figure 6 / Table 6, 2332 deploy-plant runs), in the paper
+tex (paragraph "Model error" + fig_mismatch) and in §2j-result below: the
+pre-stated decision rule PASSED; the claim the paper makes is "tolerance to
+parametric plant error, bounded both sides by the executed step". §2k has the
+σ-adaptivity measurement (CEM's refit std = 1.3× the floor). Target grid done (§2i). Paper material: `paper/planner_ablation.tex` (section sec:planner_ablation,
 corrected Table tab:planners, Discussion paragraph, feedback comments) with
 figures in `paper/figures/planner/`. Running: `runs/grid_spp15` = strategy 25's
 3x3 target grid (target_col_x -0.10/0/+0.10 x target_col_y 0/0.12/0.24) for
@@ -301,6 +305,51 @@ Dirs: `runs/mismatch_spp15_m{1.05,1.10,1.15,1.20}`, `_kp{1.5,2.0,3.0}`,
 `_mu{0.6,0.4}`; baseline seeds 6–11 in `runs/gains_spp15`. Score each with
 analyze.py; a `fig_mismatch` (completion vs magnitude per axis, one line per
 rule, 12 seeds) is the figure to add to paper_figs.py.
+
+### 2j-result. Mismatch ladders scored (campaign17, 12 seeds, 2026-09-13 18:00)
+`runs/summary_mismatch_spp15_{m1.05,m1.10,m1.15,m1.20,kp1.5,kp2.0,kp3.0,mu0.6,mu0.4}.json`,
+baseline 12 seeds in `runs/summary_gains_spp15.json` (the four hold arms + MS arms).
+
+| plant | CEM | iCEM | PS-hold | MPPI-hold | stance falls CEM/iCEM |
+|---|---|---|---|---|---|
+| baseline | 10/12 | 12/12 | 12/12 | 10/12 | 0/0 |
+| mass ×1.05 | 8 | 9 | 3 | 4 | 0/1 |
+| mass ×1.10 | 7 | 3 | 6 | 1 | 0/6 |
+| mass ×1.15 | 8 | 2 | 5 | 7 | 0/8 |
+| mass ×1.20 | 3 | 0 | 2 | 4 | 5/12 |
+| kp ×1.5 | 11 | 8 | 10 | 7 | 0/2 |
+| kp ×2 | 11 | 10 | 5 | 3 | 0/1 |
+| kp ×3 | 10 | 10 | 1 | 3 | 0/0 |
+| μ ×0.6 | 11 | 10 | 8 | 7 | 0/1 |
+| μ ×0.4 | 11 | 10 | 7 | 6 | 0/1 |
+| pooled | 80/108 | 62/108 | 47/108 | 42/108 | |
+
+Fisher one-sided, CEM vs PS / MPPI: mass 26/48 vs 16/48 p=0.03 / 16/48 p=0.03;
+kp 32/36 vs 16/36 p=6e-5 / 13/36 p=3e-6; friction 22/24 vs 15/24 p=0.018 /
+13/24 p=0.004; all 80/108 vs 47/108 p=4e-6 / 42/108 p=1.4e-7; CEM vs iCEM
+pooled p=0.007 (all of it on the mass axis).
+σ link (baseline → mass ×1.10): cem 10→7, cem_stdmin02 11→7, cem_stdmin03 11→9,
+icem 12→3, icem_stdmin03 12→9, ps_raw01 12→6, ps_raw02 9→5, mppi_raw01 10→1,
+mppi_raw02 7→4.
+**Decision rule (§2j) applied:** (1) CEM ≥ argmin and softmax at every
+magnitude on kp and friction (2 of 3 axes; on mass it is ≥ PS at every
+magnitude and < MPPI only at ×1.20, 3 vs 4), pooled p < 0.01 ✓. (2) CEM at
+σ 0.02/0.03 under mass ×1.10 is 7/9 vs 7 at 0.01, baseline unchanged; PS at
+0.02 is 5 vs 6 and loses 3 baseline seeds ✓. PASSED. Wording the paper uses:
+"tolerance to parametric plant error", not "transfers better"; the bench
+has no estimator noise or actuator dynamics.
+Mechanism (from the failure rungs and `jitter_stand_rad`): kp/friction losses
+of PS/MPPI are lean-onset/mid-rung falls (the argmin's full step × a stiffer
+plant); iCEM's mass losses are ALL stance falls at t≈5 s (pelvis sags 35 mm
+over the first 5 s on the heavier plant; iCEM's 3.0 mrad step vs CEM's 6.9
+cannot walk the setpoints out; icem_stdmin03 recovers 9/12). Tolerance is
+bounded on both sides by the executed step. Nondeterminism check: the two
+independent takes of mass ×1.10 at seeds 0–5 agreed on 1/6 (CEM) to 4/6
+(iCEM) seeds — cells are independent Bernoulli draws, never paired.
+Figure: `paper_figs/fig_mismatch.{png,pdf}` (paper_figs.py `fig_mismatch`),
+table `tables_mismatch.py` ({{TABLE_MIS}} in page_body.html).
+Predicted, not run: iCEM at 83 plans/s tolerates mass ×1.10 (`--spp 6
+--plant_mass_scale 1.1`, icem, 12 seeds, ~25 min) — the step-speed reading.
 
 ## 3. What the published page gets wrong now
 `docs/lean/20260911-planner_ablation.html` (artifact 6184e1b4…) was written on the
