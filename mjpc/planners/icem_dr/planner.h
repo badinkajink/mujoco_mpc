@@ -162,6 +162,17 @@ class iCEMDRPlanner : public Planner {
   uint64_t dr_seed_ = 0;
   uint64_t plan_counter_ = 0;
 
+  // ----- scenario mode (2026-09-15, studies/brace_payload) ----- //
+  // When scenario_mass_ is non-empty the ensemble is NOT randomized: member r
+  // is the nominal model with scenario_mass_[r] kg added to body
+  // scenario_body_ (mj_setConst re-run), and nothing else perturbed. The
+  // candidate score is aggregated over members per scenario_agg_ (0 = min, the
+  // DR default; 1 = mean; 2 = max). A single entry {0} makes the planner the
+  // plain iCEM. Set by the caller between plan iterations (lean_bench).
+  int scenario_body_ = -1;
+  std::vector<double> scenario_mass_;
+  int scenario_agg_ = 0;
+
   mjpc::spline::SplineInterpolation interpolation_ =
       mjpc::spline::SplineInterpolation::kZeroSpline;
   int num_trajectory_;

@@ -235,7 +235,9 @@ void iCEMDRPlanner::RandomizeModel(mjModel* m, uint64_t seed) const {
 // style); the per-model seed mixes dr_seed_, plan_counter_, and member index
 // so the sequence is reproducible across runs with the same seed.
 void iCEMDRPlanner::BuildEnsemble(int num_threads) {
-  int R = std::max(1, std::min(n_ensemble_, kMaxEnsembleSize));
+  const bool scenario = !scenario_mass_.empty();
+  int R = scenario ? std::min((int)scenario_mass_.size(), kMaxEnsembleSize)
+                   : std::max(1, std::min(n_ensemble_, kMaxEnsembleSize));
   int T = std::max(1, num_threads);
 
   // (Re)create the R model copies if their count changed.
@@ -257,11 +259,17 @@ void iCEMDRPlanner::BuildEnsemble(int num_threads) {
     }
   }
 
-  // Apply fresh domain randomization to every copy.
-  for (int r = 0; r < R; r++) {
-    uint64_t seed = dr_seed_ ^ (plan_counter_ * 0x9E3779B97F4A7C15ull) ^
-                    (static_cast<uint64_t>(r) * 0x100000001B3ull);
-    RandomizeModel(ensemble_models_[r].get(), seed);
+  // Apply fresh domain randomization to every copy (scenario mode: the
+  // explicit mass set instead, mj_setConst re-run below once mjData exist).
+  if (!scenario) {
+    for (int r = 0; r < R; r++) {
+      uint64_t seed = dr_seed_ ^ (plan_counter_ * 0x9E3779B97F4A7C15ull) ^
+                      (static_cast<uint64_t>(r) * 0x100000001B3ull);
+      RandomizeModel(ensemble_models_[r].get(), seed);
+    }
+  } else if (scenario_body_ >= 0 && scenario_body_ < model->nbody) {
+    for (int r = 0; r < R; r++)
+      ensemble_models_[r]->body_mass[scenario_body_] += scenario_mass_[r];
   }
 
   // (Re)allocate the per-(thread x member) mjData pool if its shape changed.
@@ -277,6 +285,12 @@ void iCEMDRPlanner::BuildEnsemble(int num_threads) {
       }
     }
     ensemble_data_threads_ = T;
+  }
+  if (scenario) {
+    // body_subtreemass / invweight0 follow the mass. mj_setConst evaluates at
+    // qpos0 and leaves the scratch data there; Rollout resets it from `state`.
+    for (int r = 0; r < R; r++)
+      mj_setConst(ensemble_models_[r].get(), ensemble_data_[r].get());
   }
 
   // (Re)size per-worker scratch trajectories.
@@ -305,7 +319,8 @@ void iCEMDRPlanner::EnsembleRolloutCandidate(int i, int horizon) {
     candidate_policy[i].Action(action, state, time);
   };
 
-  double min_return = 0.0;
+  double agg_return = 0.0;
+  const int agg = scenario_mass_.empty() ? 0 : scenario_agg_;
   for (int r = 0; r < R; r++) {
     mjData* d = ensemble_data_[static_cast<size_t>(wid) * R + r].get();
     mjModel* m = ensemble_models_[r].get();
@@ -313,18 +328,25 @@ void iCEMDRPlanner::EnsembleRolloutCandidate(int i, int horizon) {
         (r == 0) ? &trajectory[i] : &ensemble_scratch_[wid];
     traj->Rollout(policy_i, task, m, d, state.data(), time, mocap.data(),
                   userdata.data(), horizon);
+    const double ret = traj->total_return;
     if (r == 0) {
-      min_return = traj->total_return;
+      agg_return = ret;
+    } else if (agg == 1) {
+      agg_return += ret;
+    } else if (agg == 2) {
+      agg_return = std::max(agg_return, ret);
     } else {
-      min_return = std::min(min_return, traj->total_return);
+      agg_return = std::min(agg_return, ret);
     }
   }
+  if (agg == 1 && R > 0) agg_return /= R;
 
-  // Risk-seeking aggregation: score the candidate by its best-case (min) cost
-  // across the randomized ensemble. trajectory[i] keeps member 0's full record
-  // (states/trace) but its scalar return is overwritten with the aggregate so
-  // the CEM elite sort uses the ensemble-min.
-  trajectory[i].total_return = min_return;
+  // Aggregation: the DR default scores the candidate by its best-case (min)
+  // cost across the randomized ensemble (risk-seeking); scenario mode may ask
+  // for the mean or the worst case instead. trajectory[i] keeps member 0's
+  // full record (states/trace) but its scalar return is overwritten with the
+  // aggregate so the CEM elite sort uses it.
+  trajectory[i].total_return = agg_return;
 }
 
 // ---------------------------------------------------------------------------

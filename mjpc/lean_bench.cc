@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "mjpc/agent.h"
 #include "mjpc/planners/cross_entropy/planner.h"
 #include "mjpc/planners/icem/planner.h"
+#include "mjpc/planners/icem_dr/planner.h"
 #include "mjpc/planners/mppi/planner.h"
 #include "mjpc/task.h"
 #include "mjpc/threadpool.h"
@@ -47,6 +49,26 @@ void residual_callback(const mjModel* model, mjData* data, int stage) {
 }
 
 // mj_setConst needs an mjData and leaves it at qpos0; never hand it the plant's.
+// Normal load the LEFT (bracing) arm puts on the table, from the contacts of
+// `data` under `model` -- the same rule as the brace_normal_N log column, so the
+// planner-model and plant-model numbers are comparable.
+double BraceNormal(const mjModel* model, const mjData* data, int table_body) {
+  double f = 0.0;
+  mjtNum ft[6];
+  for (int c = 0; c < data->ncon; c++) {
+    const mjContact& con = data->contact[c];
+    int b1 = model->geom_bodyid[con.geom[0]], b2 = model->geom_bodyid[con.geom[1]];
+    bool t1 = (b1 == table_body), t2 = (b2 == table_body);
+    if (t1 == t2) continue;
+    int other = t1 ? b2 : b1;
+    const char* bn = mj_id2name(model, mjOBJ_BODY, other);
+    if (!bn || std::strncmp(bn, "left_", 5) != 0) continue;
+    mj_contactForce(model, data, c, ft);
+    f += std::max(0.0, (double)ft[0]);
+  }
+  return f;
+}
+
 void SetConstScratch(mjModel* m) {
   mjData* tmp = mj_makeData(m);
   mj_setConst(m, tmp);
@@ -201,6 +223,34 @@ int main(int argc, char** argv) {
   const double bft_add = std::atof(Arg(argc, argv, "--bft_add", "0").c_str());
   const int bft_add_until = std::atoi(Arg(argc, argv, "--bft_add_until", "8").c_str());
   const std::string payload_body = Arg(argc, argv, "--payload_body", "right_magpie_gripper");
+  // ★ 2026-09-15 SCENARIO BASELINE (studies/brace_payload). `--scenario_masses
+  // 0,2,4` switches the planner to iCEM-DR (agent_planner 8) in scenario mode:
+  // from the attach on, every candidate is rolled out on one model copy per
+  // listed mass (kg added to --payload_body) and scored by --scenario_agg
+  // (min | mean | max). Before the attach the set is {0}, i.e. plain iCEM.
+  // --payload_belief still sets the nominal model the set is built from.
+  const std::string scenario_masses_s = Arg(argc, argv, "--scenario_masses", "");
+  const std::string scenario_agg_s = Arg(argc, argv, "--scenario_agg", "mean");
+  std::vector<double> scenario_masses;
+  if (!scenario_masses_s.empty()) {
+    std::stringstream ss(scenario_masses_s);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) if (!tok.empty()) scenario_masses.push_back(std::atof(tok.c_str()));
+  }
+  const int scenario_agg = scenario_agg_s == "min" ? 0 : scenario_agg_s == "mean" ? 1 :
+                           scenario_agg_s == "max" ? 2 : -1;
+  if (scenario_agg < 0) {
+    std::fprintf(stderr, "[bench] --scenario_agg wants min|mean|max\n");
+    return 2;
+  }
+  // ★ 2026-09-15 PLAN DUMP. `--plan_out f.csv` writes, after every plan
+  // iteration in phases >= --plan_out_from_phase, the nominal trajectory the
+  // planner intends to follow, every --plan_out_stride-th step of the horizon,
+  // evaluated twice from the same predicted state: on the PLANNER model
+  // (what the planner believes: *_belief) and on the PLANT model (*_true).
+  const std::string plan_out = Arg(argc, argv, "--plan_out", "");
+  const int plan_out_from_phase = std::atoi(Arg(argc, argv, "--plan_out_from_phase", "8").c_str());
+  const int plan_out_stride = std::max(1, std::atoi(Arg(argc, argv, "--plan_out_stride", "5").c_str()));
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -238,6 +288,13 @@ int main(int argc, char** argv) {
     }
     model->numeric_data[model->numeric_adr[n]] = kv.second;
     std::fprintf(stderr, "[bench] %s = %g\n", kv.first.c_str(), kv.second);
+  }
+  if (!scenario_masses.empty()) {
+    int n = mj_name2id(model, mjOBJ_NUMERIC, "agent_planner");
+    if (n < 0) { std::fprintf(stderr, "[bench] model has no agent_planner numeric\n"); return 2; }
+    model->numeric_data[model->numeric_adr[n]] = 8;   // iCEM-DR
+    std::fprintf(stderr, "[bench] agent_planner = 8 (iCEM-DR, scenario mode %s over %s)\n",
+                 scenario_agg_s.c_str(), scenario_masses_s.c_str());
   }
   if (gains == "deploy") {
     static const double kKP[27] = {150, 200, 200, 200, 200, 80, 150, 200, 200, 200, 200, 80, 200,
@@ -298,6 +355,11 @@ int main(int argc, char** argv) {
   auto* mppi = dynamic_cast<mjpc::MPPIPlanner*>(&agent.ActivePlanner());
   auto* cem = dynamic_cast<mjpc::CrossEntropyPlanner*>(&agent.ActivePlanner());
   auto* icem = dynamic_cast<mjpc::iCEMPlanner*>(&agent.ActivePlanner());
+  auto* icemdr = dynamic_cast<mjpc::iCEMDRPlanner*>(&agent.ActivePlanner());
+  if (!scenario_masses.empty() && !icemdr) {
+    std::fprintf(stderr, "[bench] --scenario_masses needs the iCEM-DR planner\n");
+    return 2;
+  }
   auto* lean_task = dynamic_cast<mjpc::lean*>(g_task);
   if (!lean_task) {
     std::fprintf(stderr, "[bench] --task is not a lean task; phase log unavailable\n");
@@ -339,10 +401,44 @@ int main(int argc, char** argv) {
   FILE* fo = out.empty() ? stdout : std::fopen(out.c_str(), "w");
   FILE* fq = qpos_out.empty() ? nullptr : std::fopen(qpos_out.c_str(), "w");
   FILE* fs = state_out.empty() ? nullptr : std::fopen(state_out.c_str(), "w");
-  if ((!state_out.empty() && !fs) || !fo || (!qpos_out.empty() && !fq)) {
+  FILE* fp = plan_out.empty() ? nullptr : std::fopen(plan_out.c_str(), "w");
+  if ((!state_out.empty() && !fs) || !fo || (!qpos_out.empty() && !fq) ||
+      (!plan_out.empty() && !fp)) {
     std::fprintf(stderr, "[bench] failed to open requested output file\n");
     return 2;
   }
+  if (fp) {
+    std::fprintf(fp, "t_plan,phase,k,t_pred,cost_k,pelvis_x,pelvis_z,rhand_x,"
+                     "com_edge_belief,cop_edge_belief,icp_x_belief,brace_belief,"
+                     "com_edge_true,cop_edge_true,icp_x_true,brace_true\n");
+  }
+  // Scratch data for evaluating one state on the planner model (belief) and on
+  // the plant model (truth). Same layout; `pd` is made from the planner copy.
+  mjData* pd = mj_makeData(agent.GetModel());
+  mjData* td = mj_makeData(model);
+  // Evaluate the metrics of a (qpos, qvel, ctrl) triple on a model: forward
+  // dynamics from that state, then the task's metrics + the brace load.
+  auto eval_state = [&](const mjModel* m, mjData* d, const double* qpos, const double* qvel,
+                        const double* ctrl, double t, double out[4]) {
+    mju_copy(d->qpos, qpos, m->nq);
+    mju_copy(d->qvel, qvel, m->nv);
+    if (ctrl) mju_copy(d->ctrl, ctrl, m->nu); else mju_zero(d->ctrl, m->nu);
+    if (m->nmocap) {
+      mju_copy(d->mocap_pos, data->mocap_pos, 3 * m->nmocap);
+      mju_copy(d->mocap_quat, data->mocap_quat, 4 * m->nmocap);
+    }
+    if (m->nuserdata) mju_copy(d->userdata, data->userdata, m->nuserdata);
+    d->time = t;
+    mj_forward(m, d);
+    std::map<std::string, double> mm;
+    std::string pn;
+    g_task->ComputeMetrics(m, d, &mm, &pn);
+    auto get = [&](const char* k) { auto it = mm.find(k); return it == mm.end() ? std::nan("") : it->second; };
+    out[0] = get("com_beyond_foot_edge");
+    out[1] = get("cop_beyond_foot_edge");
+    out[2] = get("icp_x");
+    out[3] = BraceNormal(m, d, table_body);
+  };
   if (fs) {
     std::fprintf(fs, "t,phase");
     for (int k = 0; k < model->nq; ++k) std::fprintf(fs, ",q%d", k);
@@ -367,6 +463,9 @@ int main(int argc, char** argv) {
   // can be read against std_min to see whether the adaptive variance is doing
   // anything. nan for PS/MPPI.
   std::fprintf(fo, ",plan_return,mppi_ess,mppi_spread,cem_std_mean");
+  // The plant's current state evaluated on the PLANNER model: where the planner
+  // believes the CoM is, and what load it believes the brace carries.
+  std::fprintf(fo, ",com_edge_belief,cop_edge_belief,brace_belief");
   for (int k = 0; k < kNMetric; k++) std::fprintf(fo, ",%s", kMetricKeys[k]);
   std::fprintf(fo, "\n");
   if (fq) {
@@ -398,6 +497,13 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (payload_bid >= 0) payload_base_mass = model->body_mass[payload_bid];
+  if (icemdr) {
+    // Scenario mode from step 0 with the single member {0}: the planner is
+    // then the plain iCEM until the attach swaps in the listed set.
+    icemdr->scenario_body_ = payload_bid;
+    icemdr->scenario_mass_ = {0.0};
+    icemdr->scenario_agg_ = scenario_agg;
+  }
   bool fell = false;
   double face_z = 0.0;
   std::vector<double> phase_enter(64, -1.0);
@@ -526,6 +632,29 @@ int main(int argc, char** argv) {
         }
       }
       agent.PlanIteration(&pool);
+      if (fp && lean_task && lean_task->BenchPhaseIndex() >= plan_out_from_phase) {
+        const mjpc::Trajectory* best = agent.ActivePlanner().BestTrajectory();
+        const mjModel* pm = agent.GetModel();
+        const int ns = pm->nq + pm->nv + pm->na;
+        if (best && best->horizon > 0 && (int)best->states.size() >= best->horizon * ns) {
+          const int ph = lean_task->BenchPhaseIndex();
+          for (int k = 0; k < best->horizon; k += plan_out_stride) {
+            const double* st = best->states.data() + k * ns;
+            const double* u = (k < best->horizon - 1 && (int)best->actions.size() >= (k + 1) * pm->nu)
+                                  ? best->actions.data() + k * pm->nu : nullptr;
+            const double tk = ((int)best->times.size() > k) ? best->times[k] : data->time;
+            double ob[4], ot[4];
+            eval_state(pm, pd, st, st + pm->nq, u, tk, ob);
+            eval_state(model, td, st, st + model->nq, u, tk, ot);
+            const double ck = ((int)best->costs.size() > k) ? best->costs[k] : std::nan("");
+            const double rhx = (rgrip_body >= 0) ? pd->xpos[3 * rgrip_body] : std::nan("");
+            std::fprintf(fp, "%.4f,%d,%d,%.4f,%.5f,%.5f,%.5f,%.5f,"
+                             "%.5f,%.5f,%.5f,%.3f,%.5f,%.5f,%.5f,%.3f\n",
+                         data->time, ph, k, tk, ck, st[0], st[2], rhx,
+                         ob[0], ob[1], ob[2], ob[3], ot[0], ot[1], ot[2], ot[3]);
+          }
+        }
+      }
     }
 
     // The strategy JSON loads on the FIRST Transition, so the phase count is 0
@@ -555,6 +684,12 @@ int main(int argc, char** argv) {
           model->numeric_data[model->numeric_adr[bft_add_nid]] = bft_add;
           pm->numeric_data[pm->numeric_adr[bft_add_nid]] = bft_add;
           bft_add_on = true;
+        }
+        if (icemdr && !scenario_masses.empty()) {
+          icemdr->scenario_mass_ = scenario_masses;
+          std::fprintf(stderr, "[bench] t=%7.2f  SCENARIO set: %s kg on %s, agg %s\n",
+                       data->time, scenario_masses_s.c_str(), payload_body.c_str(),
+                       scenario_agg_s.c_str());
         }
         std::fprintf(stderr, "[bench] t=%7.2f  PAYLOAD attach: plant %.2f kg over %.2f s, "
                              "planner %.2f kg, bft_add %.1f N\n", data->time, payload_true,
@@ -715,6 +850,11 @@ int main(int argc, char** argv) {
         }
         std::fprintf(fo, ",%.6f,%.3f,%.6f,%.6f", plan_return, ess, spread, cem_std);
       }
+      {
+        double ob[4];
+        eval_state(agent.GetModel(), pd, data->qpos, data->qvel, data->ctrl, data->time, ob);
+        std::fprintf(fo, ",%.5f,%.5f,%.3f", ob[0], ob[1], ob[3]);
+      }
       metrics.clear();
       g_task->ComputeMetrics(model, data, &metrics, &phase_name_m);
       for (int k = 0; k < kNMetric; k++) {
@@ -749,6 +889,9 @@ int main(int argc, char** argv) {
   if (fo != stdout) std::fclose(fo);
   if (fq) std::fclose(fq);
   if (fs) std::fclose(fs);
+  if (fp) std::fclose(fp);
+  mj_deleteData(pd);
+  mj_deleteData(td);
   mj_deleteData(data);
   mjcb_sensor = nullptr;
   return fell ? 1 : 0;

@@ -30,3 +30,26 @@ python3 analyze.py --run runs/sweep1
 Arm P: belief sets the planner's payload AND preloads the brace by
 K_LEVER·m̂·g (K_LEVER 2.0: hand 0.48 m and brace 0.24 m ahead of the toe).
 Arm M: belief sets the planner's payload only.
+
+## sweep2 (2026-09-15): the release mechanism, the belief-3 column, 6 seeds, the interval baseline
+
+Added to the bench (default-off, byte-identical otherwise):
+
+| Where | What |
+|---|---|
+| `lean_bench.cc` | log columns `com_edge_belief`, `cop_edge_belief`, `brace_belief`: the plant's state evaluated on the planner's model (same qpos/qvel/ctrl, `mj_forward` on a scratch mjData of the planner copy, then the task's `ComputeMetrics` and the left-arm table load) |
+| `lean_bench.cc` | `--plan_out f.csv --plan_out_from_phase 8 --plan_out_stride 5`: after every plan iteration in phases ≥ 8, the planner's nominal trajectory (`BestTrajectory()`), every 5th step of the horizon, evaluated on the planner model (`*_belief`) and on the plant model (`*_true`) |
+| `lean_bench.cc` | `--scenario_masses 0,2,4 --scenario_agg mean|max|min`: switches `agent_planner` to 8 (iCEM-DR) and, from the attach on, scores every candidate over one model copy per listed mass on the payload body; before the attach the set is {0} = plain iCEM |
+| `planners/icem_dr/planner.{h,cc}` | scenario mode: `scenario_body_`, `scenario_mass_`, `scenario_agg_` (0 min = the DR default, 1 mean, 2 max); the ensemble is the nominal model plus the listed masses (`mj_setConst` re-run), no randomization |
+| `sweep.py` | arms `D` (= M + plan dump), `Smean`/`Smax`/`Smin` (scenario, belief 0); `--trues`, `--beliefs`, `--scenario_masses`; every job runs through `~/.claude/bin/resguard.sh run` (systemd scope + watchdog; a closed launch gate waits and retries) |
+| `run_sweep2.sh` | the five stages, `./run_sweep2.sh runs/sweep2 [stage ...]`; 2 jobs × 6 threads = 7.4 GB RSS, 14 threads, nothing else heavy alongside (the 2026-09-15 reboot was a third `lean_bench`) |
+| `analyze_plan.py` | the release table (`runs/sweep2/release_table.json`) and `fig_release_belief.png`, `fig_release_plan.png` |
+
+Stage 1 result (12 runs, 11 attached): the 4 kg belief moves the planner's
+upper-body CoM 4.1–5.7 cm ahead of the true one (mean 5.0 cm) and leaves its
+brace force within 2–5 N of the truth; the planner regulates the believed CoM,
+so the true CoM sits 5 cm nearer the heels for the whole carry. Two correct-
+model runs fell at the release (m0/b0 seed 0: the push-off overshoots the heels,
+predicted by the planner's own nominal a second ahead; m4/b4 seed 1: the gripper
+catches the table top for 3 s). Believed-0 column with sweep1: 1/27; believed-4:
+7/27.
