@@ -53,3 +53,11 @@ model runs fell at the release (m0/b0 seed 0: the push-off overshoots the heels,
 predicted by the planner's own nominal a second ahead; m4/b4 seed 1: the gripper
 catches the table top for 3 s). Believed-0 column with sweep1: 1/27; believed-4:
 7/27.
+
+Stages 2–5 result (2026-09-16, 108 runs; merged tables in `runs/sweep2/summary_merged.json`,
+`python3 analyze2.py`): by belief error, under-belief 0/59, +1 kg 0/25, +2 kg 3/22,
++3 kg 7/15, +4 kg 3/10, correct 5/38 (four in the 4 kg/4 kg cell); by column, believed
+0–2 kg 2/101, 3 kg 5/29, 4 kg 11/39. Scenario MPC over {0,2,4} kg: mean 0/11 fell,
+max 0/12, min 1/12; mean and max are 3× the rollouts, 4 s slower attach→release, and
+the max aggregate ran out of the 130 s budget in 5/12 runs (342 N brace on 4 kg
+carries vs 233 N under the 0 kg belief). Pre-attach floor 23/192.
