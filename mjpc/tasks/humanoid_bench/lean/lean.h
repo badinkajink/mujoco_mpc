@@ -328,6 +328,14 @@ class lean : public Task {
     //  approach, 5 s servo hold at 0.44) + strat 29 kf4 (grasp_close slide-in 0.55,
     //  node close gate) + kf5 (lift-back 0.48/0.10) -> strat 9 release/standback.
     names[10] = "h12_brace_grasp_full";
+    // ★ 2026-09-14 strat 11: PAYLOAD bench (studies/brace_payload). Byte-copy of
+    //  strat 27 with timeout_advance on rungs 2-8, because in the headless bench
+    //  the tuck rung (8) misses its 0.08 tolerance, the time-limit path resets the
+    //  ladder to stand_up mid-brace and the robot falls backward (measured, seed
+    //  0, t=83 s). lean_bench attaches a payload mass to the reaching gripper at
+    //  a chosen rung (--payload_true / --payload_belief) to ask what a wrong
+    //  mass belief costs while braced.
+    names[11] = "h12_brace_payload";
     names[21] = "h12_simple_reach";         // plain reach bench; Grasp overrides this slot
     names[22] = "h12_simple_forearm_brace"; // brace: mission phase 1
     // ★ 2026-08-17 RECOVERY-ONLY ladder: byte-identical to 22 except the

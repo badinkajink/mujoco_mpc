@@ -2102,6 +2102,14 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   double target_brace_force = residual_keyframe_.brace_force_target >= 0.0
                                    ? residual_keyframe_.brace_force_target
                                    : (is_active_contact ? 70.0 : 0.0);
+  // ★ 2026-09-14 `brace_force_target_add` (N; 0/absent = OFF = byte-identical):
+  // added to every POSITIVE per-keyframe target. The payload bench
+  // (studies/brace_payload) sets it when a mass attaches to the reaching hand
+  // and clears it at release; phases whose JSON target is 0 stay 0.
+  {
+    double add = GetNumberOrDefault(0.0, model, "brace_force_target_add");
+    if (add > 0.0 && target_brace_force > 0.0) target_brace_force += add;
+  }
   // ITER 28 (2026-05-18): smoothstep ramp the brace_force target across phase
   // boundaries — same machinery as phase_reach_scale etc. Without this, going
   // from stand_up (target=0) into a braced phase (target=60) is a step change
@@ -4849,6 +4857,10 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
     double bf_t = residual_.residual_keyframe_.brace_force_target >= 0.0
                       ? residual_.residual_keyframe_.brace_force_target
                       : 0.0;
+    {  // keep the ramp's start point consistent with brace_force_target_add
+      double add = GetNumberOrDefault(0.0, model, "brace_force_target_add");
+      if (add > 0.0 && bf_t > 0.0) bf_t += add;
+    }
     residual_.prev_phase_brace_force_target_ =
         residual_.prev_phase_brace_force_target_ +
         alpha * (bf_t - residual_.prev_phase_brace_force_target_);

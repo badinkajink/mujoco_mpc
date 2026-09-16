@@ -1054,6 +1054,15 @@
              at 50 N). Turn ON and the depth means what it says, measured from the FACE.
              Same frame bug class as the one brace_gate_fix repaired on 07-25. -->
         <numeric name="brace_target_face" data="1.0"/>
+        <!-- ★ 2026-09-14 PAYLOAD bench knobs (studies/brace_payload). Both 0 = OFF =
+             byte-identical. `brace_force_target_add` (N) is ADDED to every positive
+             per-keyframe brace_force_target -- the bench sets it when the payload
+             attaches and clears it at release, so a mass belief can preload the
+             brace without a strategy JSON per value. `brace_force_max` (N) is the
+             ceiling lean.cc's Brace Force residual already reads (brace_excess) but
+             never declared, so --numeric could not set it. -->
+        <numeric name="brace_force_target_add" data="0.0"/>
+        <numeric name="brace_force_max" data="0.0"/>
         <!-- phase_ramp_sec (2026-07-28): 0 = OFF = BYTE-IDENTICAL (1.5 s, the compiled
              kPhaseRampSeconds). >0 sets the cost-surface + WEIGHT ramp for EVERY phase
              transition, in seconds.

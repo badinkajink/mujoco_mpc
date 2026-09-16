@@ -46,6 +46,13 @@ void residual_callback(const mjModel* model, mjData* data, int stage) {
   if (stage == mjSTAGE_ACC) g_task->Residual(model, data, data->sensordata);
 }
 
+// mj_setConst needs an mjData and leaves it at qpos0; never hand it the plant's.
+void SetConstScratch(mjModel* m) {
+  mjData* tmp = mj_makeData(m);
+  mj_setConst(m, tmp);
+  mj_deleteData(tmp);
+}
+
 std::string Arg(int argc, char** argv, const char* key, const char* dflt) {
   for (int i = 1; i + 1 < argc; i++)
     if (std::strcmp(argv[i], key) == 0) return argv[i + 1];
@@ -177,6 +184,23 @@ int main(int argc, char** argv) {
   // pad-table and foot-floor contacts scale by s). The planner keeps the
   // model's friction. 1 = OFF.
   const double plant_friction_scale = std::atof(Arg(argc, argv, "--plant_friction_scale", "1").c_str());
+
+  // ★ 2026-09-14 PAYLOAD (studies/brace_payload). A point mass attached to the
+  // REACHING gripper body when the ladder enters --payload_phase (strat 11 =
+  // strat 27 + timeout_advance: rung 5 is the first rung after the grasp
+  // close). `--payload_true M` goes on the plant, ramped in over --payload_ramp s
+  // (the object leaving the table); `--payload_belief M` goes on the planner's
+  // model at once (the planner "knows" what it just grasped). `--bft_add X`
+  // writes X N into the brace_force_target_add numeric of BOTH models at the
+  // same rung and clears it once the ladder passes --bft_add_until, so a mass
+  // belief can preload the brace for the carry. All 0 = OFF = byte-identical.
+  const double payload_true = std::atof(Arg(argc, argv, "--payload_true", "0").c_str());
+  const double payload_belief = std::atof(Arg(argc, argv, "--payload_belief", "0").c_str());
+  const int payload_phase = std::atoi(Arg(argc, argv, "--payload_phase", "5").c_str());
+  const double payload_ramp = std::atof(Arg(argc, argv, "--payload_ramp", "0.3").c_str());
+  const double bft_add = std::atof(Arg(argc, argv, "--bft_add", "0").c_str());
+  const int bft_add_until = std::atoi(Arg(argc, argv, "--bft_add_until", "8").c_str());
+  const std::string payload_body = Arg(argc, argv, "--payload_body", "right_magpie_gripper");
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -358,6 +382,22 @@ int main(int argc, char** argv) {
 
   int last_phase = -1, n_phases = 0;
   double final_phase_since = -1.0, t_complete = -1.0;
+  // payload bookkeeping
+  const int payload_bid = mj_name2id(model, mjOBJ_BODY, payload_body.c_str());
+  const int bft_add_nid = mj_name2id(model, mjOBJ_NUMERIC, "brace_force_target_add");
+  double payload_t0 = -1.0, payload_base_mass = 0.0, payload_applied = 0.0;
+  bool payload_belief_done = false, bft_add_on = false, bft_add_cleared = false;
+  int max_phase_seen = -1;
+  double peak_brace_carry = 0.0, min_pelvis_carry = 9.0, max_tilt_carry = 0.0;
+  if ((payload_true != 0.0 || payload_belief != 0.0) && payload_bid < 0) {
+    std::fprintf(stderr, "[bench] --payload_body '%s' not found\n", payload_body.c_str());
+    return 2;
+  }
+  if (bft_add != 0.0 && bft_add_nid < 0) {
+    std::fprintf(stderr, "[bench] model has no brace_force_target_add numeric\n");
+    return 2;
+  }
+  if (payload_bid >= 0) payload_base_mass = model->body_mass[payload_bid];
   bool fell = false;
   double face_z = 0.0;
   std::vector<double> phase_enter(64, -1.0);
@@ -419,7 +459,11 @@ int main(int argc, char** argv) {
           model->body_mass[b] *= plant_mass_scale;
           for (int k = 0; k < 3; k++) model->body_inertia[3 * b + k] *= plant_mass_scale;
         }
-        mj_setConst(model, data);
+        // ★ 2026-09-14 mj_setConst evaluates at qpos0 and LEAVES data->qpos there
+        // (measured: base x 0.189 -> 0.000, the seed perturbation and the object
+        // pose wiped). Every --plant_mass_scale run before this fix started the
+        // plant 19 cm further from the table, unperturbed. Use a scratch data.
+        SetConstScratch(model);
         std::fprintf(stderr, "[bench] plant mass x %g (planner unchanged)\n", plant_mass_scale);
       }
     }
@@ -495,7 +539,68 @@ int main(int argc, char** argv) {
                    last_phase, phase,
                    lean_task ? lean_task->BenchPhaseName().c_str() : "?");
       last_phase = phase;
+      if (phase > max_phase_seen) max_phase_seen = phase;
       if (n_phases > 0 && phase == n_phases - 1) final_phase_since = data->time;
+      // payload attach: first entry into payload_phase (a later reset to 0 does
+      // not re-arm it -- the mass stays on the hand, as it would on the robot)
+      if (phase == payload_phase && payload_t0 < 0.0) {
+        payload_t0 = data->time;
+        mjModel* pm = agent.GetModel();
+        if (payload_belief != 0.0 && !payload_belief_done) {
+          pm->body_mass[payload_bid] += payload_belief;
+          SetConstScratch(pm);
+          payload_belief_done = true;
+        }
+        if (bft_add != 0.0) {
+          model->numeric_data[model->numeric_adr[bft_add_nid]] = bft_add;
+          pm->numeric_data[pm->numeric_adr[bft_add_nid]] = bft_add;
+          bft_add_on = true;
+        }
+        std::fprintf(stderr, "[bench] t=%7.2f  PAYLOAD attach: plant %.2f kg over %.2f s, "
+                             "planner %.2f kg, bft_add %.1f N\n", data->time, payload_true,
+                     payload_ramp, payload_belief, bft_add);
+      }
+      if (bft_add_on && !bft_add_cleared && phase > bft_add_until) {
+        mjModel* pm = agent.GetModel();
+        model->numeric_data[model->numeric_adr[bft_add_nid]] = 0.0;
+        pm->numeric_data[pm->numeric_adr[bft_add_nid]] = 0.0;
+        bft_add_cleared = true;
+        std::fprintf(stderr, "[bench] t=%7.2f  bft_add cleared (phase %d)\n", data->time, phase);
+      }
+    }
+    // plant payload ramp (the object leaving the table), re-evaluated every
+    // 10 ms until it is fully on; mj_setConst through a scratch data each time
+    if (payload_t0 >= 0.0 && payload_true != 0.0 && payload_applied != payload_true &&
+        i % 5 == 0) {
+      double a = payload_ramp > 0.0 ? mju_min(1.0, (data->time - payload_t0) / payload_ramp) : 1.0;
+      double target = a * payload_true;
+      if (target != payload_applied) {
+        model->body_mass[payload_bid] = payload_base_mass + target;
+        SetConstScratch(model);
+        payload_applied = target;
+      }
+    }
+    if (payload_t0 >= 0.0) {
+      // carry-phase extremes (from attach to the end), for the summary line
+      double brace_now = 0.0;
+      mjtNum ftc[6];
+      for (int c = 0; c < data->ncon; c++) {
+        const mjContact& con = data->contact[c];
+        int b1 = model->geom_bodyid[con.geom[0]], b2 = model->geom_bodyid[con.geom[1]];
+        bool t1 = (b1 == table_body), t2 = (b2 == table_body);
+        if (t1 == t2) continue;
+        int other = t1 ? b2 : b1;
+        if (other == 0 || other == object_body) continue;
+        mj_contactForce(model, data, c, ftc);
+        brace_now += mju_max(0.0, ftc[0]);
+      }
+      peak_brace_carry = mju_max(peak_brace_carry, brace_now);
+      min_pelvis_carry = mju_min(min_pelvis_carry, data->qpos[2]);
+      if (torso_id >= 0) {
+        const double* R = data->xmat + 9 * torso_id;
+        double tilt = std::acos(mju_max(-1.0, mju_min(1.0, R[8]))) * 180.0 / mjPI;
+        max_tilt_carry = mju_max(max_tilt_carry, tilt);
+      }
     }
 
     // Fall: the pelvis dropping below half its standing height is unambiguous and
@@ -629,8 +734,12 @@ int main(int argc, char** argv) {
   double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
   // One machine-readable summary line on stderr; the sweep driver parses this.
   std::fprintf(stderr,
-               "[bench-summary] task=%s strategy=%d planner=%d table_h=%.4f face_z=%.4f seed=%d "
+               "[bench-summary] payload_true=%.3f payload_belief=%.3f bft_add=%.1f payload_t=%.2f "
+               "max_phase=%d peak_brace_carry=%.1f min_pelvis_carry=%.3f max_tilt_carry=%.1f "
+               "task=%s strategy=%d planner=%d table_h=%.4f face_z=%.4f seed=%d "
                "fell=%d complete=%d t_complete=%.3f t_end=%.3f phases=%d wall_s=%.1f enter=",
+               payload_true, payload_belief, bft_add, payload_t0, max_phase_seen,
+               peak_brace_carry, (payload_t0 >= 0.0 ? min_pelvis_carry : -1.0), max_tilt_carry,
                task_name.c_str(), strategy, agent.PlannerId(), table_h, face_z, seed, (int)fell,
                (int)(t_complete > 0), t_complete, data->time, n_phases, wall);
   for (int p = 0; p < n_phases && p < 64; p++)
