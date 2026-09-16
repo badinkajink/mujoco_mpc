@@ -1,0 +1,114 @@
+{
+ "coffee creamer bottle": [
+  {
+   "mass_kg": [
+    0.28,
+    0.5,
+    0.85
+   ],
+   "mu_table": [
+    0.35,
+    0.55,
+    0.75
+   ],
+   "f_damage_N": [
+    15,
+    25,
+    50
+   ],
+   "notes": "The object is a plastic coffee creamer bottle, likely around 16 fl oz, on a standard PVC cutting mat."
+  },
+  {
+   "mass_kg": [
+    0.4,
+    0.55,
+    0.8
+   ],
+   "mu_table": [
+    0.25,
+    0.4,
+    0.55
+   ],
+   "f_damage_N": [
+    1.5,
+    2.5,
+    5.0
+   ],
+   "notes": "The object is a plastic bottle filled with liquid; tipping over is a dominant failure mode at moderate lateral forces, especially if pushed at a higher contact point."
+  },
+  {
+   "mass_kg": [
+    0.4,
+    0.6,
+    0.8
+   ],
+   "mu_table": [
+    0.3,
+    0.45,
+    0.6
+   ],
+   "f_damage_N": [
+    20.0,
+    30.0,
+    50.0
+   ],
+   "notes": "The object is a plastic coffee creamer bottle on a cutting mat, which is likely to slide before suffering significant denting, but could tip over with sufficient lateral force."
+  }
+ ],
+ "plastic tool case (blue) with hinged lid": [
+  {
+   "mass_kg": [
+    1.0,
+    1.8,
+    2.5
+   ],
+   "mu_table": [
+    0.2,
+    0.35,
+    0.5
+   ],
+   "f_damage_N": [
+    40,
+    75,
+    120
+   ],
+   "notes": "The object is a SHIMPO digital force meter, which has a plastic housing and contains sensitive electronics, making it moderately susceptible to lateral impact damage."
+  },
+  {
+   "mass_kg": [
+    0.7,
+    1.5,
+    2.8
+   ],
+   "mu_table": [
+    0.25,
+    0.35,
+    0.55
+   ],
+   "f_damage_N": [
+    30,
+    75,
+    180
+   ],
+   "notes": "The object is a robust plastic carrying case for a SHIMPO force meter, designed to withstand moderate impacts, but susceptible to dents from concentrated lateral forces."
+  },
+  {
+   "mass_kg": [
+    0.3,
+    0.5,
+    1.0
+   ],
+   "mu_table": [
+    0.35,
+    0.45,
+    0.6
+   ],
+   "f_damage_N": [
+    25,
+    45,
+    75
+   ],
+   "notes": "The object is identified as a Shimpo digital force meter, suggesting it contains sensitive electronics within its plastic casing."
+  }
+ ]
+}
