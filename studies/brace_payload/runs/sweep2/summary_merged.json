@@ -1,0 +1,468 @@
+{
+ "grid_M": {
+  "0|0": {
+   "n": 8,
+   "fell": 1,
+   "carried": 7,
+   "complete": 6,
+   "peak_brace_med": 171.64999999999998
+  },
+  "0|1": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 5,
+   "peak_brace_med": 203.14999999999998
+  },
+  "0|2": {
+   "n": 5,
+   "fell": 1,
+   "carried": 4,
+   "complete": 3,
+   "peak_brace_med": 208.8
+  },
+  "0|3": {
+   "n": 5,
+   "fell": 3,
+   "carried": 2,
+   "complete": 2,
+   "peak_brace_med": 183.1
+  },
+  "0|4": {
+   "n": 7,
+   "fell": 3,
+   "carried": 4,
+   "complete": 3,
+   "peak_brace_med": 215.6
+  },
+  "1|0": {
+   "n": 5,
+   "fell": 0,
+   "carried": 5,
+   "complete": 5,
+   "peak_brace_med": 206.4
+  },
+  "1|1": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 5,
+   "peak_brace_med": 196.75
+  },
+  "1|2": {
+   "n": 5,
+   "fell": 0,
+   "carried": 5,
+   "complete": 5,
+   "peak_brace_med": 181.1
+  },
+  "1|3": {
+   "n": 4,
+   "fell": 1,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 193.65
+  },
+  "1|4": {
+   "n": 6,
+   "fell": 2,
+   "carried": 4,
+   "complete": 4,
+   "peak_brace_med": 207.25
+  },
+  "2|0": {
+   "n": 4,
+   "fell": 0,
+   "carried": 4,
+   "complete": 4,
+   "peak_brace_med": 216.3
+  },
+  "2|1": {
+   "n": 5,
+   "fell": 0,
+   "carried": 5,
+   "complete": 5,
+   "peak_brace_med": 202.6
+  },
+  "2|2": {
+   "n": 4,
+   "fell": 0,
+   "carried": 4,
+   "complete": 4,
+   "peak_brace_med": 222.15
+  },
+  "2|3": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 5,
+   "peak_brace_med": 222.0
+  },
+  "2|4": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 6,
+   "peak_brace_med": 218.4
+  },
+  "4|0": {
+   "n": 8,
+   "fell": 0,
+   "carried": 8,
+   "complete": 8,
+   "peak_brace_med": 232.55
+  },
+  "4|1": {
+   "n": 5,
+   "fell": 0,
+   "carried": 5,
+   "complete": 5,
+   "peak_brace_med": 227.2
+  },
+  "4|2": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 6,
+   "peak_brace_med": 201.7
+  },
+  "4|3": {
+   "n": 6,
+   "fell": 0,
+   "carried": 6,
+   "complete": 6,
+   "peak_brace_med": 207.9
+  },
+  "4|4": {
+   "n": 8,
+   "fell": 3,
+   "carried": 5,
+   "complete": 3,
+   "peak_brace_med": 266.0
+  }
+ },
+ "grid_P": {
+  "0|0": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 158.8
+  },
+  "0|1": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 198.0
+  },
+  "0|2": {
+   "n": 2,
+   "fell": 0,
+   "carried": 2,
+   "complete": 2,
+   "peak_brace_med": 209.25
+  },
+  "0|3": {
+   "n": 1,
+   "fell": 0,
+   "carried": 1,
+   "complete": 1,
+   "peak_brace_med": 245.8
+  },
+  "0|4": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 228.3
+  },
+  "1|0": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 220.9
+  },
+  "1|1": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 290.6
+  },
+  "1|2": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 220.8
+  },
+  "1|3": {
+   "n": 2,
+   "fell": 1,
+   "carried": 1,
+   "complete": 1,
+   "peak_brace_med": 224.6
+  },
+  "1|4": {
+   "n": 3,
+   "fell": 2,
+   "carried": 1,
+   "complete": 1,
+   "peak_brace_med": 218.4
+  },
+  "2|0": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 227.7
+  },
+  "2|1": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 217.2
+  },
+  "2|2": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 219.1
+  },
+  "2|3": {
+   "n": 2,
+   "fell": 0,
+   "carried": 2,
+   "complete": 2,
+   "peak_brace_med": 247.85
+  },
+  "2|4": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 250.8
+  },
+  "4|0": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 291.2
+  },
+  "4|1": {
+   "n": 2,
+   "fell": 0,
+   "carried": 2,
+   "complete": 2,
+   "peak_brace_med": 227.7
+  },
+  "4|2": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 213.3
+  },
+  "4|3": {
+   "n": 3,
+   "fell": 0,
+   "carried": 3,
+   "complete": 3,
+   "peak_brace_med": 284.1
+  },
+  "4|4": {
+   "n": 3,
+   "fell": 1,
+   "carried": 2,
+   "complete": 1,
+   "peak_brace_med": 252.5
+  }
+ },
+ "pooled": {
+  "belief below the truth": {
+   "n": 59,
+   "fell": 0,
+   "carried": 59,
+   "complete": 59,
+   "peak_brace_med": 220.0
+  },
+  "belief equal to the truth": {
+   "n": 38,
+   "fell": 5,
+   "carried": 33,
+   "complete": 28,
+   "peak_brace_med": 222.15
+  },
+  "belief above the truth": {
+   "n": 72,
+   "fell": 13,
+   "carried": 59,
+   "complete": 55,
+   "peak_brace_med": 210.55
+  },
+  "believed 0 kg": {
+   "n": 37,
+   "fell": 1,
+   "carried": 36,
+   "complete": 35,
+   "peak_brace_med": 212.7
+  },
+  "believed 1 kg": {
+   "n": 33,
+   "fell": 0,
+   "carried": 33,
+   "complete": 31,
+   "peak_brace_med": 207.1
+  },
+  "believed 2 kg": {
+   "n": 31,
+   "fell": 1,
+   "carried": 30,
+   "complete": 29,
+   "peak_brace_med": 209.2
+  },
+  "believed 3 kg": {
+   "n": 29,
+   "fell": 5,
+   "carried": 24,
+   "complete": 23,
+   "peak_brace_med": 220.0
+  },
+  "believed 4 kg": {
+   "n": 39,
+   "fell": 11,
+   "carried": 28,
+   "complete": 24,
+   "peak_brace_med": 233.0
+  },
+  "true 0 kg": {
+   "n": 43,
+   "fell": 8,
+   "carried": 35,
+   "complete": 31,
+   "peak_brace_med": 202.2
+  },
+  "true 1 kg": {
+   "n": 40,
+   "fell": 6,
+   "carried": 34,
+   "complete": 33,
+   "peak_brace_med": 205.45
+  },
+  "true 2 kg": {
+   "n": 39,
+   "fell": 0,
+   "carried": 39,
+   "complete": 38,
+   "peak_brace_med": 220.9
+  },
+  "true 4 kg": {
+   "n": 47,
+   "fell": 4,
+   "carried": 43,
+   "complete": 40,
+   "peak_brace_med": 232.9
+  },
+  "belief error -4 kg": {
+   "n": 11,
+   "fell": 0,
+   "carried": 11,
+   "complete": 11,
+   "peak_brace_med": 234.8
+  },
+  "belief error -3 kg": {
+   "n": 7,
+   "fell": 0,
+   "carried": 7,
+   "complete": 7,
+   "peak_brace_med": 227.2
+  },
+  "belief error -2 kg": {
+   "n": 16,
+   "fell": 0,
+   "carried": 16,
+   "complete": 16,
+   "peak_brace_med": 213.0
+  },
+  "belief error -1 kg": {
+   "n": 25,
+   "fell": 0,
+   "carried": 25,
+   "complete": 25,
+   "peak_brace_med": 211.5
+  },
+  "belief error +0 kg": {
+   "n": 38,
+   "fell": 5,
+   "carried": 33,
+   "complete": 28,
+   "peak_brace_med": 222.15
+  },
+  "belief error +1 kg": {
+   "n": 25,
+   "fell": 0,
+   "carried": 25,
+   "complete": 23,
+   "peak_brace_med": 203.8
+  },
+  "belief error +2 kg": {
+   "n": 22,
+   "fell": 3,
+   "carried": 19,
+   "complete": 18,
+   "peak_brace_med": 216.10000000000002
+  },
+  "belief error +3 kg": {
+   "n": 15,
+   "fell": 7,
+   "carried": 8,
+   "complete": 8,
+   "peak_brace_med": 215.2
+  },
+  "belief error +4 kg": {
+   "n": 10,
+   "fell": 3,
+   "carried": 7,
+   "complete": 6,
+   "peak_brace_med": 221.95
+  },
+  "true 4 kg, believed 0 kg": {
+   "n": 11,
+   "fell": 0,
+   "carried": 11,
+   "complete": 11,
+   "peak_brace_med": 234.8
+  },
+  "true 4 kg, believed 4 kg": {
+   "n": 11,
+   "fell": 4,
+   "carried": 7,
+   "complete": 4,
+   "peak_brace_med": 262.2
+  },
+  "pre-attach falls": {
+   "n": 192,
+   "fell": 23
+  }
+ },
+ "scenario": {
+  "Smean": {
+   "all": {
+    "n": 0,
+    "fell": 0,
+    "carried": 0,
+    "complete": 0,
+    "peak_brace_med": NaN
+   },
+   "pre_attach_falls": 1,
+   "n_runs": 1,
+   "by_true": {},
+   "wall_med": 14.1
+  }
+ }
+}
