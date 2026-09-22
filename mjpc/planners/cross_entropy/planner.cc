@@ -351,8 +351,17 @@ void CrossEntropyPlanner::ResamplePolicy(int horizon) {
 
   // time
   double nominal_time = time;
-  double time_shift = mju_max(
-      (horizon - 1) * model->opt.timestep / (num_spline_points - 1), 1.0e-5);
+  // zero-order hold: knots at 0, T/n, ..., (n-1)T/n so each knot governs a
+  // segment of the rollout; interpolating splines keep the last knot at T
+  // (matches SamplingPlanner::ResamplePolicy)
+  double time_shift;
+  if (interpolation_ == spline::SplineInterpolation::kZeroSpline) {
+    time_shift = mju_max(
+        (horizon - 1) * model->opt.timestep / num_spline_points, 1.0e-5);
+  } else {
+    time_shift = mju_max(
+        (horizon - 1) * model->opt.timestep / (num_spline_points - 1), 1.0e-5);
+  }
 
   // get spline points
   for (int t = 0; t < num_spline_points; t++) {

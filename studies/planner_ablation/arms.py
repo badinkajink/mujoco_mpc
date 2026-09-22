@@ -279,3 +279,17 @@ for _xi, _x in [("m10", -0.10), ("0", 0.0), ("p10", 0.10)]:
             ARMS[_name] = (_pl, dict(_nums, target_col_x=_x, target_col_y=_y))
             BATCHES["G"].append(_name)
 
+
+# ---- 2026-09-21 zero-order knot span (branch wxie/zoh-knot-span-icra2026). The
+#      planners on this branch place hold knots at k*T/n (upstream's sampling
+#      planner convention) instead of k*T/(n-1), where the last knot sat at T
+#      and was never sampled by the rollout. So on this binary "cem_k2" is the
+#      shipped controller (two 0.5 s segments; the shipped third knot was dead)
+#      and "cem" is the same planner with three live 0.333 s segments. iCEM
+#      the same way.
+ARMS["cem_k2"] = (CEM, {"sampling_spline_points": 2})
+ARMS["cem_k4"] = (CEM, {"sampling_spline_points": 4})
+ARMS["icem_k2"] = (ICEM, {"sampling_spline_points": 2})
+ARMS["icem_k4"] = (ICEM, {"sampling_spline_points": 4})
+BATCHES["K"] = ["cem_k2", "cem", "cem_k4"]
+BATCHES["KI"] = ["icem_k2", "icem", "icem_k4"]
