@@ -482,6 +482,22 @@ int main(int argc, char** argv) {
         }
       }
       agent.PlanIteration(&pool);
+      // One-line report of the knot placement on the first plan: the knot
+      // times relative to the plan's state time, and the last time the
+      // rollout sampled the policy (steps 0..H-2). A knot at or beyond that
+      // last sample time is never read.
+      static bool knots_reported = false;
+      if (!knots_reported && (cem || icem)) {
+        knots_reported = true;
+        const mjpc::SamplingPolicy& pol = cem ? cem->resampled_policy : icem->resampled_policy;
+        const mjpc::Trajectory& tr = cem ? cem->trajectory[0] : icem->trajectory[0];
+        const double t0 = cem ? cem->time : icem->time;
+        std::fprintf(stderr, "[bench-knots] t0=%.3f knots(rel):", t0);
+        for (int t = 0; t < pol.plan.Size(); t++)
+          std::fprintf(stderr, " %.3f", pol.plan.NodeAt(t).time() - t0);
+        std::fprintf(stderr, "  last_sample(rel)=%.3f H=%d\n",
+                     tr.times[tr.horizon - 2] - t0, tr.horizon);
+      }
     }
 
     // The strategy JSON loads on the FIRST Transition, so the phase count is 0
