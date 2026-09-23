@@ -479,7 +479,7 @@
              release/r1/r2 advance until believed CoM is within this (m) of
              the midfoot: v4 released at +2mm and stood, v11 advanced at +90mm
              and the un-bow catapulted it backward. Escape after _wait s. -->
-        <numeric name="standback_com_gate" data="0.04"/>
+        <numeric name="standback_com_gate" data="0.08"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->
         <numeric name="standback_com_wait" data="20.0"/>
         <!-- ★★ standback stall relaxation (2026-08-14). sec<=0 = OFF.
              12 s of no pitch improvement (>0.01 rad) in a release-side rung
@@ -580,13 +580,13 @@
              (h12_brace_targeting, absorbed/bench-only) used rtt[1]=0.04 + this
              knob=0.12 to pick grid column B; if that bench is ever rerun, pass
              target_col_y=0.12 for it. -->
-        <numeric name="target_col_y" data="0.02"/>
+        <numeric name="target_col_y" data="0.0"/>
         <!-- ★ 2026-09-03 target_col_x (m): depth offset ADDED to every rung's
              reach_target_table[0] (strat 9 servo sweep: grid ROW knob). Both
              col knobs also shift servo_nominal inside the node, so a new grid
              point = edit target_col_x/target_col_y ONLY, then
              `ninja copy_model_resources` + restart the node. B3 = 0 / 0. -->
-        <numeric name="target_col_x" data="0.10"/>
+        <numeric name="target_col_x" data="0.0"/>
         <!-- ★ 2026-09-05 head_block_lock (m, 0 = OFF): while STANDING (rungs 0-1) the head
              camera sees tag30 on the block in the same frames as the table bundle; the
              bridge publishes it in planner world (rt/object_head) and the node latches
@@ -1181,21 +1181,21 @@
              head camera in tag_bridge_node. -->
         <numeric name="servo_slew" data="0.5"/>
         <numeric name="servo_max_age" data="1.0"/>
-        <numeric name="servo_max_offset" data="0.20"/>  <!-- 2026-09-13: 0.12->0.20 (real 11_nominal_7: the servo pinned at -0.120 y while the camera still had the tip 6 cm from the aim; the belief was ~15 cm off in the table frame (waist -11 deg) and the cap left it short) -->  <!-- 2026-09-05: 0.04->0.08 (y/z): belief lateral error 7-10 cm on 9_B3_7/8/12 exceeded the clamp; depth stays 0.04 via servo_max_offset_x -->
-        <numeric name="servo_max_offset_x" data="0.06"/>
+        <numeric name="servo_max_offset" data="0.04"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->  <!-- 2026-09-13: 0.12->0.20 (real 11_nominal_7: the servo pinned at -0.120 y while the camera still had the tip 6 cm from the aim; the belief was ~15 cm off in the table frame (waist -11 deg) and the cap left it short) -->  <!-- 2026-09-05: 0.04->0.08 (y/z): belief lateral error 7-10 cm on 9_B3_7/8/12 exceeded the clamp; depth stays 0.04 via servo_max_offset_x -->
+        <numeric name="servo_max_offset_x" data="0.04"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->
         <numeric name="servo_max_offset_z" data="0.02"/>  <!-- 2026-09-12: height correction capped until the wrist-cam extrinsic rotation is calibrated (11new_3: +6 cm phantom lift) -->
         <numeric name="arm_range_urdf" data="0"/>
         <!-- 2026-08-30 04:00 BACK TO THE 29_52 CONFIG: tonight's servo guards/gates OFF -->
         <numeric name="grasp_y_tol" data="1.0"/>
         <numeric name="servo_jump_max" data="1.0"/>
         <numeric name="servo_drift_max" data="1.0"/>
-        <numeric name="servo_max_offset_y" data="0.20"/>  <!-- 2026-09-13: 0.12->0.20, see servo_max_offset -->  <!-- 2026-09-05 run 16: D405 composition put the block 8 cm right of where the head cam (table bundle) put it; lateral now from head-lock + belief, D405 keeps depth/height -->
-        <numeric name="servo_max_offset_y_out" data="0.10"/>  <!-- 2026-09-05 one-sided RIGHTWARD cap: R shoulder roll at its outward stop on every hold (9_B3_25/26/27 body shoved, pad slid, elbow folded) -->
+        <numeric name="servo_max_offset_y" data="0.04"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->  <!-- 2026-09-13: 0.12->0.20, see servo_max_offset -->  <!-- 2026-09-05 run 16: D405 composition put the block 8 cm right of where the head cam (table bundle) put it; lateral now from head-lock + belief, D405 keeps depth/height -->
+        <numeric name="servo_max_offset_y_out" data="0.04"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->  <!-- 2026-09-05 one-sided RIGHTWARD cap: R shoulder roll at its outward stop on every hold (9_B3_25/26/27 body shoved, pad slid, elbow folded) -->
         <numeric name="servo_hold_ki" data="0.3"/>  <!-- 2026-09-05 hold integrator (1/s): camera-frame hold error integrated into the hold target; 0 = off -->
         <numeric name="servo_hold_int_max" data="0.04"/>  <!-- 2026-09-08: 0.04 saturated in y/z with 2 cm left in every hold -->
         <numeric name="servo_hold_push_abort" data="0"/>  <!-- 2026-09-13: OFF (was code default 0.03). Real 11_nominal_9: fired on the FIRST frame of the aim rung (level gripper above the block: tip+standoff is always past the centre plane) and skipped the hold entirely. User: not wanted. -->
         <numeric name="reach_level_aim" data="0"/>  <!-- 2026-09-12 20:45 OFF again: real 11new_3 yawed the gripper 26-42 deg LEFT at close range (bearing from grasp centre to a target a few cm away is ill-conditioned) and the camera lost the block -->  <!-- 2026-09-05: 1 = on servo_hold rungs, Reach Level lateral component aims the gripper approach axis at the target instead of pinning it to world +x (wrist yaw supplies ~3.3 cm lateral per 10 deg) -->
-        <numeric name="servo_max_depth" data="0.40"/>  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
+        <numeric name="servo_max_depth" data="0.30"/>  <!-- 2026-09-21 s29_2: back to the 08-30 grasp value (s29_1: 20 cm servo authority steered the slide-in 6 cm deep / 10 cm right of the block, tag lost for the whole grasp rung, no CLOSE) -->  <!-- reverted from 0.55 (29_75): far 0.47m samples carry ~8cm hand-eye error, latched+froze -> arm reached 8.7cm left, fell. Back to the 29_52/69/71 value. -->
         <numeric name="servo_freeze_dist" data="0.08"/>
         <numeric name="servo_nominal" data="0.525 0.16 0.025"/>
         <!-- 2026-08-28: hand-eye CALIBRATED live (5-pose pelvis-frame consistency
