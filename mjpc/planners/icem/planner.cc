@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <mutex>
 #include <shared_mutex>
@@ -173,6 +175,48 @@ void iCEMPlanner::OptimizePolicy(int horizon, ThreadPool& pool) {
       });
 
   rollouts_compute_time = GetDuration(rollouts_start);
+
+  // ★ 2026-09-22 H12_ROLLOUT_DUMP (talk video "ghost fan"): env-gated, default
+  // OFF -> byte-identical control path when the variable is unset. Every
+  // H12_ROLLOUT_DUMP_EVERY-th plan (default 10) writes <dir>/tick_NNNNNN.bin:
+  //   int32[6]  num_trajectory, horizon, dim_state, nq, nv, n_elite
+  //   float64   t0 (planner time of the first horizon step)
+  //   int32[num_trajectory]  trajectory_order (sorted by return, best first)
+  //   per trajectory i (unsorted order): float64 total_return,
+  //                                      float64[horizon*dim_state] states
+  //   nominal: float64 total_return, float64[horizon*dim_state] states
+  {
+    static const char* dump_dir = std::getenv("H12_ROLLOUT_DUMP");
+    static const int dump_every = [] {
+      const char* e = std::getenv("H12_ROLLOUT_DUMP_EVERY");
+      return e ? std::max(1, std::atoi(e)) : 10;
+    }();
+    static long dump_calls = 0;
+    if (dump_dir && (dump_calls++ % dump_every) == 0) {
+      char path[1024];
+      std::snprintf(path, sizeof(path), "%s/tick_%06ld.bin", dump_dir,
+                    (dump_calls - 1) / dump_every);
+      if (FILE* f = std::fopen(path, "wb")) {
+        const int dim_state = model->nq + model->nv + model->na;
+        const int hdr[6] = {num_trajectory, horizon, dim_state, model->nq,
+                            model->nv, n_elite};
+        const double t0 = trajectory[0].times.empty() ? 0.0
+                                                      : trajectory[0].times[0];
+        std::fwrite(hdr, sizeof(int), 6, f);
+        std::fwrite(&t0, sizeof(double), 1, f);
+        std::fwrite(trajectory_order.data(), sizeof(int), num_trajectory, f);
+        for (int i = 0; i < num_trajectory; i++) {
+          std::fwrite(&trajectory[i].total_return, sizeof(double), 1, f);
+          std::fwrite(trajectory[i].states.data(), sizeof(double),
+                      static_cast<size_t>(horizon) * dim_state, f);
+        }
+        std::fwrite(&nominal_trajectory.total_return, sizeof(double), 1, f);
+        std::fwrite(nominal_trajectory.states.data(), sizeof(double),
+                    static_cast<size_t>(horizon) * dim_state, f);
+        std::fclose(f);
+      }
+    }
+  }
 
   auto policy_update_start = std::chrono::steady_clock::now();
 
