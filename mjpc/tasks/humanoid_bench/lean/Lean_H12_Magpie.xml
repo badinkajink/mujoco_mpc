@@ -757,7 +757,7 @@
              a graze with zero margin (operator assisted the right arm on real runs
              13/14). +44.8 mm gives the gripper a 50 mm clearance; x/y unchanged, so
              the reach EXTENT is unchanged. -->
-        <numeric name="reach_target" data="1.05 -0.15 1.3500"/>
+        <numeric name="reach_target" data="1.05 -0.15 1.40"/>
         <!-- reach_radius / reach_drop (strategy 21): the HOLDABLE-workspace knobs.
              reach_radius = the arm's commanded extension toward the target [m];
              reach_drop = how far BELOW the shoulder the hand is pulled [m].
