@@ -349,6 +349,10 @@ class lean : public Task {
     // between forearm_brace_lean and forearm_brace_release as the design
     // lands. Deliberately independent of 22/23.
     names[25] = "h12_brace_targeting";      // strat 24 + right-arm target hovers
+    // ★ 2026-09-15 strat 26: MAX REACH. Byte-copy of strat 25 with the rung-2
+    // target pushed to depth 0.80 (15 cm ball, 3 s, 25 s timeout_advance) so
+    // the nine-term brace does the strat-22 max-reach job.
+    names[26] = "h12_brace_maxreach";       // strat 25 + far target (max reach)
     // ★ 2026-08-24 strat 27: BRACED RETRIEVAL (design:
     // docs/strat27_retrieval_design_2026-08-24.md). Fork of strat 25 with the
     // grasp phases inserted between forearm_brace_lean and release: acquire

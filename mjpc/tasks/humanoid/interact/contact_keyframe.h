@@ -162,6 +162,9 @@ class ContactKeyframe {
   mjtNum centroid_standoff;
   // 2026-09-12 strat 11: per-rung cap (m) for the servo_hold integrator; <0 = global numeric servo_hold_int_max
   mjtNum servo_hold_int_max;
+  // 2026-09-15 strat 26: per-rung override of the brace_lat_inset numeric (m, offset of the brace
+  // target from the slab y-centre toward the bracing side); <0 = global numeric (byte-identical).
+  mjtNum brace_lat_inset;
   // 2026-09-12 AIM AT THE CENTROID: graded point = centreline tip + centroid_standoff along the gripper
   // approach axis (local x, world), target = the rung target itself (the centroid). Pair with Reach Level + reach_pitch_deg.
   bool aim_centroid;
@@ -188,6 +191,7 @@ class ContactKeyframe {
         servo_cap_y_out(-1.),
         centroid_standoff(0.025),
         servo_hold_int_max(-1.),
+        brace_lat_inset(-1.),
         aim_centroid(false),
         aim_free(false),
         time_limit(10.),

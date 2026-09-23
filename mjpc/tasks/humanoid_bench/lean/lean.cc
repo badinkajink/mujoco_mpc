@@ -1051,6 +1051,8 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
     int tgy = mj_name2id(model, mjOBJ_GEOM, "table_top_collision");
     if (blat > 0.5 && tgy >= 0) {
       double lat = GetNumberOrDefault(0.20, model, "brace_lat_inset");
+      // 2026-09-15 strat 26: per-rung JSON override (brace landed too far left on 26_4/26_5).
+      if (residual_keyframe_.brace_lat_inset >= 0.0) lat = residual_keyframe_.brace_lat_inset;
       brace_y_target = data->geom_xpos[3 * tgy + 1] + (reach_right ? lat : -lat);
     }
   }

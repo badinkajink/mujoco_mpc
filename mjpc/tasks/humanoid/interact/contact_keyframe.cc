@@ -59,6 +59,7 @@ void ContactKeyframe::Reset() {
   servo_cap_y_out = -1.;
   centroid_standoff = 0.025;
   servo_hold_int_max = -1.;
+  brace_lat_inset = -1.;
   aim_centroid = false;
   aim_free = false;
 }
@@ -104,6 +105,7 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"servo_cap_y_out", keyframe.servo_cap_y_out},
            {"centroid_standoff", keyframe.centroid_standoff},
            {"servo_hold_int_max", keyframe.servo_hold_int_max},
+           {"brace_lat_inset", keyframe.brace_lat_inset},
            {"aim_centroid", keyframe.aim_centroid},
            {"aim_free", keyframe.aim_free}};
 }
@@ -138,6 +140,7 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   keyframe.servo_cap_y_out = j.value("servo_cap_y_out", -1.);
   keyframe.centroid_standoff = j.value("centroid_standoff", 0.025);
   keyframe.servo_hold_int_max = j.value("servo_hold_int_max", -1.);
+  keyframe.brace_lat_inset = j.value("brace_lat_inset", -1.);
   keyframe.aim_centroid = j.value("aim_centroid", false);
   keyframe.aim_free = j.value("aim_free", false);
 }
