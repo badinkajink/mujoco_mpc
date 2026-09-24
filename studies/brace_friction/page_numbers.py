@@ -39,6 +39,18 @@ def pooled(df):
     return pd.concat(rows)
 
 
+def assist_row(d):
+    """Outcome split and brace quality for one pull-back condition."""
+    early = ((d.fell == 1) & (d.t_end < 16.0)).sum()
+    late = ((d.fell == 1) & (d.t_end >= 16.0)).sum()
+    r = dict(n=len(d), complete=int(d.complete.sum()), fell_onset=int(early), fell_late=int(late))
+    for k, col in (("r_impact", "br_ratio_impact"), ("r_p95", "br_ratio_p95"),
+                   ("pad_slide", "brace_slide_mm"), ("foot_slide", "foot_slide_mm"),
+                   ("sole", "sole_disp_mm"), ("touch_v", "touch_v_down")):
+        r[k] = float(d[col].median()) if col in d and d[col].notna().any() else float("nan")
+    return r
+
+
 def N():
     n = {}
     df = replay()
@@ -69,6 +81,18 @@ def N():
         tr = pd.read_csv(os.path.join(RUNS, "replay_tracks", f"{r.dir}__{r.arm}_s{r.seed}.csv"))
         w = tr[tr.t >= tr.t.iloc[-1] - 3.0]
         n["falls_braced"] += int((w.pad_fz > 20).any())
+    # the pull-back assist: matched 6-seed comparison at slab 0.8 / floor 0.4
+    n["assist"] = {}
+    base = scored("b1_sd02")
+    if not base.empty:
+        b = base[(base.cell == "t0.8_f0.4") & (base.seed < 6)]
+        n["assist"]["none"] = assist_row(b)
+    for b, lab in (("a20_g15", "-20 N, whole approach"), ("a40_g15", "-40 N, whole approach"),
+                   ("a20_g05", "-20 N, last 50 mm"), ("a40_g05", "-40 N, last 50 mm"),
+                   ("a40_ph2", "-40 N, once braced")):
+        d = scored(b)
+        if not d.empty:
+            n["assist"][lab] = assist_row(d)
     # this study's sweeps
     for b in ("b1_sd02", "b2_sd01", "b5_sd01_dz20", "b3_sd02_stiff"):
         d = scored(b)

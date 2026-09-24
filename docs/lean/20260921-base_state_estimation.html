@@ -1,0 +1,308 @@
+<title>H1-2 base estimation</title><style>
+:root{--bg:#fafbfd;--fg:#1d2835;--muted:#546474;--rule:#d6dde6;--th:#e9eef5;--card:#ffffff;--code:#eef1f5;--link:#075eaa;--ok:#1b5e20;--warn:#8a4b08}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#14181d;--fg:#e4e8ee;--muted:#9aa5b4;--rule:#2c343d;--th:#1f262e;--card:#181d23;--code:#222932;--link:#7db5e8;--ok:#8fd19e;--warn:#e0a35a}}
+:root[data-theme="dark"]{--bg:#14181d;--fg:#e4e8ee;--muted:#9aa5b4;--rule:#2c343d;--th:#1f262e;--card:#181d23;--code:#222932;--link:#7db5e8;--ok:#8fd19e;--warn:#e0a35a}
+body{font:17px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:1180px;margin:40px auto;padding-block:0;padding-inline:24px;color:var(--fg);background:var(--bg)}
+h1{font-size:32px;line-height:1.15;text-wrap:balance}h2{margin-top:40px;text-wrap:balance}h3{margin-top:26px;font-size:18px}
+p{max-width:78ch}ul,ol{max-width:80ch}li{margin:3px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--card);font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+th{background:var(--th)}caption{text-align:left;font-size:14px;color:var(--muted);padding:6px 0;caption-side:top}
+.scroll{overflow-x:auto;margin:12px 0}
+code,pre{background:var(--code);font-size:13.5px;border-radius:3px;padding:0 3px}pre{padding:14px;white-space:pre-wrap}
+a{color:var(--link)}.muted{color:var(--muted)}
+figure{margin:18px 0}figcaption{font-size:14px;color:var(--muted);max-width:90ch}
+figure.diag{background:var(--card);padding:12px;border:1px solid var(--rule);border-radius:4px}
+figure.diag svg{max-width:100%;height:auto;display:block}
+.eq{font-family:"Cambria Math",Cambria,"Times New Roman",serif;font-size:17px;margin:10px 0 10px 28px;max-width:78ch}
+.eq var{font-style:italic}.eq b{font-weight:600;font-style:normal}
+.src{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;color:var(--muted);margin:-4px 0 12px}
+.num{font-variant-numeric:tabular-nums}
+td.ok{color:var(--ok)}td.warn{color:var(--warn)}
+dl{max-width:80ch}dt{font-weight:600;margin-top:10px}dd{margin:2px 0 0 0}
+</style>
+<h1>Floating-base state estimation for the braced lean</h1>
+<p class="muted">2026-09-21 · reference notes for the lean-paper talk · code read on <code>wxie/brace-payload</code> at <code>4b08ab56</code> (the estimator files are unchanged since 2026-08-29, the tag bridge since 2026-09-05) · paper text in <code>paper/icra/main.tex</code>, §III "State Estimation" (lines 225–247) and §IV "Estimation" (lines 278–288) · numbers attributed to the paper are the submitted ones; numbers attributed to code comments name the run they were measured on.</p>
+
+<h2>1. Result</h2>
+<p>The base state the planner consumes is assembled from three sources. Orientation and angular velocity are the torso IMU's own outputs, read from <code>rt/lowstate</code> and corrected for mount offsets but never filtered by us. Base velocity is a 3-state Kalman filter with a random-walk process model, updated at 200 Hz by the velocity each planted foot implies through the leg kinematics; base xy is the integral of that velocity and base z is the kinematic height of the lowest foot. Horizontal position is then pulled toward the pose solved from an AprilTag bundle on the table, with a 2 s first-order time constant. Heading is corrected in the control node from the same tag solves.</p>
+<p>On a held stand the leg-odometry-only estimate drifts at +267 mm/min, the same estimate fused with FAST-LIO at +210 mm/min, and the tag-anchored estimate at +4 mm/min (Table 1). The three estimators are indistinguishable on every other metric, so the fiducial was chosen for all hardware trials. The paper's abstract states the consequence: the loaded posture is sustained for over four minutes before pose estimation drifts.</p>
+<div class="scroll"><table>
+<caption>Table 1. The three estimators evaluated in the paper during an actively held stand (main.tex lines 278–288). Drift is the foot-anchoring residual of §11, which measures pose error without external ground truth.</caption>
+<tr><th>Estimator</th><th>Horizontal drift</th><th>Attitude jitter</th><th>Height drift</th><th>Inter-foot variation</th><th>Velocity noise</th></tr>
+<tr><td>Internal (IMU + leg odometry + guards)</td><td class="warn">+267 mm/min (≈0.48 m over 2 min)</td><td rowspan="3">&lt; 0.4° pitch, &lt; 0.2° roll</td><td rowspan="3">1–2 mm</td><td rowspan="3">14–47 mm</td><td rowspan="3">7–10 mm/s</td></tr>
+<tr><td>Internal + LiDAR (FAST-LIO, Livox MID-360)</td><td class="warn">+210 mm/min</td></tr>
+<tr><td>Internal + Fiducials (four 36h11 tags, head D435i)</td><td class="ok">+4 mm/min</td></tr>
+</table></div>
+
+<h2>2. What the planner receives, and from where</h2>
+<p>The MJPC node fills a MuJoCo state <code>qpos = [p(3), quat(4), q(27)]</code>, <code>qvel = [v(3), ω(3), q̇(27)]</code> once per control tick. Table 2 gives the source of each block. Two details matter for everything that follows. First, the estimator publishes the pose of the IMU <em>site</em>, 0.278 m above and 0.045 m behind the pelvis, and the node backs the pelvis out with <code>p = p_site − R·offset</code>, <code>offset = (−0.04452, −0.01891, 0.27756) m</code>; both ends hard-code the same constant. Second, the node does not use the estimator's velocity output. It finite-differences the reconstructed pelvis position over the plant clock and low-passes the result with a 30 ms time constant. The Kalman velocity state still determines the position through integration, and any correction applied to the position stream appears to the planner as velocity through this difference. That coupling drives the anchor design in §7.5.</p>
+<p class="src">deploy_common.cc:1531 (fill_state), :2381 (single-stream finite difference), deploy_common.h:68 (kVelLpfMs = 30)</p>
+<div class="scroll"><table>
+<caption>Table 2. Source of each block of the planner state.</caption>
+<tr><th>Quantity</th><th>Source</th><th>Path</th></tr>
+<tr><td>Pelvis position x, y</td><td>Kalman velocity integrated at 200 Hz, then pulled toward the AprilTag solve (τ = 2 s)</td><td><code>rt/lowstate</code> → <code>base_estimator_node_v4.py</code> → <code>rt/sportmodestate.position</code></td></tr>
+<tr><td>Pelvis position z</td><td>Kinematic height of the lowest foot, calibrated so the home keyframe reproduces the model's home height; no external fusion</td><td>same</td></tr>
+<tr><td>Pelvis linear velocity</td><td>Finite difference of the pelvis position in the control node, 30 ms low-pass, rotated by the yaw offset</td><td><code>deploy_common.cc</code> control loop</td></tr>
+<tr><td>Orientation</td><td>IMU quaternion; pitch/roll mount offsets post-multiplied in the body frame; yaw offset pre-multiplied about world z</td><td><code>rt/lowstate.imu_state.quaternion</code> → <code>fill_state</code></td></tr>
+<tr><td>Angular velocity</td><td>IMU gyroscope, body frame, unfiltered</td><td><code>rt/lowstate.imu_state.gyroscope</code></td></tr>
+<tr><td>Joint positions and velocities</td><td>Motor encoders; per-ankle zero offsets subtracted on the leg node</td><td><code>rt/lowstate.motor_state[i].q, .dq</code></td></tr>
+<tr><td>Heading offset</td><td>IMU-vs-table yaw from the tag bridge, slewed at 0.1–5 °/s</td><td><code>rt/aux_odom.position[2]</code> → <code>imu_yaw_off</code></td></tr>
+</table></div>
+
+<figure class="diag">
+<svg viewBox="0 0 940 380" role="img" aria-label="Data flow from the robot's lowstate, head camera and optional LiDAR through the estimator and bridges into the control node">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g fill="none" stroke="currentColor" stroke-opacity=".55" stroke-width="1.2">
+<rect x="60" y="30" width="200" height="56" rx="3" fill="var(--card)"/>
+<rect x="520" y="30" width="180" height="56" rx="3" fill="var(--card)"/>
+<rect x="740" y="30" width="180" height="56" rx="3" fill="var(--card)"/>
+<rect x="60" y="150" width="220" height="60" rx="3" fill="var(--card)" stroke="var(--link)" stroke-opacity="1" stroke-width="1.6"/>
+<rect x="520" y="150" width="180" height="60" rx="3" fill="var(--card)"/>
+<rect x="740" y="240" width="180" height="56" rx="3" fill="var(--card)"/>
+<rect x="330" y="165" width="130" height="30" rx="15" fill="var(--card)" stroke-dasharray="3 3"/>
+<rect x="60" y="310" width="640" height="56" rx="3" fill="var(--card)"/>
+</g>
+<g fill="currentColor" font-size="12.5" font-family="system-ui,sans-serif">
+<text x="160" y="50" text-anchor="middle" font-weight="600">rt/lowstate (1 kHz)</text>
+<text x="160" y="68" text-anchor="middle" font-size="11">IMU quat + gyro · q, q̇, τ_est × 27</text>
+<text x="610" y="50" text-anchor="middle" font-weight="600">head D435i colour</text>
+<text x="610" y="68" text-anchor="middle" font-size="11">/realsense/head/… ~30 Hz</text>
+<text x="830" y="50" text-anchor="middle" font-weight="600">Livox MID-360 → FAST-LIO</text>
+<text x="830" y="68" text-anchor="middle" font-size="11">/Odometry (optional)</text>
+<text x="170" y="171" text-anchor="middle" font-weight="600">base_estimator_node_v4 (200 Hz)</text>
+<text x="170" y="188" text-anchor="middle" font-size="11">RW-KF velocity · leg odometry · ZUPT</text>
+<text x="170" y="202" text-anchor="middle" font-size="11">slip + stale guards · xy anchor</text>
+<text x="610" y="171" text-anchor="middle" font-weight="600">tag_bridge_node</text>
+<text x="610" y="188" text-anchor="middle" font-size="11">PnP on the bundle → pelvis xy,</text>
+<text x="610" y="202" text-anchor="middle" font-size="11">IMU-vs-table yaw offset</text>
+<text x="830" y="260" text-anchor="middle" font-weight="600">lio_bridge_node</text>
+<text x="830" y="278" text-anchor="middle" font-size="11">pelvis xy + v in the IMU-world yaw</text>
+<text x="395" y="184" text-anchor="middle" font-size="11.5">rt/aux_odom (DDS)</text>
+<text x="380" y="331" text-anchor="middle" font-weight="600">h12_control_node → MJPC planner (34 Hz plans)</text>
+<text x="380" y="349" text-anchor="middle" font-size="11">pelvis = site − R·offset · v = d/dt(p), 30 ms LPF · yaw slew · latency rollout</text>
+</g>
+<g fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#arr)">
+<line x1="160" y1="86" x2="160" y2="150"/>
+<line x1="610" y1="86" x2="610" y2="150"/>
+<line x1="830" y1="86" x2="830" y2="240"/>
+<line x1="520" y1="180" x2="460" y2="180"/>
+<polyline points="740,268 430,268 430,195"/>
+<line x1="330" y1="180" x2="280" y2="180"/>
+<line x1="170" y1="210" x2="170" y2="310"/>
+<line x1="360" y1="195" x2="360" y2="310"/>
+<polyline points="60,58 30,58 30,338 60,338"/>
+</g>
+<g fill="currentColor" font-size="11" font-family="system-ui,sans-serif">
+<text x="168" y="122">q, q̇, τ_est, quat, gyro</text>
+<text x="618" y="122">JPEG frames + camera_info</text>
+<text x="838" y="170">pose + twist, 10 Hz</text>
+<text x="490" y="172" text-anchor="middle">mode 2</text>
+<text x="490" y="197" text-anchor="middle">xy, yaw_off</text>
+<text x="585" y="284" text-anchor="middle">mode 0: xy + v (chi²-gated)</text>
+<text x="305" y="172" text-anchor="middle">xy pull</text>
+<text x="178" y="262">rt/sportmodestate: IMU-site p, v</text>
+<text x="368" y="262">position[2] = yaw_off → imu_yaw_off</text>
+<text x="26" y="200" transform="rotate(-90 26 200)" text-anchor="middle">quat, gyro, q, q̇ (direct)</text>
+</g>
+</svg>
+<figcaption>Figure 1. Data flow on the robot. The estimator (outlined) owns position and the velocity state; orientation bypasses it. The tag bridge feeds both the estimator (xy anchor) and the control node (heading) over one DDS topic; the LiDAR bridge is optional and was not used for the paper's manipulation trials.</figcaption>
+</figure>
+
+<h2>3. The Kalman filter in plain terms</h2>
+<h3>3.1 Two numbers per quantity</h3>
+<p>A Kalman filter keeps, for each quantity it estimates, the estimate itself and a variance that states how wrong the estimate might be. For a 3-vector velocity <var>v</var> these are a 3-vector and a 3×3 covariance <var>P</var>. Everything the filter does is bookkeeping on these two objects.</p>
+<h3>3.2 Predict, then correct</h3>
+<p>Each tick has two halves. In the prediction half, time advances by Δt: the estimate follows whatever model of motion we have, and <var>P</var> grows by a process noise <var>Q</var> that says how far the truth can wander from the model in one step. In the correction half, a measurement <var>z</var> arrives with its own variance <var>R</var>. The new estimate is a weighted mean of the prediction and the measurement, and <var>P</var> shrinks because two pieces of information were combined.</p>
+<h3>3.3 The gain is a ratio of uncertainties</h3>
+<p>The weight is the Kalman gain. In one dimension it is <var>K</var> = <var>P</var>/(<var>P</var> + <var>R</var>): the fraction of the gap between estimate and measurement that the update closes. If the filter is unsure (<var>P</var> ≫ <var>R</var>) it takes almost all of the measurement; if the measurement is noisy (<var>R</var> ≫ <var>P</var>) it takes almost none. The multi-dimensional form is the same statement with matrices:</p>
+<div class="eq"><var>S</var> = <var>P</var> + <var>R</var>,  <var>K</var> = <var>P</var> <var>S</var><sup>−1</sup>,  <var>v</var> ← <var>v</var> + <var>K</var>(<var>z</var> − <var>v</var>),  <var>P</var> ← (<var>I</var> − <var>K</var>)<var>P</var>.</div>
+<p>The innovation <var>z</var> − <var>v</var> also gives a consistency check for free. The quantity <var>d</var>² = (<var>z</var> − <var>v</var>)<sup>T</sup><var>S</var><sup>−1</sup>(<var>z</var> − <var>v</var>) is chi-squared distributed with 3 degrees of freedom when the measurement is what the filter thinks it is; a measurement with <var>d</var>² above the 99th percentile, 11.34, is more likely a lie than a surprise and is discarded.</p>
+<h3>3.4 The word "extended"</h3>
+<p>The extended Kalman filter handles a nonlinear motion or measurement model by linearising it about the current estimate at every step (the Jacobians <var>A</var> and <var>C</var> in the textbook form). Our filter is linear in both places: the motion model is the identity and the measurement is <var>v</var> itself. The nonlinearity of the problem, the leg kinematics, is entirely inside the computation that turns encoder and IMU readings into the measurement <var>z</var>, before the filter sees it. The code keeps the historical name <code>rw-ekf</code>; the paper calls it a random-walk Kalman model, which is the accurate description.</p>
+<h3>3.5 What this filter is</h3>
+<p>The state is the pelvis world-frame linear velocity, three numbers. The process model says the velocity in 5 ms is the velocity now plus something unpredictable (the paper's eq. 1):</p>
+<div class="eq"><var>v</var><sub><var>k</var></sub> = <var>v</var><sub><var>k</var>−1</sub> + <var>w</var><sub><var>k</var></sub>,  <var>z</var><sub><var>k</var></sub> = <var>v</var><sub><var>k</var></sub> + <var>η</var><sub><var>k</var></sub>,  <var>Q</var> = (<var>a</var><sub>max</sub> Δ<var>t</var>)² <var>I</var>,  <var>a</var><sub>max</sub> = 3 m/s².</div>
+<p>At the 200 Hz step this adds a standard deviation of 15 mm/s per tick. Each tick then runs one correction per foot with the leg-odometry measurement of §4, followed by an optional zero-velocity correction (§6.1). Position is not a state: xy is accumulated outside the filter as <var>p</var> ← <var>p</var> + <var>v</var> Δ<var>t</var>, and z is read from kinematics every tick.</p>
+<p class="src">base_estimator_node_v3.py:154–168 (update loop), :181 (xy integration); defaults --ekf-amax 3.0 --ekf-r0 0.02 --ekf-r1 0.3 --ekf-lfloor 5.0 --ekf-chi2 11.34 --ekf-rejcap 50</p>
+<h3>3.6 A worked tick</h3>
+<p>Take one axis with a foot carrying 30 N·m of knee-plus-ankle torque, so its measurement variance is <var>r</var> = (0.02 + 0.3/30)² = 9×10<sup>−4</sup> m²/s² (§4.3). The filter starts at <var>P</var> = 0.04 (a 200 mm/s standard deviation). On the first update <var>K</var> = 0.04/(0.04 + 0.0009) = 0.978 and the estimate jumps to the foot's value; afterwards <var>P</var> = 8.8×10<sup>−4</sup>. In steady state, with prediction adding 2.25×10<sup>−4</sup> and two feet correcting each tick, <var>P</var> settles at 2.25×10<sup>−4</sup> (15 mm/s); the two foot updates run with gains 0.33 and 0.25 in sequence, so together they close about half the gap to the feet each tick. The filter therefore behaves as a load-weighted average of the two feet with a memory of a few ticks, which is what a 200 Hz velocity estimate for a 34 Hz planner needs. An unloaded foot, with the load floored at 5 N·m, has <var>r</var> = 0.08² and is weighted 7× less in variance, 2.7× less in standard deviation, than a loaded one; it is down-weighted, not rejected.</p>
+<h3>3.7 What the filter deliberately is not</h3>
+<p>No accelerometer is integrated. The velocity state is never propagated by the IMU, so gyro and accelerometer biases never accumulate into position, and there is no bias state to learn. The cost is that when contact is lost the estimate freezes while the truth accelerates; the guards in §6 and the external anchor in §7 exist because of that. A 12-state contact-aided filter of the MIT Cheetah / <code>unitree_guide</code> design, with position and per-foot position states and IMU propagation, was ported as <code>kf12</code> and benchmarked twice against this filter on the twin. It lost both times (07-16 A/B; 07-29 120 s hold: fell at 24.6 s against 56.1 s), showed two failure modes of its own (trust collapse through the estimated foot-height gate, post-fall bias poisoning), and was dropped from the deploy path in v3.</p>
+<p class="src">base_estimator_node.py:1–60 (v1 docstring, kf12 description), base_estimator_node_v3.py:1–45 (why v3 exists)</p>
+
+<h2>4. Leg odometry: the measurement</h2>
+<h3>4.1 The planted-foot constraint</h3>
+<p>A foot in contact with the floor is stationary in the world. The world velocity of the foot is the base velocity plus what the base rotation and the leg joints contribute, so the base velocity is whatever cancels those two (the paper's eq. 2):</p>
+<div class="eq"><var>z</var><sub><var>k</var></sub> = −[ <var>ω</var><sub><var>b</var></sub> × (<var>p</var><sub><var>k</var></sub>(<var>q</var>) − <var>p</var><sub><var>b</var></sub>) + <var>R</var><sub><var>b</var></sub> <var>J</var><sub><var>k</var></sub>(<var>q</var>) <var>q̇</var> ],</div>
+<p>with <var>ω</var><sub><var>b</var></sub> the base angular velocity from the gyro, <var>R</var><sub><var>b</var></sub> the base orientation from the IMU, <var>p</var><sub><var>k</var></sub> the foot position from forward kinematics and <var>J</var><sub><var>k</var></sub> the translational Jacobian of foot <var>k</var>. Each of the two feet gives one such measurement per tick.</p>
+<h3>4.2 How the code forms it</h3>
+<p>The estimator loads the H1-2 MuJoCo model (the handless twin scene) and, each tick, writes the pelvis orientation into the free joint with the base position and linear velocity zeroed, writes the 27 joint angles and rates, the pelvis angular rate into <code>qvel[3:6]</code>, calls <code>mj_forward</code>, and reads each <code>ankle_roll</code> body's world linear velocity with <code>mj_objectVelocity</code>. With base velocity zeroed that reading is exactly the bracket in eq. 2, and its negative is the measurement. The same forward pass gives the height: <var>z</var><sub><var>b</var></sub> = −min<sub><var>k</var></sub> <var>z</var><sub>foot,<var>k</var></sub> + <var>h</var><sub><var>C</var></sub>, where <var>h</var><sub><var>C</var></sub> is the ankle-to-sole constant calibrated once from the model's home keyframe.</p>
+<p class="src">base_estimator_node_v3.py:127–142; base_estimator_node.py:633 (load_model_and_calibrate)</p>
+<h3>4.3 Trust by load</h3>
+<p>The measurement variance of foot <var>k</var> is set from a torque proxy for its load, <var>L</var><sub><var>k</var></sub> = |τ<sub>knee</sub>| + |τ<sub>ankle pitch</sub>| from <code>tau_est</code>:</p>
+<div class="eq"><var>r</var><sub><var>k</var></sub> = ( <var>r</var><sub>0</sub> + <var>r</var><sub>1</sub> / max(<var>L</var><sub><var>k</var></sub>, <var>L</var><sub>floor</sub>) )²,  <var>r</var><sub>0</sub> = 0.02 m/s, <var>r</var><sub>1</sub> = 0.3 m/s·N·m, <var>L</var><sub>floor</sub> = 5 N·m.</div>
+<p>A foot carrying 100 N·m is trusted to 23 mm/s, a foot carrying 15 N·m to 40 mm/s, a foot in the air to 80 mm/s. There is no contact state machine; contact is a continuous weight. A measured-GRF contact FSM was tried in v2 and did not beat this proxy on any bench. The paper cites this as contact-weighted, outlier-gated measurement noise after Camurri et al.</p>
+<h3>4.4 The chi-squared gate and the force-accept hatch</h3>
+<p>Each foot's innovation is tested against <var>d</var>² &gt; 11.34 (99 %, 3 d.o.f.) before it is fused. A rejected foot leaves the state untouched. Because the state is never propagated, a filter that rejects both feet indefinitely is a frozen filter, so after 50 consecutive rejections (0.25 s at 200 Hz) the next measurement is accepted regardless. The v1 docstring records the weakness of this hatch during a trot swing; it is not exercised in the lean, where both feet stay on the floor.</p>
+<h3>4.5 What leg odometry cannot see</h3>
+<p>The constraint defines the planted foot as world-fixed. Anything that moves the foot while it is loaded, slip, heel peel, or the simulator's 0.5 mm/s foot creep in a long stand (§12), enters the estimate as base motion or is invisible, depending on whether the two feet agree. The residual orientation error of the IMU multiplies into the lever arm <var>p</var><sub><var>k</var></sub> − <var>p</var><sub><var>b</var></sub> and the Jacobian term, and integrates into position. That is the +267 mm/min of Table 1, and the reason the paper cites Bloesch et al. and Rotella et al. for long-horizon drift and adds an external reference.</p>
+
+<h2>5. The IMU</h2>
+<h3>5.1 What it provides</h3>
+<p>The H1-2 publishes a fused orientation quaternion and the raw gyroscope and accelerometer at 1 kHz on <code>rt/lowstate</code>. The quaternion is Unitree's own attitude filter, with gravity as its pitch/roll reference and gyro integration as its yaw. The estimator uses the quaternion and gyro to form eq. 2 and never reads the accelerometer. The control node uses the quaternion as the planner's base orientation directly. Four corrections are applied along the way.</p>
+<h3>5.2 Waist correction</h3>
+<p>The IMU sits in <code>torso_link</code>, on the far side of the waist yaw joint (motor 12, ±2.35 rad), and the legs hang off the pelvis. The quaternion is therefore the torso's orientation. Feeding it to the leg forward kinematics rotates the estimated base velocity by the waist angle; v1's self-test measures 0.14 m/s of phantom velocity at a 0.6 rad waist. The fix is exact because <code>torso_link</code> has zero body offset:</p>
+<div class="eq"><var>R</var><sub>wp</sub> = <var>R</var><sub>wt</sub> <var>R</var><sub>z</sub>(−<var>θ</var>),  <var>ω</var><sub>p,local</sub> = <var>R</var><sub>z</sub>(<var>θ</var>) <var>ω</var><sub>gyro</sub> − <var>θ̇</var> <b>e</b><sub>z</sub>.</div>
+<p>v1 shipped this only on the kf12 path; v3 applies it always.</p>
+<p class="src">base_estimator_node.py:124 (pelvis_from_torso); v3 selftest 3 shows the sweep-invariance</p>
+<h3>5.3 Site-to-pelvis offset</h3>
+<p>The estimator publishes the IMU site pose so that the control node's existing reconstruction (written for the factory <code>rt/sportmodestate</code>) works unchanged: <var>p</var><sub>site</sub> = <var>p</var><sub>pelvis</sub> + <var>R</var>·offset and <var>v</var><sub>site</sub> = <var>v</var> + (<var>R</var><var>ω</var>) × (<var>R</var>·offset). Getting this wrong is not subtle: the twin's tag stand-in fed the site as the pelvis until 2026-09-03 and dragged the belief 12 cm forward once the body pitched 35°, so every planner target landed 12 cm behind where the planner believed.</p>
+<p class="src">base_estimator_node.py:77; deploy_common.h kImuOffset; sim_tag_anchor.py header</p>
+<h3>5.4 Mount offsets and session gravity alignment</h3>
+<p>The real robot's IMU mount is calibrated at 1.6° pitch (<code>--imu_pitch_offset_deg</code>); the control node post-multiplies the quaternion by the small body-frame pitch and roll corrections. When the ankle auto-calibration is enabled (<code>--ankle_autocalib</code>, off by default), it also measures, during the bring-up hold, the pitch and roll difference between the fused quaternion and the time-averaged raw accelerometer in a ZUPT-verified still window, and adds it (capped at ±4°) to the planning-path correction. The measured fused frame was a constant +2.3° pitch off plumb across 7 windows in 3 runs, which had the planner balancing around a vertical 3 cm off centre.</p>
+<p class="src">deploy_common.cc:1540–1556; deploy_common.h ankle_autocalib_gravity, ankle_autocalib_imu_align</p>
+<h3>5.5 Yaw has no reference</h3>
+<p>Pitch and roll are anchored to gravity inside the IMU. Yaw is a gyro integration and random-walks: the code records ~0.1 °/s over a session and 1.7–2.5 °/min after long powered sessions. Every planner target lives in the table frame, so a heading error rotates the whole plan about the pelvis; 12° of heading is 19 cm at the hand. The IMU's own filter also moves its yaw output by 7–13° during a dive with essentially zero world-z gyro rotation (pitch coupling), which no gyro-side treatment can correct. The heading is therefore corrected from the tags in the control node (§8), not in the estimator.</p>
+
+<h2>6. Guards that reduce drift without an external sensor</h2>
+<p>These four mechanisms are what "kinematic-chain guards" means in the paper's description of the Internal estimator. Each is a measured fix for a measured failure on the twin bench in July 2026.</p>
+<h3>6.1 Zero-velocity update (ZUPT)</h3>
+<p>When the base provably is not moving, the filter fuses the pseudo-measurement <var>v</var> = 0 with <var>r</var> = 0.01 m/s through the same gain formula as a foot update. It is a measurement, not a clamp: a confident filter can still out-vote it, so quiet real motion is attenuated rather than erased. The hold condition requires all of: both feet loaded (≥ 15 N·m each), ‖<var>q̇</var>‖ &lt; 0.15 rad/s, ‖<var>ω</var>‖ &lt; 0.05 rad/s, and the robot upright (kinematic height &gt; 0.7 × nominal and <var>R</var><sub>22</sub> &gt; cos 25°). The gyro term is there because a humanoid toppling rigidly about the ankles has ‖<var>q̇</var>‖ ≈ 0 while its base moves; zeroing velocity then would erase the capture-point signal the planner needs. The upright gate is there because a fallen robot is also static and loaded, and the 07-29 120 s run showed the filter laundering post-fall garbage without it. On a quiet stand the ZUPT fires and removes the velocity drift spike that limited long holds (held run peak velocity error 0.05 m/s against 0.70 m/s in a fallen run); in any maneuver it fires on 0 % of ticks, correctly, which is why it is no help in a lean (§12).</p>
+<p class="src">base_estimator_node.py:707 (zupt_hold), :727 (zupt_fuse_v); base_estimator_node_v3.py:170–179</p>
+<h3>6.2 Slip monitor</h3>
+<p>Two loaded feet are two independent measurements of one base velocity. The monitor low-passes ‖<var>z</var><sub>L</sub> − <var>z</var><sub>R</sub>‖ with τ = 0.1 s while both feet are loaded; above 0.15 m/s at least one planted-foot assumption is false, and since the filter cannot tell which, both feet's <var>r</var><sub><var>k</var></sub> are inflated ×10 until they agree again. The per-foot chi-squared gate does not catch this case because a slow, coherent slip passes each foot's test against the prior. The monitor's state is also what the v4 regime gate reads (§7.5, §9).</p>
+<p class="src">base_estimator_node_v2.py:132 (SlipMonitor); v3 defaults --slip-thresh 0.15 --slip-infl 10</p>
+<h3>6.3 Stale guard</h3>
+<p>If no new <code>rt/lowstate</code> arrives for 300 ms the estimator stops publishing and says so. The control node's <code>--require_sportstate</code> then trips on silence, which is the intended outcome; re-publishing a frozen state would seed every planner rollout from a dead robot.</p>
+<h3>6.4 Self-tests</h3>
+<p>Every version carries <code>--selftest</code>, which runs the live per-tick code offline on the model. v3 checks the static home pose, a moving joint, waist-sweep invariance, the upright gate against a 90° tilted robot, the slip inflation and the stale guard. v4 adds eight tests, the first of which proves that with no auxiliary publisher v4's state is byte-identical to v3's over 300 ticks. That equivalence is what made it safe to deploy v4 before any bridge existed.</p>
+
+<h2>7. AprilTag anchoring</h2>
+<h3>7.1 The bundle and the camera</h3>
+<p>The tags are AprilTag 36h11, printed at 300 dpi with a 100.0 mm calibration ruler on each sheet, and taped flat on the table top with their printed page-top toward the table's far end. The layout generator defines seven: IDs 0–3 at 10 cm along the front-edge zone (spaced ~28 cm so at least two are visible on approach and one survives arm occlusion), IDs 10–11 at 5 cm either side of the brace point for the deep-lean range at 0.3–0.5 m, where the field of view is 42 cm wide, and ID 20 at 12 cm centre-back for acquisition at 2 m. The paper reports a mounted bundle of four tags, 5–10 cm wide. The surveyed centre of each mounted tag, and any quarter-turn mounting rotation, lives in <code>table_tag_bundle.yaml</code> on the laptop (<code>~/Desktop/h12/table_tags/</code>), not in this repository.</p>
+<p>The camera is the head-mounted Intel RealSense D435i colour stream, consumed as JPEG over ROS 2 with its <code>camera_info</code> intrinsics. Its extrinsic is fixed from the URDF <code>camera_joint</code>: origin (0.11109, 0.0175, 0.68789) m in the torso frame, optical axis pitched 50.76° down. The bridge's self-test documents the sensitivity: 1 cm of extrinsic error is 1 cm of anchor bias, and the D435i colour sensor's few-millimetre offset from <code>camera_link</code> has not been separately verified.</p>
+<p class="src">make_table_tags.py header; tag_bridge_node.py:452–471 (--cam-pos, --cam-pitch-deg)</p>
+<h3>7.2 From pixels to a table-frame pelvis pose</h3>
+<p>Every frame is detected with <code>cv2.aruco</code>. The four image corners of every detected tag that is in the bundle are stacked against their surveyed table-frame corners, and one <code>solvePnP</code> (iterative) over all of them gives the camera pose in the table frame. A solve whose mean reprojection error exceeds 3.0 px is discarded (blur, partial view, mis-identification; the self-test shoves one tag 30 px and confirms the rejection). On the first passing frame the bridge tries all four cyclic corner orderings and locks the one with the lowest error, which makes the code indifferent to whether the physical tags were mounted a quarter-turn off (measured on the real table: 63.9 px for the wrong ordering, 1.0 px for the right one). The chain to the pelvis is then camera → torso (the fixed extrinsic) → pelvis (<var>R</var><sub>z</sub>(−waist) from motor 12):</p>
+<div class="eq"><var>p</var><sub>torso,table</sub> = <var>p</var><sub>cam,table</sub> − <var>R</var><sub>table←torso</sub> <var>t</var><sub>cam-in-torso</sub>,  <var>R</var><sub>table←pelvis</sub> = <var>R</var><sub>table←torso</sub> <var>R</var><sub>z</sub>(−<var>θ</var><sub>waist</sub>).</div>
+<p>The solve rate on the real head camera is 10–20 Hz depending on how many tags are visible; the run notes from 2026-08-28 record ~6 Hz during the relevant stands. The twin's stand-in reproduces the measured characteristics as 15 Hz, 3 mm per-axis noise and 60 ms latency.</p>
+<p class="src">tag_bridge_node.py:126–218 (TagCore._solve, step)</p>
+<h3>7.3 From table frame to planner world</h3>
+<p>The deployed mode is <code>--abs-world</code>. The planner model places the table's front-left top corner at (0.45, +0.2975) m, with the bundle's +x running into the slab and its +y toward the robot's left, so the published pelvis position is <var>x</var> = 0.45 + <var>x</var><sub>table</sub>, <var>y</var> = <var>y</var><sub>table</sub> − 0.2975. The sign of the y term was wrong until 2026-08-29, when a tape measurement (a block 16 cm right of the centreline read at bundle y ≈ 0.15, a robot 7.6 cm right read as 9.6 cm left) fixed it. In this mode the estimator's belief is the true robot-versus-table pose rather than a pose relative to wherever the estimator happened to start, which is what makes the model's fixed table geometry usable without a per-run offset.</p>
+<p>The older relative mode is still in the code: the bridge rotates the table-frame position by a running IMU-versus-table yaw offset and the estimator latches the difference between its own xy and the first fresh anchor. That latch preserved whatever error existed at first fusion (the "flat_7 lottery" in the argparse help), and absolute mode replaced it on 2026-08-13.</p>
+<p class="src">tag_bridge_node.py:685–700; base_estimator_node_v4.py --aux-abs</p>
+<h3>7.4 The wire contract</h3>
+<p>The bridge publishes a Unitree <code>SportModeState_</code> on <code>rt/aux_odom</code>, reusing the fields: <code>position[0:2]</code> is the pelvis xy in planner world, <code>position[2]</code> is the IMU-vs-table yaw offset in radians (a side channel for the control node), <code>velocity</code> is zero except that <code>velocity[1]</code> flags whether this solve updated the yaw and <code>velocity[2]</code> carries the tag count, and <code>mode = 2</code> declares a position-only source. A parallel diagnostic topic <code>rt/bundle_pose</code> carries the raw solve for the node's <code>[bundle-vs-belief]</code> log line; nothing controls from it. The gripper-camera object channel (<code>rt/object_tag</code>, strategy 27 and 9) is a separate class in the same file and is firewalled from the estimator: the wrist camera rides the moving arm, and letting it near the base estimate would inject arm motion into the base.</p>
+<h3>7.5 How v4 fuses it</h3>
+<p>The v4 estimator is v3 plus one seam: any process may publish a timestamped world-frame measurement on <code>rt/aux_odom</code>. For a mode-2 source the fusion is the xy anchor only:</p>
+<ol>
+<li><b>Freshness.</b> A sample older than 200 ms is ignored (<code>--aux-age-max</code>). A dead bridge degrades v4 to v3 silently; the telemetry shows <code>aux=IDLE</code>.</li>
+<li><b>Sanity gate.</b> A target more than 1 m from the current belief is rejected as a mis-solve (wrong tag id, frame flip) rather than applied.</li>
+<li><b>Pull, not update.</b> The odometric xy is moved toward the target with a first-order filter, <var>p</var> ← <var>p</var> + α(<var>p</var><sub>anchor</sub> − <var>p</var>), α = Δ<var>t</var>/(τ + Δ<var>t</var>), τ = 2 s. The code is explicit that this is not a Kalman update: the odometric xy carries no covariance, and pretending it does would be theater.</li>
+<li><b>Continuous glide.</b> Since 2026-08-28 the pull is applied on every 200 Hz tick toward the last accepted target, until that target is 1 s old (5 × <code>--aux-age-max</code>). Before that fix the pull fired once per bridge message with a per-tick α, so at the ~6 Hz real solve rate τ = 2 s behaved like τ ≈ 60 s and the belief walked 14 cm off the anchor during a stand; forcing τ = 0.1 s instead moved the base ~1 cm per message, which the control node's finite-difference velocity (§2) read as spikes, and the planner stood stiff-legged and refused to dive (runs 29_26/29_27).</li>
+<li><b>Velocity untouched.</b> A mode-2 source never enters the velocity state; a 30 Hz differenced fiducial position would be noise against the 15 mm/s leg-odometry velocity.</li>
+<li><b>z untouched.</b> Kinematic height through a planted foot is millimetre-accurate and is not fused with anything.</li>
+<li><b>Regime gate.</b> v4's default gate (<code>--aux-gate planted</code>) fuses an auxiliary source only while leg odometry is blind, meaning no foot loaded, or slip active, or not upright, with 0.1 s / 0.5 s hysteresis and a soft τ = 30 s while a foot is still loaded. That gate exists for the LiDAR velocity source (§9). For the tag anchor, <code>est_bringup.sh v4 april</code> sets <code>--aux-gate always</code>: with the default gate the corrections sat unused through entire stands and the believed ~3.5 mm/s drift produced the run-6/7 "march"; every real brace success from run 8 on used <code>always</code>.</li>
+</ol>
+<p>The operator readout prints <code>anchor_gap</code>, the distance between the belief and the last accepted anchor, and marks it <code>SETTLED</code> below 3 cm; the control node is launched after that.</p>
+<p class="src">base_estimator_node_v4.py:102–216 (V4Core.step), :406–447 (defaults); est_bringup.sh lines 58–70</p>
+<h3>7.6 Why position-only and why a 2 s pull</h3>
+<p>The choice follows from what each source is good at. Leg odometry is accurate at high rate over short horizons and drifts over minutes; the tag solve is accurate to a few millimetres in absolute terms at 6–20 Hz with 60 ms of latency and occasional bad solves. A 2 s pull lets the anchor remove the slow drift without ever contributing a velocity the planner would react to, and the sanity and reprojection gates keep a bad solve from moving anything. The measured drift with the anchor is +4 mm/min against +267 mm/min without. The limitation of the same choice is stated in §12: an error that develops in 0.4 s during the lean is faster than a 2 s anchor can follow.</p>
+
+<h2>8. Yaw correction in the control node</h2>
+<p>The estimator publishes position and velocity only, and the control node reads orientation from the IMU, so a heading correction cannot ride the estimator seam. It rides <code>rt/aux_odom.position[2]</code> instead, and the node applies it as a world-frame pre-multiplication about z on the IMU quaternion. The control node's <code>--yaw_fusion</code> is on by default (since 2026-08-19; <code>--noyaw_fusion</code> disables it). The chain has three stages, each added after a named hardware failure.</p>
+<dl>
+<dt>Bridge side: the offset</dt>
+<dd>Each solve gives yaw(<var>R</var><sub>world←pelvis</sub>) from the IMU minus yaw(<var>R</var><sub>table←pelvis</sub>) from the tags; both frames agree on gravity, so one yaw angle relates them. The offset is low-passed with τ = 3 s, and updated only from solves with at least 3 tags and reprojection ≤ 2.5 px: a 1–2 tag solve at a steep view has the planar pose ambiguity and read the heading +30–40° for 5 s at a reprojection error that passed the position gate (run 9_B3_36). A single-step jump above 15° is held pending and accepted only if the next solve agrees. <code>velocity[1]</code> tells the node whether the yaw in this message is fresh or frozen.</dd>
+<dt>Node side: the slew</dt>
+<dd>The node moves <code>imu_yaw_off</code> toward the negative of the bridge's offset at a rate that depends on the robot's state, using only bridge output fresher than 0.5 s. At rest and upright (‖<var>ω</var>‖ &lt; 0.05 rad/s, |pitch|, |roll| &lt; 15°) the rate is 5 °/s, which closes a 13° gap in 2.6 s during the operator's pre-dive hold; this re-zero was added on 2026-08-19 after sessions died every ~3 runs from a zero that had rotted 0.4 °/min. Rotationally quiet but bowed (‖<var>ω</var>‖ &lt; 0.10 rad/s) the rate is 1.5 °/s (<code>H12_YAW_LEAN_RATE</code>), added 2026-09-05 after the belief heading sat 12–16° off through a hold while a usable bundle solve went unused. Otherwise the rate is 0.1 °/s, three times the worst warm drift and too slow to step the heading mid-motion. While bowed, a target more than 12° from the current offset is treated as a bad solve and ignored.</dd>
+<dt>Velocity co-rotation</dt>
+<dd>The finite-difference base velocity is rotated by the same offset. Without this the quaternion lived in the table frame and the velocity in the drifted IMU frame; at a 24° zero the planner read sin(24°) × forward speed as lateral velocity and corrected it into a 25 cm sideways collapse at dive commit (run 23_17).</dd>
+</dl>
+<p>Two further tools exist. <code>yaw_preflight.py</code> is the passive predecessor: it watches the camera for 12 s and prints the <code>--imu_yaw_offset_deg</code> to pass at launch; live fusion superseded it. A gyro-hold that integrates the quaternion-versus-gyro yaw rate difference while the camera is blind in the dive is implemented but default-off (<code>H12_YAW_GYRO_HOLD</code>): the learned bias was not repeatable (0.27, 0.29, 0.46, 0.62 °/s across four stands) and a wrong bias drove the heading away from the bundle by 7–15°, while runs without it held within 2–5°.</p>
+<p class="src">tag_bridge_node.py:219–262; deploy_common.cc:1103–1135 (tap), :1557–1563 (pre-multiply), :1822–1963 (slew), :2401–2416 (co-rotation); deploy_common.h:146 (yaw_fusion default), h12_control_node.cc:95</p>
+
+<h2>9. The LiDAR variant</h2>
+<p>Internal + LiDAR in Table 1 is the same v4 estimator fed by <code>lio_bridge_node.py</code> from FAST-LIO on the torso-mounted Livox MID-360 (mount (0.0487, 0, 0.680) m, pitched 0.24 rad). The bridge rotates FAST-LIO's pose and twist from its own <code>camera_init</code> frame into the pelvis (mount extrinsic, then <var>R</var><sub>z</sub>(−waist)), subtracts the lever-arm term <var>ω</var> × <var>r</var> (r ≈ 0.68 m, so 0.68 m/s at 1 rad/s), aligns yaw to the IMU world with a 30 s low-pass on yaw(IMU) − yaw(LIO), and publishes position and velocity with <code>mode = 0</code>. For a mode-0 source v4 performs a real Kalman update on the velocity state with <var>r</var><sub>v</sub> = 0.05 m/s and the 11.34 chi-squared gate, and then the same xy pull.</p>
+<p>The regime gate of §7.5 was written for this source. Measured in the loop on 2026-07-30: with healthy planted feet, a world-referenced velocity re-references the estimate to the world, so real foot creep that leg odometry cannot see (and that the controller's trim loop was tuned against) entered the state as drift, the trim leaned the robot to cancel it, and stands shortened from 198 s to about 50 s. The gate defers LiDAR while any foot is loaded and no slip is active. A deferred correction does nothing to a stand's drift, which is consistent with the paper's +210 mm/min for this variant being close to the +267 mm/min of the internal estimator (that reading is mine, not the paper's). The paper's manipulation trials did not use it.</p>
+<p class="src">lio_bridge_node.py:1–60; base_estimator_node_v4.py:105–125 (gate), :149–161 (velocity update)</p>
+
+<h2>10. Bring-up on the robot</h2>
+<p><code>est_bringup.sh v4 april abs</code> is the deployed command. It sources the ROS 2 overlay with CycloneDDS on the robot's domain, checks that the bundle survey has no placeholder rows, consumes the head camera from the onboard PC (or launches <code>cl_realsense</code> locally if nothing is publishing), starts <code>tag_bridge_node.py --abs-world</code>, health-gates each topic before the next process starts, and runs <code>base_estimator_node_v4.py --aux-gate always --aux-abs</code> in the foreground so Ctrl-C tears the set down. Logs go to <code>~/Desktop/h12/est_bringup_logs/&lt;timestamp&gt;/</code>. One estimator at a time may publish <code>rt/sportmodestate</code>; <code>--out-topic rt/sportmodestate_est --compare</code> runs a candidate beside the twin's truth stream for measurement without control authority. On the twin, <code>sim_tag_anchor.py</code> replaces the bridge at the information level (truth xy, 15 Hz, 3 mm noise, 60 ms latency, site-to-pelvis converted).</p>
+
+<h2>11. How the paper measured drift</h2>
+<p>During an actively held stand the base sways, so base translation alone cannot separate estimator drift from real motion. The paper uses a foot-anchoring residual instead: for a planted foot, forward kinematics from the estimated base pose and the measured joint angles must give a stationary world-frame foot position; its deviation over the planted interval is the pose error, without motion capture. The horizontal, vertical and inter-foot components are reported. The Internal estimator drifts +267 mm/min, Internal + LiDAR +210 mm/min, Internal + Fiducials +4 mm/min, a ~60× reduction; vertical drift is below 0.3 mm over the full trial; attitude jitter, height drift, inter-foot variation and velocity noise are equivalent across the three (Table 1, paper Figs. est_drift and est_balance). The residual is blind to the same thing leg odometry is blind to: a foot that really moves reads as zero error. On hardware, where feet do not creep while standing, that is the right measure; in MuJoCo it is not (§12).</p>
+
+<h2>12. Regime limits and open measurements</h2>
+<dl>
+<dt>The braced lean itself is outside the regime the anchor was tuned for.</dt>
+<dd>Measured 2026-08-17 on the crocoddyl twin with the estimator watching open-loop (controller on truth): 4 mm error static, 64–101 mm during the braced lean; closed-loop p50 129 mm bare, 113 mm with the anchor, 99 mm at τ = 0.25 s, and the maneuver fell. The error develops in 0.4 s against a 2 s anchor, is 83 % lateral in a sagittal maneuver (dy −133 mm, dx +17 mm), and the slip monitor is active throughout, which says the two feet disagree while the load transfers to the arm. ZUPT never fires in a maneuver. Good stand and walk sim-to-real is therefore not evidence about this phase. Next measurement: log |aux_xy − legodom_xy| through a real lean at τ ∈ {0.25, 0.5, 1, 2} s and record the brace-point error at seat; the candidate fix is a contact blend that down-weights the unloading foot faster than the knee-plus-ankle torque proxy does. That study used <code>lean_simple</code> on the crocoddyl controller; the paper's controller is <code>lean.cc</code> and the estimator is the same file.</dd>
+<dt>Simulated feet creep; real feet do not.</dt>
+<dd>In a 60 s MuJoCo stand each foot slides ~0.5 mm/s monotonically, the two in opposite y, a 55 mm/min splay at 20 % of the friction cone; <code>noslip_iterations</code> does not change it. Leg odometry defines the planted foot as fixed and cannot see it; a world-referenced anchor sees it as base drift and the trim loop leans to cancel it. This is why v4 with the anchor loses to v3 in simulation and wins on hardware. Falsifiable prediction, not yet measured: |aux − legodom| over a long stand diverges at ~0.5 mm/s in sim and stays flat on the robot.</dd>
+<dt>Heading is blind through the hold.</dt>
+<dd>The head camera loses the bundle from the hover onward, the IMU quaternion's yaw walks 7–13° during the dive with pitch coupling, and the belief heading sits 10–15° off through the hold in the runs that motivated the 2026-09-05 guards. The lean-rate re-zero recovers it once a bundle solve returns; nothing corrects it while blind. A second bundle view during the hold is the open item.</dd>
+<dt>Extrinsic calibration is a field check, not a survey.</dt>
+<dd>1 cm of camera-in-torso error is 1 cm of anchor bias. The URDF value is used; the move-the-table-10-cm check is the verification named in the code.</dd>
+<dt>The four-minute hold.</dt>
+<dd>The abstract's "before pose estimation drifts" is the hardware observation that bounds the demonstration. At +4 mm/min horizontal drift the anchor is not the limiting channel; which channel is (yaw through the hold, or the lean-phase contact blend) has not been isolated.</dd>
+</dl>
+
+<h2>13. Version history</h2>
+<div class="scroll"><table>
+<caption>Table 3. Estimator and bridge versions, from git history of <code>mjpc/deploy/helper_scripts/</code>.</caption>
+<tr><th>File</th><th>Dates</th><th>What it added</th><th>Status</th></tr>
+<tr><td><code>base_estimator_node.py</code> (v1)</td><td>2026-07-01 to 07-17</td><td>Leg odometry on the MuJoCo model; three filters selectable: <code>rw-ekf</code> (default), complementary, <code>kf12</code> (MIT Cheetah / unitree_guide 12-state port); ZUPT implemented but off; waist fix on the kf12 path only; IMU-site publishing convention</td><td>Library for v3/v4 (helpers, calibration); the ROS wrapper <code>h12_deploy_mjpc/estimator_node.py</code> runs it unmodified</td></tr>
+<tr><td><code>base_estimator_node_v2.py</code></td><td>2026-07-30</td><td>kf12 plus the literature-audit fixes (slip monitor, stale guard, bias learner, measured-GRF contact FSM)</td><td>Falsified on the bench; SlipMonitor and StaleGuard survive by import</td></tr>
+<tr><td><code>base_estimator_node_v3.py</code></td><td>2026-07-30 to 08-12</td><td>The rw-ekf loop, byte-identical, plus waist fix always on, upright-gated ZUPT on by default, slip monitor, stale guard; <code>V3Core.step()</code> as the single per-tick pipeline</td><td>The "Internal" estimator of the paper</td></tr>
+<tr><td><code>base_estimator_node_v4.py</code></td><td>2026-07-30 to 08-29</td><td>The auxiliary-measurement bus: chi-squared velocity update for mode-0 sources, xy anchor pull, regime gate (07-30), absolute anchor mode (08-13), continuous glide (08-28), settled readout (08-29)</td><td>Deployed</td></tr>
+<tr><td><code>lio_bridge_node.py</code></td><td>2026-07-30</td><td>FAST-LIO → <code>rt/aux_odom</code> with lever arm and 30 s yaw alignment</td><td>Evaluated in the paper; not used for trials</td></tr>
+<tr><td><code>tag_bridge_node.py</code></td><td>2026-07-30 to 09-05</td><td>Bundle PnP → mode-2 anchor (07-30); absolute world (08-13); per-tag mounting rotation (08-17); yaw side channel (08-18); gripper-camera object channel (08-24); y sign fix (08-29); yaw solve guards, bundle-pose diagnostic, head-camera block lock (09-05)</td><td>Deployed</td></tr>
+<tr><td><code>deploy_common.cc</code> yaw path</td><td>2026-08-14 to 09-05</td><td>World-z heading pre-multiply (08-14); live yaw fusion, velocity co-rotation (08-18); stationary re-zero at 5 °/s (08-19); lean re-zero at 1.5 °/s, far-target reject, gyro-hold default off (09-05)</td><td>Deployed, <code>yaw_fusion = true</code></td></tr>
+<tr><td><code>sim_tag_anchor.py</code></td><td>2026-08-12 to 09-03</td><td>Twin stand-in for the bridge; site-to-pelvis conversion (09-03)</td><td>Bench only</td></tr>
+</table></div>
+
+<h2>14. Parameters</h2>
+<div class="scroll"><table>
+<caption>Table 4. Deployed values. Flags are the argparse names; "node" means <code>h12_control_node</code>.</caption>
+<tr><th>Parameter</th><th>Value</th><th>Where</th><th>Role</th></tr>
+<tr><td>Estimator rate</td><td>200 Hz</td><td><code>--rate</code></td><td>Filter tick; lowstate arrives at 1 kHz</td></tr>
+<tr><td><var>a</var><sub>max</sub></td><td>3 m/s²</td><td><code>--ekf-amax</code></td><td>Process noise <var>Q</var> = (<var>a</var><sub>max</sub>Δt)²; 15 mm/s per tick</td></tr>
+<tr><td><var>r</var><sub>0</sub>, <var>r</var><sub>1</sub>, <var>L</var><sub>floor</sub></td><td>0.02 m/s, 0.3, 5 N·m</td><td><code>--ekf-r0/-r1/-lfloor</code></td><td>Per-foot measurement std <var>r</var><sub>0</sub> + <var>r</var><sub>1</sub>/<var>L</var></td></tr>
+<tr><td>Chi-squared gate, hatch</td><td>11.34, 50 ticks</td><td><code>--ekf-chi2</code>, <code>--ekf-rejcap</code></td><td>99 % 3-d.o.f.; force-accept after 0.25 s</td></tr>
+<tr><td>ZUPT thresholds</td><td>15 N·m, 0.15 rad/s, 0.05 rad/s, <var>r</var> = 0.01 m/s</td><td><code>--zupt-load/-dq/-gyro/-vr</code></td><td>Hold condition and pseudo-measurement noise</td></tr>
+<tr><td>Upright gate</td><td>0.7 × nominal height, 25°</td><td><code>--upright-z-frac</code>, <code>--upright-tilt-deg</code></td><td>Blocks ZUPT and marks "not planted" when fallen; a braced pelvis sits at 25.3°</td></tr>
+<tr><td>Slip monitor</td><td>0.15 m/s, ×10, τ 0.1 s</td><td><code>--slip-thresh</code>, <code>--slip-infl</code></td><td>Inflate both feet when they disagree</td></tr>
+<tr><td>Stale guard</td><td>300 ms</td><td><code>--stale-ms</code></td><td>Stop publishing on a dead lowstate</td></tr>
+<tr><td>Aux freshness, glide stop</td><td>200 ms, 1 s</td><td><code>--aux-age-max</code></td><td>Ignore old anchors; stop the glide at 5×</td></tr>
+<tr><td>Anchor τ, soft τ</td><td>2 s, 30 s</td><td><code>--aux-xy-tau</code>, <code>--aux-xy-tau-soft</code></td><td>xy pull time constant; soft value applies under the planted gate only</td></tr>
+<tr><td>Anchor sanity</td><td>1 m</td><td>fixed</td><td>Position-only target farther than this is a mis-solve</td></tr>
+<tr><td>Aux velocity noise, gate</td><td>0.05 m/s, 11.34</td><td><code>--aux-rv</code>, <code>--aux-chi2</code></td><td>LiDAR velocity update only</td></tr>
+<tr><td>Regime gate</td><td><code>always</code> (april), <code>planted</code> (lidar)</td><td><code>--aux-gate</code></td><td>Set by <code>est_bringup.sh</code></td></tr>
+<tr><td>Absolute anchor</td><td>on</td><td><code>--aux-abs</code> + bridge <code>--abs-world</code></td><td>Belief is the true robot-vs-table pose</td></tr>
+<tr><td>Camera extrinsic</td><td>(0.11109, 0.0175, 0.68789) m, 50.760° down</td><td>bridge <code>--cam-pos</code>, <code>--cam-pitch-deg</code></td><td>From the URDF <code>camera_joint</code></td></tr>
+<tr><td>Reprojection gates</td><td>3.0 px (position), 2.5 px + ≥ 3 tags (yaw)</td><td>bridge <code>--max-reproj-px</code>, fixed</td><td>Solve acceptance</td></tr>
+<tr><td>Bridge yaw τ, jump</td><td>3 s, 15°</td><td>bridge <code>--yaw-tau</code>, fixed</td><td>Offset low-pass; jump needs two agreeing solves</td></tr>
+<tr><td>Table origin in world</td><td>(0.45, 0.2975) m</td><td>bridge, fixed</td><td>Front-left top corner; face height 0.985 m</td></tr>
+<tr><td>Node yaw slew</td><td>0.1 / 1.5 / 5 °/s; 12° far-target</td><td>node, <code>H12_YAW_LEAN_RATE</code></td><td>Moving / bowed-quiet / still-upright</td></tr>
+<tr><td>Node velocity LPF</td><td>30 ms</td><td><code>kVelLpfMs</code></td><td>Finite-difference base velocity</td></tr>
+<tr><td>IMU site offset</td><td>(−0.04452, −0.01891, 0.27756) m</td><td><code>IMU_OFFSET</code> / <code>kImuOffset</code></td><td>Site ↔ pelvis, both ends</td></tr>
+<tr><td>IMU mount pitch</td><td>1.6°; session alignment capped ±4°</td><td>node <code>--imu_pitch_offset_deg</code>, autocalib</td><td>Body-frame post-multiply</td></tr>
+</table></div>
+
+<h2>15. Files</h2>
+<div class="scroll"><table>
+<tr><th>Path (under <code>mujoco_mpc/</code>)</th><th>Contents</th></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/base_estimator_node.py</code></td><td>v1: leg odometry, calibration, waist fix, ZUPT helpers, kf12, DDS main</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/base_estimator_node_v2.py</code></td><td>SlipMonitor, StaleGuard (imported by v3), the falsified kf12 core</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/base_estimator_node_v3.py</code></td><td><code>V3Core.step()</code>: the shipped filter with the four guards; argparse defaults</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/base_estimator_node_v4.py</code></td><td><code>V4Core</code>: aux bus, regime gate, xy anchor and glide; eight self-tests</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/tag_bridge_node.py</code></td><td><code>TagCore</code> (bundle PnP, yaw offset), <code>ObjectTagCore</code> (wrist camera, firewalled), ROS 2 node, abs-world publish</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/lio_bridge_node.py</code></td><td>FAST-LIO to aux bus</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/est_bringup.sh</code></td><td>Health-gated launch of bridges plus estimator; sets the april defaults</td></tr>
+<tr><td><code>mjpc/deploy/helper_scripts/yaw_preflight.py</code>, <code>make_table_tags.py</code>, <code>sim_tag_anchor.py</code></td><td>Passive yaw measurement; tag sheet and bundle template; twin stand-in</td></tr>
+<tr><td><code>mjpc/deploy/deploy_common.cc</code>, <code>.h</code></td><td>Control node: state reconstruction, finite-difference velocity, yaw fusion, IMU corrections</td></tr>
+<tr><td><code>paper/icra/main.tex</code> lines 225–262, 278–288</td><td>The paper's estimator section and evaluation; figures in <code>paper/icra/figures/newestimator/</code></td></tr>
+<tr><td><code>../core_ws/src/h12_deploy_mjpc/h12_deploy_mjpc/estimator_node.py</code></td><td>rclpy parameter shell that runs the v1 file in the GOLEM container</td></tr>
+</table></div>
+<p class="muted">Related notes in the working memory: <code>croco-estimator-regime-gap</code>, <code>sim-foot-creep-estimator</code>, <code>sim-standoff-frame-error</code>. The crocoddyl-side write-up of the sim paradox is <code>crocoddyl_mpc/docs/lean/2026-08-17_estimator_paradox.md</code> in that repository.</p>

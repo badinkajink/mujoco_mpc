@@ -267,7 +267,8 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--chain", default="", help="batch:tag[:t0:t1] for fig_chain")
     a = ap.parse_args()
-    figs = {"creep": fig_creep, "demand": fig_demand, "slide": fig_slide, "touchdown": fig_touchdown}
+    figs = {"creep": fig_creep, "demand": fig_demand, "slide": fig_slide,
+            "touchdown": fig_touchdown, "assist": fig_assist}
     for k, f in figs.items():
         if not a.only or k in a.only.split(","):
             f(a.out)
@@ -276,6 +277,46 @@ def main():
         fig_chain(a.out, p[0], p[1], float(p[2]) if len(p) > 2 else None,
                   float(p[3]) if len(p) > 3 else None, p[4] if len(p) > 4 else "fig_chain")
 
+
+
+ASSIST_ORDER = ["none", "-40 N, once braced", "-20 N, last 50 mm", "-40 N, last 50 mm",
+                "-20 N, whole approach", "-40 N, whole approach"]
+ASSIST_LABEL = {"none": "No pull (baseline)"}
+
+
+def fig_assist(out):
+    """Outcome of the operator's pull-back by when it is applied."""
+    import page_numbers
+    n = page_numbers.N()
+    A = n.get("assist", {})
+    rows = [(k, A[k]) for k in ASSIST_ORDER if k in A]
+    if len(rows) < 2:
+        return
+    fig, ax = plt.subplots(figsize=(7.6, 0.46 * len(rows) + 1.6))
+    y = np.arange(len(rows))
+    comp = np.array([r["complete"] for _, r in rows], float)
+    onset = np.array([r["fell_onset"] for _, r in rows], float)
+    late = np.array([r["fell_late"] for _, r in rows], float)
+    G = 0.06   # surface gap between segments
+    ax.barh(y, comp, height=0.52, color=S3, label="Completed the ladder")
+    ax.barh(y, onset, left=comp + G, height=0.52, color=CRIT, label="Fell at lean onset (< 16 s)")
+    ax.barh(y, late, left=comp + onset + 2 * G, height=0.52, color=S4, label="Fell later")
+    for i, (k, r) in enumerate(rows):
+        if r["complete"]:
+            ax.text(r["complete"] - 0.12, i, "%d" % r["complete"], va="center", ha="right",
+                    fontsize=9, color="white", fontweight="bold")
+    ax.set_yticks(y)
+    ax.set_yticklabels([ASSIST_LABEL.get(k, k) for k, _ in rows], fontsize=9)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max(6.5, float((comp + onset + late).max()) + 0.5))
+    ax.set_xlabel("Runs of 6 (seeds 0–5)")
+    ax.grid(axis="y", visible=False)
+    ax.set_title("Pulling the robot back into the brace: outcome by when the pull is applied", pad=26)
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.005, 1, 0.1), mode="expand", ncol=3, fontsize=8)
+    ax.text(0.995, -0.30, "Slab μ 0.8, floor μ 0.4, CEM σ 0.02, 33 plans/s; the pull is "
+            "unmodelled by the planner", transform=ax.transAxes, ha="right", va="top",
+            fontsize=8, color=MUTED)
+    save(fig, out, "fig_assist")
 
 if __name__ == "__main__":
     main()

@@ -110,6 +110,31 @@ def cell_rows(n, batch, label):
     return "\n".join(out)
 
 
+ASSIST_ORDER = ["none", "-40 N, once braced", "-20 N, last 50 mm", "-40 N, last 50 mm",
+                "-20 N, whole approach", "-40 N, whole approach"]
+
+
+def assist_table(n):
+    A = n.get("assist", {})
+    rows = [(k, A[k]) for k in ASSIST_ORDER if k in A]
+    if len(rows) < 2:
+        return ""
+    out = []
+    for k, r in rows:
+        num = lambda v, f="%.2f": ("&ndash;" if v != v else f % v)
+        out.append(f'<tr><td>{"No pull" if k == "none" else html.escape(k)}</td>'
+                   f'<td class="num">{r["complete"]}/{r["n"]}</td>'
+                   f'<td class="num">{r["fell_onset"]}</td><td class="num">{r["fell_late"]}</td>'
+                   f'<td class="num">{num(r["r_impact"])}</td><td class="num">{num(r["r_p95"])}</td>'
+                   f'<td class="num">{num(r["pad_slide"], "%.0f")}</td>'
+                   f'<td class="num">{num(r["foot_slide"], "%.0f")}</td></tr>')
+    return ('<div class="wrap"><table><thead><tr><th>Pull</th><th class="num">Completed</th>'
+            '<th class="num">Fell at onset</th><th class="num">Fell later</th>'
+            '<th class="num">Impact shear</th><th class="num">Pad shear p95</th>'
+            '<th class="num">Pad slide (mm)</th><th class="num">Foot slide (mm)</th>'
+            '</tr></thead><tbody>' + "\n".join(out) + '</tbody></table></div>')
+
+
 def build():
     n = N()
     sweeps = "".join(cell_rows(n, b, lab) for b, lab in (
@@ -233,6 +258,39 @@ genuinely faster approach means a copy of that strategy with a shorter
         "model, so the pad is met earlier in its descent.",
         "studies/brace_friction/figs.py fig_touchdown")}'''))
 
+    sections.append(("assist", "Pulling the robot back into the brace", f'''
+<p>On hardware the lean is made to settle by an operator pulling the robot backwards as it comes
+down, so it drops into the brace rather than shearing forward along the slab.
+<code>--assist_fx</code> is that force: a backward pull on the torso written into
+<code>xfrc_applied</code>, which the planner's state copy does not carry, so the planner is as blind
+to it as it is to a person. <code>--assist_gap</code> decides when it acts &mdash; only while the
+forearm pad is within that distance of the slab face.</p>
+{assist_table(n)}
+<p class="lede">Six seeds per condition at slab&nbsp;&mu;&nbsp;0.8 / floor&nbsp;&mu;&nbsp;0.4, CEM
+&sigma;&nbsp;0.02. "Whole approach" is a 150&nbsp;mm gate, which is open from the moment the lean
+rung begins because the pad already hovers 66&nbsp;mm above the face during the stand.</p>
+{figure("fig_assist", "When the pull is applied decides whether it hurts.",
+        "Outcome of six seeds per condition, split by whether the run finished the ladder, fell at "
+        "the lean onset before the brace ever formed, or fell later.",
+        "studies/brace_friction/figs.py fig_assist")}
+<p>No window tested makes the brace better. Held through the approach, a 20&nbsp;N pull takes the
+ladder from 5 of 6 completions to 0 of 6, and all six falls are the lean-onset backward fall before
+the brace ever forms; 40&nbsp;N does the same. Confined to the last 50&nbsp;mm of the approach,
+20&nbsp;N is neutral (5 of 6, as the baseline) and 40&nbsp;N costs four runs. Applied only after the
+brace is down, 40&nbsp;N loses all six.</p>
+<p>The mechanism reading is that the pull never touches the quantity it is supposed to fix. The pad's
+peak shear ratio over the 0.3&nbsp;s after touchdown is 0.50&ndash;0.59 in every condition including
+the baseline, and the pad's slide along the slab goes up, not down, under the one pull that does not
+cost completions (310&nbsp;mm against 158). What the pull does change is the margin at the lean onset,
+which is where this ladder has least to spare: the controller is driving the CoM forward over the feet
+on a 12&nbsp;s ramp, and a backward force applied there is the disturbance it is least able to absorb.
+The planner sees the resulting state at 33&nbsp;Hz, as it does on the robot, but not the force.</p>
+<p>The honest conclusion is that this intervention cannot be tuned against this plant. On hardware the
+pull works because it counteracts a real slip; here there is no breakaway for it to counteract, so it
+enters as a pure disturbance. Getting the pull-back dialled in in simulation needs the contact model
+fixed first &mdash; the order of work is the open questions below, not a sweep over force and timing.</p>
+'''))
+
     sections.append(("chain", "One run, contact by contact", f'''
 {figure("fig_chain", "The contact record of a single run.",
         "Normal force, shear ratio against each surface's coefficient, contact slip speed and pelvis "
@@ -305,6 +363,12 @@ soften the touch rather than sharpen it. The measurement: a copy of
 &mu;&nbsp;0.8/0.4, asking whether impact shear crosses 0.8 and whether the pads then unload. Pair it
 with the hardware number &mdash; log the pad's vertical speed from the robot's state estimate through
 the lean rung and compare it with the 112&ndash;318&nbsp;mm/s the bench shows.</li>
+<li><strong>The pull-back was tested at one place and two sizes.</strong> 20 and 40&nbsp;N on
+<code>torso_link</code>, against a 674&nbsp;N robot. A person steadying the machine may take the
+pelvis rather than the torso, may push up as well as back, and lets go on contact. The measurement
+that would settle it: instrument the real assist &mdash; a load cell in line with whoever is holding
+the robot &mdash; and replay the measured force profile through <code>--assist_fx</code> with
+<code>--assist_body pelvis</code>.</li>
 <li><strong>No estimator noise and no actuator dynamics.</strong> The bench drives the plant from
 true state through an ideal joint PD. Both add phase lag at exactly the moment the brace lands.</li>
 </ul>'''))
@@ -312,11 +376,13 @@ true state through an ideal joint PD. Both add phase lag at exactly the moment t
     nav = "\n".join(f'<a href="#{i}">{html.escape(t)}</a>' for i, t, _ in sections)
     body = "\n".join(f'<h2 id="{i}">{html.escape(t)}</h2>{b}' for i, t, b in sections)
     lede = f'''<p class="lede">On the real H1-2 the braced lean slips at the arm, then at the feet,
-then collapses. In simulation it does not. Two reasons, both measured here: the friction robustness
-ladder this project already ran never lowered arm&ndash;table friction at all, and MuJoCo's contact
-lets a loaded brace pad creep continuously rather than hold and break away, so the plant has no
-event that corresponds to the arm letting go. {n['repl_runs']} runs of the existing corpus re-scored
-for contact forces, plus new sweeps with friction set per surface.</p>'''
+then collapses, and it is made to settle by an operator pulling the robot backwards into the brace.
+In simulation none of that happens. Two reasons, both measured here: the friction robustness ladder
+this project already ran never lowered arm&ndash;table friction at all, and MuJoCo's contact lets a
+loaded brace pad creep continuously rather than hold and break away, so the plant has no event that
+corresponds to the arm letting go &mdash; and no purchase for the pull-back that fixes it on
+hardware. {n['repl_runs']} runs of the existing corpus re-scored for contact forces, plus new sweeps
+with friction set per surface and with the operator's pull applied at three different moments.</p>'''
     doc = "\n".join(["<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",
                      '<meta name="viewport" content="width=device-width, initial-scale=1">',
                      "<title>Brace and foot friction</title>", FONTS, CSS, "</head><body>",
