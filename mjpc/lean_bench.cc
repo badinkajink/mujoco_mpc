@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <map>
 #include <sstream>
 #include <string>
@@ -38,6 +39,7 @@
 #include "mjpc/planners/mppi/planner.h"
 #include "mjpc/task.h"
 #include "mjpc/threadpool.h"
+#include "mjpc/trajectory.h"
 #include "mjpc/utilities.h"
 #include "mjpc/tasks/tasks.h"
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
@@ -73,6 +75,83 @@ void SetConstScratch(mjModel* m) {
   mjData* tmp = mj_makeData(m);
   mj_setConst(m, tmp);
   mj_deleteData(tmp);
+}
+
+// ★ 2026-09-24 FRICTION BY SURFACE (studies/brace_friction). The brace pads meet
+// the slab through explicit <pair>s, and MuJoCo takes a pair's friction from
+// pair_friction, never from geom_friction, so --plant_friction_scale left the
+// pad<->table contact at 1.0 in every arm it ran (it did reach the feet). These
+// set each surface directly. Table: every <pair> that names a table geom, plus
+// the table geoms themselves, which carry priority 1 and so set the friction of
+// every other contact they make. Feet: the floor plane and the collision geoms
+// of the two ankle-roll bodies; equal priority, so the contact takes the max
+// and setting both sides to mu gives mu.
+void SetTableMu(mjModel* m, double mu) {
+  const int table = mj_name2id(m, mjOBJ_BODY, "table");
+  for (int g = 0; g < m->ngeom; g++)
+    if (m->geom_bodyid[g] == table) m->geom_friction[3 * g] = mu;
+  for (int p = 0; p < m->npair; p++)
+    if (m->geom_bodyid[m->pair_geom1[p]] == table || m->geom_bodyid[m->pair_geom2[p]] == table)
+      m->pair_friction[5 * p] = m->pair_friction[5 * p + 1] = mu;
+}
+
+void SetFootMu(mjModel* m, double mu) {
+  const int floor = mj_name2id(m, mjOBJ_GEOM, "floor");
+  const int lf = mj_name2id(m, mjOBJ_BODY, "left_ankle_roll_link");
+  const int rf = mj_name2id(m, mjOBJ_BODY, "right_ankle_roll_link");
+  for (int g = 0; g < m->ngeom; g++) {
+    const bool foot = (m->geom_bodyid[g] == lf || m->geom_bodyid[g] == rf) &&
+                      (m->geom_contype[g] || m->geom_conaffinity[g]);
+    if (g == floor || foot) m->geom_friction[3 * g] = mu;
+  }
+  for (int p = 0; p < m->npair; p++) {
+    const int g1 = m->pair_geom1[p], g2 = m->pair_geom2[p];
+    if (g1 == floor || g2 == floor)
+      m->pair_friction[5 * p] = m->pair_friction[5 * p + 1] = mu;
+  }
+}
+
+// `--plant_table_stiff 1`: a rigid slab. The pad pairs ship solref 0.02 with a
+// soft onset (solimp 0.015 -> 1 over 22 mm) and the slab geom solref 0.08, and
+// under that softness MuJoCo's friction acts like a damper: the loaded pads
+// slide 3-80 mm/s at shear ratios 0.05-0.9 of a mu = 1 contact (measured on the
+// planner-ablation state tracks), where a forearm on grip tape sticks until it
+// breaks away. This sets every contact the slab makes to solref 0.01 and solimp
+// (0.95, 0.99, 0.001), the stiff end of MuJoCo's range at a 2 ms step.
+void SetTableStiff(mjModel* m) {
+  const int table = mj_name2id(m, mjOBJ_BODY, "table");
+  const mjtNum ref[2] = {0.01, 1.0}, imp[5] = {0.95, 0.99, 0.001, 0.5, 2.0};
+  for (int g = 0; g < m->ngeom; g++)
+    if (m->geom_bodyid[g] == table) {
+      mju_copy(m->geom_solref + mjNREF * g, ref, 2);
+      mju_copy(m->geom_solimp + mjNIMP * g, imp, 5);
+    }
+  for (int p = 0; p < m->npair; p++)
+    if (m->geom_bodyid[m->pair_geom1[p]] == table || m->geom_bodyid[m->pair_geom2[p]] == table) {
+      mju_copy(m->pair_solref + mjNREF * p, ref, 2);
+      mju_copy(m->pair_solreffriction + mjNREF * p, ref, 2);
+      mju_copy(m->pair_solimp + mjNIMP * p, imp, 5);
+    }
+}
+
+// One surface's share of the contact set at one step: total force ON THE ROBOT
+// in world axes, summed normal force, the worst per-contact use of the friction
+// pyramid (|f_t1|/mu1 + |f_t2|/mu2 [+ |tau|/mu3]; 1 = on the pyramid = sliding),
+// and the normal-force-weighted tangential slip speed at the contact points.
+struct ContactGroup {
+  double fn = 0.0, F[3] = {0.0, 0.0, 0.0}, util = 0.0, slip_fw = 0.0;
+  int n = 0;
+  double slip() const { return fn > 1e-9 ? slip_fw / fn : 0.0; }
+};
+
+// Velocity of the material point of body b that sits at world point p.
+void PointVelocity(const mjModel* m, const mjData* d, int b, const mjtNum* p, mjtNum v[3]) {
+  mjtNum res[6];
+  mj_objectVelocity(m, d, mjOBJ_BODY, b, res, 0);   // (ang:lin) at xipos, world axes
+  mjtNum r[3], wxr[3];
+  mju_sub3(r, p, d->xipos + 3 * b);
+  mju_cross(wxr, res, r);
+  mju_add3(v, res + 3, wxr);
 }
 
 std::string Arg(int argc, char** argv, const char* key, const char* dflt) {
@@ -206,6 +285,51 @@ int main(int argc, char** argv) {
   // pad-table and foot-floor contacts scale by s). The planner keeps the
   // model's friction. 1 = OFF.
   const double plant_friction_scale = std::atof(Arg(argc, argv, "--plant_friction_scale", "1").c_str());
+  // ★ 2026-09-24 (studies/brace_friction): sliding friction of the robot<->table
+  // and foot<->floor contacts set to an absolute value, on the plant
+  // (--plant_*_mu) and on the planner's model (--planner_*_mu), independently.
+  // See SetTableMu / SetFootMu. <= 0 = OFF = byte-identical.
+  const double plant_table_mu = std::atof(Arg(argc, argv, "--plant_table_mu", "0").c_str());
+  const double plant_foot_mu = std::atof(Arg(argc, argv, "--plant_foot_mu", "0").c_str());
+  const double planner_table_mu = std::atof(Arg(argc, argv, "--planner_table_mu", "0").c_str());
+  const double planner_foot_mu = std::atof(Arg(argc, argv, "--planner_foot_mu", "0").c_str());
+  const bool plant_table_stiff = std::atoi(Arg(argc, argv, "--plant_table_stiff", "0").c_str()) != 0;
+  // `--plant_table_dz m`: the plant's slab sits m higher than the planner's (a
+  // table-height or arm-droop error the robot does not know about). The shipped
+  // CEM parks the forearm pad 10-30 mm above the slab it believes in, so a
+  // slab a little higher than believed is met while the planner is still
+  // bringing the torso down. 0 = OFF.
+  const double plant_table_dz = std::atof(Arg(argc, argv, "--plant_table_dz", "0").c_str());
+  // ★ 2026-09-24 PULL-BACK ASSIST (`--assist_fx N`, 0 = OFF = byte-identical).
+  // On hardware the braced lean is made to settle by an operator pulling the
+  // robot backwards as it comes down, so it falls INTO the brace instead of
+  // shearing forward along the slab. This is that force: a constant world-x
+  // force on `--assist_body` (negative = backwards, away from the table),
+  // eased in over --assist_ramp s while the ladder is in rungs
+  // [--assist_from_phase, --assist_until_phase], and zero otherwise.
+  //   It goes in `data->xfrc_applied`, which the planner's state copy does not
+  // carry, so the planner is blind to it exactly as it is blind to the
+  // operator. Everything the assist does to the plan is through the state it
+  // produces, which is the point.
+  const double assist_fx = std::atof(Arg(argc, argv, "--assist_fx", "0").c_str());
+  const double assist_ramp = std::atof(Arg(argc, argv, "--assist_ramp", "0.5").c_str());
+  const int assist_from_phase = std::atoi(Arg(argc, argv, "--assist_from_phase", "1").c_str());
+  const int assist_until_phase = std::atoi(Arg(argc, argv, "--assist_until_phase", "2").c_str());
+  const std::string assist_body = Arg(argc, argv, "--assist_body", "torso_link");
+  // `--assist_gap m`: only pull while the forearm pad is within m of the slab
+  // face, i.e. while the arm is coming down onto it, which is when a person
+  // actually takes hold of the robot. <= 0 = the whole phase window. Pulling
+  // from the start of the 12 s lean rung instead makes the lean-onset backward
+  // fall more likely, which is the opposite of the intervention.
+  const double assist_gap = std::atof(Arg(argc, argv, "--assist_gap", "0.15").c_str());
+  // `--contact_out f.csv`: per-step contact record for the brace (left arm vs
+  // table), each foot vs the floor and the rest of the robot vs the table, plus
+  // the forearm/wrist pad and sole positions and the robot CoM, every
+  // 1/--contact_hz s (default every 2 ms plant step: a brace impact lasts tens
+  // of ms and the 50 Hz state track cannot see it). Written after mj_step from
+  // the forward pass that step used, so forces, kinematics and time agree.
+  const std::string contact_out = Arg(argc, argv, "--contact_out", "");
+  const double contact_hz = std::atof(Arg(argc, argv, "--contact_hz", "500").c_str());
 
   // ★ 2026-09-14 PAYLOAD (studies/brace_payload). A point mass attached to the
   // REACHING gripper body when the ladder enters --payload_phase (strat 11 =
@@ -251,6 +375,22 @@ int main(int argc, char** argv) {
   const std::string plan_out = Arg(argc, argv, "--plan_out", "");
   const int plan_out_from_phase = std::atoi(Arg(argc, argv, "--plan_out_from_phase", "8").c_str());
   const int plan_out_stride = std::max(1, std::atoi(Arg(argc, argv, "--plan_out_stride", "5").c_str()));
+  // ★ 2026-09-21 SAMPLE DUMP (talk figures for Alg. 1 of the lean paper).
+  // `--samples_out DIR --samples_at t1,t2,...` writes, at the first plan tick
+  // at or after each listed plant time, what one CEM iteration holds: the
+  // centre (the resampled nominal spline) and its rollout, the per-parameter
+  // sampling std and the drawn noise, every candidate spline with its rollout
+  // and return, the elite order, and the folded spline (elite mean) rolled out
+  // from the same state. One directory per tick. CEM (agent_planner 5) only;
+  // the flag is ignored for every other planner. Empty = OFF = byte-identical.
+  const std::string samples_out = Arg(argc, argv, "--samples_out", "");
+  std::vector<double> samples_at;
+  {
+    std::stringstream ss(Arg(argc, argv, "--samples_at", ""));
+    std::string tok;
+    while (std::getline(ss, tok, ',')) if (!tok.empty()) samples_at.push_back(std::atof(tok.c_str()));
+  }
+  size_t samples_next = 0;
 
   // Diagnostic compatibility switch: 0 reproduces the historical bench.
   // Agent::Initialize copies mjModel before Table H / pose retargeting runs.
@@ -386,6 +526,13 @@ int main(int argc, char** argv) {
   for (int i = 0; i < kNBrace; i++)
     brace_id[i] = mj_name2id(model, mjOBJ_BODY, kBraceBodies[i]);
   const int torso_id = mj_name2id(model, mjOBJ_BODY, "torso_link");
+  const int assist_bid = mj_name2id(model, mjOBJ_BODY, assist_body.c_str());
+  if (assist_fx != 0.0 && assist_bid < 0) {
+    std::fprintf(stderr, "[bench] --assist_body '%s' not found\n", assist_body.c_str());
+    return 2;
+  }
+  double assist_t0 = -1.0;      // when the assist window opened
+  double assist_now = 0.0;      // the force applied this step, for the log
 
   // Slab face + forearm-pad geometry, read from the COMPILED model after the
   // parameter has been applied (first Transition below), so the pad clearance
@@ -402,10 +549,31 @@ int main(int argc, char** argv) {
   FILE* fq = qpos_out.empty() ? nullptr : std::fopen(qpos_out.c_str(), "w");
   FILE* fs = state_out.empty() ? nullptr : std::fopen(state_out.c_str(), "w");
   FILE* fp = plan_out.empty() ? nullptr : std::fopen(plan_out.c_str(), "w");
+  FILE* fc = contact_out.empty() ? nullptr : std::fopen(contact_out.c_str(), "w");
   if ((!state_out.empty() && !fs) || !fo || (!qpos_out.empty() && !fq) ||
-      (!plan_out.empty() && !fp)) {
+      (!plan_out.empty() && !fp) || (!contact_out.empty() && !fc)) {
     std::fprintf(stderr, "[bench] failed to open requested output file\n");
     return 2;
+  }
+  // contact record ids (see --contact_out)
+  const int floor_gid = mj_name2id(model, mjOBJ_GEOM, "floor");
+  const int lfoot_body = mj_name2id(model, mjOBJ_BODY, "left_ankle_roll_link");
+  const int rfoot_body = mj_name2id(model, mjOBJ_BODY, "right_ankle_roll_link");
+  const int wpad_gid = mj_name2id(model, mjOBJ_GEOM, "left_wrist_pad");
+  const int pelvis_body = mj_name2id(model, mjOBJ_BODY, "pelvis");
+  // Sole material point in the ankle-roll frame: mid-sole, on the sole plane
+  // (the collision hull spans x -0.086..0.174, y +-0.043, sole at z -0.045).
+  // The ankle-roll ORIGIN is 45 mm above the sole and moves whenever the ankle
+  // rotates, so it is not a slip measure.
+  const mjtNum kSoleLocal[3] = {0.044, 0.0, -0.045};
+  const int contact_every =
+      std::max(1, static_cast<int>(std::lround(1.0 / (contact_hz * model->opt.timestep))));
+  if (fc) {
+    std::fprintf(fc, "t,phase");
+    for (const char* g : {"br", "fl", "fr"})
+      std::fprintf(fc, ",%s_fn,%s_fx,%s_fy,%s_fz,%s_util,%s_slip,%s_n", g, g, g, g, g, g, g);
+    std::fprintf(fc, ",ot_fn,ot_fx,ot_fy,ot_fz,pd_fn,pd_fx,pd_fy,pd_fz,pd_util,pd_slip,pd_n,pad_x,pad_y,pad_z,padv_x,padv_y,padv_z,"
+                     "wpad_x,wpad_y,wpad_z,soleL_x,soleL_y,soleR_x,soleR_y,com_x,com_y,com_z,pelvis_z,assist_fx\n");
   }
   if (fp) {
     std::fprintf(fp, "t_plan,phase,k,t_pred,cost_k,pelvis_x,pelvis_z,rhand_x,"
@@ -560,6 +728,50 @@ int main(int argc, char** argv) {
         for (int g = 0; g < model->ngeom; g++) model->geom_friction[3 * g + 0] *= plant_friction_scale;
         std::fprintf(stderr, "[bench] plant sliding friction x %g (planner unchanged)\n", plant_friction_scale);
       }
+      if (plant_table_mu > 0.0) SetTableMu(model, plant_table_mu);
+      if (plant_table_dz != 0.0 && table_body >= 0) {
+        model->body_pos[3 * table_body + 2] += plant_table_dz;
+        std::fprintf(stderr, "[bench] plant slab %+.3f m relative to the planner's\n", plant_table_dz);
+      }
+      if (plant_table_stiff) {
+        SetTableStiff(model);
+        std::fprintf(stderr, "[bench] plant slab contact stiff: solref 0.01, solimp 0.95 0.99 0.001 "
+                             "(planner unchanged)\n");
+      }
+      if (plant_foot_mu > 0.0) SetFootMu(model, plant_foot_mu);
+      if (planner_table_mu > 0.0) SetTableMu(pm, planner_table_mu);
+      if (planner_foot_mu > 0.0) SetFootMu(pm, planner_foot_mu);
+      if (plant_table_mu > 0.0 || plant_foot_mu > 0.0 || planner_table_mu > 0.0 ||
+          planner_foot_mu > 0.0) {
+        // echo what the contact set will actually use, read back from the models
+        auto pair_mu = [](const mjModel* m, const char* name) {
+          int p = -1;
+          for (int k = 0; k < m->npair; k++) {
+            const char* pn = mj_id2name(m, mjOBJ_PAIR, k);
+            if (pn && std::strcmp(pn, name) == 0) p = k;
+          }
+          return p >= 0 ? m->pair_friction[5 * p] : std::nan("");
+        };
+        auto geom_mu = [](const mjModel* m, const char* name) {
+          int g = mj_name2id(m, mjOBJ_GEOM, name);
+          return g >= 0 ? m->geom_friction[3 * g] : std::nan("");
+        };
+        auto foot_mu = [](const mjModel* m) {
+          int b = mj_name2id(m, mjOBJ_BODY, "left_ankle_roll_link");
+          for (int g = 0; g < m->ngeom; g++)
+            if (m->geom_bodyid[g] == b && (m->geom_contype[g] || m->geom_conaffinity[g]))
+              return m->geom_friction[3 * g];
+          return std::nan("");
+        };
+        std::fprintf(stderr,
+                     "[bench-friction] plant: forearm_pair %.3f wrist_pair %.3f table_geom %.3f "
+                     "floor %.3f foot %.3f | planner: forearm_pair %.3f wrist_pair %.3f "
+                     "table_geom %.3f floor %.3f foot %.3f\n",
+                     pair_mu(model, "left_forearm_brace_pair"), pair_mu(model, "left_wrist_brace_pair"),
+                     geom_mu(model, "table_top_collision"), geom_mu(model, "floor"), foot_mu(model),
+                     pair_mu(pm, "left_forearm_brace_pair"), pair_mu(pm, "left_wrist_brace_pair"),
+                     geom_mu(pm, "table_top_collision"), geom_mu(pm, "floor"), foot_mu(pm));
+      }
       if (plant_mass_scale != 1.0) {
         for (int b = 1; b < model->nbody; b++) {
           model->body_mass[b] *= plant_mass_scale;
@@ -588,6 +800,23 @@ int main(int argc, char** argv) {
     }
     agent.ActivePlanner().ActionFromPolicy(data->ctrl, agent.state.state().data(),
                                            agent.state.time(), /*use_previous=*/false);
+    if (assist_fx != 0.0 && assist_bid >= 0) {
+      const int ph_now = lean_task ? lean_task->BenchPhaseIndex() : -1;
+      bool on = ph_now >= assist_from_phase && ph_now <= assist_until_phase;
+      if (on && assist_gap > 0.0 && tt_gid >= 0 && pad_gid >= 0) {
+        const double fz = data->geom_xpos[3 * tt_gid + 2] + model->geom_size[3 * tt_gid + 2];
+        const double gap = data->geom_xpos[3 * pad_gid + 2] - model->geom_size[3 * pad_gid] - fz;
+        on = gap < assist_gap;
+      }
+      if (on && assist_t0 < 0.0) assist_t0 = data->time;
+      if (!on) assist_t0 = -1.0;
+      const double a = (on && assist_ramp > 1e-9)
+                           ? mju_min(1.0, (data->time - assist_t0) / assist_ramp)
+                           : (on ? 1.0 : 0.0);
+      assist_now = a * assist_fx;
+      mju_zero(data->xfrc_applied + 6 * assist_bid, 6);
+      data->xfrc_applied[6 * assist_bid + 0] = assist_now;
+    }
     if (fs && i % log_every == 0) {
       // Capture BEFORE integration: qpos, qvel, control and warm-start all refer
       // to precisely this time. Offline mj_forward reconstructs its contacts.
@@ -600,6 +829,91 @@ int main(int argc, char** argv) {
       std::fprintf(fs, "\n");
     }
     mj_step(model, data);
+    if (fc && i % contact_every == 0) {
+      // mj_step leaves contacts, efc forces and kinematics from the forward pass
+      // at the pre-step state; only qpos/qvel/time have advanced.
+      // 0 brace (left arm vs table), 1 left foot, 2 right foot, 3 rest of the
+      // robot vs table, 4 the brace pads alone (forearm + wrist pad pairs; the
+      // jaw of the left gripper rests on the slab through stand-up and is in 0)
+      ContactGroup grp[5];
+      mjtNum f6[6];
+      for (int c = 0; c < data->ncon; c++) {
+        const mjContact& con = data->contact[c];
+        if (con.efc_address < 0) continue;              // excluded / margin-only
+        const int b0 = model->geom_bodyid[con.geom[0]], b1 = model->geom_bodyid[con.geom[1]];
+        int k = -1, robot_side = -1;
+        if ((b0 == table_body) != (b1 == table_body)) {
+          const int other = (b0 == table_body) ? b1 : b0;
+          if (other == 0 || other == object_body) continue;
+          const char* bn = mj_id2name(model, mjOBJ_BODY, other);
+          k = (bn && std::strncmp(bn, "left_", 5) == 0) ? 0 : 3;
+          robot_side = (b0 == table_body) ? 1 : 0;
+        } else if (con.geom[0] == floor_gid || con.geom[1] == floor_gid) {
+          const int other = (con.geom[0] == floor_gid) ? b1 : b0;
+          k = other == lfoot_body ? 1 : other == rfoot_body ? 2 : -1;
+          robot_side = (con.geom[0] == floor_gid) ? 1 : 0;
+        }
+        if (k < 0) continue;
+        mj_contactForce(model, data, c, f6);
+        const mjtNum* fr = con.frame;                   // rows: normal, tangent1, tangent2
+        mjtNum fw[3];                                   // world force on geom[1]
+        for (int j = 0; j < 3; j++) fw[j] = fr[j] * f6[0] + fr[3 + j] * f6[1] + fr[6 + j] * f6[2];
+        const double sgn = robot_side == 1 ? 1.0 : -1.0;
+        const int rg = con.geom[robot_side];
+        const bool is_pad = k == 0 && (rg == pad_gid || rg == wpad_gid);
+        for (int kk : {k, is_pad ? 4 : -1}) {
+          if (kk < 0) continue;
+          for (int j = 0; j < 3; j++) grp[kk].F[j] += sgn * fw[j];
+          grp[kk].fn += f6[0];
+          grp[kk].n++;
+        }
+        if (k == 3) continue;
+        ContactGroup& gr = grp[k];
+        ContactGroup* gp = is_pad ? &grp[4] : nullptr;
+        if (f6[0] > 2.0) {
+          double u = std::fabs(f6[1]) / con.friction[0] + std::fabs(f6[2]) / con.friction[1];
+          if (con.dim >= 4 && con.friction[2] > 0.0) u += std::fabs(f6[3]) / con.friction[2];
+          gr.util = std::max(gr.util, u / f6[0]);
+          if (gp) gp->util = std::max(gp->util, u / f6[0]);
+        }
+        // tangential slip of the robot's material point against the other body
+        mjtNum vr[3], vo[3] = {0, 0, 0}, vrel[3];
+        const int rb = robot_side == 1 ? b1 : b0, ob = robot_side == 1 ? b0 : b1;
+        PointVelocity(model, data, rb, con.pos, vr);
+        if (ob != 0 && model->body_weldid[ob] != 0) PointVelocity(model, data, ob, con.pos, vo);
+        mju_sub3(vrel, vr, vo);
+        const double vn = mju_dot3(vrel, fr);
+        mjtNum vt[3] = {vrel[0] - vn * fr[0], vrel[1] - vn * fr[1], vrel[2] - vn * fr[2]};
+        gr.slip_fw += std::max(0.0, (double)f6[0]) * mju_norm3(vt);
+        if (gp) gp->slip_fw += std::max(0.0, (double)f6[0]) * mju_norm3(vt);
+      }
+      std::fprintf(fc, "%.4f,%d", data->time - model->opt.timestep,
+                   lean_task ? lean_task->BenchPhaseIndex() : 0);
+      for (int k = 0; k < 3; k++)
+        std::fprintf(fc, ",%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,%d", grp[k].fn, grp[k].F[0], grp[k].F[1],
+                     grp[k].F[2], grp[k].util, grp[k].slip(), grp[k].n);
+      std::fprintf(fc, ",%.2f,%.2f,%.2f,%.2f", grp[3].fn, grp[3].F[0], grp[3].F[1], grp[3].F[2]);
+      std::fprintf(fc, ",%.2f,%.2f,%.2f,%.2f,%.3f,%.4f,%d", grp[4].fn, grp[4].F[0], grp[4].F[1],
+                   grp[4].F[2], grp[4].util, grp[4].slip(), grp[4].n);
+      mjtNum padv[6] = {0, 0, 0, 0, 0, 0};
+      const mjtNum* pp = pad_gid >= 0 ? data->geom_xpos + 3 * pad_gid : padv;
+      if (pad_gid >= 0) mj_objectVelocity(model, data, mjOBJ_GEOM, pad_gid, padv, 0);
+      const mjtNum* wp = wpad_gid >= 0 ? data->geom_xpos + 3 * wpad_gid : padv;
+      mjtNum sL[3] = {0, 0, 0}, sR[3] = {0, 0, 0};
+      if (lfoot_body >= 0) {
+        mju_mulMatVec3(sL, data->xmat + 9 * lfoot_body, kSoleLocal);
+        mju_addTo3(sL, data->xpos + 3 * lfoot_body);
+      }
+      if (rfoot_body >= 0) {
+        mju_mulMatVec3(sR, data->xmat + 9 * rfoot_body, kSoleLocal);
+        mju_addTo3(sR, data->xpos + 3 * rfoot_body);
+      }
+      const mjtNum* com = pelvis_body >= 0 ? data->subtree_com + 3 * pelvis_body : sL;
+      std::fprintf(fc, ",%.5f,%.5f,%.5f,%.4f,%.4f,%.4f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,"
+                       "%.5f,%.5f,%.5f,%.5f,%.1f\n",
+                   pp[0], pp[1], pp[2], padv[3], padv[4], padv[5], wp[0], wp[1], wp[2],
+                   sL[0], sL[1], sR[0], sR[1], com[0], com[1], com[2], data->qpos[2], assist_now);
+    }
     if (i % spp == 0) {
       if (latency_steps > 0 && i >= latency_steps) {
         // plan from the snapshot taken latency_steps plant steps ago
@@ -631,7 +945,133 @@ int main(int argc, char** argv) {
           agent.state.Set(model, pred);
         }
       }
+      // sample dump, part 1: the std each parameter will be SAMPLED at this
+      // tick is max(sqrt(variance), std_min) with the variance the LAST refit
+      // left, so it has to be read before the iteration overwrites it.
+      const bool dump_now = cem && !samples_out.empty() &&
+                            samples_next < samples_at.size() &&
+                            data->time >= samples_at[samples_next] - 1e-9;
+      std::vector<double> sigma_used;
+      double std_min_used = 0.0;
+      if (dump_now) {
+        const double live = g_task->LiveStdMinOverride();
+        std_min_used = live > 0.0 ? live : cem->std_min_;
+        sigma_used.resize(cem->variance.size());
+        for (size_t k = 0; k < sigma_used.size(); k++)
+          sigma_used[k] = cem->variance_fixed_ > 0.0
+                              ? cem->variance_fixed_
+                              : std::max(std::sqrt(cem->variance[k]), std_min_used);
+      }
       agent.PlanIteration(&pool);
+      if (dump_now) {
+        const mjModel* pm = cem->model;
+        const int nu = pm->nu, nq = pm->nq;
+        const int ns = cem->nominal_trajectory.dim_state;
+        const int H = cem->nominal_trajectory.horizon;
+        const int N = cem->num_trajectory_;
+        const int ne = std::min(cem->n_elite_, N);
+        const int nk = cem->resampled_policy.num_spline_points;
+        char dname[64];
+        std::snprintf(dname, sizeof dname, "tick%02d_t%.3f", (int)samples_next, data->time);
+        const std::filesystem::path dir = std::filesystem::path(samples_out) / dname;
+        std::filesystem::create_directories(dir);
+        auto openf = [&](const char* name) {
+          FILE* f = std::fopen((dir / name).c_str(), "w");
+          if (!f) { std::fprintf(stderr, "[bench] samples: cannot write %s\n", name); }
+          return f;
+        };
+        auto knots = [&](FILE* f, const mjpc::SamplingPolicy& pol, int k) {
+          for (int t = 0; t < pol.plan.Size(); t++) {
+            mjpc::spline::TimeSpline::ConstNode n = pol.plan.NodeAt(t);
+            if (k >= 0) std::fprintf(f, "%d,", k);
+            std::fprintf(f, "%d,%.6f", t, n.time());
+            for (int j = 0; j < nu; j++) std::fprintf(f, ",%.6f", n.values()[j]);
+            std::fprintf(f, "\n");
+          }
+        };
+        auto traj = [&](FILE* f, const mjpc::Trajectory& tr, int k) {
+          for (int t = 0; t < tr.horizon; t++) {
+            const double* st = tr.states.data() + t * ns;
+            std::fprintf(f, "%d,%d,%.4f,%.6f", k, t, tr.times[t], tr.costs[t]);
+            for (int j = 0; j < nq; j++) std::fprintf(f, ",%.6f", st[j]);
+            std::fprintf(f, "\n");
+          }
+        };
+        auto header_u = [&](FILE* f, const char* lead) {
+          std::fprintf(f, "%s", lead);
+          for (int j = 0; j < nu; j++) std::fprintf(f, ",u%d", j);
+          std::fprintf(f, "\n");
+        };
+        // centre: the resampled nominal spline the noise was added to
+        if (FILE* f = openf("center.csv")) { header_u(f, "knot,t"); knots(f, cem->resampled_policy, -1); std::fclose(f); }
+        // spread: std used this tick, std the refit just produced, and the noise drawn
+        if (FILE* f = openf("sigma.csv")) {
+          std::fprintf(f, "knot,j,sigma_used,sigma_next\n");
+          for (int t = 0; t < nk; t++)
+            for (int j = 0; j < nu; j++)
+              std::fprintf(f, "%d,%d,%.6f,%.6f\n", t, j, sigma_used[t * nu + j], std::sqrt(cem->variance[t * nu + j]));
+          std::fclose(f);
+        }
+        if (FILE* f = openf("noise.csv")) {
+          header_u(f, "k,knot");
+          for (int k = 0; k < N; k++) {
+            const int shift = k * (nu * mjpc::kMaxTrajectoryHorizon);
+            for (int t = 0; t < nk; t++) {
+              std::fprintf(f, "%d,%d", k, t);
+              for (int j = 0; j < nu; j++) std::fprintf(f, ",%.6f", cem->noise[shift + t * nu + j]);
+              std::fprintf(f, "\n");
+            }
+          }
+          std::fclose(f);
+        }
+        if (FILE* f = openf("candidates.csv")) { header_u(f, "k,knot,t"); for (int k = 0; k < N; k++) knots(f, cem->candidate_policy[k], k); std::fclose(f); }
+        // scores + elite order
+        if (FILE* f = openf("scores.csv")) {
+          std::fprintf(f, "k,rank,elite,total_return\n");
+          std::vector<int> rank(N, -1);
+          for (int r = 0; r < N; r++) rank[cem->trajectory_order[r]] = r;
+          for (int k = 0; k < N; k++)
+            std::fprintf(f, "%d,%d,%d,%.6f\n", k, rank[k], (int)(rank[k] < ne), cem->trajectory[k].total_return);
+          std::fclose(f);
+        }
+        // rollouts: k = -1 nominal (centre), k = -2 the fold, 0..N-1 the candidates
+        if (FILE* f = openf("rollouts.csv")) {
+          std::fprintf(f, "k,step,t,cost");
+          for (int j = 0; j < nq; j++) std::fprintf(f, ",q%d", j);
+          std::fprintf(f, "\n");
+          traj(f, cem->nominal_trajectory, -1);
+          for (int k = 0; k < N; k++) traj(f, cem->trajectory[k], k);
+          // fold: the elite mean, rolled out from the same state on a scratch
+          // trajectory so nothing the planner holds changes
+          mjpc::Trajectory ft;
+          ft.Initialize(ns, nu, g_task->num_residual, g_task->num_trace, mjpc::kMaxTrajectoryHorizon);
+          ft.Allocate(mjpc::kMaxTrajectoryHorizon);
+          auto fold_policy = [cem](double* action, const double* state, double time) {
+            cem->policy.Action(action, state, time);
+          };
+          ft.Rollout(fold_policy, cem->task, pm, cem->data_[0].get(), cem->state.data(),
+                     cem->time, cem->mocap.data(), cem->userdata.data(), H);
+          traj(f, ft, -2);
+          std::fclose(f);
+          if (FILE* g = openf("fold.csv")) {
+            header_u(g, "knot,t"); knots(g, cem->policy, -1); std::fclose(g);
+            std::fprintf(stderr, "[bench] samples %s: N=%d elites=%d H=%d J(nominal)=%.4f J(best)=%.4f J(fold)=%.4f std_min=%.4f\n",
+                         dname, N, ne, H, cem->nominal_trajectory.total_return,
+                         cem->trajectory[cem->trajectory_order[0]].total_return, ft.total_return, std_min_used);
+          }
+        }
+        if (FILE* f = openf("meta.json")) {
+          std::fprintf(f, "{\"t_plan\": %.4f, \"t_state\": %.4f, \"phase\": %d, \"phase_name\": \"%s\", "
+                          "\"n\": %d, \"n_elite\": %d, \"horizon_steps\": %d, \"dt\": %.4f, "
+                          "\"nu\": %d, \"nq\": %d, \"knots\": %d, \"std_min_used\": %.5f, "
+                          "\"std_min\": %.5f, \"spp\": %d, \"seed\": %d, \"strategy\": %d, \"gains\": \"%s\"}\n",
+                       data->time, cem->time, lean_task ? lean_task->BenchPhaseIndex() : -1,
+                       lean_task ? lean_task->BenchPhaseName().c_str() : "", N, ne, H, pm->opt.timestep,
+                       nu, nq, nk, std_min_used, cem->std_min_, spp, seed, strategy, gains.c_str());
+          std::fclose(f);
+        }
+        samples_next++;
+      }
       if (fp && lean_task && lean_task->BenchPhaseIndex() >= plan_out_from_phase) {
         const mjpc::Trajectory* best = agent.ActivePlanner().BestTrajectory();
         const mjModel* pm = agent.GetModel();
@@ -876,11 +1316,11 @@ int main(int argc, char** argv) {
   std::fprintf(stderr,
                "[bench-summary] payload_true=%.3f payload_belief=%.3f bft_add=%.1f payload_t=%.2f "
                "max_phase=%d peak_brace_carry=%.1f min_pelvis_carry=%.3f max_tilt_carry=%.1f "
-               "task=%s strategy=%d planner=%d table_h=%.4f face_z=%.4f seed=%d "
+               "assist_fx=%.1f task=%s strategy=%d planner=%d table_h=%.4f face_z=%.4f seed=%d "
                "fell=%d complete=%d t_complete=%.3f t_end=%.3f phases=%d wall_s=%.1f enter=",
                payload_true, payload_belief, bft_add, payload_t0, max_phase_seen,
                peak_brace_carry, (payload_t0 >= 0.0 ? min_pelvis_carry : -1.0), max_tilt_carry,
-               task_name.c_str(), strategy, agent.PlannerId(), table_h, face_z, seed, (int)fell,
+               assist_fx, task_name.c_str(), strategy, agent.PlannerId(), table_h, face_z, seed, (int)fell,
                (int)(t_complete > 0), t_complete, data->time, n_phases, wall);
   for (int p = 0; p < n_phases && p < 64; p++)
     std::fprintf(stderr, "%s%.2f", p ? ":" : "", phase_enter[p]);
@@ -890,6 +1330,7 @@ int main(int argc, char** argv) {
   if (fq) std::fclose(fq);
   if (fs) std::fclose(fs);
   if (fp) std::fclose(fp);
+  if (fc) std::fclose(fc);
   mj_deleteData(pd);
   mj_deleteData(td);
   mj_deleteData(data);
