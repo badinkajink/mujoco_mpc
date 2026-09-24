@@ -342,12 +342,14 @@ a 50&ndash;150 N normal load with an inline force gauge and read the breakaway a
 the same for a foot on the lab floor. This page assumes 0.8 for the slab, as reported from the
 hardware, and 0.3&ndash;0.5 for aluminium on smooth concrete. Both feed <code>--plant_table_mu</code> /
 <code>--plant_foot_mu</code> directly.</li>
-<li><strong>The creep is not fixed by lowering &mu;.</strong> <code>--plant_table_stiff</code>
-shortens the compliance length but leaves MuJoCo's friction regularised. The test: at
-<code>solref 0.01</code>, does the pad's slide over a hold at shear ratio 0.3 fall below
-20 mm? If it does not, the next lever is <code>cone="elliptic"</code> plus
-<code>noslip_iterations</code>, which is a two-line change in
-<code>Lean_H12_Magpie.xml</code> and a re-run of batch b1.</li>
+<li><strong>Stiffening the contact does not stop the creep &mdash; preliminary, n&nbsp;=&nbsp;2.</strong>
+<code>--plant_table_stiff</code> takes every slab contact to <code>solref 0.01</code> /
+<code>solimp 0.95 0.99 0.001</code>, including the pairs' <code>solreffriction</code>. On the two
+seeds that have run, the pad still slides 224&nbsp;mm against 222&nbsp;mm for the same seeds
+unstiffened. That points at the friction constraint rather than normal-direction compliance, so the
+next lever is <code>cone="elliptic"</code> plus <code>noslip_iterations</code> &mdash; a two-line
+change in <code>Lean_H12_Magpie.xml</code> and a re-run of batch b1. Finish the remaining four seeds
+first (<code>./sweep.py --out runs/b3_sd02_stiff &hellip; --stiff</code> resumes).</li>
 <li><strong>The planner is never told the friction.</strong> <code>--planner_table_mu</code> /
 <code>--planner_foot_mu</code> exist and are unswept. The measurement: batch b1 cells with the
 planner's model at 0.8/0.4 as well, asking whether a planner that knows the limit keeps the pad's
