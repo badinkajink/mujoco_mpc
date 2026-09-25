@@ -54,3 +54,5 @@ studies/**/__pycache__/
 studies/*/figs/
 studies/*/figs_*/
 studies/*/*.log
+.venv-cavilon/
+__pycache__/
