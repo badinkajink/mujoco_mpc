@@ -325,7 +325,8 @@ def main() -> int:
 
     trace = output / "pid117_flat_pad_augmented_trace.csv"
     with trace.open("w", newline="") as handle:
-        writer_csv = csv.DictWriter(handle, fieldnames=list(records[0])); writer_csv.writeheader(); writer_csv.writerows(records)
+        writer_csv = csv.DictWriter(handle, fieldnames=list(records[0]), lineterminator="\n")
+        writer_csv.writeheader(); writer_csv.writerows(records)
     comparison = output / "pid117_nursing_vs_sim_contact_state.mp4"
     source = root / "docs/artifacts/tip_depth_fusion_contact/pid117_contact_proxy.mp4"
     make_comparison(source, final, comparison)
