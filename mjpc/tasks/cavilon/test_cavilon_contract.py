@@ -8,6 +8,8 @@ import numpy as np
 
 from plan_sterile_ur5 import ExplicitCollisionLimit, pose_error, time_parameterize
 from render_flat_pad_augmented import paint_projected_face, map_point
+from run_pad_angle_sweep import oriented_trajectory
+from build_contact_replay import load_geometry
 from sterility_geometry import scene, CollisionContract, make_targets, ORIGIN
 from finalize_sterile_ur5 import certify_exclusion_edges
 
@@ -61,6 +63,15 @@ class CollisionLimitTests(unittest.TestCase):
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_fixed_pad_yaw_does_not_follow_path_reversals(self):
+        geometry=load_geometry(ROOT,128)
+        fixed=oriented_trajectory(geometry,30,0,.00045,yaw_policy='fixed')
+        historical=oriented_trajectory(geometry,30,0,.00045,yaw_policy='path_tangent')
+        fixed_yaw=np.unwrap([point['yaw_rad'] for point in fixed])
+        historical_yaw=np.unwrap([point['yaw_rad'] for point in historical])
+        self.assertLess(np.abs(np.diff(fixed_yaw)).max(),np.deg2rad(1))
+        self.assertGreater(np.sum(np.abs(np.diff(historical_yaw))>np.pi/2),0)
+
     def test_projected_footprint_and_map_have_same_y_direction(self):
         gx=gy=np.linspace(-1,1,101)
         grid=np.zeros((101,101),bool)

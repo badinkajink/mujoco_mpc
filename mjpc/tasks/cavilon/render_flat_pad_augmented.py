@@ -204,12 +204,15 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--indentation-mm", type=float, default=.45)
+    parser.add_argument("--yaw-policy", choices=("fixed", "path_tangent"), default="fixed",
+                        help="Fixed task-frame yaw for the corrected replay; path_tangent reproduces the historical spinning run")
     args = parser.parse_args()
     root = args.cldc_root.resolve(); output = args.output_dir.resolve(); output.mkdir(parents=True, exist_ok=True)
     geometry = load_geometry(root, 128)
     site, site_provenance = insertion_site_local(root, geometry)
     hfield = output / "pid117_mannequin_hfield.png"; write_hfield_png(geometry["height"], hfield)
-    trajectory = oriented_trajectory(geometry, args.fps, 0, args.indentation_mm / 1000)
+    trajectory = oriented_trajectory(geometry, args.fps, 0, args.indentation_mm / 1000,
+                                     yaw_policy=args.yaw_policy)
     xml, contact_names = scene_xml(hfield.name, geometry, "compliant_pad", trajectory[0])
     xml = add_site_marker(xml, site)
     scene = output / "pid117_flat_pad_labeled_scene.xml"; scene.write_text(xml)
@@ -303,7 +306,8 @@ def main() -> int:
             renderer.update_scene(data, camera=camera)
             left = cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR)
             cv2.rectangle(left, (0, 0), (840, 100), (18, 23, 31), -1)
-            cv2.putText(left, "PID117 flat-facing pad replay", (22, 32), cv2.FONT_HERSHEY_SIMPLEX,
+            cv2.putText(left, "PID117 flat-facing pad | fixed yaw" if args.yaw_policy == "fixed"
+                        else "PID117 flat-facing pad | path yaw (historical)", (22, 32), cv2.FONT_HERSHEY_SIMPLEX,
                         .73, (245, 245, 245), 2, cv2.LINE_AA)
             cv2.putText(left, f"t={frame_index/args.fps:5.1f}s  {point['phase']}  segment {point['segment']}/6",
                         (22, 63), cv2.FONT_HERSHEY_SIMPLEX, .50, (220, 225, 232), 1, cv2.LINE_AA)
@@ -329,7 +333,9 @@ def main() -> int:
     distance_values = np.asarray([r["site_distance_mm"] for r in contact_records])
     summary = {
         "schema_version": 1, "participant": "PID117", "mujoco_version": mujoco.__version__,
-        "policy": "flat-facing pad: pad normal follows local hfield normal; yaw follows commanded path tangent",
+        "policy": ("flat-facing pad: pad normal follows local hfield normal; "
+                   + ("fixed task-frame yaw" if args.yaw_policy == "fixed" else "yaw follows commanded path tangent")),
+        "yaw_policy": args.yaw_policy,
         "insertion_site": site_provenance,
         "results": {
             "final_covered_area_mm2": records[-1]["covered_area_mm2"],
@@ -342,10 +348,22 @@ def main() -> int:
         },
         "outputs": {"scene": scene.name, "video": final.name, "poster": poster.name,
                     "trace": trace.name, "physical_comparison": comparison.name},
+        "source_sha256": {
+            name: file_hash(Path(__file__).parent / name)
+            for name in ("render_flat_pad_augmented.py", "run_pad_angle_sweep.py",
+                         "build_contact_replay.py", "build_tip_model_sweep.py")
+        },
+        "input_sha256": {
+            str(path.relative_to(root)): file_hash(path)
+            for path in (root / SITE_REL, root / ATLAS_REL,
+                         root / "experiments/contact_surface_3d/PID117_path.csv",
+                         root / "data/contact_atlas_transfer_cache/PID117_mannequin_mask.png")
+        },
         "claim_boundary": [
             "The insertion site is transferred through the frozen monocular depth atlas, not measured in robot coordinates.",
             "Area is an XY raster union of projected loaded-cell faces at actual simulated poses; corner contact can overestimate its extent. It is not exact continuum contact area, surface area, or deposition.",
             "The flat-facing orientation is an explicit control rule; human applicator orientation is not estimated.",
+            "The fixed-yaw replay removes a path-derivative rotation artifact; its force and area numbers are new simulation outputs, not a correction factor applied to the historical trace.",
             "Force, friction, compliance, and pad dimensions remain provisional and uncalibrated.",
         ],
     }

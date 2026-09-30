@@ -47,7 +47,15 @@ def stroke_headings(trajectory: list[dict[str, float]]) -> np.ndarray:
 
 
 def oriented_trajectory(geometry: dict[str, object], fps: int, tilt_deg: float,
-                        indentation_m: float) -> list[dict[str, float]]:
+                        indentation_m: float, yaw_policy: str = "path_tangent") -> list[dict[str, float]]:
+    """Orient the pad; fixed yaw avoids deriving wrist rotation from path jitter.
+
+    The historic angle sweep retains ``path_tangent`` for reproducibility.
+    ``fixed`` keeps the pad's X axis aligned with task X while the face tracks
+    the local surface normal. Neither policy estimates human wrist pose.
+    """
+    if yaw_policy not in {"fixed", "path_tangent"}:
+        raise ValueError(f"Unknown yaw policy: {yaw_policy}")
     tilt = np.deg2rad(tilt_deg)
     support_offset = PAD_THICKNESS*np.cos(tilt) + PAD_LENGTH/2*np.sin(abs(tilt))
     trajectory = build_trajectory(
@@ -59,7 +67,7 @@ def oriented_trajectory(geometry: dict[str, object], fps: int, tilt_deg: float,
     height_fn = RegularGridInterpolator((gy, gx), height, bounds_error=False, fill_value=None)
     dx_fn = RegularGridInterpolator((gy, gx), dhdx, bounds_error=False, fill_value=None)
     dy_fn = RegularGridInterpolator((gy, gx), dhdy, bounds_error=False, fill_value=None)
-    headings = stroke_headings(trajectory)
+    headings = stroke_headings(trajectory) if yaw_policy == "path_tangent" else np.zeros(len(trajectory))
 
     for index, point in enumerate(trajectory):
         x, y = float(point["x"]), float(point["y"])
