@@ -62,6 +62,7 @@ void ContactKeyframe::Reset() {
   brace_lat_inset = -1.;
   aim_centroid = false;
   aim_free = false;
+  success_brace_force = -1.;
 }
 
 void to_json(json& j, const ContactPair& contact_pair) {
@@ -107,7 +108,8 @@ void to_json(json& j, const ContactKeyframe& keyframe) {
            {"servo_hold_int_max", keyframe.servo_hold_int_max},
            {"brace_lat_inset", keyframe.brace_lat_inset},
            {"aim_centroid", keyframe.aim_centroid},
-           {"aim_free", keyframe.aim_free}};
+           {"aim_free", keyframe.aim_free},
+           {"success_brace_force", keyframe.success_brace_force}};
 }
 
 void from_json(const json& j, ContactKeyframe& keyframe) {
@@ -143,5 +145,7 @@ void from_json(const json& j, ContactKeyframe& keyframe) {
   keyframe.brace_lat_inset = j.value("brace_lat_inset", -1.);
   keyframe.aim_centroid = j.value("aim_centroid", false);
   keyframe.aim_free = j.value("aim_free", false);
+  // ★ 2026-09-24 graze rung: force-keyed success; absent = -1 = byte-identical.
+  keyframe.success_brace_force = j.value("success_brace_force", -1.);
 }
 }  // namespace mjpc::humanoid

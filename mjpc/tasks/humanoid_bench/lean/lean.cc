@@ -1153,6 +1153,27 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
       if (bracing_hand[2] < ideal_brace[2]) ideal_brace[2] = bracing_hand[2];
     }
   }
+  // ★ 2026-09-25 GRAZE HOVER-DESCENT (`graze_hover`, m above the face; 0/absent = OFF =
+  // BYTE-IDENTICAL). Forearm-pad models aim the pad at the press point from the first
+  // instant of the graze rung, so the planner leans the body and raises the arm TOGETHER:
+  // twin s36 v3 / real_g1 / real_g3 / ns_g1 all show the shoulder only -45..-51 deg at
+  // 25 deg pitch with the pad still airborne and the ankles at 34-49 Nm (budget 48.6);
+  // ns_g1 crossed it and fell. On a rung that carries `success_brace_force` (the graze
+  // rung, strat 36 only) the target now starts `graze_hover` above the face over the same
+  // slab point and descends linearly to the press depth over the rung's target_ramp_sec,
+  // i.e. the wrist-model stand-and-lower (br43-49) for the forearm pad: arm out first,
+  // then down. NEVER PULL UP: once the pad is below the ramped target it stays there.
+  {
+    double gh = GetNumberOrDefault(0.0, model, "graze_hover");
+    int bwn4 = mj_name2id(model, mjOBJ_NUMERIC, "brace_wrist");
+    bool wrist_model4 = bwn4 >= 0 && model->numeric_data[model->numeric_adr[bwn4]] > 0.5;
+    if (gh > 0.0 && !wrist_model4 && residual_keyframe_.success_brace_force > 0.0) {
+      double z_hi = table_face_z + gh;
+      double z_lo = ideal_brace[2];
+      ideal_brace[2] = z_hi + alpha_lin * (z_lo - z_hi);
+      if (bracing_hand[2] < ideal_brace[2]) ideal_brace[2] = bracing_hand[2];
+    }
+  }
   double brace_dist = mju_dist3(bracing_hand, ideal_brace);
   double reward_brace = brace_reward * mju_exp(-2.0 * brace_dist);
   {
@@ -1700,6 +1721,43 @@ void lean::ResidualFn::Residual(const mjModel *model, const mjData *data,
   // relax backward/lateral).
   residual[counter + 0] = eff_dx * leaning * edge_amplifier;
   residual[counter + 1] = eff_dy * leaning * edge_amplifier;
+  // ★ 2026-09-25 FORCE-SCALED CoM BUDGET (`com_budget_x`, m; 0/absent = OFF = BYTE-IDENTICAL).
+  // The user-approved reserve lever (ADR 0001, lever B). Geometry: the forearm pad sits 6.5 cm
+  // past the elbow, so it reaches the slab only once the shoulder is ~over the near edge
+  // (25-35 deg pitch at 37 cm); inside the 48.6 Nm ankle budget (CoM <= +7.2 cm) that needs a
+  // hip hinge. The twin graze runs rode the budget (CoM 6.3-9.1 cm at load) and 3/8 crossed it
+  // before contact -> heel lift + twist + fall, the real failure. This adds a ONE-SIDED hinge to
+  // the Balance x residual: zero while the capture point is within `com_budget_x` of the ankle
+  // axis (robot-forward), gain `com_budget_gain` per metre beyond it. The allowance opens by
+  // `com_budget_open` (m, default 0.30) as the believed brace force rises to `com_budget_force`
+  // (N, default 40), so once the pad carries load the seat is unconstrained, and it closes again
+  // as the pad unloads (stand-back pulls the CoM home).
+  {
+    double cbx = GetNumberOrDefault(0.0, model, "com_budget_x");
+    int la_b = mj_name2id(model, mjOBJ_BODY, "left_ankle_roll_link");
+    int ra_b = mj_name2id(model, mjOBJ_BODY, "right_ankle_roll_link");
+    if (cbx > 0.0 && la_b >= 0 && ra_b >= 0) {
+      double ax = 0.5 * (data->xpos[3 * la_b + 0] + data->xpos[3 * ra_b + 0]);
+      double ay = 0.5 * (data->xpos[3 * la_b + 1] + data->xpos[3 * ra_b + 1]);
+      double fx = 1.0, fy = 0.0;
+      double const* flf_b = SensorByName(model, data, "foot_left_forward");
+      double const* frf_b = SensorByName(model, data, "foot_right_forward");
+      if (flf_b && frf_b) {
+        double hx = flf_b[0] + frf_b[0], hy = flf_b[1] + frf_b[1];
+        double hn = mju_sqrt(hx * hx + hy * hy);
+        if (hn > 1e-6) { fx = hx / hn; fy = hy / hn; }
+      }
+      double ahead = (capture_point[0] - ax) * fx + (capture_point[1] - ay) * fy;
+      double fb = TableBraceForce(model, data, /*brace_left=*/reach_right);
+      double fopen = GetNumberOrDefault(40.0, model, "com_budget_force");
+      double open = GetNumberOrDefault(0.30, model, "com_budget_open") *
+                    mju_min(1.0, mju_max(0.0, fb / mju_max(fopen, 1e-6)));
+      double excess = mju_max(0.0, ahead - (cbx + open));
+      double gain = GetNumberOrDefault(150.0, model, "com_budget_gain");
+      double r0 = residual[counter + 0];
+      residual[counter + 0] = r0 + (r0 < 0.0 ? -1.0 : 1.0) * gain * excess;
+    }
+  }
   counter += 2;
 
   // ----- torso forward tilt (direction-based) ----- //
@@ -4386,6 +4444,18 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       // the lens, wrist still): sample there regardless of distance. The
       // grasp rung still takes none.
       (void)far_enough;
+      {  // 2026-09-08 [servo-gate] 1 Hz: a detection exists but is NOT accepted -> which gate
+        static double last_gate_print = -1e9;
+        bool accepted = fresh && wrist_quiet && near_range && !grasp_rung && brace_seated;
+        if (last_fresh_time >= 0.0 && !accepted && data->time - last_gate_print > 1.0) {
+          last_gate_print = data->time;
+          std::printf("[servo-gate] REJECT fresh=%d(age %.2fs) wrist_quiet=%d near_range=%d(cam_z %.3f<=%.2f) "
+                      "grasp_rung=%d seated=%d(kf %d)\n", fresh ? 1 : 0, data->time - last_fresh_time,
+                      wrist_quiet ? 1 : 0, near_range ? 1 : 0, mjpc::g_object_cam_z.load(), max_depth,
+                      grasp_rung ? 1 : 0, brace_seated ? 1 : 0, motion_strategy_.GetCurrentKeyframeIndex());
+        }
+      }
+      if (use_centroid) wrist_quiet = true;   // image-time composition replaces the gate
       if (fresh && wrist_quiet && near_range && !grasp_rung &&
           brace_seated && wyb >= 0 && tg >= 0) {
         double cam_pos[3], cam_rpy[3], nominal[3];
@@ -4463,6 +4533,21 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                                tc[1] - nominal[1], face + nominal[2]};
         double want[3];
         mju_sub3(want, p_world, nom_world);
+        {  // ★ 2026-09-05 hand-eye audit: UNCLAMPED composed block + believed wrist
+           // (world) + raw cam vector, 2 Hz -> fit grip_cam_* against rt/object_head.
+          static double last_he = -1e9;
+          if (data->time - last_he > 0.5) {
+            last_he = data->time;
+            const double* wq = data->xquat + 4 * wyb;
+            std::printf("[handeye] t=%.2f cam=(%+.4f %+.4f %+.4f) wrist=(%.4f %.4f %.4f) "
+                        "wq=(%.4f %.4f %.4f %.4f) block=(%.4f %.4f %.4f) raw_want=(%+.3f %+.3f %+.3f) "
+                        "head=(%.3f %.3f %.3f)\n", data->time, t_cam[0], t_cam[1], t_cam[2],
+                        data->xpos[3*wyb], data->xpos[3*wyb+1], data->xpos[3*wyb+2],
+                        wq[0], wq[1], wq[2], wq[3], p_world[0], p_world[1], p_world[2],
+                        want[0], want[1], want[2], mjpc::g_object_head_x.load(),
+                        mjpc::g_object_head_y.load(), mjpc::g_object_head_z.load());
+          }
+        }
         double cap = GetNumberOrDefault(0.15, model, "servo_max_offset");
         for (int k = 0; k < 3; ++k) want[k] = mju_clip(want[k], -cap, cap);
         // ★ 2026-08-30 LATERAL CAP (real 29_61): the D405 y estimate scatters
@@ -5757,8 +5842,32 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                        static int gap_note = 0;
                        if (++gap_note % 100 == 1)
                          std::printf("[lean-gate] believed pad gap %+.0f mm "
-                                     "(over=%d margin %.0f mm)\n",
-                                     gap * 1000.0, (int)over, zmar * 1000.0);
+                                     "(over=%d margin %.0f mm) pad z %.3f "
+                                     "face %.3f pelvis z %.3f table x %.3f\n",
+                                     gap * 1000.0, (int)over, zmar * 1000.0,
+                                     pp[2], surf, data->qpos[2], tc[0]);
+                     }
+                   }
+                   // ★ 2026-09-24 GRAZE RUNG (`success_brace_force` keyframe
+                   // field, N; -1/absent = OFF = byte-identical): the rung's pad
+                   // counts as ON only while the believed forearm brace force
+                   // (TableBraceForce, the value the Brace Force cost reads) is
+                   // at least the field. Overrides the geometric fallbacks above
+                   // so a graze rung advances on LOAD, not on proximity. Real
+                   // forensics 09-23: heels lift once the CoM passes ~7 cm ahead
+                   // of the ankle (48.6 Nm ankle budget) while the pad first
+                   // loads at +5..+28 cm; the graze rung lands the pad first.
+                   {
+                     const auto& gkf = motion_strategy_.GetCurrentKeyframe();
+                     if (gkf.success_brace_force > 0.0) {
+                       double gf = TableBraceForce(model, data, /*brace_left=*/true);
+                       on = (gf >= gkf.success_brace_force);
+                       static int gz_note = 0;
+                       if (++gz_note % 100 == 1)
+                         std::printf("[lean-gate] graze brace force %.0f N "
+                                     "(need %.0f N) -> %s\n",
+                                     gf, gkf.success_brace_force,
+                                     on ? "ON" : "hold");
                      }
                    }
                    // ★ 2026-08-13 FLAT-GATED VERIFY: a corner graze is not a
@@ -5979,7 +6088,9 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                              current_strategy_ == 10) &&  // 2026-09-05: strat 9 = 29's recovery rungs; 09-08: strat 10 = 9 + grasp
                             kfn != "forearm_brace_release") ||
                            ((current_strategy_ == 25 || current_strategy_ == 11 ||
-                             current_strategy_ == 12) &&   // 2026-09-12: strat 12/11 = 25's stand-back
+                             current_strategy_ == 12 ||    // 2026-09-12: strat 12/11 = 25's stand-back
+                             current_strategy_ == 36 ||    // 2026-09-25: strat 36 graze = 25's stand-back (was missing: 36 ran r2/r3 ungated)
+                             current_strategy_ == 37) &&   // 2026-09-25: strat 37 = cost-sensitivity sweep slot (strat 25 copy)
                             (kfn == "standback_r2" || kfn == "standback_r3"));
                        if (cgate > 0.0 && com_gate_scope) {
                          int pid_cg = mj_name2id(model, mjOBJ_BODY, "pelvis");
@@ -6043,6 +6154,21 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
                    quiet = quiet &&
                        mju_sqrt(data->qvel[3] * data->qvel[3] +
                                 data->qvel[4] * data->qvel[4]) <= wlim;
+                 }
+                 {  // ★ 2026-09-03 advance-gate debug (1 Hz): why a rung holds
+                   static double last_advdbg = -1e9;
+                   if (data->time - last_advdbg > 1.0) {
+                     last_advdbg = data->time;
+                     std::printf("[adv-dbg] rung %d dist %.3f tol %.3f sustained %.2fs/%.2fs "
+                                 "lin %.4f(<=%.3f) ang %.3f(<=%.3f) quiet=%d servo_settled=%d\n",
+                                 motion_strategy_.GetCurrentKeyframeIndex(),
+                                 total_distance, eff_tol,
+                                 data->time - motion_strategy_.GetCurrentKeyframeSuccessStartTime(),
+                                 current_kf.success_sustain_time,
+                                 mju_sqrt(data->qvel[0] * data->qvel[0] + data->qvel[1] * data->qvel[1]), lim,
+                                 mju_sqrt(data->qvel[3] * data->qvel[3] + data->qvel[4] * data->qvel[4]), wlim,
+                                 (int)quiet, (int)s_servo_settled);
+                   }
                  }
                  // ★ 2026-08-10 `phase_advance_upright_deg`: 0 = OFF =
                  // byte-identical. >0 = ALSO hold the advance while the torso
@@ -6197,6 +6323,14 @@ void lean::TransitionLocked(mjModel *model, mjData *data) {
       residual_.keyframe_start_time_ = data->time;
       PrepareNextPhaseWeights(residual_.residual_keyframe_);
     } else if (total_distance > eff_tol) {
+      {  // ★ 2026-09-03 advance-gate debug: re-arm events on grasp rungs (1 Hz)
+        static double last_rearm_note = -1e9;
+        if (current_kf.grasp_close && data->time - last_rearm_note > 1.0) {
+          last_rearm_note = data->time;
+          std::printf("[adv-dbg] rung %d RE-ARM: dist %.3f > tol %.3f\n",
+                      motion_strategy_.GetCurrentKeyframeIndex(), total_distance, eff_tol);
+        }
+      }
       // Re-arm the success clock: outside tolerance -- sustain must be
       // CONSECUTIVE.
       motion_strategy_.SetCurrentKeyframeSuccessStartTime(data->time);

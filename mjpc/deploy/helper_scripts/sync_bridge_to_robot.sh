@@ -7,7 +7,7 @@
 set -euo pipefail
 HS="$(cd "$(dirname "$0")" && pwd)"
 SSH="$HOME/.local/bin/ssh_unitree"
-RB=/home/unitree/HAMS/mujoco_mpc/mjpc/deploy/helper_scripts/tag_bridge_node.py
+RB=/home/unitree/GOLEM/mujoco_mpc/mjpc/deploy/helper_scripts/tag_bridge_node.py
 BR=/home/unitree/lean_deploy/lean_bringup.sh
 IDS="30,31,32,33,34"
 local_md5=$(md5sum "$HS/tag_bridge_node.py" | cut -c1-32)

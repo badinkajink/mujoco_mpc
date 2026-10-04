@@ -194,6 +194,7 @@ class ContactKeyframe {
         brace_lat_inset(-1.),
         aim_centroid(false),
         aim_free(false),
+        success_brace_force(-1.),
         time_limit(10.),
         success_sustain_time(2.),
         target_distance_tolerance(0.1),
@@ -201,6 +202,10 @@ class ContactKeyframe {
 
   void Reset();
 
+  // ★ 2026-09-24 graze rung: when > 0 (N), the brace-side rung counts the pad as ON only
+  // while the believed forearm brace force (TableBraceForce) is at least this value.
+  // -1/absent = OFF = byte-identical.
+  mjtNum success_brace_force;
   mjtNum time_limit;  // maximum time (in seconds) allowed for attempting a
                       // single keyframe before resetting
   mjtNum success_sustain_time;  // minimum time (in seconds) that the objective

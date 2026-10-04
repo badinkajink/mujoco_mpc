@@ -458,6 +458,14 @@
              pad gap was 25-27 mm (estimator height error) and the belief model had no
              contact. 0.05 = twice today's worst believed gap; a true hover sits higher. -->
         <numeric name="stall_pad_gap" data="0.05"/>
+        <!-- ★ 2026-09-25 graze_hover (m above the table face; 0 = OFF = byte-identical): on a rung with
+             success_brace_force (strat 36 graze rung only) the pad target starts this high over the slab point and
+             descends to the press depth over target_ramp_sec, so the arm goes out before the body leans (lean.cc). -->
+        <numeric name="graze_hover" data="0.0"/>
+        <!-- ★ 2026-09-25 com_budget_x (m; 0 = OFF = byte-identical): one-sided Balance hinge keeping the capture point
+             within this distance ahead of the ankle axis until the believed brace force opens the allowance
+             (com_budget_open m at com_budget_force N; gain com_budget_gain). ADR 0001 lever B, lean.cc. -->
+        <numeric name="com_budget_x" data="0.0"/>
         <numeric name="brace_seat_proxy" data="0.0"/>  <!-- 2026-09-05: believed pad 14-34 mm above the slab in every 9_B3_24-29 run -> residual saw no brace load -> pelvis driven 20-25 cm past the feet. Over-slab + believed gap < this => brace force floored at the rung target -->
         <numeric name="brace_contact_loss" data="1.0"/>
         <numeric name="swing_engage_below" data="0.10"/>
@@ -1070,7 +1078,7 @@
              phase commit never launches off an adverse sway sample. Free-stand
              sway on the twin: median 0.007, p90 0.013, max 0.026 m/s -> 0.015
              delays the advance by at most ~a sway half-period. -->
-        <numeric name="phase_advance_quiet_vel" data="0.015"/>
+        <numeric name="phase_advance_quiet_vel" data="0.0"/>
         <!-- ★ 2026-08-17 phase_advance_quiet_wvel [rad/s]: 0 = OFF. >0 = ALSO hold
              phase advance while base roll/pitch RATE exceeds this. Built 08-11
              (pre-commit roll rate = best failure predictor, AUC 0.71) but never
@@ -1078,7 +1086,7 @@
              kick / +30 deg in-flight spin -> oblique landings, edge slip). 0.12
              holds the commit for a calm sample; sway is ~1 s periodic so the
              wait costs at most ~half a period. -->
-        <numeric name="phase_advance_quiet_wvel" data="0.12"/>
+        <numeric name="phase_advance_quiet_wvel" data="0.0"/>
         <!-- phase_advance_upright_deg (2026-08-10): 0 = OFF = byte-identical. >0 =
              also hold the advance while |torso pitch| exceeds this (deg), capped at
              phase_advance_upright_wait seconds past the dwell. The restored-0.985
@@ -1247,7 +1255,7 @@
              Pair with a SHALLOW brace_press_depth (~0.008): the deep 0.06 was tuned in the
              phantom-arm world where nothing arrested the pad. -->
         <numeric name="brace_target_slab" data="0.0"/>
-        <numeric name="brace_target_inset" data="0.05"/>
+        <numeric name="brace_target_inset" data="0.10"/>
         <!-- brace_target_slab_lat (2026-08-20): 0 = OFF = BYTE-IDENTICAL. 1 = anchor
              the LATERAL brace target to the TABLE y-centre (+brace_lat_inset toward
              the bracing side) instead of torso_y +-0.24, so a yawed/off-square body

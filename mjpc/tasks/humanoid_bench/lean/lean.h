@@ -309,7 +309,7 @@ class lean : public Task {
   // number must land on a robot that stands, not on garbage.
   virtual std::vector<std::string> GetStrategyNames() const {
     const std::string kPad = "h12_simple_stand";
-    std::vector<std::string> names(36, kPad);
+    std::vector<std::string> names(38, kPad);
     names[6]  = "h12_simple_stand";         // stand: mission phase 0, deploy default
     names[7]  = "h12_newstand";             // dedicated stand for estimator foot-anchor captures (BRACE)
     names[8]  = "h12_contact_implicit";     // contact-implicit brace discovery (spec 2026-08-30)
@@ -404,6 +404,8 @@ class lean : public Task {
     names[32] = "h12_brace_battery_hold";
     names[33] = "h12_simple_grasp";         // grasp-reach bench: mission phase 2 source
     names[34] = "h12_mission_brace_grasp";
+    names[37] = "h12_sweep";               // 2026-09-25 cost-sensitivity sweep slot: strat 25 with scaled terms, rewritten per run by scratch_bench/sweep25.sh
+    names[36] = "h12_brace_graze";         // 2026-09-24 strat 25 + GRAZE rung (pad on slab before the CoM commits) + Hip Yaw 250
     names[35] = "h12_brace_battery_hip";   // 2026-08-29 toes-under-slab HIP-PRESS + wrist brace (task "Lean H12 Battery Hip") // 4-phase retrieval mission (see docs/plans)
     return names;
   }
