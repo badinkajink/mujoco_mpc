@@ -9,8 +9,8 @@ SUM=$H12/logs/grid37_twin/d37/AB_residual_$(date +%m%d_%H%M).md
 echo "# twin A/B residual OFF vs ON  strat $STRAT $TGT  $(date)" > "$SUM"
 echo "| run | arm | residual line | plan/s | gate tail | twin end |" >> "$SUM"; echo "|---|---|---|---|---|---|" >> "$SUM"
 run_one() {  # arm r
-  local arm=$1 r=$2 suf="_${1}_r${2}"
-  local env=""; [ "$arm" = res ] && env="H12_RESIDUAL_MLP=$W H12_RESIDUAL_SCALE=0,1,1"
+  local arm=$1 r=$2 suf="_${1}${ARM_SUFFIX:-}_r${2}"
+  local env=""; [ "$arm" = res ] && env="H12_RESIDUAL_MLP=$W H12_RESIDUAL_SCALE=${RES_SCALE:-0,1,1}"
   echo "[ab] $(date +%H:%M:%S) start $arm r$r"
   env SCENE_VAR=_real_ns TAG_SUFFIX=$suf $env systemd-run --user --scope -q -p MemoryMax=16G -p MemorySwapMax=0 \
     bash $H12/scratch_bench/grid37_twin_noassist.sh $STRAT $TGT $DUR > $H12/logs/grid37_twin/d37/ab${suf}.log 2>&1
