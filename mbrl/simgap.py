@@ -42,6 +42,7 @@ def feet_loaded(r, idx, thr=5.0):
 
 _FOOT = None
 _LAST_CORR = np.zeros(7)
+Q_OFFSET = np.zeros(NJ)   # joint zero offsets (rad) under identification, added to recorded q
 def _foot_verts(m):
     """world-frame lowest-point helper: (geom id, local vertices) for the two foot collision meshes."""
     out = []
@@ -133,7 +134,7 @@ def set_state(m, d, r, i):
     """Write recorded sample i into d: joints, pelvis orientation from the torso IMU through the waist, feet flattened
     and anchored on the floor, base velocity from stationary feet."""
     global _LAST_CORR
-    q = r["q"][i].astype(float); dq = r["dq"][i].astype(float)
+    q = r["q"][i].astype(float) + Q_OFFSET; dq = r["dq"][i].astype(float)
     d.qpos[:] = m.qpos0; d.qpos[0:3] = 0; d.qpos[3:7] = [1, 0, 0, 0]; d.qpos[JQ] = q
     mujoco.mj_kinematics(m, d)
     R_rel = d.site("imu").xmat.reshape(3, 3).copy()          # imu frame in pelvis frame (pelvis at identity)
