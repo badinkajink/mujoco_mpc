@@ -4,6 +4,8 @@ For each recorded sample t: reset the MuJoCo plant to the recorded (pelvis pose 
 Two torque models:
   pd  : tau = clip(kp*(cmd-q) - kd*dq + tau_ff, tau_lim) recomputed every substep  (full twin)
   tau : the measured tau_est held for 10 ms                                      (rigid-body+contact only)
+Plant: table moved 100 m away, free object parked far; pelvis z from foot-floor anchoring, pelvis lin vel from
+zero mean foot velocity; only both-feet-loaded samples (gantry-hung / limp legs dropped).
 Outputs data/simgap/<run>.npz with predictions on the sampled indices.
 """
 import os, sys, json, time
@@ -13,11 +15,62 @@ from common import *
 
 SIMG = os.path.join(DATA, "simgap"); os.makedirs(SIMG, exist_ok=True)
 STRIDE = int(os.environ.get("MBRL_STRIDE", "2"))
+# effective ankle-pitch zero offsets (rad) added to the recorded q before anchoring: sweep over 4 runs from 4 days gave
+# L +1..+2 deg, R +4..+8 deg (out/ankle_offset_sweep.json); matches the known right-ankle zero error.
+ANKLE_OFF = np.radians([float(x) for x in os.environ.get("MBRL_ANKLE_OFF", "1,5").split(",")])
 _m = None; _d = None
 
 def _init():
     global _m, _d
-    _m = load_model(); _d = mujoco.MjData(_m)
+    _m = load_model(); _m.body_pos[_m.body("table").id] += [100, 0, 0]
+    for g in range(_m.ngeom):
+        bn = _m.body(_m.geom_bodyid[g]).name
+        # planner-only virtual geoms, and the gripper/wrist collision shapes: in the recordings the real hands sit closer
+        # than these shapes allow, so they produce phantom self-collision forces (arm error 1.5 -> 0.11 rad/s without them)
+        if "keepaway" in (_m.geom(g).name or "") or "gripper" in bn or "wrist" in bn:
+            _m.geom_contype[g] = 0; _m.geom_conaffinity[g] = 0
+    _d = mujoco.MjData(_m)
+
+def feet_loaded(r, idx, thr=5.0):
+    """both legs carrying load: |tau| on knee OR ankle pitch > thr Nm on each leg (drops gantry-hung / limp-leg samples)."""
+    kn = np.abs(r["tau"][idx][:, [3, 9]]); ap = np.abs(r["tau"][idx][:, [4, 10]])
+    return (kn > thr).all(1) | (ap > thr).all(1)
+
+_FOOT = None
+def _foot_verts(m):
+    """world-frame lowest-point helper: (geom id, local vertices) for the two foot collision meshes."""
+    out = []
+    for bn in ("left_ankle_roll_link", "right_ankle_roll_link"):
+        bid = m.body(bn).id
+        for g in range(m.ngeom):
+            if m.geom_bodyid[g] == bid and m.geom_contype[g] and m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                mid = m.geom_dataid[g]; a = m.mesh_vertadr[mid]; n = m.mesh_vertnum[mid]
+                out.append((g, bid, m.mesh_vert[a:a + n].copy()))
+    return out
+
+def anchor_feet(m, d, tau=None):
+    """Pelvis z so the lowest foot-mesh vertex touches the floor; pelvis linear velocity so the mean foot velocity is zero.
+    Valid when both feet are loaded (the tasks never walk)."""
+    global _FOOT
+    if _FOOT is None: _FOOT = _foot_verts(m)
+    d.qpos[2] = 0.0; mujoco.mj_kinematics(m, d)
+    zmin = min(((d.geom_xmat[g].reshape(3, 3) @ v.T).T[:, 2] + d.geom_xpos[g][2]).min() for g, _, v in _FOOT)
+    d.qpos[2] = -zmin
+    # equilibrium penetration: bisect pelvis z so the world vertical acceleration of the base is ~0
+    # under the measured joint torques (the real feet carry the weight; sim soft contact needs some depth)
+    if tau is not None:
+        d.qfrc_applied[:] = 0; d.qfrc_applied[JV] = tau
+        lo, hi = -zmin - 0.03, -zmin + 0.002
+        for _ in range(14):
+            mid = 0.5 * (lo + hi); d.qpos[2] = mid; mujoco.mj_forward(m, d)
+            if d.qacc[2] > 0: lo = mid     # pushed up too hard -> less penetration
+            else: hi = mid
+        d.qpos[2] = 0.5 * (lo + hi); d.qfrc_applied[:] = 0
+    d.qvel[0:3] = 0; mujoco.mj_forward(m, d)
+    vel = np.zeros(6); vs = []
+    for _, bid, _ in _FOOT:
+        mujoco.mj_objectVelocity(m, d, mujoco.mjtObj.mjOBJ_BODY, bid, vel, 0); vs.append(vel[3:6].copy())
+    d.qvel[0:3] = -np.mean(vs, 0)
 
 def set_state(m, d, r, i):
     q = r["q"][i].astype(float); dq = r["dq"][i].astype(float)
@@ -32,8 +85,11 @@ def set_state(m, d, r, i):
     pq = np.zeros(4); mujoco.mju_mat2Quat(pq, R_pel.reshape(9))
     gyro = r["gyro"][i].astype(float)
     w_pel = R_rel @ (gyro - np.array([0, 0, dq[12]]))
-    d.qpos[0:3] = r["base_pos"][i]; d.qpos[3:7] = pq; d.qpos[JQ] = q
-    d.qvel[:] = 0; d.qvel[0:3] = r["base_vel"][i, :3]; d.qvel[3:6] = w_pel; d.qvel[JV] = dq
+    d.qpos[0:3] = [0, 0, 0]; d.qpos[3:7] = pq; d.qpos[JQ] = q
+    d.qpos[7 + 4] += ANKLE_OFF[0]; d.qpos[7 + 10] += ANKLE_OFF[1]
+    d.qpos[34:37] = [50, 50, 0.5]   # park the free object far away
+    d.qvel[:] = 0; d.qvel[3:6] = w_pel; d.qvel[JV] = dq
+    anchor_feet(m, d, r["tau"][i].astype(float))
     d.qacc_warmstart[:] = 0; d.time = 0
     return R_rel
 
@@ -53,8 +109,7 @@ def run_one(name):
     with np.load(os.path.join(RUNS, name + ".npz")) as z:
         r = {k: z[k] for k in z.files}   # materialise: NpzFile re-reads on every access
     idx = r["idx"][::STRIDE]
-    bp = r["bp_ok"]
-    idx = idx[bp[idx]]
+    idx = idx[feet_loaded(r, idx)]
     n = len(idx)
     tau_lim = r["tau_lim"].astype(float); tau_lim[~np.isfinite(tau_lim)] = 1e9
     nsub = int(round(REC_DT / m.opt.timestep))
