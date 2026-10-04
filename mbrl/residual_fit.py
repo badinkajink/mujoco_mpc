@@ -57,6 +57,7 @@ class Residual:
     def __init__(self, kind): self.kind = kind
     def fit(self, X, y, Xv=None, yv=None, epochs=12, log=print):
         self.mu = X.mean(0); self.sd = X.std(0) + 1e-6; self.ymu = y.mean(0); self.ysd = y.std(0) + 1e-6
+        self.clip = np.percentile(np.abs(y), 99.9, axis=0)
         Xn = (X - self.mu) / self.sd; yn = (y - self.ymu) / self.ysd
         if self.kind == "ridge":
             A = np.c_[Xn, np.ones(len(Xn))].astype(np.float64); lam = 1e-2 * len(A)
@@ -86,42 +87,54 @@ class Residual:
                 yn = np.concatenate(outs)
         return yn * self.ysd + self.ymu
 
-def rollout_eval(models, nseg=300, T=50, seed=0, log=print):
+def rollout_eval(models, nseg=400, T=50, seed=0, log=print):
     """closed-loop T-step (10 ms) rollouts on test runs from recorded initial states, PD torque from recorded commands.
-    Residual correction: after each 10 ms plant step, dq += f(x_t). Error = joint position RMSE vs recorded, by horizon."""
+    Segments: both feet loaded and plant soles within 3 mm at the start, no fall in the recording over the window.
+    Residual correction: after each 10 ms plant step, dq += clip(f(x_t)). Error = joint DISPLACEMENT error
+    (q_sim - q_sim0) - (q_rec - q_rec0), so the foot-flattening offset does not count; reported by horizon and by
+    start tilt (upright < 12 deg / lean); a segment counts as diverged when any joint error exceeds 0.5 rad."""
     simgap._init(); m, d = simgap._m, simgap._d
     man = [mm for mm in json.load(open(os.path.join(DATA, "manifest.json"))) if mm["split"] == "test"]
     rng = np.random.RandomState(seed); segs = []
     for mm in man:
         with np.load(os.path.join(RUNS, mm["run"] + ".npz")) as z: r = {k: z[k] for k in z.files}
-        good = r["idx"]; bp = r["bp_ok"]
-        cand = good[(good + T + 1 < len(r["t"])) & bp[good]]
+        good = r["idx"]; cand = good[(good + T + 1 < len(r["t"]))]
+        if len(cand) == 0: continue
+        cand = cand[simgap.feet_loaded(r, cand)]
         cand = cand[np.all(np.diff(r["t"])[cand[:, None] + np.arange(T)] < 0.012, 1)] if len(cand) else cand
-        for i in rng.choice(cand, min(len(cand), max(1, nseg // len(man)) + 1), replace=False): segs.append((r, int(i)))
-    segs = segs[:nseg]; log(f"rollout segments {len(segs)} x {T} steps")
+        for i in rng.choice(cand, min(len(cand), max(1, 2 * nseg // len(man)) + 1), replace=False):
+            mujoco.mj_resetData(m, d); simgap.set_state(m, d, r, int(i))
+            if abs(simgap._LAST_CORR[4]) < 0.003: segs.append((r, int(i)))
+    rng.shuffle(segs); segs = segs[:nseg]; log(f"rollout segments {len(segs)} x {T} steps")
     names = ["plant"] + list(models); hor = [10, 25, 50]
     err = {nm: np.zeros((len(segs), T, NJ), np.float32) for nm in names}
-    nsub = int(round(REC_DT / m.opt.timestep))
+    tilt0 = np.zeros(len(segs)); nsub = int(round(REC_DT / m.opt.timestep))
     for si, (r, i0) in enumerate(segs):
         tl = r["tau_lim"].astype(float); tl[~np.isfinite(tl)] = 1e9
+        tilt0[si] = tilt_deg(r["base_quat"][i0].astype(float))
         for nm in names:
-            mujoco.mj_resetData(m, d); simgap.set_state(m, d, r, i0)
+            mujoco.mj_resetData(m, d); simgap.set_state(m, d, r, i0); q_sim0 = d.qpos[JQ].copy(); q_rec0 = r["q"][i0].astype(float)
             for k in range(T):
                 i = i0 + k
                 if nm != "plant":
-                    bq = np.zeros(4)
-                    mujoco.mj_kinematics(m, d); mujoco.mju_mat2Quat(bq, d.site("imu").xmat)
+                    mujoco.mj_kinematics(m, d); bq = np.zeros(4); mujoco.mju_mat2Quat(bq, d.site("imu").xmat)
                     q = d.qpos[JQ].copy(); dq = d.qvel[JV].copy()
                     tau0 = pd_torque(r["kp"][i], r["kd"][i], r["cmd"][i], q, dq, r["tau_ff"][i], tl)
                     x = np.concatenate([q, dq, tau0, r["cmd"][i] - q, r["kp"][i] / 100.0, r["kd"][i] / 10.0, gvec(bq[None])[0], d.qvel[3:6]]).astype(np.float32)[None]
                 for s_ in range(nsub):
                     d.qfrc_applied[JV] = pd_torque(r["kp"][i], r["kd"][i], r["cmd"][i], d.qpos[JQ], d.qvel[JV], r["tau_ff"][i], tl); mujoco.mj_step(m, d)
-                if nm != "plant": d.qvel[JV] += models[nm].predict(x)[0]
-                err[nm][si, k] = d.qpos[JQ] - r["q"][i + 1]
+                if nm != "plant":
+                    corr = models[nm].predict(x)[0]; d.qvel[JV] += np.clip(corr, -models[nm].clip, models[nm].clip)
+                if not np.isfinite(d.qpos).all(): err[nm][si, k:] = np.nan; break
+                err[nm][si, k] = (d.qpos[JQ] - q_sim0) - (r["q"][i + 1] - q_rec0)
     res = {}
-    for nm in names:
-        res[nm] = {f"{h*10}ms": {g: float(np.sqrt(np.mean(err[nm][:, h - 1][:, ids] ** 2))) for g, ids in GROUPS.items()} for h in hor}
-    np.savez(os.path.join(OUT, "rollout_err.npz"), **{f"err_{nm}": err[nm] for nm in names})
+    for ph, mask in (("all", np.ones(len(segs), bool)), ("upright", tilt0 < 12), ("lean", tilt0 >= 12)):
+        res[ph] = {"n_segments": int(mask.sum())}
+        for nm in names:
+            e = err[nm][mask]; div = ~np.isfinite(e).all((1, 2)) | (np.abs(np.nan_to_num(e)).max((1, 2)) > 0.5)
+            ok = e[~div]
+            res[ph][nm] = {"diverged": int(div.sum())} | {f"{h*10}ms": {g: float(np.sqrt(np.mean(ok[:, h - 1][:, ids] ** 2))) if len(ok) else None for g, ids in GROUPS.items()} for h in hor}
+    np.savez(os.path.join(OUT, "rollout_err.npz"), tilt0=tilt0, **{f"err_{nm}": err[nm] for nm in names})
     return res
 
 def main():

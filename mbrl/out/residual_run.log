@@ -1,17 +1,113 @@
-train (3099368, 168) val (495099, 168) test (399378, 168)  load 6s
-ridge fit 6s  {'legs': 0.17605718344303492, 'waist': 0.055391915876012644, 'arms': 0.028127337507769745, 'all': 0.11958228316395439}
-  ep 0 train 0.2128  val rmse(all) 0.1028
-  ep 1 train 0.1109  val rmse(all) 0.0901
-  ep 2 train 0.0924  val rmse(all) 0.0856
-  ep 3 train 0.0834  val rmse(all) 0.0832
-  ep 4 train 0.0768  val rmse(all) 0.0823
-  ep 5 train 0.0724  val rmse(all) 0.0815
-  ep 6 train 0.0694  val rmse(all) 0.0809
-  ep 7 train 0.0671  val rmse(all) 0.0800
-  ep 8 train 0.0652  val rmse(all) 0.0797
-  ep 9 train 0.0637  val rmse(all) 0.0797
-  ep 10 train 0.0627  val rmse(all) 0.0794
-  ep 11 train 0.0621  val rmse(all) 0.0794
-mlp fit 38s  {'legs': 0.11890309357473511, 'waist': 0.04359829668865894, 'arms': 0.023749360189057135, 'all': 0.08152541274903476}
+train (1253218, 168) val (192714, 168) test (156752, 168)  load 6s
+ridge fit 2s  {'legs': 0.10631459087332999, 'waist': 0.06402133174656177, 'arms': 0.03253285707476142, 'all': 0.0756575258212519}
+  ep 0 train 0.2284  val rmse(all) 0.0597
+  ep 1 train 0.1162  val rmse(all) 0.0556
+  ep 2 train 0.1026  val rmse(all) 0.0531
+  ep 3 train 0.0959  val rmse(all) 0.0516
+  ep 4 train 0.0910  val rmse(all) 0.0504
+  ep 5 train 0.0871  val rmse(all) 0.0504
+  ep 6 train 0.0838  val rmse(all) 0.0495
+  ep 7 train 0.0813  val rmse(all) 0.0493
+  ep 8 train 0.0794  val rmse(all) 0.0489
+  ep 9 train 0.0780  val rmse(all) 0.0489
+  ep 10 train 0.0771  val rmse(all) 0.0486
+  ep 11 train 0.0767  val rmse(all) 0.0486
+mlp fit 16s  {'legs': 0.06704776676047726, 'waist': 0.04286215399173205, 'arms': 0.02584072807992516, 'all': 0.049114531968627556}
 one-step done; rollouts...
 rollout segments 300 x 50 steps
+WARNING: Nan, Inf or huge value in QACC at DOF 1. The simulation is unstable. Time = 0.4940.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 15. The simulation is unstable. Time = 0.4700.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4760.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4940.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4920.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 0.4360.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4280.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.3040.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 2. The simulation is unstable. Time = 0.4400.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 1. The simulation is unstable. Time = 0.4940.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.3360.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 1. The simulation is unstable. Time = 0.4660.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4220.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4280.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4240.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4240.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4220.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4200.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4520.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4880.
+
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.4820.
+
+{
+ "plant": {
+  "100ms": {
+   "legs": 0.06270673871040344,
+   "waist": 0.020153556019067764,
+   "arms": 0.010827530175447464
+  },
+  "250ms": {
+   "legs": 0.20326504111289978,
+   "waist": 0.04374523088335991,
+   "arms": 0.025682857260107994
+  },
+  "500ms": {
+   "legs": 0.3480381965637207,
+   "waist": 0.04754137620329857,
+   "arms": 0.06292814016342163
+  }
+ },
+ "ridge": {
+  "100ms": {
+   "legs": 0.04238172248005867,
+   "waist": 0.035636287182569504,
+   "arms": 0.022528905421495438
+  },
+  "250ms": {
+   "legs": 0.16947166621685028,
+   "waist": 0.17739146947860718,
+   "arms": 0.1773395538330078
+  },
+  "500ms": {
+   "legs": 0.9339911341667175,
+   "waist": 1.7678844928741455,
+   "arms": 0.655968964099884
+  }
+ },
+ "mlp": {
+  "100ms": {
+   "legs": 0.041425999253988266,
+   "waist": 0.011998754926025867,
+   "arms": 0.011965431272983551
+  },
+  "250ms": {
+   "legs": 0.2687544524669647,
+   "waist": 0.3156328499317169,
+   "arms": 0.16037209331989288
+  },
+  "500ms": {
+   "legs": 0.4843685030937195,
+   "waist": 0.30044621229171753,
+   "arms": 0.30106112360954285
+  }
+ }
+}
+total 43s
