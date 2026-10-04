@@ -50,7 +50,8 @@ def step10(m, d, mode, r, i, nsub, tau_lim):
 
 def run_one(name):
     m, d = _m, _d
-    r = np.load(os.path.join(RUNS, name + ".npz"))
+    with np.load(os.path.join(RUNS, name + ".npz")) as z:
+        r = {k: z[k] for k in z.files}   # materialise: NpzFile re-reads on every access
     idx = r["idx"][::STRIDE]
     bp = r["bp_ok"]
     idx = idx[bp[idx]]
