@@ -1,0 +1,17 @@
+train (3099368, 168) val (495099, 168) test (399378, 168)  load 6s
+ridge fit 6s  {'legs': 0.17605718344303492, 'waist': 0.055391915876012644, 'arms': 0.028127337507769745, 'all': 0.11958228316395439}
+  ep 0 train 0.2128  val rmse(all) 0.1028
+  ep 1 train 0.1109  val rmse(all) 0.0901
+  ep 2 train 0.0924  val rmse(all) 0.0856
+  ep 3 train 0.0834  val rmse(all) 0.0832
+  ep 4 train 0.0768  val rmse(all) 0.0823
+  ep 5 train 0.0724  val rmse(all) 0.0815
+  ep 6 train 0.0694  val rmse(all) 0.0809
+  ep 7 train 0.0671  val rmse(all) 0.0800
+  ep 8 train 0.0652  val rmse(all) 0.0797
+  ep 9 train 0.0637  val rmse(all) 0.0797
+  ep 10 train 0.0627  val rmse(all) 0.0794
+  ep 11 train 0.0621  val rmse(all) 0.0794
+mlp fit 38s  {'legs': 0.11890309357473511, 'waist': 0.04359829668865894, 'arms': 0.023749360189057135, 'all': 0.08152541274903476}
+one-step done; rollouts...
+rollout segments 300 x 50 steps

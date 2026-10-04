@@ -19,7 +19,7 @@ def gvec(bq):
     return -np.stack([R20, R21, R22], 1)
 
 def features(r, s):
-    idx = s["idx"]; ok = s["ok"]
+    idx = s["idx"]; ok = s["ok"] & (np.abs(s["foot_corr"][:, 4]) < 0.003)   # kinematically consistent samples only
     q = r["q"][idx]; dq = r["dq"][idx]; cmd = r["cmd"][idx]; kp = r["kp"][idx]; kd = r["kd"][idx]
     X = np.concatenate([q, dq, s["tau_pd0"], cmd - q, kp / 100.0, kd / 10.0, gvec(r["base_quat"][idx]), s["w_rec0"]], 1).astype(np.float32)
     y = (r["dq"][idx + 1] - s["dq_pd"]).astype(np.float32)

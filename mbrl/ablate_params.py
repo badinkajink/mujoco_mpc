@@ -10,7 +10,7 @@ def evaluate(m, names, stride=20, mode="tau"):
     nsub = int(round(REC_DT / m.opt.timestep))
     for name in names:
         with np.load(RUNS + f"/{name}.npz") as z: r = {k: z[k] for k in z.files}
-        idx = r["idx"][::stride]; idx = idx[r["bp_ok"][idx]]
+        idx = r["idx"][::stride]; idx = idx[simgap.feet_loaded(r, idx)]
         tl = r["tau_lim"].astype(float); tl[~np.isfinite(tl)] = 1e9
         for i in idx:
             mujoco.mj_resetData(m, d); simgap.set_state(m, d, r, i)
@@ -20,10 +20,10 @@ def evaluate(m, names, stride=20, mode="tau"):
     return {g: (float(np.sqrt(np.mean(np.square(errs[g])))), float(np.sqrt(np.mean(np.square(hold[g]))))) for g in GROUPS}
 
 if __name__ == "__main__":
-    names = ["11_nominal_1_20260912_202906", "25_icemplan_3_20260825_234802", "29_13_20260828_044749", "v3stand_20260830_060832"]
-    base = load_model()
+    names = ["11_nominal_1_20260912_202906", "25_icemplan_3_20260825_234802", "36_15_20260925_203434", "22again_5_20260915_073537"]
     configs = {
         "plant as-is (damp10 arm0.1 fl0.2)": dict(),
+        "damp3": dict(damping=3.0), "damp30": dict(damping=30.0),
         "damp1": dict(damping=1.0), "damp0.1": dict(damping=0.1), "damp0": dict(damping=0.0),
         "damp1 arm0.01": dict(damping=1.0, armature=0.01), "damp0.1 arm0.01": dict(damping=0.1, armature=0.01),
         "damp0.1 arm0.01 fl0": dict(damping=0.1, armature=0.01, frictionloss=0.0),
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     }
     res = {}
     for lab, cfg in configs.items():
-        m = load_model()
+        m = simgap.make_model()
         if "damping" in cfg: m.dof_damping[JV] = cfg["damping"]
         if "armature" in cfg: m.dof_armature[JV] = cfg["armature"]
         if "frictionloss" in cfg: m.dof_frictionloss[JV] = cfg["frictionloss"]

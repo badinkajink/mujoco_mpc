@@ -1,0 +1,85 @@
+samples 3993845
+[
+{
+"phase": "all",
+"group": "legs",
+"e_zoh": 0.026,
+"e_pd": 0.3324,
+"e_tau": 0.3464,
+"ratio_pd_zoh": 12.778,
+"ratio_tau_zoh": 13.317
+},
+{
+"phase": "all",
+"group": "waist",
+"e_zoh": 0.0132,
+"e_pd": 0.1888,
+"e_tau": 0.1779,
+"ratio_pd_zoh": 14.303,
+"ratio_tau_zoh": 13.477
+},
+{
+"phase": "all",
+"group": "arms",
+"e_zoh": 0.02,
+"e_pd": 0.0813,
+"e_tau": 0.0922,
+"ratio_pd_zoh": 4.062,
+"ratio_tau_zoh": 4.61
+},
+{
+"phase": "upright",
+"group": "legs",
+"e_zoh": 0.0249,
+"e_pd": 0.3466,
+"e_tau": 0.3486,
+"ratio_pd_zoh": 13.937,
+"ratio_tau_zoh": 14.018
+},
+{
+"phase": "upright",
+"group": "waist",
+"e_zoh": 0.0146,
+"e_pd": 0.0814,
+"e_tau": 0.0717,
+"ratio_pd_zoh": 5.575,
+"ratio_tau_zoh": 4.911
+},
+{
+"phase": "upright",
+"group": "arms",
+"e_zoh": 0.0199,
+"e_pd": 0.0428,
+"e_tau": 0.0459,
+"ratio_pd_zoh": 2.15,
+"ratio_tau_zoh": 2.304
+},
+{
+"phase": "lean",
+"group": "legs",
+"e_zoh": 0.0267,
+"e_pd": 0.3231,
+"e_tau": 0.3451,
+"ratio_pd_zoh": 12.1,
+"ratio_tau_zoh": 12.924
+},
+{
+"phase": "lean",
+"group": "waist",
+"e_zoh": 0.0123,
+"e_pd": 0.2324,
+"e_tau": 0.22,
+"ratio_pd_zoh": 18.894,
+"ratio_tau_zoh": 17.886
+},
+{
+"phase": "lean",
+"group": "arms",
+"e_zoh": 0.0201,
+"e_pd": 0.0981,
+"e_tau": 0.1121,
+"ratio_pd_zoh": 4.879,
+"ratio_tau_zoh": 5.575
+}
+]
+saved figs
