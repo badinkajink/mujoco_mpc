@@ -173,7 +173,7 @@ def run_one(name):
     idx = idx[feet_loaded(r, idx)]
     n = len(idx)
     tau_lim = r["tau_lim"].astype(float); tau_lim[~np.isfinite(tau_lim)] = 1e9
-    nsub = int(round(REC_DT / m.opt.timestep))
+    m.opt.timestep = float(os.environ.get("MBRL_DT", m.opt.timestep)); nsub = int(round(REC_DT / m.opt.timestep))   # MBRL_DT=0.01 -> the planner's single step
     out = {k: np.zeros((n, NJ), np.float32) for k in ("q_pd", "dq_pd", "q_tau", "dq_tau", "tau_pd0")}
     out["w_pd"] = np.zeros((n, 3), np.float32); out["w_tau"] = np.zeros((n, 3), np.float32)
     out["ncon"] = np.zeros(n, np.int16); out["tilt"] = np.zeros(n, np.float32); out["ok"] = np.ones(n, bool)

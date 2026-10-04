@@ -6,7 +6,10 @@ import numpy as np
 from common import *
 
 def main(limit=None):
-    files = sorted(glob.glob(os.path.join(H12, "logs/*/*.npz")))
+    # MBRL_SRC_GLOB: default = the real-robot recordings at logs/<run>/<run>.npz; the twin corpus lives deeper
+    # (logs/grid37_twin/d*/<run>/<rec>/<rec>.npz) and is selected with MBRL_SRC_GLOB="logs/grid37_twin/*/*/*/*.npz"
+    files = sorted(glob.glob(os.path.join(H12, os.environ.get("MBRL_SRC_GLOB", "logs/*/*.npz"))))
+    os.makedirs(RUNS, exist_ok=True)
     if limit: files = files[:limit]
     man = []
     for f in files:

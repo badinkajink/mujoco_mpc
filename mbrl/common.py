@@ -13,9 +13,9 @@ import mujoco
 H12 = os.path.expanduser("~/Desktop/h12")
 MODEL = os.path.join(H12, "mujoco_mpc/mujoco_mpc/build/mjpc/tasks/humanoid_bench/lean/Lean_H12_Magpie.xml")
 MBRL = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(MBRL, "data")
+DATA = os.environ.get("MBRL_DATA_ROOT", os.path.join(MBRL, "data"))   # separate roots for the real corpus and the twin (sim2sim) corpus
 RUNS = os.path.join(DATA, "runs")
-OUT = os.path.join(MBRL, "out")
+OUT = os.environ.get("MBRL_OUT", os.path.join(MBRL, "out"))
 NJ = 27
 JQ = slice(7, 7 + NJ)       # joint qpos
 JV = slice(6, 6 + NJ)       # joint qvel / dof
