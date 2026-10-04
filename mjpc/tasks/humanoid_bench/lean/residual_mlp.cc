@@ -78,13 +78,16 @@ bool H12ResidualFeatures(const mjModel* m, const mjData* d, int imu_site, float*
   return true;
 }
 
-void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int imu_site, double scale) {
+void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int imu_site, const double group_scale[3]) {
   if (!mlp.enabled() || mlp.nin() != kNIn || mlp.nout() != kNJ) return;
   thread_local std::vector<float> scratch; thread_local float x[kNIn]; thread_local float y[kNJ];
   mj_kinematics(m, d);   // site_xmat is one step stale after mj_step; refresh for the current qpos
   if (!H12ResidualFeatures(m, d, imu_site, x)) return;
   mlp.Forward(x, y, scratch);
-  for (int j = 0; j < kNJ; ++j) d->qvel[6 + j] += scale * y[j];
+  for (int j = 0; j < kNJ; ++j) {
+    double s = j < 12 ? group_scale[0] : (j == 12 ? group_scale[1] : group_scale[2]);
+    if (s != 0.0) d->qvel[6 + j] += s * y[j];
+  }
 }
 
 }  // namespace mjpc

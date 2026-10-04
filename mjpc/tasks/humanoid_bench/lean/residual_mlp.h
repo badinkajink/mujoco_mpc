@@ -34,6 +34,8 @@ class ResidualMLP {
 bool H12ResidualFeatures(const mjModel* m, const mjData* d, int imu_site, float* x168);
 
 // Apply the residual as a pre-step joint-velocity correction. No-op if the MLP is not enabled.
-void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int imu_site, double scale);
+// group_scale[3] = {legs (joints 0-11), waist (12), arms (13-26)}; the validated planner setting is {0, 1, 1}:
+// a pre-step kick on a planted foot is absorbed by the contact solver and hurts the legs (mbrl/out/masked_dadpre10.json).
+void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int imu_site, const double group_scale[3]);
 
 }  // namespace mjpc

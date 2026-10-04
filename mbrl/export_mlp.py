@@ -6,7 +6,7 @@ import sys, os, struct, numpy as np, torch
 from common import *
 tag = sys.argv[1] if len(sys.argv) > 1 else "dad"
 st = torch.load(os.path.join(OUT, f"residual_mlp_{tag}.pt"), map_location="cpu"); nz = np.load(os.path.join(OUT, f"residual_norm_{tag}.npz"))
-layers = [(st[f"net.{i}.weight"].numpy().astype(np.float32), st[f"net.{i}.bias"].numpy().astype(np.float32)) for i in (0, 2, 4, 6)]
+ids = sorted({int(k.split(".")[1]) for k in st if k.endswith(".weight")}); layers = [(st[f"net.{i}.weight"].numpy().astype(np.float32), st[f"net.{i}.bias"].numpy().astype(np.float32)) for i in ids]
 nin, nout = layers[0][0].shape[1], layers[-1][0].shape[0]
 outp = os.path.join(OUT, f"residual_{tag}.bin")
 with open(outp, "wb") as f:

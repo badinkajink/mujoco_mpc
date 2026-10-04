@@ -251,14 +251,15 @@ class lean : public Task {
   void ResetLocked(const mjModel *model) override;
 
   // ★ mbrl 2026-10-04: learned dynamics residual inside the planner's imagined rollouts only.
-  // Enabled when env H12_RESIDUAL_MLP names a weights file (mbrl/export_mlp.py); H12_RESIDUAL_SCALE
-  // (default 1.0) scales the correction. Pre-step joint-velocity correction, per planner thread.
+  // Enabled when env H12_RESIDUAL_MLP names a weights file (mbrl/export_mlp.py). H12_RESIDUAL_SCALE
+  // "legs,waist,arms" (default "0,1,1", the validated setting) scales the correction per group.
+  // Pre-step joint-velocity correction, per planner thread.
   void ModifyRolloutState(const mjModel *model, mjData *data) const override {
     if (residual_mlp_.enabled()) H12ApplyResidual(residual_mlp_, model, data, residual_imu_site_, residual_scale_);
   }
   ResidualMLP residual_mlp_;
   int residual_imu_site_ = -1;
-  double residual_scale_ = 1.0;
+  double residual_scale_[3] = {0.0, 1.0, 1.0};
   void LoadResidualMLP(const mjModel *model);
 
   // Populate phase-aware monitoring metrics (reach, CoP, ICP, brace force,

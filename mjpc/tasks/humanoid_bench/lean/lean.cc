@@ -6825,9 +6825,13 @@ void mjpc::lean::LoadResidualMLP(const mjModel *model) {
   static bool attempted = false;
   const char *path = std::getenv("H12_RESIDUAL_MLP");
   residual_imu_site_ = mj_name2id(model, mjOBJ_SITE, "imu");
-  if (const char *sc = std::getenv("H12_RESIDUAL_SCALE")) residual_scale_ = std::atof(sc);
+  if (const char *sc = std::getenv("H12_RESIDUAL_SCALE")) {
+    double a = 0, b = 1, c = 1;
+    if (std::sscanf(sc, "%lf,%lf,%lf", &a, &b, &c) == 3) { residual_scale_[0] = a; residual_scale_[1] = b; residual_scale_[2] = c; }
+  }
   if (!path || !*path) return;
   if (!attempted || !residual_mlp_.enabled()) { residual_mlp_.Load(path); attempted = true; }
   if (residual_mlp_.enabled())
-    std::fprintf(stderr, "[lean] planner residual ON (scale %.2f, imu site %d)\n", residual_scale_, residual_imu_site_);
+    std::fprintf(stderr, "[lean] planner residual ON (scale legs %.2f waist %.2f arms %.2f, imu site %d)\n",
+                 residual_scale_[0], residual_scale_[1], residual_scale_[2], residual_imu_site_);
 }

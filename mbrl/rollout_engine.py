@@ -47,8 +47,9 @@ def compact_segments(split, T, n_max, seed=0, stride=50, require_consistent=True
 class NumpyMLP:
     """mirror of residual_fit.MLP (Linear+SiLU x3, Linear) with standardisation and clipping, numpy forward"""
     def __init__(self, state, mu, sd, ymu, ysd, clip):
-        self.W = [state[f"net.{i}.weight"].cpu().numpy() if hasattr(state[f"net.{i}.weight"], "cpu") else state[f"net.{i}.weight"] for i in (0, 2, 4, 6)]
-        self.b = [state[f"net.{i}.bias"].cpu().numpy() if hasattr(state[f"net.{i}.bias"], "cpu") else state[f"net.{i}.bias"] for i in (0, 2, 4, 6)]
+        ids = sorted({int(k.split(".")[1]) for k in state if k.endswith(".weight")})
+        g = lambda v: v.cpu().numpy() if hasattr(v, "cpu") else v
+        self.W = [g(state[f"net.{i}.weight"]) for i in ids]; self.b = [g(state[f"net.{i}.bias"]) for i in ids]
         self.mu, self.sd, self.ymu, self.ysd, self.clip = mu, sd, ymu, ysd, clip
     def __call__(self, x):
         h = (x - self.mu) / self.sd

@@ -45,8 +45,9 @@ def grp_rmse(e):
     return {g: float(np.sqrt(np.mean(pj[ids] ** 2))) for g, ids in GROUPS.items()} | {"all": float(np.sqrt(np.mean(pj ** 2)))}
 
 class MLP(nn.Module):
-    def __init__(self, nin, nout, h=512, nl=3):
+    def __init__(self, nin, nout, h=None, nl=None):
         super().__init__()
+        h = h or int(os.environ.get("MBRL_H", "512")); nl = nl or int(os.environ.get("MBRL_NL", "3"))
         L = []; d = nin
         for _ in range(nl): L += [nn.Linear(d, h), nn.SiLU()]; d = h
         L += [nn.Linear(d, nout)]; self.net = nn.Sequential(*L)
