@@ -56,18 +56,26 @@ class Residual:
     """standardised ridge or MLP wrapper with numpy predict."""
     def __init__(self, kind): self.kind = kind
     def fit(self, X, y, Xv=None, yv=None, epochs=12, log=print):
-        self.mu = X.mean(0); self.sd = X.std(0) + 1e-6; self.ymu = y.mean(0); self.ysd = y.std(0) + 1e-6
-        self.clip = np.percentile(np.abs(y), 99.9, axis=0)
-        Xn = (X - self.mu) / self.sd; yn = (y - self.ymu) / self.ysd
+        self.mu = X.mean(0).astype(np.float32); self.sd = (X.std(0) + 1e-6).astype(np.float32); self.ymu = y.mean(0).astype(np.float32); self.ysd = (y.std(0) + 1e-6).astype(np.float32)
+        self.clip = np.percentile(np.abs(y), 99.9, axis=0).astype(np.float32)
+        Xn = (X - self.mu) / self.sd; yn = (y - self.ymu) / self.ysd      # one float32 copy each
         if self.kind == "ridge":
             A = np.c_[Xn, np.ones(len(Xn))].astype(np.float64); lam = 1e-2 * len(A)
             self.W = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T @ yn.astype(np.float64)).astype(np.float32)
             return
         dev = "cuda" if torch.cuda.is_available() else "cpu"
         self.net = MLP(X.shape[1], y.shape[1]).to(dev)
-        opt = torch.optim.AdamW(self.net.parameters(), 1e-3, weight_decay=1e-5)
-        Xt = torch.tensor(Xn, device=dev); yt = torch.tensor(yn, device=dev); n = len(Xt); bs = 4096
-        sched = torch.optim.lr_scheduler.OneCycleLR(opt, 2e-3, total_steps=epochs * ((n + bs - 1) // bs))
+        self._train(Xn, yn, Xv, yv, epochs, log, lr=2e-3)
+    def fit_more(self, X, y, Xv=None, yv=None, epochs=3, log=print, lr=3e-4):
+        """continue training the existing net (same standardisation) on new data"""
+        Xn = (X - self.mu) / self.sd; yn = (y - self.ymu) / self.ysd
+        self._train(Xn, yn, Xv, yv, epochs, log, lr=lr)
+    def _train(self, Xn, yn, Xv, yv, epochs, log, lr):
+        dev = next(self.net.parameters()).device; self.net.train()
+        opt = torch.optim.AdamW(self.net.parameters(), lr / 2, weight_decay=1e-5)
+        Xt = torch.from_numpy(np.ascontiguousarray(Xn, dtype=np.float32)).to(dev); yt = torch.from_numpy(np.ascontiguousarray(yn, dtype=np.float32)).to(dev); n = len(Xt); bs = 4096
+        del Xn, yn
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, lr, total_steps=epochs * ((n + bs - 1) // bs))
         for ep in range(epochs):
             perm = torch.randperm(n, device=dev); tot = 0.0
             for i in range(0, n, bs):

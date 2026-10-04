@@ -1,0 +1,5 @@
+segments train 4277 val 583  load 11s  RAM for A 1.9 GB
+val plant-only: legs 100/250ms 0.0186/0.0378 arms 0.0048/0.0111
+val one-step MLP warm start: loss 84686362933018912358400.00000 legs {10: 4257.8623046875, 25: 251329871872.0} arms {10: 276.776611328125, 25: 9392168960.0}
+ep 0 train nan val nan legs {10: nan, 25: nan} arms {10: nan, 25: nan}
+done 14s best val 1000000000.00000
