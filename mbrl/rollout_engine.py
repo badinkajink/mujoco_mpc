@@ -19,6 +19,11 @@ def _init():
     global _m, _d
     simgap._init(); _m, _d = simgap._m, simgap._d
 
+def filter_consistent(eng, segs, T):
+    """keep the segments whose nominal-plant reset is consistent (both soles within 3 mm) so parameter changes
+    cannot shift the evaluation set"""
+    outs = eng.run(segs, 1, {}); return [s for s, o in zip(segs, outs) if o is not None]
+
 def compact_segments(split, T, n_max, seed=0, stride=50, require_consistent=True):
     """pick segment starts (loaded feet, no gap in time) from the runs of a split; consistency checked later in-worker"""
     man = [m for m in json.load(open(os.path.join(DATA, "manifest.json"))) if m["split"] == split]
@@ -69,21 +74,24 @@ def features(d, r, i, tl):
     return np.concatenate([q, dq, tau0, r["cmd"][i] - q, r["kp"][i] / 100.0, r["kd"][i] / 10.0, gvec(bq[None])[0], d.qvel[3:6]]).astype(np.float32)
 
 def rollout(r, T, params, mlp=None, want_X=False):
-    m, d = _m, _d; tsc, nsub = apply_params(m, params)
+    """inject = params.get("inject", "post"): post = dq += r after the step (study protocol);
+    pre = dq += r before the step (what the planner hook Task::ModifyRolloutState can do)."""
+    m, d = _m, _d; tsc, nsub = apply_params(m, params); pre = params.get("inject", "post") == "pre"
     tl = r["tau_lim"].astype(float); tl[~np.isfinite(tl)] = 1e9
     mujoco.mj_resetData(m, d); simgap.set_state(m, d, r, 0)
-    if abs(simgap._LAST_CORR[4]) >= 0.003: return None
+    if abs(simgap._LAST_CORR[4]) >= 0.003 and not params.get("no_skip", False): return None
     out = dict(q_sim=np.zeros((T, NJ), np.float32), dq_sim=np.zeros((T, NJ), np.float32), dq_plant=np.zeros((T, NJ), np.float32), q0_sim=d.qpos[JQ].copy())
     if want_X: out["X"] = np.zeros((T, 168), np.float32)
     for t in range(T):
         x = features(d, r, t, tl) if (mlp is not None or want_X) else None
         if want_X: out["X"][t] = x
+        if mlp is not None and pre: d.qvel[JV] += mlp(x[None])[0]
         d.qfrc_applied[:] = 0
         for _ in range(nsub):
             d.qfrc_applied[JV] = tsc * pd_torque(r["kp"][t], r["kd"][t], r["cmd"][t], d.qpos[JQ], d.qvel[JV], r["tau_ff"][t], tl); mujoco.mj_step(m, d)
         if not np.isfinite(d.qpos).all() or np.abs(d.qvel[JV]).max() > 50: return dict(out, diverged_at=t)
         out["dq_plant"][t] = d.qvel[JV]
-        if mlp is not None: d.qvel[JV] += mlp(x[None])[0]
+        if mlp is not None and not pre: d.qvel[JV] += mlp(x[None])[0]
         out["q_sim"][t] = d.qpos[JQ]; out["dq_sim"][t] = d.qvel[JV]
     return out
 

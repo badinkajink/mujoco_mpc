@@ -11,7 +11,7 @@ import residual_fit as RF, rollout_engine as RE
 
 T = int(os.environ.get("MBRL_T", "25")); ITERS = int(os.environ.get("MBRL_DAD_ITERS", "5"))
 NSEG = int(os.environ.get("MBRL_DAD_SEGS", "3000")); NW = int(os.environ.get("MBRL_WORKERS", "8"))
-PARAMS = dict(nsub=int(os.environ.get("MBRL_NSUB", "5")), dt=float(os.environ.get("MBRL_DT", "0.002")))
+PARAMS = dict(nsub=int(os.environ.get("MBRL_NSUB", "5")), dt=float(os.environ.get("MBRL_DT", "0.002")), inject=os.environ.get("MBRL_INJECT", "post"))
 TAG = os.environ.get("MBRL_TAG", "dad")
 
 def to_numpy_mlp(res: RF.Residual):
@@ -41,7 +41,7 @@ def main():
         outs = eng.run(segs_tr, T, PARAMS, mlp, want_X=True); Xn, yn = [], []
         for r, o in zip(segs_tr, outs):
             if o is None or "diverged_at" in o: continue
-            Xn.append(o["X"]); yn.append(r["dq"][1:T + 1] - o["dq_plant"])
+            Xn.append(o["X"]); yn.append(r["dq"][1:T + 1] - o["dq_plant"] + (mlp(o["X"]) if PARAMS["inject"] == "pre" else 0.0))
         Xn = np.concatenate(Xn); yn = np.concatenate(yn); Xagg.append(Xn); yagg.append(yn)
         # fine-tune on the aggregated on-rollout data mixed with an equal-size slice of the base one-step data
         Xo = np.concatenate(Xagg[1:]); yo = np.concatenate(yagg[1:]); nb = min(len(Xtr), 2 * len(Xo))

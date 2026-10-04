@@ -101,6 +101,8 @@ add_library(
   tasks/humanoid_bench/push/push.h
   tasks/humanoid_bench/lean/lean.cc
   tasks/humanoid_bench/lean/lean.h
+  tasks/humanoid_bench/lean/residual_mlp.cc
+  tasks/humanoid_bench/lean/residual_mlp.h
   # Frozen pre-refurbish snapshot of the Lean task, registered as its own
   # "Beginning H12*" tasks so the compacted lean/ can be A/B'd against it in
   # one binary. Self-contained: reads beginning/strategies/, loads

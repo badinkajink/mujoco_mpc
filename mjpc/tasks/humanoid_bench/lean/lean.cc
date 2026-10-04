@@ -6496,6 +6496,7 @@ void lean::ApplyRampedWeights(const mjModel *model, const mjData *data) {
 }
 
 void lean::ResetLocked(const mjModel *model) {
+  LoadResidualMLP(model);
   // Capture the XML default weights AFTER Task::Reset has populated weight[]
   // from sensor user data. These act as the fallback for any residual the
   // current phase's JSON doesn't override, and as the prev/next initialisers
@@ -6818,3 +6819,15 @@ void lean::ComputeMetrics(const mjModel *model, const mjData *data,
 }
 
 }  // namespace mjpc
+
+// ★ mbrl 2026-10-04: planner-rollout dynamics residual (see residual_mlp.h). Loaded once per task reset.
+void mjpc::lean::LoadResidualMLP(const mjModel *model) {
+  static bool attempted = false;
+  const char *path = std::getenv("H12_RESIDUAL_MLP");
+  residual_imu_site_ = mj_name2id(model, mjOBJ_SITE, "imu");
+  if (const char *sc = std::getenv("H12_RESIDUAL_SCALE")) residual_scale_ = std::atof(sc);
+  if (!path || !*path) return;
+  if (!attempted || !residual_mlp_.enabled()) { residual_mlp_.Load(path); attempted = true; }
+  if (residual_mlp_.enabled())
+    std::fprintf(stderr, "[lean] planner residual ON (scale %.2f, imu site %d)\n", residual_scale_, residual_imu_site_);
+}

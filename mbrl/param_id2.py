@@ -13,10 +13,12 @@ T = 25; NSEG = int(os.environ.get("MBRL_ID_SEGS", "400")); NW = int(os.environ.g
 PARAMS0 = dict(nsub=int(os.environ.get("MBRL_NSUB", "5")), dt=float(os.environ.get("MBRL_DT", "0.002")))
 
 def main():
-    t0 = time.time(); segs = RE.compact_segments("train", T, NSEG, seed=3); test = RE.compact_segments("test", T, 300, seed=4)
-    eng = RE.Engine(NW); res = {}
+    t0 = time.time(); eng = RE.Engine(NW); res = {}
+    segs = RE.filter_consistent(eng, RE.compact_segments("train", T, 2 * NSEG, seed=3), T)[:NSEG]
+    test = RE.filter_consistent(eng, RE.compact_segments("test", T, 600, seed=4), T)[:300]
+    print(f"fixed consistent segment sets: train {len(segs)} test {len(test)}", flush=True)
     def objective(params, S=segs):
-        sc = RE.score(S, eng.run(S, T, dict(PARAMS0, **params)), horizons=(10, 25))
+        sc = RE.score(S, eng.run(S, T, dict(PARAMS0, no_skip=True, **params)), horizons=(10, 25))
         if sc["250ms"]["legs"] is None: return 1.0, sc
         return sc["250ms"]["legs"] + sc["250ms"]["arms"] + 0.002 * sc["diverged"], sc
     f0, s0 = objective({}); print(f"nominal: {f0:.5f} {json.dumps(s0)}", flush=True); res["nominal"] = s0

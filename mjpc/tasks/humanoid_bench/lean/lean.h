@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "mjpc/task.h"
+#include "mjpc/tasks/humanoid_bench/lean/residual_mlp.h"
 #include "mjpc/utilities.h"
 #include "mjpc/tasks/humanoid/interact/contact_keyframe.h"
 #include "mjpc/tasks/humanoid/interact/motion_strategy.h"
@@ -248,6 +249,17 @@ class lean : public Task {
   void TransitionLocked(mjModel *model, mjData *data) override;
 
   void ResetLocked(const mjModel *model) override;
+
+  // ★ mbrl 2026-10-04: learned dynamics residual inside the planner's imagined rollouts only.
+  // Enabled when env H12_RESIDUAL_MLP names a weights file (mbrl/export_mlp.py); H12_RESIDUAL_SCALE
+  // (default 1.0) scales the correction. Pre-step joint-velocity correction, per planner thread.
+  void ModifyRolloutState(const mjModel *model, mjData *data) const override {
+    if (residual_mlp_.enabled()) H12ApplyResidual(residual_mlp_, model, data, residual_imu_site_, residual_scale_);
+  }
+  ResidualMLP residual_mlp_;
+  int residual_imu_site_ = -1;
+  double residual_scale_ = 1.0;
+  void LoadResidualMLP(const mjModel *model);
 
   // Populate phase-aware monitoring metrics (reach, CoP, ICP, brace force,
   // saturation, etc.) for the Research GUI / headless analyzer. Reads the
