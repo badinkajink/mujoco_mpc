@@ -16,7 +16,7 @@ except ImportError: import agent_pb2 as pb, agent_pb2_grpc as pbg
 E = lambda k, v: type(v)(os.environ.get(k, v))
 ITERS, EPIS, T_EP, K, HZ, PORT, SMOKE, TAG = E("DAG_ITERS", 6), E("DAG_EPIS", 12), E("DAG_T", 8.0), E("DAG_K", 2), E("DAG_HZ", 50), E("DAG_PORT", 20292), E("DAG_SMOKE", 0), E("DAG_TAG", "dag")
 DT = 0.005; SUB = int(round(1.0 / HZ / DT)); GFF = 0.85
-rng = np.random.default_rng(int(os.environ.get("DAG_SEED", 0)))
+rng = np.random.default_rng(int(os.environ.get("DAG_SEED", 0))); DART = np.radians(float(os.environ.get("DAG_DART", 0)))   # DART noise std (deg) on executed teacher commands
 
 # ---- plant (twin) + planner model (for tau_ff) ----
 plant = mujoco.MjModel.from_xml_path(f"{H12}/h1_mujoco/unitree_robots/h1_2/scene_handless_magpie_table_block_37_real_ns_grid.xml"); plant.opt.timestep = DT; pd = mujoco.MjData(plant)
@@ -94,7 +94,7 @@ def fallen():
 def episode(init, teacher, student, beta, push, T=T_EP, record=True, k=None):
     name, t0, qp, qv = init; pd.qpos[:] = qp; pd.qvel[:] = qv; mujoco.mj_forward(plant, pd)
     if teacher is not None: teacher.new_episode(qp)
-    X, Y = [], []; t = 0.0; cmd = pd.sensordata[:27].copy(); tf = tau_ff(pd.qpos); nlab = 0; tw0 = time.time()
+    X, Y = [], []; t = 0.0; cmd = pd.sensordata[:27].copy(); dart_n = np.zeros(27); tf = tau_ff(pd.qpos); nlab = 0; tw0 = time.time()
     while t < T - 1e-9:
         if round(t / DT) % SUB == 0:
             q = pd.sensordata[:27].copy(); x = obs_now(t, cmd)      # prev = the command actually executed last tick
@@ -103,6 +103,8 @@ def episode(init, teacher, student, beta, push, T=T_EP, record=True, k=None):
             if a_t is not None and record: X.append(x); Y.append((a_t - QREF).astype(np.float32)); nlab += 1
             if a_t is not None and a_s is not None: cmd = beta * a_t + (1 - beta) * a_s
             else: cmd = a_t if a_t is not None else a_s
+            if a_t is not None and DART > 0:      # DART: execute a noised teacher command (label stays clean) -> robust BC
+                dart_n = 0.8 * dart_n + 0.6 * rng.normal(0, DART, 27); cmd = cmd + dart_n
             tf = tau_ff(pd.qpos)
         pd.xfrc_applied[:] = 0
         if push is not None and push[0] <= t < push[0] + 0.3: pd.xfrc_applied[torso, 0:2] = push[1:3]
