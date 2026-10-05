@@ -42,6 +42,7 @@ def compact_segments(split, T, n_max, seed=0, stride=50, require_consistent=True
         for i0 in rng.choice(idx, min(per, len(idx)), replace=False):
             i0 = int(i0); rec = {k: r[k][i0:i0 + T + 2].copy() for k in KEYS}
             rec["tau_lim"] = tl; rec["run"] = mm["run"]; rec["i0"] = i0; rec["tilt0"] = tilt_deg(r["base_quat"][i0].astype(float)); out.append(rec)
+    if os.environ.get("MBRL_MAX_TILT"): out = [r for r in out if r["tilt0"] < float(os.environ["MBRL_MAX_TILT"])]
     rng.shuffle(out); return out[:n_max]
 
 class NumpyMLP:
