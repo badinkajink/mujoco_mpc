@@ -72,7 +72,8 @@ def apply_params(m, params):
 def features(d, r, i, tl):
     mujoco.mj_kinematics(_m, d); bq = np.zeros(4); mujoco.mju_mat2Quat(bq, d.site("imu").xmat)
     q = d.qpos[JQ].copy(); dq = d.qvel[JV].copy()
-    tau0 = pd_torque(r["kp"][i], r["kd"][i], r["cmd"][i], q, dq, r["tau_ff"][i], tl)
+    ff = r["tau_ff"][i] * (0.0 if os.environ.get("MBRL_ZERO_TAUFF") else 1.0)   # planner hook has no node feed-forward
+    tau0 = pd_torque(r["kp"][i], r["kd"][i], r["cmd"][i], q, dq, ff, tl)
     return np.concatenate([q, dq, tau0, r["cmd"][i] - q, r["kp"][i] / 100.0, r["kd"][i] / 10.0, gvec(bq[None])[0], d.qvel[3:6]]).astype(np.float32)
 
 def rollout(r, T, params, mlp=None, want_X=False):

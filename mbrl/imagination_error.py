@@ -18,9 +18,13 @@ def read_dump(path):
     return t0, nominal, nq, nv
 
 def score_run(run_dir, dt_agent=0.01, hors=(10, 25, 50)):
-    recs = glob.glob(os.path.join(run_dir, "*", "*.npz")); 
-    if not recs: return None
-    z = np.load(recs[0]); t = z["t"]; q = z["q"]
+    recs = glob.glob(os.path.join(run_dir, "*", "*.npz"))
+    if recs:                                   # recorder, 100 Hz
+        z = np.load(recs[0]); t = z["t"]; q = z["q"]
+    elif os.path.exists(os.path.join(run_dir, "run.npz")):   # twin trace (~23 Hz): resample to 100 Hz
+        z = np.load(os.path.join(run_dir, "run.npz"), allow_pickle=True); tt = z["t"]; qq = z["q"]
+        t = np.arange(tt[0], tt[-1], 0.01); q = np.stack([np.interp(t, tt, qq[:, j]) for j in range(NJ)], 1)
+    else: return None
     E = {h: [] for h in hors}; n_dump = 0; t_off = None
     for f in sorted(glob.glob(os.path.join(run_dir, "dump", "tick_*.bin"))):
         t0, nom, nq, nv = read_dump(f); qn = nom[:, 7:7 + NJ]
