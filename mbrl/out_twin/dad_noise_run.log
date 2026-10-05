@@ -1,0 +1,17 @@
+one-step base: val rmse {'legs': 0.17390341603627849, 'waist': 0.05056987547481612, 'arms': 0.014285014063472358, 'all': 0.11679722098255535}  (9s)
+segments train 3000 val 500  plant params {'nsub': 1, 'dt': 0.01, 'inject': 'pre', 'cmd_noise': 0.08}
+val plant-only: {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.023305347573666903, "waist": 0.025304632718066693, "arms": 0.01492660892620353}, "250ms": {"legs": 0.05604846081140179, "waist": 0.04800247869072243, "arms": 0.032066973765071914}, "500ms": {"legs": null, "waist": null, "arms": null}}
+iter 0: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.02381361922165937, "waist": 0.01934857179602188, "arms": 0.011548374375977357}, "250ms": {"legs": 0.058406181443788466, "waist": 0.041506386190057115, "arms": 0.029609666231628893}, "500ms": {"legs": null, "waist": null, "arms": null}}
+/home/the2xman/Desktop/h12/mujoco_mpc/mujoco_mpc/mbrl/rollout_engine.py:58: RuntimeWarning: overflow encountered in exp
+  h = h @ W.T + b; h = h / (1 + np.exp(-h))
+/home/the2xman/Desktop/h12/mujoco_mpc/mujoco_mpc/mbrl/rollout_engine.py:58: RuntimeWarning: overflow encountered in exp
+  h = h @ W.T + b; h = h / (1 + np.exp(-h))
+  aggregated 57100 on-rollout samples (on-rollout total 57100, mixed batch 171300); fine-tuning
+iter 1: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.03143060920105827, "waist": 0.012263380132581892, "arms": 0.009165133542754327}, "250ms": {"legs": 0.09442397694187124, "waist": 0.036523619702393255, "arms": 0.022995069279892085}, "500ms": {"legs": null, "waist": null, "arms": null}}
+  aggregated 57100 on-rollout samples (on-rollout total 114200, mixed batch 342600); fine-tuning
+iter 2: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.03229661246894767, "waist": 0.010544009121504558, "arms": 0.007269443703730828}, "250ms": {"legs": 0.09737754285152386, "waist": 0.024529424680403263, "arms": 0.014805649922752026}, "500ms": {"legs": null, "waist": null, "arms": null}}
+/home/the2xman/Desktop/h12/mujoco_mpc/mujoco_mpc/mbrl/rollout_engine.py:58: RuntimeWarning: overflow encountered in exp
+  h = h @ W.T + b; h = h / (1 + np.exp(-h))
+  aggregated 57100 on-rollout samples (on-rollout total 171300, mixed batch 513900); fine-tuning
+iter 3: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.031141770141234593, "waist": 0.011009890390684727, "arms": 0.006826980719126195}, "250ms": {"legs": 0.09143585964067204, "waist": 0.023632410596594756, "arms": 0.01333752325361175}, "500ms": {"legs": null, "waist": null, "arms": null}}
+done 21s
