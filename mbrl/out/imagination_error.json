@@ -1,74 +1,594 @@
 {
  "s37_B3_noassist_base_dump_r1": {
   "n_dumps": 17,
-  "100ms": {
-   "legs": 0.009123627549020952,
-   "waist": 0.0049928875313050985,
-   "arms": 0.013740764050869204
+  "all": {
+   "100ms": {
+    "legs": 0.0091,
+    "waist": 0.005,
+    "arms": 0.0137
+   },
+   "250ms": {
+    "legs": 0.0163,
+    "waist": 0.0094,
+    "arms": 0.0323
+   },
+   "500ms": {
+    "legs": 0.0231,
+    "waist": 0.0109,
+    "arms": 0.0352
+   }
   },
-  "250ms": {
-   "legs": 0.01630898449285095,
-   "waist": 0.009354155376163114,
-   "arms": 0.03228892894347187
+  "stand<45s": {
+   "n": 17,
+   "100ms": {
+    "legs": 0.0091,
+    "waist": 0.005,
+    "arms": 0.0137
+   },
+   "250ms": {
+    "legs": 0.0163,
+    "waist": 0.0094,
+    "arms": 0.0323
+   },
+   "500ms": {
+    "legs": 0.0231,
+    "waist": 0.0109,
+    "arms": 0.0352
+   }
   },
-  "500ms": {
-   "legs": 0.023074671211560968,
-   "waist": 0.010941942247496816,
-   "arms": 0.035198032567360094
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
   }
  },
  "s37_B3_noassist_base_dump_r2": {
   "n_dumps": 34,
-  "100ms": {
-   "legs": 0.015105917726637384,
-   "waist": 0.004403601605362052,
-   "arms": 0.011650309766552944
+  "all": {
+   "100ms": {
+    "legs": 0.0151,
+    "waist": 0.0044,
+    "arms": 0.0117
+   },
+   "250ms": {
+    "legs": 0.0208,
+    "waist": 0.0074,
+    "arms": 0.0241
+   },
+   "500ms": {
+    "legs": 0.0229,
+    "waist": 0.0075,
+    "arms": 0.0322
+   }
   },
-  "250ms": {
-   "legs": 0.020815949876156124,
-   "waist": 0.007365648362684857,
-   "arms": 0.024078633819664626
+  "stand<45s": {
+   "n": 34,
+   "100ms": {
+    "legs": 0.0151,
+    "waist": 0.0044,
+    "arms": 0.0117
+   },
+   "250ms": {
+    "legs": 0.0208,
+    "waist": 0.0074,
+    "arms": 0.0241
+   },
+   "500ms": {
+    "legs": 0.0229,
+    "waist": 0.0075,
+    "arms": 0.0322
+   }
   },
-  "500ms": {
-   "legs": 0.022860677566416684,
-   "waist": 0.007530050083688835,
-   "arms": 0.032245733963935014
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
   }
  },
  "s37_B3_noassist_res_dump_r1": {
   "n_dumps": 34,
-  "100ms": {
-   "legs": 0.04428537757408759,
-   "waist": 0.02332640731370533,
-   "arms": 0.05398699787387469
+  "all": {
+   "100ms": {
+    "legs": 0.0443,
+    "waist": 0.0233,
+    "arms": 0.054
+   },
+   "250ms": {
+    "legs": 0.0634,
+    "waist": 0.0379,
+    "arms": 0.0669
+   },
+   "500ms": {
+    "legs": 0.0624,
+    "waist": 0.0615,
+    "arms": 0.0975
+   }
   },
-  "250ms": {
-   "legs": 0.06340978599217398,
-   "waist": 0.03786469787994439,
-   "arms": 0.06693162448238857
+  "stand<45s": {
+   "n": 32,
+   "100ms": {
+    "legs": 0.0092,
+    "waist": 0.0057,
+    "arms": 0.0133
+   },
+   "250ms": {
+    "legs": 0.0117,
+    "waist": 0.0115,
+    "arms": 0.0357
+   },
+   "500ms": {
+    "legs": 0.0158,
+    "waist": 0.0272,
+    "arms": 0.0504
+   }
   },
-  "500ms": {
-   "legs": 0.06243413184025988,
-   "waist": 0.06151765566695098,
-   "arms": 0.0975225723449979
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 2,
+   "100ms": {
+    "legs": 0.1789,
+    "waist": 0.0934,
+    "arms": 0.2161
+   },
+   "250ms": {
+    "legs": 0.2572,
+    "waist": 0.1492,
+    "arms": 0.2361
+   },
+   "500ms": {
+    "legs": 0.2496,
+    "waist": 0.2291,
+    "arms": 0.3479
+   }
   }
  },
  "s37_B3_noassist_res_dump_r2": {
   "n_dumps": 25,
-  "100ms": {
-   "legs": 0.0494193192761002,
-   "waist": 0.029514129517036337,
-   "arms": 0.02122051861636926
+  "all": {
+   "100ms": {
+    "legs": 0.0494,
+    "waist": 0.0295,
+    "arms": 0.0212
+   },
+   "250ms": {
+    "legs": 0.0863,
+    "waist": 0.1206,
+    "arms": 0.048
+   },
+   "500ms": {
+    "legs": 0.1006,
+    "waist": 0.2026,
+    "arms": 0.0612
+   }
   },
-  "250ms": {
-   "legs": 0.08634002067063071,
-   "waist": 0.12057799957115334,
-   "arms": 0.04800040950864997
+  "stand<45s": {
+   "n": 23,
+   "100ms": {
+    "legs": 0.0119,
+    "waist": 0.0086,
+    "arms": 0.018
+   },
+   "250ms": {
+    "legs": 0.0169,
+    "waist": 0.0112,
+    "arms": 0.0424
+   },
+   "500ms": {
+    "legs": 0.0215,
+    "waist": 0.0168,
+    "arms": 0.0518
+   }
   },
-  "500ms": {
-   "legs": 0.100643900853146,
-   "waist": 0.20261815104060021,
-   "arms": 0.061178235948411507
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 2,
+   "100ms": {
+    "legs": 0.17,
+    "waist": 0.1002,
+    "arms": 0.0438
+   },
+   "250ms": {
+    "legs": 0.2998,
+    "waist": 0.4246,
+    "arms": 0.0903
+   },
+   "500ms": {
+    "legs": 0.3483,
+    "waist": 0.7141,
+    "arms": 0.1264
+   }
+  }
+ },
+ "s37_B3_noassist_base_dumpnoff_r1": {
+  "n_dumps": 31,
+  "all": {
+   "100ms": {
+    "legs": 0.0772,
+    "waist": 0.0408,
+    "arms": 0.0171
+   },
+   "250ms": {
+    "legs": 0.1143,
+    "waist": 0.0724,
+    "arms": 0.0352
+   },
+   "500ms": {
+    "legs": 0.1183,
+    "waist": 0.1081,
+    "arms": 0.0506
+   }
+  },
+  "stand<45s": {
+   "n": 30,
+   "100ms": {
+    "legs": 0.0141,
+    "waist": 0.013,
+    "arms": 0.0152
+   },
+   "250ms": {
+    "legs": 0.0221,
+    "waist": 0.0186,
+    "arms": 0.03
+   },
+   "500ms": {
+    "legs": 0.0244,
+    "waist": 0.0134,
+    "arms": 0.0399
+   }
+  },
+  "45-65s": {
+   "n": 1,
+   "100ms": {
+    "legs": 0.4229,
+    "waist": 0.2155,
+    "arms": 0.0463
+   },
+   "250ms": {
+    "legs": 0.625,
+    "waist": 0.3902,
+    "arms": 0.107
+   },
+   "500ms": {
+    "legs": 0.645,
+    "waist": 0.5972,
+    "arms": 0.1779
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  }
+ },
+ "s37_B3_noassist_base_dumpnoff_r2": {
+  "n_dumps": 33,
+  "all": {
+   "100ms": {
+    "legs": 0.0105,
+    "waist": 0.0039,
+    "arms": 0.0109
+   },
+   "250ms": {
+    "legs": 0.0148,
+    "waist": 0.0062,
+    "arms": 0.0228
+   },
+   "500ms": {
+    "legs": 0.0168,
+    "waist": 0.0073,
+    "arms": 0.0307
+   }
+  },
+  "stand<45s": {
+   "n": 33,
+   "100ms": {
+    "legs": 0.0105,
+    "waist": 0.0039,
+    "arms": 0.0109
+   },
+   "250ms": {
+    "legs": 0.0148,
+    "waist": 0.0062,
+    "arms": 0.0228
+   },
+   "500ms": {
+    "legs": 0.0168,
+    "waist": 0.0073,
+    "arms": 0.0307
+   }
+  },
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  }
+ },
+ "s37_B3_noassist_res_dumpnoff_r1": {
+  "n_dumps": 33,
+  "all": {
+   "100ms": {
+    "legs": 0.041,
+    "waist": 0.0132,
+    "arms": 0.0384
+   },
+   "250ms": {
+    "legs": 0.066,
+    "waist": 0.0583,
+    "arms": 0.0507
+   },
+   "500ms": {
+    "legs": 0.0748,
+    "waist": 0.0941,
+    "arms": 0.0723
+   }
+  },
+  "stand<45s": {
+   "n": 32,
+   "100ms": {
+    "legs": 0.0088,
+    "waist": 0.0046,
+    "arms": 0.0142
+   },
+   "250ms": {
+    "legs": 0.0128,
+    "waist": 0.0222,
+    "arms": 0.0364
+   },
+   "500ms": {
+    "legs": 0.0214,
+    "waist": 0.0481,
+    "arms": 0.0558
+   }
+  },
+  "45-65s": {
+   "n": 1,
+   "100ms": {
+    "legs": 0.2303,
+    "waist": 0.0711,
+    "arms": 0.2057
+   },
+   "250ms": {
+    "legs": 0.372,
+    "waist": 0.3105,
+    "arms": 0.2063
+   },
+   "500ms": {
+    "legs": 0.4122,
+    "waist": 0.4669,
+    "arms": 0.2694
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  }
+ },
+ "s37_B3_noassist_res_dumpnoff_r2": {
+  "n_dumps": 33,
+  "all": {
+   "100ms": {
+    "legs": 0.0101,
+    "waist": 0.0063,
+    "arms": 0.0139
+   },
+   "250ms": {
+    "legs": 0.0122,
+    "waist": 0.0144,
+    "arms": 0.0353
+   },
+   "500ms": {
+    "legs": 0.0179,
+    "waist": 0.038,
+    "arms": 0.0536
+   }
+  },
+  "stand<45s": {
+   "n": 33,
+   "100ms": {
+    "legs": 0.0101,
+    "waist": 0.0063,
+    "arms": 0.0139
+   },
+   "250ms": {
+    "legs": 0.0122,
+    "waist": 0.0144,
+    "arms": 0.0353
+   },
+   "500ms": {
+    "legs": 0.0179,
+    "waist": 0.038,
+    "arms": 0.0536
+   }
+  },
+  "45-65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
+  },
+  ">65s": {
+   "n": 0,
+   "100ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "250ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   },
+   "500ms": {
+    "legs": null,
+    "waist": null,
+    "arms": null
+   }
   }
  }
 }

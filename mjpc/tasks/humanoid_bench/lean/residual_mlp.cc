@@ -1,6 +1,7 @@
 #include "mjpc/tasks/humanoid_bench/lean/residual_mlp.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -84,6 +85,18 @@ void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int i
   mj_kinematics(m, d);   // site_xmat is one step stale after mj_step; refresh for the current qpos
   if (!H12ResidualFeatures(m, d, imu_site, x)) return;
   mlp.Forward(x, y, scratch);
+  // H12_RESIDUAL_DEBUG=<file>: append the first 200 (features, output, qpos7, qvel6, time) rows for parity checks
+  static const char* dbg = std::getenv("H12_RESIDUAL_DEBUG");
+  if (dbg) {
+    static std::atomic<int> n_dbg{0};
+    int k = n_dbg.fetch_add(1);
+    if (k < 200) {
+      if (FILE* f = std::fopen(dbg, "ab")) {
+        double tt = d->time; std::fwrite(&tt, 8, 1, f); std::fwrite(x, 4, kNIn, f); std::fwrite(y, 4, kNJ, f);
+        std::fwrite(d->qpos, 8, 7 + kNJ, f); std::fwrite(d->qvel, 8, 6 + kNJ, f); std::fwrite(d->ctrl, 8, kNJ, f); std::fclose(f);
+      }
+    }
+  }
   for (int j = 0; j < kNJ; ++j) {
     double s = j < 12 ? group_scale[0] : (j == 12 ? group_scale[1] : group_scale[2]);
     if (s != 0.0) d->qvel[6 + j] += s * y[j];

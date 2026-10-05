@@ -26,6 +26,8 @@ def score_run(run_dir, dt_agent=0.01, hors=(10, 25, 50)):
         t = np.arange(tt[0], tt[-1], 0.01); q = np.stack([np.interp(t, tt, qq[:, j]) for j in range(NJ)], 1)
     else: return None
     E = {h: [] for h in hors}; n_dump = 0; t_off = None
+    phases = {"stand<45s": lambda t0: t0 < 45, "45-65s": lambda t0: 45 <= t0 < 65, ">65s": lambda t0: t0 >= 65}
+    Ep = {ph: {h: [] for h in hors} for ph in phases}
     for f in sorted(glob.glob(os.path.join(run_dir, "dump", "tick_*.bin"))):
         t0, nom, nq, nv = read_dump(f); qn = nom[:, 7:7 + NJ]
         # clock alignment: the dump's t0 is planner time; find the recorder sample closest to t0 (one-off offset
@@ -37,11 +39,18 @@ def score_run(run_dir, dt_agent=0.01, hors=(10, 25, 50)):
         if np.abs(q[i0] - qn[0]).mean() > 0.05: continue           # misaligned / robot already down: skip
         n_dump += 1
         for h in hors:
-            if h < len(qn): E[h].append((qn[h] - qn[0]) - (q[i0 + h] - q[i0]))
-    out = {"n_dumps": n_dump}
-    for h in hors:
-        e = np.array(E[h]) if E[h] else np.zeros((0, NJ))
-        out[f"{h*10}ms"] = {g: float(np.sqrt(np.mean(e[:, ids] ** 2))) if len(e) else None for g, ids in GROUPS.items()}
+            if h < len(qn):
+                e = (qn[h] - qn[0]) - (q[i0 + h] - q[i0]); E[h].append(e)
+                for ph, fn in phases.items():
+                    if fn(t0 + t_off): Ep[ph][h].append(e)
+    def agg(D):
+        o = {}
+        for h in hors:
+            e = np.array(D[h]) if D[h] else np.zeros((0, NJ))
+            o[f"{h*10}ms"] = {g: round(float(np.sqrt(np.mean(e[:, ids] ** 2))), 4) if len(e) else None for g, ids in GROUPS.items()}
+        return o
+    out = {"n_dumps": n_dump, "all": agg(E)}
+    for ph in phases: out[ph] = dict(n=len(Ep[ph][hors[0]]), **agg(Ep[ph]))
     return out
 
 if __name__ == "__main__":
