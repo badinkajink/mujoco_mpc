@@ -205,7 +205,15 @@ if __name__ == "__main__":
     names = [r["run"] for r in man]
     if len(sys.argv) > 1: names = names[:int(sys.argv[1])]
     t0 = time.time()
-    with Pool(int(os.environ.get("MBRL_WORKERS", "20")), initializer=_init) as p:
-        for k, (name, n, ok) in enumerate(p.imap_unordered(run_one, names)):
+    # each worker holds ~0.8 GB (plant buffers): keep workers x 0.8 GB well under the cgroup cap, and never wait
+    # forever on a pool whose worker was OOM-killed (the task is lost and imap would hang): progress watchdog.
+    with Pool(int(os.environ.get("MBRL_WORKERS", "10")), initializer=_init) as p:
+        it = p.imap_unordered(run_one, names)
+        for k in range(len(names)):
+            try:
+                name, n, ok = it.next(timeout=float(os.environ.get("MBRL_TASK_TIMEOUT", "900")))
+            except Exception as e:
+                print(f"ABORT: no result within the watchdog window ({type(e).__name__}); a worker was probably killed", flush=True)
+                p.terminate(); sys.exit(2)
             print(f"[{k+1}/{len(names)}] {name:45s} {n:6d} ok {ok:6d}  {time.time()-t0:6.0f}s", flush=True)
     print("done", time.time() - t0)
