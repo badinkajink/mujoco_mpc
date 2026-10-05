@@ -16,12 +16,21 @@ except ImportError: import agent_pb2 as pb, agent_pb2_grpc as pbg
 E = lambda k, v: type(v)(os.environ.get(k, v))
 ITERS, EPIS, T_EP, K, HZ, PORT, SMOKE, TAG = E("DAG_ITERS", 6), E("DAG_EPIS", 12), E("DAG_T", 8.0), E("DAG_K", 2), E("DAG_HZ", 50), E("DAG_PORT", 20292), E("DAG_SMOKE", 0), E("DAG_TAG", "dag")
 DT = 0.005; SUB = int(round(1.0 / HZ / DT)); GFF = 0.85
+RESET_PLAN = os.environ.get("DAG_RESET_PLAN", "0") == "1"
 rng = np.random.default_rng(int(os.environ.get("DAG_SEED", 0))); DART = np.radians(float(os.environ.get("DAG_DART", 0)))   # DART noise std (deg) on executed teacher commands
 
 # ---- plant (twin) + planner model (for tau_ff) ----
 plant = mujoco.MjModel.from_xml_path(f"{H12}/h1_mujoco/unitree_robots/h1_2/scene_handless_magpie_table_block_37_real_ns_grid.xml"); plant.opt.timestep = DT; pd = mujoco.MjData(plant)
 sid = lambda n: plant.sensor_adr[mujoco.mj_name2id(plant, mujoco.mjtObj.mjOBJ_SENSOR, n)]; IQ, IG = sid("imu_quat"), sid("imu_gyro")
 torso = mujoco.mj_name2id(plant, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
+NO_TABLE = os.environ.get("DAG_NO_TABLE", "0") == "1"
+_tb = mujoco.mj_name2id(plant, mujoco.mjtObj.mjOBJ_BODY, "table"); TBL_GEOMS = set(g for g in range(plant.ngeom) if plant.geom_bodyid[g] == _tb)
+_floor = mujoco.mj_name2id(plant, mujoco.mjtObj.mjOBJ_GEOM, "floor"); _blk = mujoco.mj_name2id(plant, mujoco.mjtObj.mjOBJ_GEOM, "retrieval_block_geom")
+if NO_TABLE: plant.body_pos[_tb, 0] += 100.0; print("[dagger] NO_TABLE: plant table moved +100 m; robot-table contact counts as failure", flush=True)
+def table_touch():
+    for c in pd.contact[:pd.ncon]:
+        if (c.geom1 in TBL_GEOMS) != (c.geom2 in TBL_GEOMS) and _floor not in (c.geom1, c.geom2) and _blk not in (c.geom1, c.geom2): return True
+    return False
 pm = common.load_model(disable_actuators=False); pdat = mujoco.MjData(pm)
 # node gains from a recording
 rec = np.load(glob.glob(f"{H12}/logs/grid37_twin/d37/s37_B3_noassist_base_r4/*/*.npz")[0], allow_pickle=True); j0 = np.argmax(rec["kp"][:, 0] > 1) + 100
@@ -36,6 +45,9 @@ def model_xml():
         if not os.path.isabs(v or ""): setattr(spec, attr, os.path.normpath(os.path.join(base, v or "")))
     for i, a in enumerate(spec.actuators):
         a.gainprm[0] = KP[i]; a.biasprm[1] = -KP[i]; a.biasprm[2] = -KD[i]
+    if NO_TABLE:
+        tb = [b for b in spec.bodies if b.name == "table"]
+        assert tb, "no body 'table' in the planner model"; tb[0].pos[0] += 100.0; print("[teacher] NO_TABLE: planner table moved +100 m", flush=True)
     xml = spec.to_xml(); mt = mujoco.MjModel.from_xml_string(xml); print("[teacher] model kp", mt.actuator_gainprm[:, 0].astype(int), flush=True); return xml
 
 def tau_ff(qpos):
@@ -80,6 +92,8 @@ class Teacher:
         for _ in range(12): self.s.PlannerStep(pb.PlannerStepRequest(), timeout=30)
     def label(self, qpos, qvel, t, k=K):
         q = np.array(pm.qpos0, float); q[:34] = qpos[:34]; v = np.zeros(pm.nv); v[:33] = qvel[:33]
+        if RESET_PLAN:   # Markov teacher: discard the warm-started plan, re-plan from scratch at this state
+            self.s.Reset(pb.ResetRequest(), timeout=30); req = pb.SetTaskParametersRequest(); req.parameters["Strategy"].numeric = 37.0; self.s.SetTaskParameters(req, timeout=10); t = 0.0
         self.s.SetState(pb.SetStateRequest(state=pb.State(time=self.t0 + t, qpos=q.tolist(), qvel=v.tolist())), timeout=10)
         for _ in range(k): self.s.PlannerStep(pb.PlannerStepRequest(), timeout=30)
         return np.array(self.s.GetAction(pb.GetActionRequest(), timeout=10).action, float)
@@ -90,9 +104,11 @@ class Teacher:
 def obs_now(t, prev):
     return obs_vec(pd.sensordata[:27].copy(), pd.sensordata[27:54].copy(), pd.sensordata[IQ:IQ + 4].copy(), pd.sensordata[IG:IG + 3].copy(), 0, 1, 30.0, prev)
 def fallen():
-    R = pd.xmat[torso].reshape(3, 3); return pd.qpos[2] < 0.6 or R[2, 2] < 0.5
+    R = pd.xmat[torso].reshape(3, 3); return pd.qpos[2] < 0.6 or R[2, 2] < 0.5 or table_touch()   # leaning on the table = failure
 def episode(init, teacher, student, beta, push, T=T_EP, record=True, k=None):
-    name, t0, qp, qv = init; pd.qpos[:] = qp; pd.qvel[:] = qv; mujoco.mj_forward(plant, pd)
+    name, t0, qp, qv = init; pd.qpos[:] = qp; pd.qvel[:] = qv
+    if NO_TABLE: pd.qpos[34:37] = [50, 50, 0.5]; pd.qvel[33:] = 0
+    mujoco.mj_forward(plant, pd)
     if teacher is not None: teacher.new_episode(qp)
     X, Y = [], []; t = 0.0; cmd = pd.sensordata[:27].copy(); dart_n = np.zeros(27); tf = tau_ff(pd.qpos); nlab = 0; tw0 = time.time()
     while t < T - 1e-9:
