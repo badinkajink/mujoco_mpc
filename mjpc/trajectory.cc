@@ -15,6 +15,8 @@
 #include "mjpc/trajectory.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <iostream>
 
@@ -25,6 +27,27 @@
 
 namespace mjpc {
 namespace {
+// H12_ROLLOUT_SUBSTEPS=n (default 1, 2026-10-05 mbrl): integrate each planner step as n substeps of
+// timestep/n. Stage-0 sim-gap measurement: the single 10 ms implicitfast step through foot contact doubles the
+// planner's one-step leg error (0.17 -> 0.41 rad/s) vs 2 ms stepping; this tests whether the plan improves.
+// A shallow struct copy of the model (buffers shared, mj_step never writes the model) carries the shorter
+// timestep per call, so no per-thread model copies and no cross-thread races on model->opt.
+int RolloutSubSteps() {
+  static const int n = [] {
+    const char* e = std::getenv("H12_ROLLOUT_SUBSTEPS");
+    int v = e ? std::atoi(e) : 1;
+    if (v > 1) std::fprintf(stderr, "[rollout] H12_ROLLOUT_SUBSTEPS=%d: planner steps integrate as %d substeps\n", v, v);
+    return v < 1 ? 1 : v;
+  }();
+  return n;
+}
+void StepSub(const mjModel* model, mjData* data) {
+  const int n = RolloutSubSteps();
+  if (n == 1) { mj_step(model, data); return; }
+  mjModel sub = *model;
+  sub.opt.timestep = model->opt.timestep / n;
+  for (int i = 0; i < n; i++) mj_step(&sub, data);
+}
 // maximum return value
 inline constexpr double kMaxReturnValue = 1.0e6;
 }
@@ -165,7 +188,7 @@ void Trajectory::NoisyRollout(
     }
 
     // step
-    mj_step(model, data);
+    StepSub(model, data);
 
     // record residual
     mju_copy(DataAt(residual, t * dim_residual), data->sensordata,
@@ -264,7 +287,7 @@ void Trajectory::RolloutDiscrete(
     mju_copy(data->ctrl, DataAt(actions, t * nu), nu);
 
     // step
-    mj_step(model, data);
+    StepSub(model, data);
 
     // record residual
     mju_copy(DataAt(residual, t * dim_residual), data->sensordata,

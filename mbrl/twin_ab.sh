@@ -10,7 +10,7 @@ echo "# twin A/B residual OFF vs ON  strat $STRAT $TGT  $(date)" > "$SUM"
 echo "| run | arm | residual line | plan/s | gate tail | twin end |" >> "$SUM"; echo "|---|---|---|---|---|---|" >> "$SUM"
 run_one() {  # arm r
   local arm=$1 r=$2 suf="_${1}${ARM_SUFFIX:-}_r${2}"
-  local env=""; [ "$arm" = res ] && env="H12_RESIDUAL_MLP=$W H12_RESIDUAL_SCALE=${RES_SCALE:-0,1,1}"
+  local env=""; [ "$arm" = res ] && env="${RES_ENV:-H12_RESIDUAL_MLP=$W H12_RESIDUAL_SCALE=${RES_SCALE:-0,1,1}}"   # RES_ENV: arbitrary env for the B arm (e.g. H12_ROLLOUT_SUBSTEPS=2)
   # DUMP=1: iCEM nominal-trajectory dump every DUMP_EVERY-th plan into the run dir (planner imagination error metric)
   if [ "${DUMP:-0}" = 1 ]; then local dd=$H12/logs/grid37_twin/d37/s${STRAT}_${TGT}_noassist${suf}/dump; mkdir -p "$dd"; env="$env H12_ROLLOUT_DUMP=$dd H12_ROLLOUT_DUMP_EVERY=${DUMP_EVERY:-20}"; fi
   echo "[ab] $(date +%H:%M:%S) start $arm r$r"
