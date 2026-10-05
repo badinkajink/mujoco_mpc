@@ -4,7 +4,7 @@
 set -u
 H12=~/Desktop/h12; MB=$H12/mujoco_mpc/mujoco_mpc/mbrl
 N=${1:-5}; DUR=${2:-150}; STRAT=${STRAT:-25}; TGT=${TGT:-B3}
-W=$MB/out/residual_dadpre10s.bin
+W=${RES_W:-$MB/out/residual_dadpre10s.bin}
 SUM=$H12/logs/grid37_twin/d37/AB_residual_$(date +%m%d_%H%M).md
 echo "# twin A/B residual OFF vs ON  strat $STRAT $TGT  $(date)" > "$SUM"
 echo "| run | arm | residual line | plan/s | gate tail | twin end |" >> "$SUM"; echo "|---|---|---|---|---|---|" >> "$SUM"

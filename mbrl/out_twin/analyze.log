@@ -1,0 +1,133 @@
+samples 2461568
+[
+{
+"phase": "all",
+"group": "legs",
+"e_zoh": 0.0815,
+"e_pd": 0.3069,
+"e_tau": 0.2737,
+"ratio_pd_zoh": 3.764,
+"ratio_tau_zoh": 3.357
+},
+{
+"phase": "all",
+"group": "waist",
+"e_zoh": 0.0137,
+"e_pd": 0.1166,
+"e_tau": 0.117,
+"ratio_pd_zoh": 8.511,
+"ratio_tau_zoh": 8.54
+},
+{
+"phase": "all",
+"group": "arms",
+"e_zoh": 0.0067,
+"e_pd": 0.0957,
+"e_tau": 0.0965,
+"ratio_pd_zoh": 14.322,
+"ratio_tau_zoh": 14.433
+},
+{
+"phase": "upright",
+"group": "legs",
+"e_zoh": 0.0949,
+"e_pd": 0.2479,
+"e_tau": 0.2375,
+"ratio_pd_zoh": 2.613,
+"ratio_tau_zoh": 2.504
+},
+{
+"phase": "upright",
+"group": "waist",
+"e_zoh": 0.0083,
+"e_pd": 0.0363,
+"e_tau": 0.0369,
+"ratio_pd_zoh": 4.373,
+"ratio_tau_zoh": 4.446
+},
+{
+"phase": "upright",
+"group": "arms",
+"e_zoh": 0.0038,
+"e_pd": 0.0205,
+"e_tau": 0.0207,
+"ratio_pd_zoh": 5.416,
+"ratio_tau_zoh": 5.47
+},
+{
+"phase": "lean",
+"group": "legs",
+"e_zoh": 0.0755,
+"e_pd": 0.3277,
+"e_tau": 0.287,
+"ratio_pd_zoh": 4.341,
+"ratio_tau_zoh": 3.802
+},
+{
+"phase": "lean",
+"group": "waist",
+"e_zoh": 0.0154,
+"e_pd": 0.1362,
+"e_tau": 0.1365,
+"ratio_pd_zoh": 8.844,
+"ratio_tau_zoh": 8.864
+},
+{
+"phase": "lean",
+"group": "arms",
+"e_zoh": 0.0075,
+"e_pd": 0.1126,
+"e_tau": 0.1135,
+"ratio_pd_zoh": 14.941,
+"ratio_tau_zoh": 15.061
+},
+{
+"phase": "consistent",
+"group": "legs",
+"e_zoh": 0.0786,
+"e_pd": 0.2367,
+"e_tau": 0.2247,
+"ratio_pd_zoh": 3.011,
+"ratio_tau_zoh": 2.858
+},
+{
+"phase": "consistent",
+"group": "waist",
+"e_zoh": 0.0139,
+"e_pd": 0.1107,
+"e_tau": 0.1115,
+"ratio_pd_zoh": 7.964,
+"ratio_tau_zoh": 8.022
+},
+{
+"phase": "consistent",
+"group": "arms",
+"e_zoh": 0.0073,
+"e_pd": 0.0858,
+"e_tau": 0.0865,
+"ratio_pd_zoh": 11.72,
+"ratio_tau_zoh": 11.814
+},
+{
+"phase": "consistent_upright",
+"group": "legs",
+"e_zoh": 0.0952,
+"e_pd": 0.2311,
+"e_tau": 0.2264,
+"ratio_pd_zoh": 2.427,
+"ratio_tau_zoh": 2.377
+},
+{
+"phase": "consistent_upright",
+"group": "waist",
+"e_zoh": 0.0081,
+"e_pd": 0.0332,
+"e_tau": 0.0334,
+"ratio_pd_zoh": 4.099,
+"ratio_tau_zoh": 4.123
+},
+{
+"phase": "consistent_upright",
+"group": "arms",
+
+saved figs
