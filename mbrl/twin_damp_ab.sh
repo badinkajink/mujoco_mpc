@@ -8,10 +8,12 @@ B=$MJ/build/mjpc/tasks/humanoid_bench/lean/h1_2/h1_2_modified_magpie.xml
 cp "$B" /tmp/claude-1000/h1_2_modified_magpie.xml.pre
 restore() { cp /tmp/claude-1000/h1_2_modified_magpie.xml.pre "$B"; echo "[damp-ab] build include restored ($(grep -oE '<joint damping="[0-9.]+"' "$B" | head -1))"; }
 trap restore EXIT
-set_damp() { sed -i -E "s|<joint damping=\"[0-9.]+\" armature=\"0.1\"/>|<joint damping=\"$1\" armature=\"0.1\"/>|" "$B"
-  grep -oE '<joint damping="[0-9.]+" armature="0.1"/>' "$B" | head -1 | grep -q "damping=\"$1\"" || { echo "damping patch failed"; exit 1; }; }
+ARMAT=${ARMAT:-0.1}   # armature for the treated arm (baseline keeps 0.1)
+set_damp() { local a=0.1; [ "$1" != 10 ] && a=$ARMAT
+  sed -i -E "s|<joint damping=\"[0-9.]+\" armature=\"[0-9.]+\"/>|<joint damping=\"$1\" armature=\"$a\"/>|" "$B"
+  grep -oE '<joint damping="[0-9.]+" armature="[0-9.]+"/>' "$B" | head -1 | grep -q "damping=\"$1\" armature=\"$a\"" || { echo "patch failed"; exit 1; }; }
 SUM=$H12/logs/grid37_twin/d37/AB_damp${DAMP}_$(date +%m%d_%H%M).md; echo "# damping 10 vs $DAMP  strat $STRAT $TGT  $(date)" > "$SUM"
-run_one() { local arm=$1 r=$2 suf="_${1}_r${2}"
+run_one() { local arm=$1 r=$2 suf="_${1}${ARM_SUFFIX:-}_r${2}"
   if [ "$arm" = damp ]; then set_damp $DAMP; else set_damp 10; fi
   echo "[damp-ab] $(date +%H:%M:%S) start $arm r$r"
   env SCENE_VAR=_real_ns TAG_SUFFIX=$suf systemd-run --user --scope -q -p MemoryMax=16G -p MemorySwapMax=0 \
