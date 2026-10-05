@@ -1,4 +1,5 @@
-"""DAgger distillation of the iCEM stand (Stage 3b). Teacher = agent_server (own-sim planner, task 'Lean H12 Magpie',
+"""DAgger distillation (run with MBRL_BC_PREV=1: the planner's action is ~70 % its own previous action -- a persistent plan --
+so the student needs the last executed command as input; state alone explains none of the label, state+prev explains it to 0.6 deg) of the iCEM stand (Stage 3b). Teacher = agent_server (own-sim planner, task 'Lean H12 Magpie',
 strategy slot 37, planner model with the NODE's actuator gains injected via Init(model.mjb)). Student env = the twin plant
 (scene *_37_real_ns_grid, dt 5 ms, PD per step, node gains, tau_ff = 0.85*qfrc_bias on the planner model, like the node).
 Loop: episodes from recorded standing states (+ random torso pushes), action = beta*teacher + (1-beta)*student, record
@@ -50,6 +51,9 @@ for d in sorted(glob.glob(f"{H12}/logs/grid37_twin/d37/s37_B3_noassist_base*")):
     for t0 in (38, 41, 44, 47, 50):
         i = np.searchsorted(tr["t"], t0); inits.append((os.path.basename(d), t0, tr["qpos_full"][i].copy(), tr["qvel_full"][i].copy()))
 print(f"[dagger] {len(inits)} init states from {len(set(i[0] for i in inits))} runs; gains kp {KP.astype(int)}", flush=True)
+# absolute action parametrisation: the student predicts cmd - QREF (fixed reference = mean standing pose of the init states),
+# NOT cmd - q: relative targets make the posture a random walk (q drifts -> cmd drifts with it) and the stand integrates away.
+QREF = np.mean([i[2][7:34] for i in inits], axis=0)
 hold = [i for i in range(len(inits)) if i % 5 == 4]; train_i = [i for i in range(len(inits)) if i % 5 != 4]   # 1/5 of states held out for eval
 
 # ---- teacher ----
@@ -83,8 +87,8 @@ class Teacher:
         self.p.kill(); self.p.wait(); self.err.close()
 
 # ---- episode ----
-def obs_now(t):
-    return obs_vec(pd.sensordata[:27].copy(), pd.sensordata[27:54].copy(), pd.sensordata[IQ:IQ + 4].copy(), pd.sensordata[IG:IG + 3].copy(), 0, 1, 30.0)
+def obs_now(t, prev):
+    return obs_vec(pd.sensordata[:27].copy(), pd.sensordata[27:54].copy(), pd.sensordata[IQ:IQ + 4].copy(), pd.sensordata[IG:IG + 3].copy(), 0, 1, 30.0, prev)
 def fallen():
     R = pd.xmat[torso].reshape(3, 3); return pd.qpos[2] < 0.6 or R[2, 2] < 0.5
 def episode(init, teacher, student, beta, push, T=T_EP, record=True, k=None):
@@ -93,10 +97,10 @@ def episode(init, teacher, student, beta, push, T=T_EP, record=True, k=None):
     X, Y = [], []; t = 0.0; cmd = pd.sensordata[:27].copy(); tf = tau_ff(pd.qpos); nlab = 0; tw0 = time.time()
     while t < T - 1e-9:
         if round(t / DT) % SUB == 0:
-            x = obs_now(t); q = pd.sensordata[:27].copy()
+            q = pd.sensordata[:27].copy(); x = obs_now(t, cmd)      # prev = the command actually executed last tick
             a_t = teacher.label(pd.qpos, pd.qvel, t, k=k or K) if teacher is not None else None
-            a_s = q + student(x)[:27] if student is not None else None
-            if a_t is not None and record: X.append(x); Y.append((a_t - q).astype(np.float32)); nlab += 1
+            a_s = QREF + student(x)[:27] if student is not None else None
+            if a_t is not None and record: X.append(x); Y.append((a_t - QREF).astype(np.float32)); nlab += 1
             if a_t is not None and a_s is not None: cmd = beta * a_t + (1 - beta) * a_s
             else: cmd = a_t if a_t is not None else a_s
             tf = tau_ff(pd.qpos)
@@ -149,6 +153,7 @@ if __name__ == "__main__":
                 for n, i in enumerate(train_i[:6]):
                     push = None if n < 4 else (2.0, 60.0 * (1 if n == 4 else 0), 60.0 * (0 if n == 4 else 1))
                     X, Y, tsurv, nlab, wall = episode(inits[i], teacher, None, 1.0, push, k=kk)
+                    np.savez_compressed(f"{OUT}/check_K{kk}_{n}.npz", X=X, Y=Y)
                     print(f"[check K={kk}] {inits[i][0]}@{inits[i][1]} push {push} survived {tsurv:.1f}/{T_EP}s  labels {nlab}  {wall/max(nlab,1)*1e3:.0f} ms/label  |cmd-q| {np.degrees(np.sqrt((Y**2).mean())) if len(Y) else 0:.2f} deg", flush=True)
             sys.exit(0)
         if SMOKE:
@@ -157,10 +162,13 @@ if __name__ == "__main__":
             X2, Y2, tsurv2, _, _ = episode(inits[train_i[1]], teacher, None, 1.0, (1.5, 90.0, 0.0), T=min(T_EP, 5.0))
             print(f"[smoke] teacher-only with 90 N push: survived {tsurv2:.2f}s of 5", flush=True); sys.exit(0)
         # seed set: planner demonstrations (stand phase) from the twin recordings
-        z = np.load(f"{OUT}/bc_data.npz"); keep = z["phase"] == 0; X0 = z["X"][keep]; Y0 = z["Y"][keep][:, :27]; W0 = np.full(len(X0), 0.3, np.float32)
-        Xa, Ya = [X0], [Y0]; Wa = [W0]; student = None
+        Xa, Ya, Wa = [], [], []
+        if not os.environ.get("DAG_NO_DEMOS"):
+            z = np.load(f"{OUT}/bc_data.npz"); keep = z["phase"] == 0; X0 = z["X"][keep]; Y0 = z["Y"][keep][:, :27]
+            Xa, Ya, Wa = [X0], [Y0], [np.full(len(X0), 0.3, np.float32)]
+        student = None; NDEMO = len(Xa)
         for it in range(ITERS):
-            beta = 1.0 if it == 0 else max(0.0, 0.5 ** it)
+            beta = 1.0 if it == 0 else (max(0.0, 0.5 ** it) if os.environ.get('DAG_BETA_DECAY') else 0.0)   # classic DAgger: teacher once, then pure student rollouts
             Xi, Yi, surv = [], [], []
             for e in range(EPIS):
                 init = inits[train_i[rng.integers(len(train_i))]]; push = rand_push()
@@ -168,9 +176,9 @@ if __name__ == "__main__":
                 if len(X): Xi.append(X); Yi.append(Y)
                 surv.append(tsurv); print(f"  it {it} ep {e} beta {beta:.2f} init {init[0]}@{init[1]} survived {tsurv:.1f}s labels {nlab} wall {wall:.0f}s push {None if push is None else (round(push[0],1), int(np.hypot(push[1], push[2])))}", flush=True)
             Xi = np.concatenate(Xi); Yi = np.concatenate(Yi); Xa.append(Xi); Ya.append(Yi); Wa.append(np.ones(len(Xi), np.float32))
-            print(f"[it {it}] mixed-policy mean survival {np.mean(surv):.1f}/{T_EP}s; aggregated DAgger samples {sum(len(x) for x in Xa[1:])}", flush=True)
+            print(f"[it {it}] mixed-policy mean survival {np.mean(surv):.1f}/{T_EP}s; aggregated DAgger samples {sum(len(x) for x in Xa[NDEMO:])}", flush=True)
             path = fit(np.concatenate(Xa), np.concatenate(Ya), np.concatenate(Wa), f"{TAG}{it}"); student = Policy(path)
             evaluate(student, f"{TAG}{it}")
-            np.savez_compressed(f"{OUT}/dagger_{TAG}_data.npz", X=np.concatenate(Xa[1:]), Y=np.concatenate(Ya[1:]))
+            np.savez_compressed(f"{OUT}/dagger_{TAG}_data.npz", X=np.concatenate(Xa[NDEMO:]), Y=np.concatenate(Ya[NDEMO:]))
     finally:
         teacher.close()
