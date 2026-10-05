@@ -84,6 +84,10 @@ def rollout(r, T, params, mlp=None, want_X=False):
     if abs(simgap._LAST_CORR[4]) >= 0.003 and not params.get("no_skip", False): return None
     out = dict(q_sim=np.zeros((T, NJ), np.float32), dq_sim=np.zeros((T, NJ), np.float32), dq_plant=np.zeros((T, NJ), np.float32), q0_sim=d.qpos[JQ].copy())
     if want_X: out["X"] = np.zeros((T, 168), np.float32)
+    cmd_noise = float(params.get("cmd_noise", 0.0))   # planner-like exploration noise on the recorded command (rad, per step)
+    if cmd_noise > 0:
+        rng = np.random.RandomState(int(params.get("seed", 0)) + int(r.get("i0", 0)))
+        r = dict(r, cmd=(r["cmd"] + rng.normal(0, cmd_noise, r["cmd"].shape)).astype(r["cmd"].dtype))   # local copy
     for t in range(T):
         x = features(d, r, t, tl) if (mlp is not None or want_X) else None
         if want_X: out["X"][t] = x

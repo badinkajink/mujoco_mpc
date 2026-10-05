@@ -11,7 +11,7 @@ import residual_fit as RF, rollout_engine as RE
 
 T = int(os.environ.get("MBRL_T", "25")); ITERS = int(os.environ.get("MBRL_DAD_ITERS", "5"))
 NSEG = int(os.environ.get("MBRL_DAD_SEGS", "3000")); NW = int(os.environ.get("MBRL_WORKERS", "8"))
-PARAMS = dict(nsub=int(os.environ.get("MBRL_NSUB", "5")), dt=float(os.environ.get("MBRL_DT", "0.002")), inject=os.environ.get("MBRL_INJECT", "post"))
+PARAMS = dict(nsub=int(os.environ.get("MBRL_NSUB", "5")), dt=float(os.environ.get("MBRL_DT", "0.002")), inject=os.environ.get("MBRL_INJECT", "post"), cmd_noise=float(os.environ.get("MBRL_CMD_NOISE", "0")))
 TAG = os.environ.get("MBRL_TAG", "dad")
 
 def to_numpy_mlp(res: RF.Residual):
