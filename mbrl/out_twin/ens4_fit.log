@@ -1,0 +1,11 @@
+one-step base: val rmse {'legs': 0.1800788026284107, 'waist': 0.05085928500969797, 'arms': 0.013344296165400615, 'all': 0.12083354821540768}  (8s)
+segments train 3000 val 500  plant params {'nsub': 1, 'dt': 0.01, 'inject': 'pre', 'cmd_noise': 0.08}
+val plant-only: {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.023305347573666903, "waist": 0.025304632718066693, "arms": 0.01492660892620353}, "250ms": {"legs": 0.05604846081140179, "waist": 0.04800247869072243, "arms": 0.032066973765071914}, "500ms": {"legs": null, "waist": null, "arms": null}}
+iter 0: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.023432494359250815, "waist": 0.01934315333683521, "arms": 0.011350658127880326}, "250ms": {"legs": 0.05781212961082902, "waist": 0.04162002352210107, "arms": 0.027890006251570145}, "500ms": {"legs": null, "waist": null, "arms": null}}
+  aggregated 56675 on-rollout samples (on-rollout total 56675, mixed batch 170025); fine-tuning
+iter 1: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.03164080854491186, "waist": 0.014066615948109124, "arms": 0.008974917354983738}, "250ms": {"legs": 0.09837795059602948, "waist": 0.042637548675432214, "arms": 0.021857971208623626}, "500ms": {"legs": null, "waist": null, "arms": null}}
+  aggregated 56675 on-rollout samples (on-rollout total 113350, mixed batch 340050); fine-tuning
+iter 2: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.03280402392432702, "waist": 0.010667145958659512, "arms": 0.007249274882240186}, "250ms": {"legs": 0.10093411152901667, "waist": 0.02598679584846362, "arms": 0.015169841618298952}, "500ms": {"legs": null, "waist": null, "arms": null}}
+  aggregated 56675 on-rollout samples (on-rollout total 170025, mixed batch 510075); fine-tuning
+iter 3: val rollouts {"n": 500, "skipped": 150, "diverged": 0, "100ms": {"legs": 0.031412691471295745, "waist": 0.010808521820212, "arms": 0.00679300003399376}, "250ms": {"legs": 0.09228910332116387, "waist": 0.023585037950353285, "arms": 0.013347532071714043}, "500ms": {"legs": null, "waist": null, "arms": null}}
+done 18s
