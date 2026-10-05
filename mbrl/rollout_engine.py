@@ -59,6 +59,13 @@ class NumpyMLP:
         y = (h @ self.W[-1].T + self.b[-1]) * self.ysd + self.ymu
         return np.clip(y, -self.clip, self.clip)
 
+class Ensemble:
+    """mean of K NumpyMLPs, per-joint gated by disagreement: y = mean * exp(-(std/tau)^2)"""
+    def __init__(self, members, tau=0.05): self.members = members; self.tau = tau
+    def __call__(self, x):
+        Y = np.stack([mm(x) for mm in self.members]); mu = Y.mean(0); sd = Y.std(0)
+        return mu * np.exp(-(sd / self.tau) ** 2)
+
 def apply_params(m, params):
     """params: dict of plant modifications. keys: damping_legs/arms (scale), armature_legs/arms, torque_legs/arms,
     q_offsets (27 rad added to recorded q), nsub, dt"""

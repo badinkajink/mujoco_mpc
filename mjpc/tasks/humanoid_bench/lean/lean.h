@@ -255,9 +255,9 @@ class lean : public Task {
   // "legs,waist,arms" (default "0,1,1", the validated setting) scales the correction per group.
   // Pre-step joint-velocity correction, per planner thread.
   void ModifyRolloutState(const mjModel *model, mjData *data) const override {
-    if (residual_mlp_.enabled()) H12ApplyResidual(residual_mlp_, model, data, residual_imu_site_, residual_scale_);
+    if (residual_mlp_.enabled()) residual_mlp_.Apply(model, data, residual_imu_site_, residual_scale_);
   }
-  ResidualMLP residual_mlp_;
+  ResidualEnsemble residual_mlp_;
   int residual_imu_site_ = -1;
   double residual_scale_[3] = {0.0, 1.0, 1.0};
   void LoadResidualMLP(const mjModel *model);

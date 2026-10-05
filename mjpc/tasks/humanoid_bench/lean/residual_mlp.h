@@ -38,4 +38,16 @@ bool H12ResidualFeatures(const mjModel* m, const mjData* d, int imu_site, float*
 // a pre-step kick on a planted foot is absorbed by the contact solver and hurts the legs (mbrl/out/masked_dadpre10.json).
 void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int imu_site, const double group_scale[3]);
 
+// Ensemble: K networks on the same features; per-joint output = mean * exp(-(std/tau)^2) so the correction is
+// withdrawn where the members disagree (model uncertainty). tau from H12_RESIDUAL_TAU (rad/s, default 0.05).
+class ResidualEnsemble {
+ public:
+  bool Load(const std::string& comma_separated_paths);   // one path -> plain single network
+  bool enabled() const { return !members_.empty(); }
+  int size() const { return members_.size(); }
+  void Apply(const mjModel* m, mjData* d, int imu_site, const double group_scale[3]) const;
+ private:
+  std::vector<ResidualMLP> members_; double tau_ = 0.05;
+};
+
 }  // namespace mjpc

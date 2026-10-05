@@ -18,6 +18,7 @@ def to_numpy_mlp(res: RF.Residual):
     return RE.NumpyMLP({k: v.detach().cpu().numpy() for k, v in res.net.state_dict().items()}, res.mu, res.sd, res.ymu, res.ysd, res.clip)
 
 def main():
+    seed = int(os.environ.get("MBRL_SEED", "0")); torch.manual_seed(seed); np.random.seed(seed)
     log_f = open(os.path.join(OUT, f"{TAG}_fit.log"), "a")
     def log(s): print(s, flush=True); log_f.write(s + "\n"); log_f.flush()
     t0 = time.time()
@@ -25,7 +26,7 @@ def main():
     Xtr, ytr, _, _ = RF.load_split("train", int(os.environ.get("MBRL_DAD_BASE", "600000"))); Xv, yv, _, _ = RF.load_split("val", 100000)
     base = RF.Residual("mlp"); base.fit(Xtr, ytr, Xv, yv, epochs=8, log=lambda s: None)
     log(f"one-step base: val rmse {RF.grp_rmse(yv - base.predict(Xv))}  ({time.time()-t0:.0f}s)")
-    segs_tr = RE.compact_segments("train", T, NSEG, seed=0); segs_va = RE.compact_segments("val", T, 500, seed=1)
+    segs_tr = RE.compact_segments("train", T, NSEG, seed=seed); segs_va = RE.compact_segments("val", T, 500, seed=1)
     log(f"segments train {len(segs_tr)} val {len(segs_va)}  plant params {PARAMS}")
     eng = RE.Engine(NW)
     plant_val = RE.score(segs_va, eng.run(segs_va, T, PARAMS)); log(f"val plant-only: {json.dumps(plant_val)}")

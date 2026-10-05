@@ -6832,6 +6832,6 @@ void mjpc::lean::LoadResidualMLP(const mjModel *model) {
   if (!path || !*path) return;
   if (!attempted || !residual_mlp_.enabled()) { residual_mlp_.Load(path); attempted = true; }
   if (residual_mlp_.enabled())
-    std::fprintf(stderr, "[lean] planner residual ON (scale legs %.2f waist %.2f arms %.2f, imu site %d)\n",
-                 residual_scale_[0], residual_scale_[1], residual_scale_[2], residual_imu_site_);
+    std::fprintf(stderr, "[lean] planner residual ON (%d nets, scale legs %.2f waist %.2f arms %.2f, imu site %d)\n",
+                 residual_mlp_.size(), residual_scale_[0], residual_scale_[1], residual_scale_[2], residual_imu_site_);
 }

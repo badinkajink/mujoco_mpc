@@ -104,3 +104,39 @@ void H12ApplyResidual(const ResidualMLP& mlp, const mjModel* m, mjData* d, int i
 }
 
 }  // namespace mjpc
+
+namespace mjpc {
+
+bool ResidualEnsemble::Load(const std::string& paths) {
+  members_.clear(); size_t a = 0;
+  while (a <= paths.size()) {
+    size_t b = paths.find(',', a); std::string one = paths.substr(a, b == std::string::npos ? std::string::npos : b - a);
+    if (!one.empty()) { ResidualMLP mlp; if (mlp.Load(one)) members_.push_back(std::move(mlp)); }
+    if (b == std::string::npos) break; a = b + 1;
+  }
+  if (const char* t = std::getenv("H12_RESIDUAL_TAU")) tau_ = std::atof(t);
+  if (!members_.empty()) std::fprintf(stderr, "[residual_mlp] ensemble of %zu, tau %.3f rad/s\n", members_.size(), tau_);
+  return !members_.empty();
+}
+
+void ResidualEnsemble::Apply(const mjModel* m, mjData* d, int imu_site, const double group_scale[3]) const {
+  if (members_.empty() || members_[0].nin() != kNIn || members_[0].nout() != kNJ) return;
+  thread_local std::vector<float> scratch; thread_local float x[kNIn]; thread_local float y[kNJ];
+  thread_local std::vector<float> Y;
+  mj_kinematics(m, d);
+  if (!H12ResidualFeatures(m, d, imu_site, x)) return;
+  const int K = members_.size(); Y.assign(size_t(K) * kNJ, 0.0f);
+  for (int k = 0; k < K; ++k) { members_[k].Forward(x, y, scratch); for (int j = 0; j < kNJ; ++j) Y[k * kNJ + j] = y[j]; }
+  for (int j = 0; j < kNJ; ++j) {
+    double mu = 0, s2 = 0;
+    for (int k = 0; k < K; ++k) mu += Y[k * kNJ + j];
+    mu /= K;
+    for (int k = 0; k < K; ++k) { double e = Y[k * kNJ + j] - mu; s2 += e * e; }
+    double sd = K > 1 ? std::sqrt(s2 / K) : 0.0;
+    double gate = K > 1 ? std::exp(-(sd / tau_) * (sd / tau_)) : 1.0;
+    double s = j < 12 ? group_scale[0] : (j == 12 ? group_scale[1] : group_scale[2]);
+    if (s != 0.0) d->qvel[6 + j] += s * gate * mu;
+  }
+}
+
+}  // namespace mjpc
