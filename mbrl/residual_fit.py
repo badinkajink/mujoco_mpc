@@ -24,7 +24,11 @@ def features(r, s):
     # and catches) is an external force in neither the command nor the plant; upright phases were hands-off.
     if os.environ.get("MBRL_MAX_TILT"): ok &= s["tilt"] < float(os.environ["MBRL_MAX_TILT"])
     q = r["q"][idx]; dq = r["dq"][idx]; cmd = r["cmd"][idx]; kp = r["kp"][idx]; kd = r["kd"][idx]
-    X = np.concatenate([q, dq, s["tau_pd0"], cmd - q, kp / 100.0, kd / 10.0, gvec(r["base_quat"][idx]), s["w_rec0"]], 1).astype(np.float32)
+    tau0 = s["tau_pd0"]
+    if os.environ.get("MBRL_ZERO_TAUFF"):      # planner-available inputs only: no node feed-forward in the torque feature
+        tl = r["tau_lim"].astype(np.float32); tl[~np.isfinite(tl)] = 1e9
+        tau0 = np.clip(kp * (cmd - q) - kd * dq, -tl, tl)
+    X = np.concatenate([q, dq, tau0, cmd - q, kp / 100.0, kd / 10.0, gvec(r["base_quat"][idx]), s["w_rec0"]], 1).astype(np.float32)
     y = (r["dq"][idx + 1] - s["dq_pd"]).astype(np.float32)
     ez = (r["dq"][idx + 1] - dq).astype(np.float32)
     return X[ok], y[ok], ez[ok], idx[ok]
@@ -35,7 +39,7 @@ def load_split(split, maxn=None):
     for m in man:
         f = os.path.join(SIMG, m["run"] + ".npz")
         if not os.path.exists(f): continue
-        with np.load(os.path.join(RUNS, m["run"] + ".npz")) as z: r = {k: z[k] for k in ("q", "dq", "cmd", "kp", "kd", "base_quat")}
+        with np.load(os.path.join(RUNS, m["run"] + ".npz")) as z: r = {k: z[k] for k in ("q", "dq", "cmd", "kp", "kd", "base_quat", "tau_lim")}
         s = np.load(f); X, y, ez, idx = features(r, s)
         Xs.append(X); ys.append(y); ezs.append(ez); runs.append(np.full(len(X), m["run"]))
     X = np.concatenate(Xs); y = np.concatenate(ys); ez = np.concatenate(ezs); runs = np.concatenate(runs)
