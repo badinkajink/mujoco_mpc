@@ -8,9 +8,10 @@ tag = sys.argv[1] if len(sys.argv) > 1 else "dad"
 st = torch.load(os.path.join(OUT, f"residual_mlp_{tag}.pt"), map_location="cpu"); nz = np.load(os.path.join(OUT, f"residual_norm_{tag}.npz"))
 ids = sorted({int(k.split(".")[1]) for k in st if k.endswith(".weight")}); layers = [(st[f"net.{i}.weight"].numpy().astype(np.float32), st[f"net.{i}.bias"].numpy().astype(np.float32)) for i in ids]
 nin, nout = layers[0][0].shape[1], layers[-1][0].shape[0]
-outp = os.path.join(OUT, f"residual_{tag}.bin")
+outp = os.path.join(OUT, f"residual_{tag}" + (f"_clip{os.environ['MBRL_CLIP_SCALE']}" if os.environ.get("MBRL_CLIP_SCALE") else "") + ".bin")
 with open(outp, "wb") as f:
     f.write(struct.pack("<iiii", 0x4d4c5031, nin, nout, len(layers)))
     for W, b in layers: f.write(struct.pack("<ii", *W.shape)); f.write(W.tobytes()); f.write(b.tobytes())
-    for k in ("mu", "sd", "ymu", "ysd", "clip"): f.write(np.asarray(nz[k], np.float32).tobytes())
+    cs = float(os.environ.get("MBRL_CLIP_SCALE", "1.0")); suffix = ""
+    for k in ("mu", "sd", "ymu", "ysd", "clip"): f.write((np.asarray(nz[k], np.float32) * (cs if k == "clip" else 1.0)).tobytes())
 print("wrote", outp, nin, nout, [W.shape for W, _ in layers])
