@@ -133,6 +133,9 @@ class V3Core:
         mujoco.mj_forward(self.m, d)
         self.base_height = -min(float(d.xpos[bid][2])
                                 for bid, _ in self.foot_ids) + self.height_C
+        # 2026-10-09 instrumentation (bench): expose what base_height is made of
+        self.dbg_foot_z = [float(d.xpos[bid][2]) for bid, _ in self.foot_ids]
+        self.dbg_tilt_deg = float(np.degrees(np.arccos(np.clip(R_wp[2, 2], -1, 1))))
         vfeet = []
         for bid, _ in self.foot_ids:
             mujoco.mj_objectVelocity(self.m, d, mujoco.mjtObj.mjOBJ_BODY, bid,
@@ -142,6 +145,7 @@ class V3Core:
 
         # --- fix #3: feet cross-check BEFORE the per-foot updates -----------------
         loads = [abs(tau[i1]) + abs(tau[i2]) for i1, i2 in self.LOAD_IDX]
+        self.dbg_loads = [float(l) for l in loads]
         slip_active = False
         if a.slip_monitor:
             both_loaded = all(l >= a.zupt_load for l in loads)

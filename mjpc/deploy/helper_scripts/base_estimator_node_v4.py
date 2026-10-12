@@ -44,6 +44,7 @@ Run in the twin venv:
   .venv/bin/python .../base_estimator_node_v4.py                 # live (aux optional)
 """
 import argparse
+import os
 import time
 
 import numpy as np
@@ -562,9 +563,12 @@ def main():
             pub.Write(msg)
 
         n += 1
-        if n % int(a.rate) == 0:
+        if n % max(1, int(a.rate) // int(float(os.environ.get("EST_LOG_DIV", "1")))) == 0:
             v = out["v"]
             line = (f"[est] {now - t0:6.1f}s  base_z={out['base_height']:5.3f}  "
+                    f"tick={int(ls.tick)} tilt={core.dbg_tilt_deg:4.1f} "
+                    f"footz=[{core.dbg_foot_z[0]:+.3f},{core.dbg_foot_z[1]:+.3f}] "
+                    f"load=[{core.dbg_loads[0]:.0f},{core.dbg_loads[1]:.0f}]  "
                     f"xy=[{out['xy'][0]:+.2f},{out['xy'][1]:+.2f}]  "
                     f"v=[{v[0]:+.3f},{v[1]:+.3f},{v[2]:+.3f}] m/s  | "
                     + core.telemetry())
