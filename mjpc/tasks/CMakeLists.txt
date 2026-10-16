@@ -415,6 +415,17 @@ add_custom_target(
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
   COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/beginning/h1_2
+  # Loco task: same mesh plumbing as beginning/ above.
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/loco/meshes
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/loco/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ../../h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/loco/meshes/h1_2
+  COMMAND ${CMAKE_COMMAND} -E rm -f
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/loco/h1_2
+  COMMAND ${CMAKE_COMMAND} -E create_symlink meshes/h1_2
+        ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/loco/h1_2
   COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/humanoid_bench/h1_2_base/h1_2_pos_hands.xml
         ${CMAKE_CURRENT_BINARY_DIR}/humanoid_bench/h1_2/h1_2_modified_hands.xml

@@ -107,6 +107,10 @@ add_library(
   # beginning/Beginning_H12*.xml. Nothing in deploy/ points here.
   tasks/humanoid_bench/beginning/beginning.cc
   tasks/humanoid_bench/beginning/beginning.h
+  # Locomotion-only fork of beginning/ (stand/stumble/trot/drive/straighten),
+  # registered as "Loco H12 Magpie". Reads loco/strategies/.
+  tasks/humanoid_bench/loco/loco.cc
+  tasks/humanoid_bench/loco/loco.h
   tasks/humanoid_bench/stabilize/stabilize.cc
   tasks/humanoid_bench/stabilize/stabilize.h
   tasks/humanoid_bench/upper/upper.cc

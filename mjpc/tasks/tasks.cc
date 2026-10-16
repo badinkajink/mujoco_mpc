@@ -48,6 +48,7 @@
 #include "mjpc/tasks/humanoid_bench/walk/walk.h"
 #include "mjpc/tasks/humanoid_bench/lean/lean.h"
 #include "mjpc/tasks/humanoid_bench/beginning/beginning.h"
+#include "mjpc/tasks/humanoid_bench/loco/loco.h"
 #include "mjpc/tasks/humanoid_bench/stabilize/stabilize.h"
 #include "mjpc/tasks/humanoid_bench/upper/upper.h"
 #include "mjpc/tasks/humanoid_bench/grasp/grasp.h"
@@ -85,6 +86,11 @@ std::vector<std::shared_ptr<Task>> GetTasks() {
       std::make_shared<Beginning_H12>(),
       std::make_shared<Beginning_H12_Magpie>(),
       std::make_shared<Beginning_H12_Hands>(),
+
+      // H1_2 Loco Task (2026-10-14): locomotion-only fork of Beginning (whole
+      // body, nu=27). Slots 6 stand / 20 stumble / 23 trot / 24 drive / 25
+      // straighten, same numbers as Beginning; everything brace/reach dropped.
+      std::make_shared<Loco_H12_Magpie>(),
 
       // H1_2 lower-body-only (nu=12) Stabilize Task
       std::make_shared<Stabilize_H12_Magpie>(),
