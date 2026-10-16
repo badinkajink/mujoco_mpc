@@ -1,0 +1,5 @@
+.venv/
+.venv323/
+# exact planner-model dumps are 161 MB each; regenerate with h12_control_node --dump_model
+models/*.mjb
+models/*.log

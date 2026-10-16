@@ -1,0 +1,6 @@
+{"K": 16, "substeps": 1, "dt": 0.01, "tick_ms_median": 0.8179969954653643, "tick_ms_p95": 0.8335155529493932, "tick_ms_max": 0.8356959879165515, "finite": true, "ncon_total": 208, "pelvis_z_spread_after_1tick": 0.0}
+{"K": 32, "substeps": 1, "dt": 0.01, "tick_ms_median": 0.933980496483855, "tick_ms_p95": 0.9667820479080547, "tick_ms_max": 0.9750280005391687, "finite": true, "ncon_total": 416, "pelvis_z_spread_after_1tick": 0.0}
+{"K": 64, "substeps": 1, "dt": 0.01, "tick_ms_median": 0.9750480021466501, "tick_ms_p95": 0.9914514434058219, "tick_ms_max": 0.9985020005842671, "finite": true, "ncon_total": 832, "pelvis_z_spread_after_1tick": 0.0}
+{"K": 128, "substeps": 1, "dt": 0.01, "tick_ms_median": 1.5616780001437292, "tick_ms_p95": 1.5740144939627498, "tick_ms_max": 1.5794270002515987, "finite": true, "ncon_total": 1664, "pelvis_z_spread_after_1tick": 0.0}
+{"K": 256, "substeps": 1, "dt": 0.01, "tick_ms_median": 2.1248595003271475, "tick_ms_p95": 3.199969213164877, "tick_ms_max": 3.2271329982904717, "finite": true, "ncon_total": 3328, "pelvis_z_spread_after_1tick": 0.0}
+{"K": 64, "substeps": 5, "dt": 0.002, "tick_ms_median": 4.606903494277503, "tick_ms_p95": 4.646009896532632, "tick_ms_max": 5.966416007140651, "finite": true, "ncon_total": 832, "pelvis_z_spread_after_1tick": 0.0}
