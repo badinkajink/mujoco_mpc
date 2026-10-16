@@ -145,6 +145,37 @@ ABSL_FLAG(bool, ankle_autocalib, false,
 ABSL_FLAG(bool, ankle_autocalib_selftest, false,
           "Validate the auto-calib solver against planted +-6 deg offsets (no robot, no DDS) "
           "and exit 0/1. Run after any edit to the anklecalib:: code.");
+ABSL_FLAG(std::string, dump_model, "",
+          "Write the loaded+patched planner model to <path>.mjb/.xml and exit "
+          "(no DDS). For the GPU look-back bank Warp copy.");
+ABSL_FLAG(std::string, bank_file, "",
+          "GPU look-back bank hook: text file \"<stamp> <table_dz_m>\" polled by the planner "
+          "thread; moves the planner table by dz. Empty = off.");
+ABSL_FLAG(double, bank_max_dz, 0.06, "clamp for --bank_file table dz (m)");
+ABSL_FLAG(bool, bank_inproc, false, "look-back bank INSIDE the node (no DDS/process); see NodeConfig");
+ABSL_FLAG(std::string, bank_grid, "-0.08,-0.07,-0.06,-0.05,-0.04,-0.03,-0.02,-0.01,0,0.01,0.02,0.03",
+          "in-proc bank: table dz hypotheses (m, comma list)");
+ABSL_FLAG(double, bank_tick, 0.010, "in-proc bank: thread period (s)");
+ABSL_FLAG(double, bank_window, 0.3, "in-proc bank: score EMA window (s)");
+ABSL_FLAG(double, bank_switch_ratio, 0.7, "in-proc bank: leader must beat the applied world by this ratio");
+ABSL_FLAG(int, bank_switch_ticks, 20, "in-proc bank: ...for this many consecutive ticks");
+ABSL_FLAG(double, bank_dwell, 1.0, "in-proc bank: min s between switches");
+ABSL_FLAG(double, bank_max_step, 0.03, "in-proc bank: max |dz change| per switch (m)");
+ABSL_FLAG(double, bank_z_min, 0.6, "in-proc bank: no switching while base z below (m)");
+ABSL_FLAG(double, bank_score_max, 5e-3, "in-proc bank: no switching while best score above");
+ABSL_FLAG(double, bank_commit_bias, 0.02, "in-proc bank: applied dz = estimate - bias once switched (m)");
+ABSL_FLAG(std::string, bank_log, "", "in-proc bank: score log path (empty = none)");
+ABSL_FLAG(double, bank_substep, 0.010, "in-proc bank: max integration step per tick (s)");
+ABSL_FLAG(double, bank_plant_dt, 0.0, "in-proc bank: plant s per lowstate tick (0 = --twin_dt; real robot: its tick unit)");
+ABSL_FLAG(std::string, bank_ank_grid, "", "in-proc bank: ankle-pitch zero residual grid (deg, e.g. -2,-1,-0.5,0,0.5,1,2); empty = dz only");
+ABSL_FLAG(double, bank_ank_max_step_deg, 1.0, "in-proc bank: max ankle-zero step per switch (deg)");
+ABSL_FLAG(double, bank_ank_ratio, 0.9, "in-proc bank: ankle axes switch when leader < ratio x applied score ...");
+ABSL_FLAG(int, bank_ank_ticks, 100, "in-proc bank: ... for this many consecutive evaluations of that axis");
+ABSL_FLAG(double, bank_ank_tilt_max, 8.0, "in-proc bank: ankle axes switch only while pelvis tilt < this (deg) and no table contact");
+ABSL_FLAG(double, bank_tie_tol, 0.0, "in-proc bank: scores within this fraction of the best are tied; the tied world nearest the applied value leads (0 = strict argmin)");
+ABSL_FLAG(bool, bank_ank_apply, true, "in-proc bank: false = ankle axes estimate + log only, never touch the node ankle offsets");
+ABSL_FLAG(double, bank_contact_min, 0.0, "in-proc bank: table-axis switches need >= this N of table contact in the leading look-back world (0 = off)");
+ABSL_FLAG(bool, bank_apply, true, "in-proc bank: false = observe only (estimate + log, never move the table)");
 ABSL_FLAG(double, ac_hold_extra, 3.5,
           "EXTENDED CALIB HOLD (2026-07-19): extra seconds of scripted post-ramp hold when "
           "--ankle_autocalib is on, so BOTH calib windows (witness + confirm) and the APPLY land "
@@ -463,6 +494,32 @@ int main(int argc, char** argv) {
   cfg.ankle_pitch_offset_r_deg = absl::GetFlag(FLAGS_ankle_pitch_offset_r_deg);
   cfg.ankle_autocalib = absl::GetFlag(FLAGS_ankle_autocalib);
   cfg.ankle_autocalib_selftest = absl::GetFlag(FLAGS_ankle_autocalib_selftest);
+  cfg.dump_model = absl::GetFlag(FLAGS_dump_model);
+  cfg.bank_file = absl::GetFlag(FLAGS_bank_file);
+  cfg.bank_max_dz = absl::GetFlag(FLAGS_bank_max_dz);
+  cfg.bank_inproc = absl::GetFlag(FLAGS_bank_inproc);
+  cfg.bank_grid = absl::GetFlag(FLAGS_bank_grid);
+  cfg.bank_tick = absl::GetFlag(FLAGS_bank_tick);
+  cfg.bank_window = absl::GetFlag(FLAGS_bank_window);
+  cfg.bank_switch_ratio = absl::GetFlag(FLAGS_bank_switch_ratio);
+  cfg.bank_switch_ticks = absl::GetFlag(FLAGS_bank_switch_ticks);
+  cfg.bank_dwell = absl::GetFlag(FLAGS_bank_dwell);
+  cfg.bank_max_step = absl::GetFlag(FLAGS_bank_max_step);
+  cfg.bank_z_min = absl::GetFlag(FLAGS_bank_z_min);
+  cfg.bank_score_max = absl::GetFlag(FLAGS_bank_score_max);
+  cfg.bank_commit_bias = absl::GetFlag(FLAGS_bank_commit_bias);
+  cfg.bank_log = absl::GetFlag(FLAGS_bank_log);
+  cfg.bank_substep = absl::GetFlag(FLAGS_bank_substep);
+  cfg.bank_plant_dt = absl::GetFlag(FLAGS_bank_plant_dt);
+  cfg.bank_apply = absl::GetFlag(FLAGS_bank_apply);
+  cfg.bank_ank_ratio = absl::GetFlag(FLAGS_bank_ank_ratio);
+  cfg.bank_ank_ticks = absl::GetFlag(FLAGS_bank_ank_ticks);
+  cfg.bank_ank_tilt_max = absl::GetFlag(FLAGS_bank_ank_tilt_max);
+  cfg.bank_tie_tol = absl::GetFlag(FLAGS_bank_tie_tol);
+  cfg.bank_ank_apply = absl::GetFlag(FLAGS_bank_ank_apply);
+  cfg.bank_contact_min = absl::GetFlag(FLAGS_bank_contact_min);
+  cfg.bank_ank_grid = absl::GetFlag(FLAGS_bank_ank_grid);
+  cfg.bank_ank_max_step_deg = absl::GetFlag(FLAGS_bank_ank_max_step_deg);
   cfg.ankle_autocalib_gravity = absl::GetFlag(FLAGS_ac_gravity);
   cfg.ankle_autocalib_imu_align = absl::GetFlag(FLAGS_ac_imu_align);
   cfg.ac_hold_extra_sec = absl::GetFlag(FLAGS_ac_hold_extra);

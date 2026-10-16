@@ -179,6 +179,44 @@ struct NodeConfig {
   // nothing and keeps the manual flags. OFF by default = byte-identical.
   bool ankle_autocalib = false;
   bool ankle_autocalib_selftest = false;  // run the planted-offset solver selftest and exit
+  // --dump_model=<path>: after the planner model is loaded + patched, write it as
+  // <path>.mjb (exact mjModel) and <path>.xml (readable) and exit. GPU-bank work
+  // (2026-10-13): the Warp copy must be byte-faithful to what iCEM plans with.
+  std::string dump_model;
+  // --bank_file=<path> (2026-10-13, GPU look-back bank, P1): a text file "<stamp> <table_dz_m>"
+  // rewritten by the external bank process (gpu/bank_node.py). The planner thread polls it
+  // between PlanIterations and moves the planner model's `table` body by table_dz (clamped
+  // to +-bank_max_dz) so iCEM plans against the bank's current best table height. Empty =
+  // OFF = byte-identical. Only table height for now (the known failure axis); ankle zeros
+  // keep their existing --ankle_* / autocalib path.
+  std::string bank_file;
+  double bank_max_dz = 0.06;
+  // --bank_inproc (2026-10-13 day): the look-back bank INSIDE the node. An external bank process
+  // (even at 5% CPU) cost the planner 2-3 plan/s through its DDS readers (planrate_diag prD) and
+  // that starvation caused pre-contact lean falls. Here one thread steps K copies of the planner
+  // model (table z = base + grid[k]) from the previous measured state with the in-flight command,
+  // scores each against the next measured state (windowed EMA, contact-focused weights), and
+  // hands the planner thread a pending table dz: decisive switch to the leader after
+  // bank_switch_ticks consecutive wins by bank_switch_ratio (v1 behaviour, which seated the pad in
+  // ~1 s), capped at bank_max_step per switch, plus bank_commit_bias BELOW the estimate once a
+  // switch has happened (the exact gap hovered; the planner needs the table a little low to
+  // commit). Gated off while base z < bank_z_min or the best score > bank_score_max (down /
+  // violent transient). No DDS, no file, no extra process.
+  bool bank_inproc = false;
+  std::string bank_grid = "-0.08,-0.07,-0.06,-0.05,-0.04,-0.03,-0.02,-0.01,0,0.01,0.02,0.03";
+  double bank_tick = 0.010, bank_window = 0.3, bank_switch_ratio = 0.7, bank_dwell = 1.0;
+  int bank_switch_ticks = 20;
+  double bank_max_step = 0.03, bank_z_min = 0.6, bank_score_max = 5e-3, bank_commit_bias = 0.02;
+  double bank_substep = 0.010;   // max integration step inside one bank tick (s)
+  double bank_plant_dt = 0.0;    // plant seconds per lowstate tick for the look-back (0 = twin_dt; REAL robot: set to its tick unit)
+  bool bank_apply = true;        // false = OBSERVE ONLY: estimate + log, never move the planner table (first real session)
+  std::string bank_log;
+  // 2026-10-14 ankle-pitch zero axes (coordinate descent beside dz): grid in DEG, "" = off; max step per switch (deg)
+  std::string bank_ank_grid; double bank_ank_max_step_deg = 1.0;
+  double bank_ank_ratio = 0.9; int bank_ank_ticks = 100; double bank_ank_tilt_max = 8.0;   // ankle axes: switch rule + quiet-stand gate (deg)
+  double bank_tie_tol = 0.0;       // leader tie-break: worlds within this fraction of the best score count as tied -> nearest to applied wins (0 = strict argmin)
+  bool bank_ank_apply = true;      // false = ankle axes observe-only (2026-10-14: applying in the free stand precipitated the stand lurch 3/3)
+  double bank_contact_min = 0.0;   // N: table axis switches only while the leading look-back world has >= this table contact force (0 = off)
   // GRAVITY ANCHOR (2026-07-18): base tilt for the autocalib solve from the
   // time-averaged RAW accelerometer in a ZUPT-verified still window instead of
   // the fused quat (which carried 0.5-0.7 deg of run-to-run support-handling

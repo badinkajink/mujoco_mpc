@@ -163,6 +163,237 @@ uint32_t Crc32Core(uint32_t* ptr, uint32_t len) {
 // authority. It only ever TIGHTENS (never loosens) an existing limit, so the arm patch
 // above still binds where it is stricter. This is a MODEL-PARITY fix, not a control law:
 // the planner keeps sampling, it just samples inside the envelope it will really get.
+// ---- GPU look-back bank hook (P1, 2026-10-13) ----
+// Polls cfg.bank_file ("<stamp> <table_dz>") and applies table_dz to the planner model's
+// `table` body z. Called ONLY from the planner thread between PlanIterations (no rollout
+// worker touches the model then), or from the --dump_model path for verification.
+struct BankPoller {
+  std::string path; double max_dz = 0.06; double base_z = 0.0; int table_body = -1;
+  double applied_dz = 0.0; long last_stamp = -1; long polls = 0; std::chrono::steady_clock::time_point next;
+  void Init(mjModel* m, const NodeConfig& cfg) {
+    path = cfg.bank_file; max_dz = cfg.bank_max_dz;
+    table_body = mj_name2id(m, mjOBJ_BODY, "table");
+    if (table_body >= 0) base_z = m->body_pos[3 * table_body + 2];
+    std::fprintf(stderr, "[bank] hook ON: file %s, table body %d base z %.4f, |dz| <= %.3f m\n",
+                 path.c_str(), table_body, base_z, max_dz);
+    next = std::chrono::steady_clock::now();
+  }
+  // returns true when the model changed
+  bool Poll(mjModel* m) {
+    if (path.empty() || table_body < 0) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next) return false;
+    next = now + std::chrono::milliseconds(20);     // 50 Hz file poll is plenty (bank ticks at 100 Hz, switches are rare)
+    polls++;
+    FILE* f = std::fopen(path.c_str(), "r");
+    if (!f) return false;
+    long stamp = -1; double dz = 0.0;
+    const int n = std::fscanf(f, "%ld %lf", &stamp, &dz);
+    std::fclose(f);
+    if (n != 2 || stamp == last_stamp) return false;
+    last_stamp = stamp;
+    if (!std::isfinite(dz)) return false;
+    dz = std::max(-max_dz, std::min(max_dz, dz));
+    if (std::fabs(dz - applied_dz) < 1e-6) return false;
+    m->body_pos[3 * table_body + 2] = base_z + dz;
+    std::fprintf(stderr, "[bank] stamp %ld: planner table z %.4f -> %.4f (dz %+.3f m, poll %ld)\n",
+                 stamp, base_z + applied_dz, base_z + dz, dz, polls);
+    applied_dz = dz;
+    return true;
+  }
+  // in-proc path: same clamp + model write, called by the planner thread between iterations
+  bool Apply(mjModel* m, double dz, const char* tag) {
+    if (table_body < 0) return false;
+    dz = std::max(-max_dz, std::min(max_dz, dz));
+    if (std::fabs(dz - applied_dz) < 1e-6) return false;
+    m->body_pos[3 * table_body + 2] = base_z + dz;
+    std::fprintf(stderr, "[bank] %s: planner table z %.4f -> %.4f (dz %+.3f m)\n", tag, base_z + applied_dz, base_z + dz, dz);
+    applied_dz = dz;
+    return true;
+  }
+};
+static BankPoller g_bank;
+
+// ---- IN-PROCESS LOOK-BACK BANK (2026-10-13 day; NodeConfig::bank_inproc) ----
+// One model copy (table z rewritten per world before each step: body_pos is a plain parameter,
+// no derived quantities depend on it) + one mjData. The control loop Push()es the measured
+// state after fill_state() with the command that was in flight during the interval that
+// ended at this sample (last_cmd_q BEFORE this tick's publish); the bank thread steps every
+// hypothesis from the PREVIOUS sample by the measured plant interval (tick * twin_dt) and
+// scores it against THIS sample. Scores/switching mirror gpu/bank_node.py (v1 decisive switch)
+// with bank_node2's capped step + gates and a commit bias (see deploy_common.h).
+struct InprocBank {
+  // 2026-10-14: multi-AXIS coordinate-descent bank. Axis 0 = planner table dz (absolute, applied to the planner
+  // table body), axes 1/2 = LEFT/RIGHT ankle-pitch zero residual (rad, INCREMENTAL: each switch emits a delta the
+  // node folds into its ankle offset, then that axis re-zeroes). Axes are evaluated round-robin, one axis per bank
+  // tick, each on its own score vector, so per-tick compute stays at one axis' K worlds (plan-rate budget ~6-7
+  // worlds / 20 ms on the laptop). Hypothesis transform (bank_sim.py, validated offline 10-13): world ankle =
+  // belief - a, world ctrl = cmd - a, prediction mapped back (+a) before the residual.
+  struct Axis { std::string name; std::vector<double> grid, score; int applied = 0, lead = 0, streak = 0; long n = 0;
+                double max_step = 0.0; bool incremental = false; std::chrono::steady_clock::time_point last_switch; int stamp = 0; };
+  mjModel* m = nullptr; mjData* d = nullptr; int table_body = -1; double base_z = 0.0;
+  std::vector<double> W; std::vector<Axis> axes; int nq = 0, nv = 0, nu = 0;
+  int qadr_l = -1, qadr_r = -1, act_l = -1, act_r = -1;   // ankle_pitch L/R qpos address + actuator (ctrl) index
+  struct Sample { std::vector<double> qpos, qvel, ctrl; uint32_t tick = 0; bool valid = false; };
+  std::mutex mu; Sample buf; bool have_new = false; int skip = 0;
+  std::atomic<bool> stop{false}; std::atomic<bool> pending{false}; std::atomic<double> pending_dz{0.0};
+  std::atomic<bool> pending_ank{false}; std::atomic<double> pending_dl{0.0}, pending_dr{0.0};
+  std::thread th; NodeConfig cfg; double twin_dt = 0.005; FILE* logf = nullptr;
+  static std::vector<double> ParseGrid(const std::string& g, double scale) {
+    std::vector<double> v; size_t p = 0; while (p <= g.size()) { size_t q = g.find(',', p); if (q == std::string::npos) q = g.size();
+      if (q > p) v.push_back(scale * std::atof(g.substr(p, q - p).c_str())); p = q + 1; } return v; }
+  static int IdxOf(const std::vector<double>& g, double v) { int b = 0; for (size_t i = 0; i < g.size(); i++) if (std::fabs(g[i] - v) < std::fabs(g[b] - v)) b = i; return b; }
+  bool Init(const mjModel* base, const NodeConfig& c, double tdt) {
+    cfg = c; twin_dt = tdt;
+    m = mj_copyModel(nullptr, base); d = mj_makeData(m); nq = m->nq; nv = m->nv; nu = m->nu;
+    table_body = mj_name2id(m, mjOBJ_BODY, "table");
+    if (table_body < 0) { std::fprintf(stderr, "[ibank] no 'table' body -> OFF\n"); return false; }
+    base_z = m->body_pos[3 * table_body + 2];
+    const auto now = std::chrono::steady_clock::now();
+    { Axis a; a.name = "dz"; a.grid = ParseGrid(cfg.bank_grid, 1.0); a.max_step = cfg.bank_max_step; a.last_switch = now; if (a.grid.empty()) return false;
+      a.score.assign(a.grid.size(), 0.0); a.applied = a.lead = IdxOf(a.grid, 0.0); axes.push_back(a); }
+    if (!cfg.bank_ank_grid.empty()) {
+      for (int j = 0; j < m->njnt; j++) { const char* n = mj_id2name(m, mjOBJ_JOINT, j); if (!n) continue;
+        if (std::strstr(n, "left_ankle_pitch")) qadr_l = m->jnt_qposadr[j]; if (std::strstr(n, "right_ankle_pitch")) qadr_r = m->jnt_qposadr[j]; }
+      for (int i = 0; i < nu; i++) { int j = m->actuator_trnid[2 * i]; if (j < 0) continue;
+        if (m->jnt_qposadr[j] == qadr_l) act_l = i; if (m->jnt_qposadr[j] == qadr_r) act_r = i; }
+      if (qadr_l < 0 || qadr_r < 0 || act_l < 0 || act_r < 0) { std::fprintf(stderr, "[ibank] ankle_pitch joints/actuators not found (q %d %d act %d %d) -> ankle axes OFF\n", qadr_l, qadr_r, act_l, act_r); }
+      else for (const char* nm : {"ankL", "ankR"}) { Axis a; a.name = nm; a.grid = ParseGrid(cfg.bank_ank_grid, M_PI / 180.0); a.max_step = cfg.bank_ank_max_step_deg * M_PI / 180.0;
+        a.incremental = true; a.last_switch = now; if (a.grid.empty()) continue; a.score.assign(a.grid.size(), 0.0); a.applied = a.lead = IdxOf(a.grid, 0.0); axes.push_back(a); }
+    }
+    // contact-focused residual weights over qpos (bank_node.py): pelvis pos 10, quat 5, selected joints 1
+    W.assign(nq, 0.0); for (int k = 0; k < 3; k++) W[k] = 10.0; for (int k = 3; k < 7; k++) W[k] = 5.0;
+    static const char* keys[] = {"hip_pitch", "knee", "ankle_pitch", "torso", "left_shoulder", "left_elbow"};
+    for (int j = 0; j < m->njnt; j++) { const char* n = mj_id2name(m, mjOBJ_JOINT, j); if (!n) continue;
+      for (const char* k : keys) if (std::strstr(n, k)) { W[m->jnt_qposadr[j]] = 1.0; break; } }
+    is_arm.assign(m->nbody, 0); int narm = 0;
+    for (int b = 0; b < m->nbody; b++) { const char* n = mj_id2name(m, mjOBJ_BODY, b); if (!n) continue;
+      if (std::strstr(n, "elbow") || std::strstr(n, "wrist") || std::strstr(n, "gripper") || std::strstr(n, "forearm") || std::strstr(n, "shoulder")) { is_arm[b] = 1; narm++; } }
+    std::fprintf(stderr, "[ibank] table-contact evidence counts %d arm bodies\n", narm);
+    if (!cfg.bank_log.empty()) logf = std::fopen(cfg.bank_log.c_str(), "w");
+    std::fprintf(stderr, "[ibank] ON%s: axes %zu (dz K=%zu [%s]%s%s) table body %d base z %.4f tick %.3f window %.2f ratio %.2f ticks %d dwell %.1f step %.3f/%.1fdeg bias %.3f plant_dt %.4f\n",
+                 cfg.bank_apply ? "" : " (OBSERVE ONLY)", axes.size(), axes[0].grid.size(), cfg.bank_grid.c_str(), axes.size() > 1 ? ", ankle deg [" : "", axes.size() > 1 ? (cfg.bank_ank_grid + "]").c_str() : "",
+                 table_body, base_z, cfg.bank_tick, cfg.bank_window, cfg.bank_switch_ratio, cfg.bank_switch_ticks, cfg.bank_dwell, cfg.bank_max_step, cfg.bank_ank_max_step_deg, cfg.bank_commit_bias, twin_dt);
+    th = std::thread([this] { Run(); });
+    return true;
+  }
+  void Push(const double* qpos, const double* qvel, const double* ctrl, int nctrl, uint32_t tick) {
+    std::lock_guard<std::mutex> lk(mu);
+    buf.qpos.assign(qpos, qpos + nq); buf.qvel.assign(qvel, qvel + nv);
+    buf.ctrl.assign(nu, 0.0); for (int i = 0; i < std::min(nctrl, nu); i++) buf.ctrl[i] = ctrl[i];
+    buf.tick = tick; buf.valid = true; have_new = true;
+  }
+  // one look-back step of the planner model under hypothesis (dz, aL, aR); returns the weighted residual vs cur
+  double Residual(const Sample& prev, const Sample& cur, double dz, double aL, double aR, int nsub) {
+    m->body_pos[3 * table_body + 2] = base_z + dz;
+    mju_copy(d->qpos, prev.qpos.data(), nq); mju_copy(d->qvel, prev.qvel.data(), nv); mju_copy(d->ctrl, cur.ctrl.data(), nu);
+    if (qadr_l >= 0) { d->qpos[qadr_l] -= aL; d->qpos[qadr_r] -= aR; d->ctrl[act_l] -= aL; d->ctrl[act_r] -= aR; }
+    for (int ss = 0; ss < nsub; ss++) mj_step(m, d);
+    if (qadr_l >= 0) { d->qpos[qadr_l] += aL; d->qpos[qadr_r] += aR; }
+    // table evidence: total normal force of every contact that involves the table body in this world's look-back step
+    last_tableF = 0.0; mjtNum f6[6];
+    for (int i = 0; i < d->ncon; i++) { const mjContact* c = d->contact + i; if (c->efc_address < 0) continue;
+      const int b0 = m->geom_bodyid[c->geom[0]], b1 = m->geom_bodyid[c->geom[1]]; if (b0 != table_body && b1 != table_body) continue;
+      const int other = b0 == table_body ? b1 : b0; if (!is_arm[other]) continue;   // ROBOT ARM on the table only (the block resting on the slab is ~5 N of table contact in every world)
+      mj_contactForce(m, d, i, f6); if (f6[0] > 0.0) last_tableF += f6[0]; }
+    double r = 0.0; for (int i = 0; i < nq; i++) { const double e = W[i] * (d->qpos[i] - cur.qpos[i]); r += e * e; } return r;
+  }
+  double last_tableF = 0.0; std::vector<double> tableF; std::vector<char> is_arm;   // per-world table contact force of the last evaluation of axis 0
+  void Run() {
+    Sample prev, cur; long n = 0; int ax = 0;
+    const double alpha = cfg.bank_tick * axes.size() / cfg.bank_window; const int warm = static_cast<int>(cfg.bank_window / (cfg.bank_tick * axes.size()));
+    auto next = std::chrono::steady_clock::now(); auto last_print = next;
+    const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(cfg.bank_tick));
+    while (!stop.load()) {
+      next += period; std::this_thread::sleep_until(next);
+      { std::lock_guard<std::mutex> lk(mu); if (!have_new) continue; cur = buf; have_new = false; if (skip > 0) { skip--; prev.valid = false; } }
+      Axis& A = axes[ax];
+      if (prev.valid) {
+        const double dt = (static_cast<int64_t>(cur.tick) - static_cast<int64_t>(prev.tick)) * twin_dt;
+        if (dt >= 0.0015 && dt <= 0.25) {
+          const int nsub = std::max(1, static_cast<int>(std::ceil(dt / cfg.bank_substep - 1e-9)));
+          m->opt.timestep = dt / nsub;
+          const double dz0 = axes[0].grid[axes[0].applied];
+          const double aL0 = axes.size() > 1 ? axes[1].grid[axes[1].applied] : 0.0, aR0 = axes.size() > 2 ? axes[2].grid[axes[2].applied] : 0.0;
+          for (size_t k = 0; k < A.grid.size(); k++) {
+            const double h = A.grid[k];
+            const double r = Residual(prev, cur, ax == 0 ? h : dz0, ax == 1 ? h : aL0, ax == 2 ? h : aR0, nsub);
+            A.score[k] = A.n ? (1.0 - alpha) * A.score[k] + alpha * r : r;
+            if (ax == 0) { if (tableF.size() != A.grid.size()) tableF.assign(A.grid.size(), 0.0); tableF[k] = A.n ? 0.9 * tableF[k] + 0.1 * last_tableF : last_tableF; }
+          }
+          A.n++; n++;
+        }
+      }
+      prev = cur;
+      A.lead = 0; for (size_t k = 1; k < A.grid.size(); k++) if (A.score[k] < A.score[A.lead]) A.lead = k;
+      // TIE-BREAK toward the applied value (2026-10-14 sweep forensics): once the real arm is below the believed slab, every
+      // world whose table is below the arm is contact-free and scores the SAME; strict argmin then picks index 0 = the
+      // lowest table, and the bank ratchets -4/-8/-12 to the grid edge. Among worlds within bank_tie_tol of the best, take
+      // the one nearest the applied value = the smallest table move that explains the data.
+      if (cfg.bank_tie_tol > 0.0) { const double best = A.score[A.lead];
+        for (size_t k = 0; k < A.grid.size(); k++) if (A.score[k] <= best * (1.0 + cfg.bank_tie_tol) && std::fabs(A.grid[k] - A.grid[A.applied]) < std::fabs(A.grid[A.lead] - A.grid[A.applied])) A.lead = k; }
+      // CONTACT GATE (2026-10-14 sweep: most switches fired BEFORE pad contact, on lean-rung mismatch): the table axis may
+      // only switch while the LEADING look-back world carries table contact force >= bank_contact_min (table evidence exists)
+      const bool contact_ok = ax != 0 || cfg.bank_contact_min <= 0.0 || (tableF.size() == A.grid.size() && tableF[A.lead] >= cfg.bank_contact_min);
+      // ANKLE axes (2026-10-14 ankB_1: during the lean/brace the ankle axis ran away, 38 switches to L +5 / R -9 deg; in the
+      // quiet stand it led the right way with a 0.8 margin): switch only in the quiet stand = pelvis tilt < bank_ank_tilt_max
+      // AND no table contact in the applied dz world, with their own (looser ratio, much longer) streak rule.
+      double tilt_deg = 0.0; { const double w = cur.qpos[3], x = cur.qpos[4], y = cur.qpos[5], z = cur.qpos[6];
+        const double sp = 2.0 * (w * y - z * x), sr = 2.0 * (w * x + y * z), cr = 1.0 - 2.0 * (x * x + y * y);
+        tilt_deg = std::sqrt(std::asin(std::fmax(-1.0, std::fmin(1.0, sp))) * std::asin(std::fmax(-1.0, std::fmin(1.0, sp))) + std::atan2(sr, cr) * std::atan2(sr, cr)) * 180.0 / M_PI; }
+      const bool quiet_stand = tilt_deg < cfg.bank_ank_tilt_max && (tableF.size() != axes[0].grid.size() || tableF[axes[0].applied] < 1.0);
+      const bool ank_ok = ax == 0 || quiet_stand;
+      const double ratio = ax == 0 ? cfg.bank_switch_ratio : cfg.bank_ank_ratio; const int need = ax == 0 ? cfg.bank_switch_ticks : cfg.bank_ank_ticks;
+      const bool ok = cur.qpos[2] >= cfg.bank_z_min && A.score[A.lead] <= cfg.bank_score_max && contact_ok && ank_ok;
+      if (ok && A.n > warm && A.lead != A.applied && A.score[A.lead] < ratio * A.score[A.applied]) A.streak++; else A.streak = 0;
+      const auto now = std::chrono::steady_clock::now();
+      if (A.streak >= need && std::chrono::duration<double>(now - A.last_switch).count() >= cfg.bank_dwell) {
+        int tgt = A.applied; double bestd = 1e9;
+        for (size_t i = 0; i < A.grid.size(); i++) if (std::fabs(A.grid[i] - A.grid[A.applied]) <= A.max_step + 1e-9 && std::fabs(A.grid[i] - A.grid[A.lead]) < bestd) { bestd = std::fabs(A.grid[i] - A.grid[A.lead]); tgt = i; }
+        A.streak = 0;
+        if (tgt != A.applied) {
+          A.stamp++; A.last_switch = now;
+          if (!A.incremental) {
+            A.applied = tgt;
+            const double out = A.grid[A.applied] - cfg.bank_commit_bias;
+            if (cfg.bank_apply) { pending_dz.store(out); pending.store(true); }
+            std::fprintf(stderr, "[ibank] SWITCH %d -> estimate dz %+.0f cm (%s %+.1f cm with bias; score %.2e, nominal %.2e, leader %+.0f, tableF %.0f N, tick %u)\n",
+                         A.stamp, A.grid[A.applied] * 100, cfg.bank_apply ? "applied" : "OBSERVE-ONLY, would apply", out * 100, A.score[A.applied], A.score[IdxOf(A.grid, 0.0)], A.grid[A.lead] * 100,
+                         tableF.size() == A.grid.size() ? tableF[A.lead] : -1.0, cur.tick);
+          } else {
+            // incremental: emit the delta, the node folds it into its ankle offset, this axis re-zeroes (scores restart)
+            const double delta = A.grid[tgt];
+            std::fprintf(stderr, "[ibank] SWITCH %s %d -> ankle zero residual %+.2f deg (%s; score %.2e vs zero %.2e, leader %+.2f)\n",
+                         A.name.c_str(), A.stamp, delta * 180.0 / M_PI, (cfg.bank_apply && cfg.bank_ank_apply) ? "applied to the node offset" : "OBSERVE-ONLY, would apply",
+                         A.score[tgt], A.score[A.applied], A.grid[A.lead] * 180.0 / M_PI);
+            if (cfg.bank_apply && cfg.bank_ank_apply) {
+              if (ax == 1) pending_dl.store(pending_dl.load() + delta); else pending_dr.store(pending_dr.load() + delta);
+              pending_ank.store(true);
+              std::fill(A.score.begin(), A.score.end(), 0.0); A.n = 0;   // new belief frame: restart this axis
+              { std::lock_guard<std::mutex> lk(mu); skip = 2; }           // drop the samples straddling the node's offset blend start
+            } else { A.applied = tgt; }   // observe-only: track the residual on the grid so it is not re-reported every dwell
+          }
+        }
+      }
+      if (logf && n % 10 == 0) { std::fprintf(logf, "%.3f %u %s %d %d", std::chrono::duration<double>(now.time_since_epoch()).count(), cur.tick, A.name.c_str(), A.applied, A.lead); for (double sc : A.score) std::fprintf(logf, " %.3e", sc); std::fprintf(logf, "\n"); }
+      if (std::chrono::duration<double>(now - last_print).count() > 2.0) {
+        last_print = now;
+        std::fprintf(stderr, "[ibank] n=%ld tick %u z %.3f dz applied %+.0f leader %+.0f (%.2e) nominal %.2e streak %d tableF lead %.0f N", n, cur.tick, cur.qpos[2],
+                     axes[0].grid[axes[0].applied] * 100, axes[0].grid[axes[0].lead] * 100, axes[0].score[axes[0].lead], axes[0].score[IdxOf(axes[0].grid, 0.0)], axes[0].streak,
+                     tableF.size() == axes[0].grid.size() ? tableF[axes[0].lead] : -1.0);
+        for (size_t i = 1; i < axes.size(); i++) std::fprintf(stderr, " | %s est %+.2f lead %+.2f deg (%.2e vs %.2e) streak %d", axes[i].name.c_str(), axes[i].grid[axes[i].applied] * 180.0 / M_PI,
+                     axes[i].grid[axes[i].lead] * 180.0 / M_PI, axes[i].score[axes[i].lead], axes[i].score[IdxOf(axes[i].grid, 0.0)], axes[i].streak);
+        std::fprintf(stderr, " | tilt %.1f quiet %d\n", tilt_deg, quiet_stand ? 1 : 0);
+      }
+      ax = (ax + 1) % axes.size();
+    }
+  }
+  bool TakePending(double* dz) { if (!pending.exchange(false)) return false; *dz = pending_dz.load(); return true; }
+  bool TakePendingAnkle(double* dl, double* dr) { if (!pending_ank.exchange(false)) return false; *dl = pending_dl.exchange(0.0); *dr = pending_dr.exchange(0.0); return true; }
+  void Stop() { stop.store(true); if (th.joinable()) th.join(); if (logf) std::fclose(logf); if (d) mj_deleteData(d); if (m) mj_deleteModel(m); }
+};
+static InprocBank g_ibank;
+
 void PatchActuators(mjModel* m, const NodeConfig& cfg) {
   // Task-side default lives in the model as the `deploy_frc_parity` numeric (set by
   // Task::PlannerNumericOverrides, applied by the caller BEFORE this runs). CLI wins.
@@ -890,6 +1121,89 @@ int RunDeployNode(const NodeConfig& cfg) {
   g_agent_model = g_agent.GetModel();
   g_model = mj_copyModel(nullptr, g_agent_model);
   PatchActuators(g_model, cfg);   // latency-comp rollout model (the planner model was patched at LoadModel above)
+  if (cfg.bank_inproc && cfg.bank_file.empty()) g_bank.Init(const_cast<mjModel*>(g_agent_model), cfg);  // Apply() path
+  if (cfg.bank_inproc) g_ibank.Init(g_agent_model, cfg, cfg.bank_plant_dt > 0.0 ? cfg.bank_plant_dt : cfg.twin_dt);
+  if (!cfg.bank_file.empty()) {
+    g_bank.Init(const_cast<mjModel*>(g_agent_model), cfg);
+    // verification path: with --dump_model the file is applied once before the dump
+    if (!cfg.dump_model.empty() && g_bank.Poll(const_cast<mjModel*>(g_agent_model))) {
+      mj_copyModel(g_model, g_agent_model); PatchActuators(g_model, cfg);
+    }
+  }
+  if (!cfg.dump_model.empty()) {
+    // --dump_model: the patched planner model (timestep, gains, ranges, forceranges)
+    // as an exact binary + readable XML, then exit before any DDS/robot I/O.
+    const std::string mjb = cfg.dump_model + ".mjb", xml = cfg.dump_model + ".xml";
+    mj_saveModel(g_model, mjb.c_str(), nullptr, 0);
+    char err[500] = {0};
+    const int ok = mj_saveLastXML(xml.c_str(), g_model, err, sizeof(err));
+    std::fprintf(stderr, "[node] --dump_model: wrote %s (nq %d nv %d nu %d dt %.4f) and %s%s%s\n",
+                 mjb.c_str(), g_model->nq, g_model->nv, g_model->nu, g_model->opt.timestep,
+                 xml.c_str(), ok ? "" : " FAILED: ", ok ? "" : err);
+    // <path>.arrays.txt: the patched arrays as text (the MJB is only readable by the
+    // exact MuJoCo commit the node links; the Warp side runs a pip release).
+    {
+      const std::string txt = cfg.dump_model + ".arrays.txt";
+      FILE* f = std::fopen(txt.c_str(), "w");
+      auto dump = [&](const char* name, const double* v, int n) {
+        std::fprintf(f, "%s %d", name, n);
+        for (int i = 0; i < n; i++) std::fprintf(f, " %.17g", v[i]);
+        std::fprintf(f, "\n");
+      };
+      auto dumpi = [&](const char* name, const int* v, int n) {
+        std::fprintf(f, "%s %d", name, n);
+        for (int i = 0; i < n; i++) std::fprintf(f, " %d", v[i]);
+        std::fprintf(f, "\n");
+      };
+      auto dumpb = [&](const char* name, const mjtByte* v, int n) {
+        std::fprintf(f, "%s %d", name, n);
+        for (int i = 0; i < n; i++) std::fprintf(f, " %d", (int)v[i]);
+        std::fprintf(f, "\n");
+      };
+      const mjModel* m = g_model;
+      std::fprintf(f, "opt timestep %.17g integrator %d cone %d solver %d iterations %d ls_iterations %d noslip_iterations %d impratio %.17g disableflags %d enableflags %d jacobian %d tolerance %.17g\n",
+                   m->opt.timestep, m->opt.integrator, m->opt.cone, m->opt.solver, m->opt.iterations,
+                   m->opt.ls_iterations, m->opt.noslip_iterations, m->opt.impratio, m->opt.disableflags,
+                   m->opt.enableflags, m->opt.jacobian, m->opt.tolerance);
+      dump("actuator_gainprm", m->actuator_gainprm, m->nu * mjNGAIN);
+      dump("actuator_biasprm", m->actuator_biasprm, m->nu * mjNBIAS);
+      dump("actuator_forcerange", m->actuator_forcerange, m->nu * 2);
+      dumpb("actuator_forcelimited", m->actuator_forcelimited, m->nu);
+      dump("actuator_ctrlrange", m->actuator_ctrlrange, m->nu * 2);
+      dumpb("actuator_ctrllimited", m->actuator_ctrllimited, m->nu);
+      dumpi("actuator_trnid", m->actuator_trnid, m->nu * 2);
+      dump("jnt_range", m->jnt_range, m->njnt * 2);
+      dumpb("jnt_limited", m->jnt_limited, m->njnt);
+      dump("jnt_stiffness", m->jnt_stiffness, m->njnt);
+      dump("dof_damping", m->dof_damping, m->nv);
+      dump("dof_armature", m->dof_armature, m->nv);
+      dump("dof_frictionloss", m->dof_frictionloss, m->nv);
+      dump("body_pos", m->body_pos, m->nbody * 3);
+      dump("body_quat", m->body_quat, m->nbody * 4);
+      dump("body_mass", m->body_mass, m->nbody);
+      dump("body_inertia", m->body_inertia, m->nbody * 3);
+      dump("geom_pos", m->geom_pos, m->ngeom * 3);
+      dump("geom_quat", m->geom_quat, m->ngeom * 4);
+      dump("geom_size", m->geom_size, m->ngeom * 3);
+      dump("geom_friction", m->geom_friction, m->ngeom * 3);
+      dump("geom_solref", m->geom_solref, m->ngeom * mjNREF);
+      dump("geom_solimp", m->geom_solimp, m->ngeom * mjNIMP);
+      dump("geom_margin", m->geom_margin, m->ngeom);
+      dump("geom_gap", m->geom_gap, m->ngeom);
+      dumpi("geom_condim", m->geom_condim, m->ngeom);
+      dumpi("geom_contype", m->geom_contype, m->ngeom);
+      dumpi("geom_conaffinity", m->geom_conaffinity, m->ngeom);
+      dump("pair_solref", m->pair_solref, m->npair * mjNREF);
+      dump("pair_friction", m->pair_friction, m->npair * 5);
+      dump("pair_margin", m->pair_margin, m->npair);
+      dump("qpos0", m->qpos0, m->nq);
+      dump("key_qpos", m->key_qpos, m->nkey * m->nq);
+      dump("key_ctrl", m->key_ctrl, m->nkey * m->nu);
+      std::fclose(f);
+      std::fprintf(stderr, "[node] --dump_model: wrote %s\n", txt.c_str());
+    }
+    std::exit(0);
+  }
   // --ankle_autocalib_selftest: validate the C++ solver against planted offsets
   // (no robot, no DDS) and exit. Run this after ANY edit to anklecalib::.
   if (cfg.ankle_autocalib_selftest) std::exit(anklecalib::Selftest(g_model));
@@ -1443,6 +1757,8 @@ int RunDeployNode(const NodeConfig& cfg) {
     std_msgs::msg::dds_::String_ plan_msg;
 
     while (!plan_exit.load()) {
+      if (!cfg.bank_file.empty()) g_bank.Poll(const_cast<mjModel*>(g_agent_model));  // between iterations: race-free
+      if (cfg.bank_inproc) { double dz; if (g_ibank.TakePending(&dz)) g_bank.Apply(const_cast<mjModel*>(g_agent_model), dz, "ibank"); }
       g_agent.PlanIteration(&plan_pool);
       const std::int64_t iter = plan_count.fetch_add(1) + 1;
 
@@ -2032,7 +2348,25 @@ int RunDeployNode(const NodeConfig& cfg) {
     const double phase_t = tick0_set ? twin_time : 0.0;
     bool warming = phase_t < warmup_sec;
 
+    // in-proc bank ankle-zero residual (incremental deltas, blended over 1 s like the autocalib swap):
+    // off = encoder - true, bank says true = belief - a  =>  off += a. Same thread that owns the offsets.
+    if (cfg.bank_inproc && moff == 0) {
+      static double ib_from_l = 0.0, ib_to_l = 0.0, ib_from_r = 0.0, ib_to_r = 0.0, ib_t0 = -1.0;
+      double dl, dr;
+      if (g_ibank.TakePendingAnkle(&dl, &dr)) {
+        ib_from_l = ankle_poff_l; ib_from_r = ankle_poff_r; ib_to_l = ankle_poff_l + dl; ib_to_r = ankle_poff_r + dr; ib_t0 = phase_t;
+        std::printf("[ibank] ankle offset %s: pitch L %+.2f -> %+.2f  R %+.2f -> %+.2f deg (t=%.1f)\n", "blend", ib_from_l * 180 / M_PI, ib_to_l * 180 / M_PI, ib_from_r * 180 / M_PI, ib_to_r * 180 / M_PI, phase_t);
+      }
+      if (ib_t0 >= 0.0) {
+        const double f = std::fmin(1.0, (phase_t - ib_t0) / 1.0);
+        ankle_poff_l = ib_from_l + f * (ib_to_l - ib_from_l); ankle_poff_r = ib_from_r + f * (ib_to_r - ib_from_r);
+        ankle_calib_on = true; if (f >= 1.0) ib_t0 = -1.0;
+      }
+    }
     fill_state(cur);
+    // in-proc bank sample: measured TRUE-frame state + the command in flight during the interval
+    // that ended here (last_cmd_q is still the PREVIOUS tick's true-frame target at this point).
+    if (cfg.bank_inproc && moff == 0 && cur.have_ls && tick0_set) g_ibank.Push(sd->qpos, sd->qvel, last_cmd_q, cfg.nu, cur.tick);
 
     // ---- ANKLE ZERO AUTO-CALIB (--ankle_autocalib; observational, fail-safe) ----
     // Sample RAW encoders + RAW IMU during the scripted ramp HOLD (still, loaded,
@@ -3240,6 +3574,7 @@ int RunDeployNode(const NodeConfig& cfg) {
   g_emit_safe_hold = nullptr;   // publisher is about to die; M5 handler must not use it
   plan_exit.store(true);
   if (planner.joinable()) planner.join();
+  if (cfg.bank_inproc) g_ibank.Stop();
   if (grasp_gate_thread.joinable()) grasp_gate_thread.join();
   mj_deleteData(gd);
   mj_deleteData(sd);
