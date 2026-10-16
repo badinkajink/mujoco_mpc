@@ -507,7 +507,9 @@ def main():
 
     print(f"[est] v4 publishing -> '{a.out_topic}' @ {a.rate:.0f}Hz | v3 core "
           f"(waist-fix={'ON' if a.waist_fix else 'off'} zupt={'ON' if a.zupt else 'off'} "
-          f"slip-mon={'on' if a.slip_monitor else 'off'} stale={a.stale_ms:.0f}ms) | "
+          f"slip-mon={'on' if a.slip_monitor else 'off'} stale={a.stale_ms:.0f}ms "
+          f"zupt-load-gate={a.zupt_load_gate} gyro-bias={a.gyro_bias}"
+          + (f"({a.gyro_bias_const})" if a.gyro_bias != "off" else "") + ") | "
           f"AUX BUS on '{a.aux_topic}' (rv={a.aux_rv} chi2={a.aux_chi2} "
           f"age<={a.aux_age_max * 1e3:.0f}ms xy-tau={a.aux_xy_tau}s)")
     print("[est] waiting for rt/lowstate ...", flush=True)
@@ -551,7 +553,7 @@ def main():
 
         R = _quat2mat(quat)
         roff = R @ IMU_OFFSET
-        omega_w = R @ gyro
+        omega_w = R @ (gyro if core.gyro_bias_mode == "off" else core.last_gyro)
         site_p = np.array([out["xy"][0], out["xy"][1], out["base_height"]]) + roff
         site_v = out["v"] + np.cross(omega_w, roff)
 

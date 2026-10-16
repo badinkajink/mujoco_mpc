@@ -57,6 +57,7 @@ Run in the twin venv (has mujoco + unitree_sdk2py):
   .venv/bin/python .../base_estimator_node_v3.py --out-topic rt/sportmodestate_est --compare
 """
 import argparse
+import copy
 import time
 
 import numpy as np
@@ -69,6 +70,40 @@ from base_estimator_node import (
     load_model_and_calibrate, _pick_iface, _quat2mat, _mat2quat, _rz,
 )
 from base_estimator_node_v2 import StaleGuard, SlipMonitor
+
+
+GYRO_BIAS_CONST_DEFAULT = "-0.0007,0.0043,0.0050"
+
+
+def _parse_vec3(s):
+    """'bx,by,bz' (or a 3-sequence) -> float ndarray(3)."""
+    if isinstance(s, str):
+        v = [float(x) for x in s.replace(" ", "").split(",") if x != ""]
+    else:
+        v = [float(x) for x in s]
+    if len(v) != 3:
+        raise ValueError(f"expected 3 comma-separated values, got {s!r}")
+    return np.array(v, float)
+
+
+def _quat_delta_rotvec(q_prev, q_now):
+    """Rotation vector (rad) of q_prev^-1 * q_now, expressed in the q_prev BODY
+    frame (= the IMU sensor frame for two successive IMU quaternions). Handles
+    the q/-q double cover (sign flips between samples)."""
+    w0, x0, y0, z0 = q_prev
+    w1, x1, y1, z1 = q_now
+    # conj(q_prev) * q_now  (Hamilton, wxyz)
+    w = w0 * w1 + x0 * x1 + y0 * y1 + z0 * z1
+    x = w0 * x1 - x0 * w1 - y0 * z1 + z0 * y1
+    y = w0 * y1 + x0 * z1 - y0 * w1 - z0 * x1
+    z = w0 * z1 - x0 * y1 + y0 * x1 - z0 * w1
+    if w < 0.0:                       # sign flip: same rotation, shorter arc
+        w, x, y, z = -w, -x, -y, -z
+    v = np.array([x, y, z])
+    s = float(np.linalg.norm(v))
+    if s < 1e-12:
+        return 2.0 * v
+    return v * (2.0 * np.arctan2(s, w) / s)
 
 
 class V3Core:
@@ -102,6 +137,21 @@ class V3Core:
         self.base_height = self.nominal_z
         self.upright = True
         self._res = np.zeros(6)
+        # --- 2026-10-15 FIX 1: raw-gyro bias (sensor/torso-IMU frame) ----------
+        # The Unitree gyro carries a constant bias ~(-0.7, +4.3, +5.0) mrad/s
+        # (torso/IMU frame, stable 08-11..08-30). Through the omega x r lever arm
+        # of the leg-odometry measurement it is ~4 mm/s of phantom base velocity
+        # = the ~260 mm/min internal drift. 'off' (default) = untouched raw gyro.
+        self.gyro_bias_mode = getattr(a, "gyro_bias", "off")
+        self.gyro_bias = (np.zeros(3) if self.gyro_bias_mode == "off" else
+                          _parse_vec3(getattr(a, "gyro_bias_const", GYRO_BIAS_CONST_DEFAULT)))
+        self._gb_qprev = None
+        self.gyro_bias_upd = 0       # online updates accepted
+        self.gyro_bias_skip = 0      # online updates refused (not upright / insane delta)
+        self.last_gyro = None        # gyro actually used this tick (bias-corrected if on)
+        # --- 2026-10-15 FIX 2: which feet must be loaded for the ZUPT ---------
+        self.zupt_load_gate = getattr(a, "zupt_load_gate", "both")
+        self.zupt_static_n = 0       # ticks the static gates passed (before upright)
 
     def step(self, q, dq, tau, quat, gyro, step_dt):
         """One proprioceptive sample -> (pelvis) estimate.
@@ -114,6 +164,10 @@ class V3Core:
         tau = np.asarray(tau, float)
         quat = np.asarray(quat, float)
         gyro = np.asarray(gyro, float)
+        # fix 1: subtract the gyro bias in the SENSOR frame, BEFORE the waist
+        # fix rotates omega into the pelvis frame ('off' = the raw array, as-is)
+        gyro = self._debias_gyro(gyro, quat, step_dt)
+        self.last_gyro = gyro
 
         # --- pelvis frame (fix #1: waist correction ALWAYS, unless disabled) ------
         if self.imu_is_pelvis or not a.waist_fix:
@@ -170,7 +224,8 @@ class V3Core:
         # --- fix #2: upright-gated ZUPT -------------------------------------------
         self.upright = (self.base_height > a.upright_z_frac * self.nominal_z
                         and float(R_wp[2, 2]) > self.cos_tilt)
-        if a.zupt and zupt_hold(tau, dq, gyro, self.LOAD_IDX, a):
+        if a.zupt and self._zupt_static(tau, dq, gyro, loads):
+            self.zupt_static_n += 1
             if self.upright:
                 self.v, self.P = zupt_fuse_v(self.v, self.P, a.zupt_vr)
                 self.zupt_n += 1
@@ -185,6 +240,70 @@ class V3Core:
                     xy=self.pos_xy.copy(), upright=self.upright,
                     slip_active=slip_active)
 
+    # --- fix 1 ---------------------------------------------------------------
+    def _debias_gyro(self, gyro_raw, quat, step_dt):
+        """Raw IMU gyro -> bias-corrected gyro (sensor frame). 'off' returns the
+        input object untouched (byte-identical legacy path)."""
+        if self.gyro_bias_mode == "off":
+            return gyro_raw
+        if self.gyro_bias_mode == "online":
+            self._update_gyro_bias(gyro_raw, quat, step_dt)
+        return gyro_raw - self.gyro_bias
+
+    def _update_gyro_bias(self, gyro_raw, quat, step_dt):
+        """b <- low-pass(gyro_raw - omega_quat), omega_quat from successive IMU
+        quaternions (same IMU, same body frame). The Unitree quaternion is
+        bias-compensated (yaw drifts ~1 deg/min vs 17 deg/min the raw z-bias
+        would give) but filtered/LAGGED, so only the long time constant is
+        meaningful. Increment form  b += (g*dt - dtheta - b*dt)/tau  is the
+        same EMA as  b += dt/tau*(g - dtheta/dt - b)  but immune to repeated
+        quaternion samples and dt jitter (the integrals still telescope)."""
+        a = self.a
+        qn = np.asarray(quat, float)
+        nq = float(np.linalg.norm(qn))
+        if not np.isfinite(nq) or abs(nq - 1.0) > 0.05:
+            self._gb_qprev = None                    # garbage quat: restart the chain
+            self.gyro_bias_skip += 1
+            return
+        qn = qn / nq
+        qp, self._gb_qprev = self._gb_qprev, qn
+        if qp is None or not (0.0 < step_dt <= 0.1) or not np.all(np.isfinite(gyro_raw)):
+            self.gyro_bias_skip += 1
+            return
+        if self.n == 0 or not self.upright:          # only learn while upright
+            self.gyro_bias_skip += 1
+            return
+        dth = _quat_delta_rotvec(qp, qn)
+        if float(np.linalg.norm(dth)) > getattr(a, "gyro_bias_max_dth", 0.2):
+            self.gyro_bias_skip += 1                 # quat jump / reset, not motion
+            return
+        tau_b = max(float(getattr(a, "gyro_bias_tau", 30.0)), step_dt)
+        self.gyro_bias = self.gyro_bias + (gyro_raw * step_dt - dth
+                                           - self.gyro_bias * step_dt) / tau_b
+        c = float(getattr(a, "gyro_bias_clamp", 0.02))
+        self.gyro_bias = np.clip(self.gyro_bias, -c, c)
+        self.gyro_bias_upd += 1
+
+    # --- fix 2 ---------------------------------------------------------------
+    def _zupt_static(self, tau, dq, gyro, loads):
+        """Static-base gates for the ZUPT. 'both' (default) = the shipped v1
+        zupt_hold (each foot >= --zupt-load). 'sum' = L+R >= --zupt-load-sum;
+        'either' = any foot >= --zupt-load. dq/gyro gates unchanged; gyro here
+        is the bias-corrected one when fix 1 is on."""
+        a = self.a
+        gate = self.zupt_load_gate
+        if gate == "both":
+            return zupt_hold(tau, dq, gyro, self.LOAD_IDX, a)
+        if gate == "sum":
+            loaded = (loads[0] + loads[1]) >= getattr(a, "zupt_load_sum", 25.0)
+        elif gate == "either":
+            loaded = max(loads) >= a.zupt_load
+        else:
+            raise ValueError(f"unknown zupt_load_gate {gate!r}")
+        return (loaded
+                and float(np.linalg.norm(dq)) < a.zupt_dq
+                and float(np.linalg.norm(gyro)) < a.zupt_gyro)
+
     def telemetry(self):
         line = (f"rej={self.rej}"
                 f" upright={'Y' if self.upright else 'N'}")
@@ -194,6 +313,11 @@ class V3Core:
         if self.a.slip_monitor and (self.slip.active or self.slip.events):
             line += (f" slip={'ACTIVE' if self.slip.active else 'ok'}"
                      f"({self.slip.events} ev, ema {self.slip.ema:.2f})")
+        if self.gyro_bias_mode != "off":
+            b = self.gyro_bias * 1e3
+            line += f" gb[{self.gyro_bias_mode}]=[{b[0]:+.2f},{b[1]:+.2f},{b[2]:+.2f}]mrad/s"
+            if self.gyro_bias_mode == "online":
+                line += f"(upd {100.0 * self.gyro_bias_upd / max(self.n, 1):.0f}%)"
         return line
 
 
@@ -292,6 +416,106 @@ def _selftest(m, data, foot_ids, height_C, home_q, a):
     print(f"[selftest] v3 stale guard  : fresh->stale->recovered "
           f"({'ok' if good else 'FAIL'})")
 
+    # 7. GYRO BIAS OFF == LEGACY: off-mode must ignore every new knob and hand
+    #    the raw gyro through untouched (bit-identical state on a noisy run).
+    rng = np.random.default_rng(1)
+    seq = []
+    for i in range(300):
+        dqn = rng.normal(0.0, 0.02, NJ)
+        g = rng.normal(0.0, 0.01, 3) + np.array([-0.0007, 0.0043, 0.0050])
+        seq.append((dqn, g))
+    a_off = copy.copy(a)
+    a_off.gyro_bias = "off"
+    a_off.zupt_load_gate = "both"
+    a_knob = copy.copy(a_off)
+    a_knob.gyro_bias_const = "0.3,-0.2,0.1"
+    a_knob.gyro_bias_tau = 0.5
+    a_knob.zupt_load_sum = 1.0
+
+    def run_seq(aa, gyro_add=np.zeros(3)):
+        c = V3Core(aa, m, data, foot_ids, height_C, nominal_z, imu_is_pelvis=False)
+        vs, xs = [], []
+        for dqn, g in seq:
+            o = c.step(qj, dqn, tau_loaded, ident, g + gyro_add, dt)
+            vs.append(o["v"])
+            xs.append(o["xy"])
+        return np.array(vs), np.array(xs), c
+
+    v_off, x_off, c_off = run_seq(a_off)
+    v_kn, x_kn, _ = run_seq(a_knob)
+    good = (np.array_equal(v_off, v_kn) and np.array_equal(x_off, x_kn)
+            and np.array_equal(c_off.gyro_bias, np.zeros(3)))
+    ok &= good
+    print(f"[selftest] v3 gyro-bias off: knobs ignored, bit-identical state "
+          f"({'ok' if good else 'FAIL'})")
+
+    # 8. CONST BIAS cancels an injected bias: const(b) on gyro+b == off on gyro.
+    b_inj = _parse_vec3(GYRO_BIAS_CONST_DEFAULT)
+    a_c = copy.copy(a_off)
+    a_c.gyro_bias = "const"
+    a_c.gyro_bias_const = GYRO_BIAS_CONST_DEFAULT
+    v_c, x_c, _ = run_seq(a_c, gyro_add=b_inj)
+    worst = max(float(np.abs(v_c - v_off).max()), float(np.abs(x_c - x_off).max()))
+    good = worst < 1e-9
+    ok &= good
+    print(f"[selftest] v3 gyro-bias const: |state - off(unbiased)| = {worst:.1e} "
+          f"({'ok' if good else 'FAIL'})")
+
+    # 9. ONLINE BIAS converges: constant yaw rotation, quaternion from the
+    #    TRUE rate (with random q/-q sign flips and repeated samples), gyro =
+    #    true + b_true (b_true != const init). After 8 tau, |b - b_true| small.
+    a_o = copy.copy(a_off)
+    a_o.gyro_bias = "online"
+    a_o.gyro_bias_tau = 5.0
+    b_true = np.array([0.003, -0.002, 0.006])
+    w_true = np.array([0.0, 0.0, 0.2])            # body-frame yaw rate (stays upright)
+    c9 = V3Core(a_o, m, data, foot_ids, height_C, nominal_z, imu_is_pelvis=True)
+    qcur = ident.copy()
+    th = np.linalg.norm(w_true * dt)
+    ax_ = w_true / np.linalg.norm(w_true)
+    dqq = np.concatenate([[np.cos(th / 2)], np.sin(th / 2) * ax_])
+    for i in range(int(40.0 / dt)):
+        if i % 3 != 2:                            # every 3rd tick: repeated quat
+            w0, x0, y0, z0 = qcur
+            w1, x1, y1, z1 = dqq
+            qcur = np.array([w0*w1 - x0*x1 - y0*y1 - z0*z1, w0*x1 + x0*w1 + y0*z1 - z0*y1,
+                             w0*y1 - x0*z1 + y0*w1 + z0*x1, w0*z1 + x0*y1 - y0*x1 + z0*w1])
+            qcur /= np.linalg.norm(qcur)
+        qfeed = -qcur if rng.random() < 0.5 else qcur
+        # quaternion repeated 1/3 of ticks -> its rate is 2/3 of w_true there; gyro
+        # reports what the quat implies on average so the telescoped sum is exact
+        c9.step(qj, np.zeros(NJ), tau_loaded, qfeed,
+                w_true * (2.0 / 3.0) + b_true, dt)
+    # quat-implied mean rate = w_true*2/3 -> bias estimate should equal b_true
+    err = float(np.abs(c9.gyro_bias - b_true).max())
+    good = err < 3e-4 and c9.gyro_bias_upd > 0
+    ok &= good
+    print(f"[selftest] v3 gyro-bias online: b={np.round(c9.gyro_bias * 1e3, 3)} mrad/s "
+          f"vs true {np.round(b_true * 1e3, 3)} (err {err * 1e3:.3f}) "
+          f"({'ok' if good else 'FAIL'})")
+
+    # 10. ZUPT LOAD GATE: 'both' == the v1 zupt_hold; one foot loaded -> only
+    #     'either' (and 'sum' if L+R >= thresh) fires.
+    tau_one = np.zeros(NJ)
+    tau_one[3] = tau_one[4] = 15.0                # left 30 Nm, right 0
+    res = {}
+    for gate in ("both", "sum", "either"):
+        aa = copy.copy(a_off)
+        aa.zupt_load_gate = gate
+        c = V3Core(aa, m, data, foot_ids, height_C, nominal_z, imu_is_pelvis=True)
+        for _ in range(50):
+            c.step(qj, np.zeros(NJ), tau_one, ident, np.zeros(3), dt)
+        res[gate] = c.zupt_n
+    same_v1 = (V3Core(a_off, m, data, foot_ids, height_C, nominal_z)
+               ._zupt_static(tau_one, np.zeros(NJ), np.zeros(3), [30.0, 0.0])
+               == zupt_hold(tau_one, np.zeros(NJ), np.zeros(3),
+                            [(3, 4), (9, 10)], a_off))
+    good = res["both"] == 0 and res["either"] == 50 and res["sum"] == 50 and same_v1
+    ok &= good
+    print(f"[selftest] v3 zupt load gate: one foot 30 Nm -> fired both {res['both']} "
+          f"sum {res['sum']} either {res['either']} /50, both==v1 {same_v1} "
+          f"({'ok' if good else 'FAIL'})")
+
     print(f"[selftest] {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
@@ -330,6 +554,13 @@ def build_parser():
     v.add_argument("--zupt-dq", type=float, default=0.15)
     v.add_argument("--zupt-gyro", type=float, default=0.05)
     v.add_argument("--zupt-vr", type=float, default=0.01)
+    v.add_argument("--zupt-load-gate", choices=["both", "sum", "either"], default="both",
+                   help="2026-10-15: which feet must carry load for the ZUPT. 'both' "
+                        "(default, shipped) = each foot |tau_knee|+|tau_ankleP| >= "
+                        "--zupt-load; 'sum' = L+R >= --zupt-load-sum; 'either' = any "
+                        "foot >= --zupt-load. dq/gyro/upright gates unchanged.")
+    v.add_argument("--zupt-load-sum", type=float, default=25.0,
+                   help="'sum' gate threshold on L+R load proxy (Nm)")
     v.add_argument("--upright-z-frac", type=float, default=0.7,
                    help="ZUPT additionally requires kinematic base height > this fraction "
                         "of the nominal stand height (a fallen robot is also 'static')")
@@ -342,6 +573,22 @@ def build_parser():
                    help="measurement-noise inflation on BOTH feet while slip is active")
     v.add_argument("--no-slip-monitor", dest="slip_monitor", action="store_false",
                    default=True)
+    gb = ap.add_argument_group("gyro bias (2026-10-15; default off = legacy raw gyro)")
+    gb.add_argument("--gyro-bias", choices=["off", "const", "online"], default="off",
+                    help="subtract a raw-gyro bias in the IMU SENSOR (torso) frame "
+                         "before the waist fix. const = --gyro-bias-const; online = "
+                         "low-pass of (gyro - quaternion rate), initialised from the "
+                         "const, learned only while upright")
+    gb.add_argument("--gyro-bias-const", default=GYRO_BIAS_CONST_DEFAULT,
+                    help="bx,by,bz rad/s, IMU/torso frame (08-11..08-30 data: "
+                         "x -0.5..-0.9, y 4.2..4.3, z 4.7..5.3 mrad/s)")
+    gb.add_argument("--gyro-bias-tau", type=float, default=30.0,
+                    help="online: low-pass time constant (s)")
+    gb.add_argument("--gyro-bias-clamp", type=float, default=0.02,
+                    help="online: per-axis |b| clamp (rad/s)")
+    gb.add_argument("--gyro-bias-max-dth", type=float, default=0.2,
+                    help="online: reject a quaternion step rotating more than this "
+                         "(rad) as a glitch/reset")
     v.add_argument("--stale-ms", type=float, default=300.0,
                    help="stop publishing when rt/lowstate goes this stale (0 = never)")
     v.add_argument("--init-xy", type=float, nargs=2, default=[0.0, 0.0],
@@ -425,7 +672,11 @@ def main():
           f"rejcap={a.ekf_rejcap}) | waist-fix={'ON' if a.waist_fix else 'OFF'} | "
           f"zupt={'ON (upright-gated %g/%g deg)' % (a.upright_z_frac, a.upright_tilt_deg) if a.zupt else 'off'} | "
           f"slip-mon={'%.2fm/s x%g' % (a.slip_thresh, a.slip_infl) if a.slip_monitor else 'off'} | "
-          f"stale={a.stale_ms:.0f}ms"
+          f"stale={a.stale_ms:.0f}ms | zupt-load-gate={a.zupt_load_gate} | "
+          f"gyro-bias={a.gyro_bias}"
+          + (f"({a.gyro_bias_const}"
+             + (f", tau {a.gyro_bias_tau:g}s" if a.gyro_bias == "online" else "") + ")"
+             if a.gyro_bias != "off" else "")
           + (f" | COMPARE vs '{a.truth_topic}'" if a.compare else ""))
     print("[est] waiting for rt/lowstate ...", flush=True)
 
@@ -472,7 +723,7 @@ def main():
         # any waist angle because torso_link.body_pos == 0 -- verified in v1)
         R = _quat2mat(quat)
         roff = R @ IMU_OFFSET
-        omega_w = R @ gyro
+        omega_w = R @ (gyro if core.gyro_bias_mode == "off" else core.last_gyro)
         site_p = np.array([out["xy"][0], out["xy"][1], out["base_height"]]) + roff
         site_v = out["v"] + np.cross(omega_w, roff)
         if vel_noise_std > 0.0:
