@@ -9,6 +9,17 @@
 #   ./est_bringup.sh v4 lidar               # livox driver + FAST-LIO + lio_bridge + v4
 #   ./est_bringup.sh v4 april               # realsense cams + tag_bridge + v4
 #   ./est_bringup.sh v4 lidar april         # everything
+#   ./est_bringup.sh v3 biasfix             # + --gyro-bias const --zupt-load-gate sum
+#
+# 2026-10-15 ESTIMATOR COMPARISON PRESETS (ICRA re-run; all take 'biasfix'):
+#   v3                -> internal only
+#   v4 april          -> internal + tags   (gate always, fuses ONLY mode 2)
+#   v4 lidar          -> internal + LiDAR  (bridge --publish position = mode 3,
+#                        gate always, fuses ONLY mode 3 -- a robot-side
+#                        tag_bridge may keep running as the REFERENCE)
+# The aux bus is probed first (aux_bus_probe.py); every run writes
+# manifest.txt (exact estimator command, git hash, file md5s, bus census)
+# and estimator.log next to the bridge logs.
 #   ./est_bringup.sh v4 april -- --out-topic rt/sportmodestate_est
 #                                           # anything after -- goes to the estimator
 #
@@ -29,13 +40,14 @@ HAMS_SETUP="$HOME/Desktop/HAMS/core_ws/install/setup.bash"
 BUNDLE="$HOME/Desktop/h12/table_tags/table_tag_bundle.yaml"
 
 # ---------- args ------------------------------------------------------------
-EST=""; WANT_LIDAR=0; WANT_APRIL=0; WANT_ABS=0; EST_ARGS=()
+EST=""; WANT_LIDAR=0; WANT_APRIL=0; WANT_ABS=0; WANT_BIASFIX=0; EST_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     v1|v3|v4) EST="$1" ;;
     lidar)    WANT_LIDAR=1 ;;
     april|aruco|tags) WANT_APRIL=1 ;;
     abs) WANT_ABS=1 ;;
+    biasfix) WANT_BIASFIX=1 ;;
     --) shift; EST_ARGS=("$@"); break ;;
     *) echo "unknown arg: $1  (usage: est_bringup.sh v1|v3|v4 [lidar] [april] [-- est-flags])"; exit 2 ;;
   esac
@@ -48,31 +60,64 @@ if [ "$EST" != "v4" ] && { [ $WANT_LIDAR -eq 1 ] || [ $WANT_APRIL -eq 1 ]; }; th
   echo "      Refusing; use '$hint'."
   exit 2
 fi
+if [ $WANT_BIASFIX -eq 1 ] && [ "$EST" = "v1" ]; then
+  echo "biasfix needs v3 or v4 (v1 has no --gyro-bias / --zupt-load-gate)"; exit 2
+fi
 case "$EST" in
   v1) EST_FILE="base_estimator_node.py" ;;
   v3) EST_FILE="base_estimator_node_v3.py" ;;
   v4) EST_FILE="base_estimator_node_v4.py" ;;
 esac
 
+# Caller-given estimator flags always win over the defaults below.
+has_arg() { local f="$1" x; for x in ${EST_ARGS[@]+"${EST_ARGS[@]}"}; do case "$x" in "$f"*) return 0 ;; esac; done; return 1; }
+
 # 2026-08-13: for v4+APRIL, default the aux gate to ALWAYS unless the caller
 # passed their own --aux-gate. The planted-regime deferral was protection
 # against the July LIO *velocity* aux; april is position-only + 2s tau, and
 # with the default gate the corrections sat unused through entire stands ->
 # ~3.5 mm/s believed drift = the run-6/7 "march". Every real brace success
-# (runs 8-15) and every bench since runs with always. LIDAR mode keeps the
-# regime gate (velocity aux DID hurt stands).
-if [ "$EST" = "v4" ] && [ $WANT_APRIL -eq 1 ] && [ $WANT_LIDAR -eq 0 ]; then
-  has_gate=0
-  for a in "${EST_ARGS[@]}"; do case "$a" in --aux-gate*) has_gate=1 ;; esac; done
-  if [ $has_gate -eq 0 ]; then
+# (runs 8-15) and every bench since runs with always.
+# 2026-10-15: LIDAR mode now ALSO defaults to always: the bridge publishes
+# POSITION-ONLY (mode 3), so the "velocity aux hurt stands" reason is gone --
+# and with 'planted' the 08-30 v4l stand fused the LiDAR ~never (a foot was
+# loaded 100% of the window) => its +210 mm/min was the internal estimator.
+# Each mode fuses ONLY its own source (the robot-side tag_bridge stays on the
+# bus in lidar runs as the reference; the node's yaw_fusion keeps using it).
+if [ "$EST" = "v4" ] && { [ $WANT_APRIL -eq 1 ] || [ $WANT_LIDAR -eq 1 ]; }; then
+  if ! has_arg --aux-gate; then
     EST_ARGS+=(--aux-gate always)
-    echo "[bringup] v4+april: defaulting '--aux-gate always' (pass your own --aux-gate to override)"
+    echo "[bringup] v4 aux: defaulting '--aux-gate always' (pass your own --aux-gate to override)"
   fi
+  if ! has_arg --aux-accept-modes; then
+    if [ $WANT_APRIL -eq 1 ] && [ $WANT_LIDAR -eq 0 ]; then EST_ARGS+=(--aux-accept-modes 2)
+    elif [ $WANT_LIDAR -eq 1 ] && [ $WANT_APRIL -eq 0 ]; then EST_ARGS+=(--aux-accept-modes 3)
+    else EST_ARGS+=(--aux-accept-modes 2,3); fi
+    echo "[bringup] v4 aux: fusing only modes ${EST_ARGS[-1]} (2 = tags, 3 = LiDAR position)"
+  fi
+fi
+if [ $WANT_BIASFIX -eq 1 ]; then
+  has_arg --gyro-bias || EST_ARGS+=(--gyro-bias const)
+  has_arg --zupt-load-gate || EST_ARGS+=(--zupt-load-gate sum)
+  echo "[bringup] biasfix: --gyro-bias const --zupt-load-gate sum (replay 10-15: stand drift 273 -> ~25 mm/min)"
 fi
 
 LOGDIR="$HOME/Desktop/h12/est_bringup_logs/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$LOGDIR"
 PIDS=()
+
+# ---------- aux-bus census (DDS, ~3 s) ---------------------------------------
+AUX_MODES=""
+if [ "$EST" = "v4" ]; then
+  "$VENV_PY" "$HS/aux_bus_probe.py" --seconds 3 | tee "$LOGDIR/aux_bus_before.txt"
+  AUX_MODES=$("$VENV_PY" "$HS/aux_bus_probe.py" --seconds 2 --modes-only 2>/dev/null | tail -1)
+  case ",$AUX_MODES," in
+    *,1,*|*,3,*)
+      echo "[bringup] a lio_bridge is ALREADY publishing on rt/aux_odom (modes: $AUX_MODES)."
+      echo "          A stale bridge from an earlier run? Kill it first (pkill -f lio_bridge_node)."
+      exit 1 ;;
+  esac
+fi
 
 cleanup() {
   trap - INT TERM EXIT
@@ -212,7 +257,7 @@ if [ $WANT_LIDAR -eq 1 ]; then
   # venv python (NOT system python3 + PYTHONPATH): unitree_sdk2py is an
   # EDITABLE install whose .pth only resolves under the venv's own site setup;
   # rclpy still imports via the ROS PYTHONPATH set by the sourced overlay.
-  launch_bg lio_bridge "$VENV_PY" "$HS/lio_bridge_node.py" --twist-frame world
+  launch_bg lio_bridge "$VENV_PY" "$HS/lio_bridge_node.py" --twist-frame world --publish position
   sleep 2
 fi
 
@@ -245,11 +290,29 @@ if [ $WANT_APRIL -eq 1 ]; then
     EST_ARGS+=(--aux-abs)
     echo "[bringup] ABSOLUTE anchor mode: tag_bridge --abs-world + est --aux-abs"
   fi
-  launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE" $ABS_FLAG
-  sleep 2
+  case ",$AUX_MODES," in
+    *,2,*)
+      echo "[bringup] a tag_bridge is ALREADY on rt/aux_odom (robot-side lean_bringup.sh) --"
+      echo "          NOT starting a second one locally."
+      [ -n "$ABS_FLAG" ] && echo "          WARNING: 'abs' asked for --abs-world, but the running bridge's mode is unknown."
+      ;;
+    *)
+      launch_bg tag_bridge "$VENV_PY" "$HS/tag_bridge_node.py" --bundle "$BUNDLE" $ABS_FLAG
+      sleep 2 ;;
+  esac
 fi
 
 # ---------- estimator (foreground) ------------------------------------------
 echo "[bringup] launching $EST ($EST_FILE) in the FOREGROUND -- Ctrl-C stops everything."
 cd "$HS"
-"$VENV_PY" "$HS/$EST_FILE" ${EST_ARGS[@]+"${EST_ARGS[@]}"}
+{
+  echo "date        $(date -Is)"
+  echo "preset      $EST lidar=$WANT_LIDAR april=$WANT_APRIL abs=$WANT_ABS biasfix=$WANT_BIASFIX"
+  echo "command     $VENV_PY $HS/$EST_FILE ${EST_ARGS[*]+"${EST_ARGS[*]}"}"
+  echo "aux_bus     modes before launch: ${AUX_MODES:-none/not-probed}"
+  echo "git         $(git -C "$HS" rev-parse --short HEAD 2>/dev/null) dirty=$(git -C "$HS" status --porcelain -- . 2>/dev/null | wc -l)"
+  for f in "$EST_FILE" base_estimator_node_v3.py lio_bridge_node.py tag_bridge_node.py; do
+    echo "md5         $(md5sum "$HS/$f" 2>/dev/null)"
+  done
+} | tee "$LOGDIR/manifest.txt"
+"$VENV_PY" -u "$HS/$EST_FILE" ${EST_ARGS[@]+"${EST_ARGS[@]}"} 2>&1 | tee "$LOGDIR/estimator.log"

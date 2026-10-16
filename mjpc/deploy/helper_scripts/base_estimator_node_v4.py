@@ -442,6 +442,11 @@ def build_parser():
                         "referenced aux in quiet stand feeds real foot creep "
                         "into the controller's feet-tuned trim loop -> forced "
                         "lean. 'always' = pre-gate behavior (bench/ride-along).")
+    g.add_argument("--aux-accept-modes", default="",
+                   help="comma list of SportModeState_.mode values to fuse from "
+                        "the aux bus (2 = tag_bridge position, 1 = lio_bridge "
+                        "velocity, 3 = lio_bridge position-only). Empty "
+                        "(default) = accept every mode (pre-10-15 behaviour).")
     return ap
 
 
@@ -488,10 +493,19 @@ def main():
     core = V4Core(a, m, data, foot_ids, height_C, float(home_q[2]),
                   imu_is_pelvis=False, verbose=True)
 
+    # ★ 2026-10-15 AUX MODE FILTER: several sources share rt/aux_odom (the
+    # robot-side tag_bridge = mode 2, lio_bridge = mode 1 velocity / mode 3
+    # position-only). The 08-30 v4l stand silently mixed mode 1 AND a running
+    # tag_bridge's mode 2 into one offset latch. Empty = accept all (old).
+    accept_modes = {int(s) for s in a.aux_accept_modes.split(",") if s.strip()}
+
     def _on_aux(msg_in):
+        mode = int(msg_in.mode)
+        if accept_modes and mode not in accept_modes:
+            return
         core.accept_aux(np.array(list(msg_in.position))[:2],
                         np.array(list(msg_in.velocity)), time.monotonic(),
-                        pos_only=(int(msg_in.mode) == 2))
+                        pos_only=(mode in (2, 3)))
 
     aux_sub = ChannelSubscriber(a.aux_topic, SportModeState_)
     aux_sub.Init(_on_aux, 10)
@@ -511,7 +525,8 @@ def main():
           f"zupt-load-gate={a.zupt_load_gate} gyro-bias={a.gyro_bias}"
           + (f"({a.gyro_bias_const})" if a.gyro_bias != "off" else "") + ") | "
           f"AUX BUS on '{a.aux_topic}' (rv={a.aux_rv} chi2={a.aux_chi2} "
-          f"age<={a.aux_age_max * 1e3:.0f}ms xy-tau={a.aux_xy_tau}s)")
+          f"age<={a.aux_age_max * 1e3:.0f}ms xy-tau={a.aux_xy_tau}s gate={a.aux_gate} "
+          f"modes={a.aux_accept_modes or 'all'} abs={'ON' if a.aux_abs else 'off'})")
     print("[est] waiting for rt/lowstate ...", flush=True)
 
     dt = 1.0 / a.rate

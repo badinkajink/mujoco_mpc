@@ -218,6 +218,13 @@ def main():
                          "the waist -- the published aux velocity must stay ~0.")
     ap.add_argument("--yaw-tau", type=float, default=30.0,
                     help="LPF time constant of the IMU-vs-LIO yaw offset (s)")
+    ap.add_argument("--publish", choices=["twist", "position"], default="twist",
+                    help="'twist' (default, pre-10-15): mode 1 = xy + the /Odometry "
+                         "twist as a velocity measurement. Stock FAST-LIO NEVER fills "
+                         "that twist (laserMapping.cpp publish_odometry), so this fused "
+                         "v=0 in every 2026 run. 'position': mode 3 = POSITION-ONLY xy "
+                         "anchor, the same path the tag_bridge uses (mode 3, not 2: the "
+                         "node's --yaw_fusion reads every mode-2 position[2] as tag yaw).")
     ap.add_argument("--domain", type=int, default=0)
     ap.add_argument("--iface", default=None)
     ap.add_argument("--no-auto-iface", action="store_true")
@@ -261,7 +268,7 @@ def main():
     from nav_msgs.msg import Odometry
 
     aligner = LioAligner(a.yaw_tau, a.twist_frame)
-    stats = {"n": 0, "t0": time.time(), "last_log": 0.0}
+    stats = {"n": 0, "t0": time.time(), "last_log": 0.0, "lag": []}
 
     class Bridge(Node):
         def __init__(self):
@@ -289,17 +296,23 @@ def main():
             out.position[0] = float(xy[0])
             out.position[1] = float(xy[1])
             out.position[2] = float(p.z)                # informational; v4 ignores z
+            pos_only = a.publish == "position"
             for k in range(3):
-                out.velocity[k] = float(v[k])
-            out.mode = 1                                # "valid" marker
+                out.velocity[k] = 0.0 if pos_only else float(v[k])
+            out.mode = 3 if pos_only else 1             # 3 = position-only lidar
             pub.Write(out)
             stats["n"] += 1
+            # scan-stamp -> now latency (ROS clock vs wall: same host clock)
+            st = msg.header.stamp
+            stats["lag"].append(time.time() - (st.sec + st.nanosec * 1e-9))
             now = time.time()
             if now - stats["last_log"] > 5.0:
                 stats["last_log"] = now
                 hz = stats["n"] / max(now - stats["t0"], 1e-6)
-                print(f"[lio] {stats['n']} samples ({hz:.1f} Hz avg) "
-                      f"yaw_off={math.degrees(yoff):+.1f} deg "
+                lag = np.median(stats["lag"][-50:]) * 1e3
+                print(f"[lio] {stats['n']} samples ({hz:.1f} Hz avg) mode={out.mode} "
+                      f"lag~{lag:.0f}ms yaw_off={math.degrees(yoff):+.1f} deg "
+                      f"xy=[{xy[0]:+.3f},{xy[1]:+.3f}] "
                       f"v=[{v[0]:+.2f},{v[1]:+.2f},{v[2]:+.2f}]", flush=True)
 
     rclpy.init()
